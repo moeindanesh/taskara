@@ -1,0 +1,52 @@
+{
+   "compilerOptions": {
+      "target": "ES2017",
+      "lib": ["dom", "dom.iterable", "esnext"],
+      "allowJs": true,
+      "skipLibCheck": true,
+      "strict": true,
+      "noEmit": true,
+      "esModuleInterop": true,
+      "module": "esnext",
+      "moduleResolution": "bundler",
+      "resolveJsonModule": true,
+      "isolatedModules": true,
+      "jsx": "react-jsx",
+      "paths": {
+         "@/*": ["./*"]
+      }
+   },
+   "include": [
+      "vite-env.d.ts",
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "components/taskara/**/*.ts",
+      "components/taskara/**/*.tsx",
+      "components/layout/main-layout.tsx",
+      "components/layout/theme-provider.tsx",
+      "components/layout/theme-toggle.tsx",
+      "components/layout/sidebar/app-sidebar.tsx",
+      "components/layout/sidebar/org-switcher.tsx",
+      "components/ui/badge.tsx",
+      "components/ui/button.tsx",
+      "components/ui/card.tsx",
+      "components/ui/dropdown-menu.tsx",
+      "components/ui/input.tsx",
+      "components/ui/resizable.tsx",
+      "components/ui/separator.tsx",
+      "components/ui/sheet.tsx",
+      "components/ui/sidebar.tsx",
+      "components/ui/skeleton.tsx",
+      "components/ui/sonner.tsx",
+      "components/ui/table.tsx",
+      "components/ui/textarea.tsx",
+      "components/ui/tooltip.tsx",
+      "hooks/use-mobile.ts",
+      "lib/jalali.ts",
+      "lib/taskara-client.ts",
+      "lib/taskara-presenters.tsx",
+      "lib/taskara-types.ts",
+      "lib/utils.ts"
+   ],
+   "exclude": ["node_modules"]
+}

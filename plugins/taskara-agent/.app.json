@@ -1,0 +1,9 @@
+{
+  "apps": {
+    "taskara": {
+      "displayName": "Taskara",
+      "description": "API-backed team task manager for Codex and Mattermost workflows.",
+      "env": ["TASKARA_API_URL", "TASKARA_USER_EMAIL", "TASKARA_WORKSPACE_SLUG"]
+    }
+  }
+}

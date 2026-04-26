@@ -1,0 +1,269 @@
+export interface TaskaraProject {
+   id: string;
+   name: string;
+   keyPrefix: string;
+   description?: string | null;
+   status: string;
+   parentId?: string | null;
+   team?: { id: string; name: string; slug: string } | null;
+   lead?: { id: string; name: string; email: string } | null;
+   _count?: { tasks?: number; subprojects?: number };
+}
+
+export interface TaskaraTask {
+   id: string;
+   key: string;
+   title: string;
+   description?: string | null;
+   status: string;
+   priority: string;
+   dueAt?: string | null;
+   createdAt?: string;
+   updatedAt?: string;
+   completedAt?: string | null;
+   project?: {
+      id: string;
+      name: string;
+      keyPrefix: string;
+      team?: { id: string; name: string; slug: string } | null;
+   } | null;
+   assignee?: { id: string; name: string; email: string } | null;
+   reporter?: { id: string; name: string; email: string } | null;
+   attachments?: TaskaraAttachment[];
+   comments?: TaskaraTaskComment[];
+   subtasks?: Array<{ id: string; key: string; title: string; status: string }>;
+   blockingDependencies?: Array<{ id: string; blockedByTask?: { id: string; key: string; title: string } }>;
+   blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string } }>;
+   labels?: Array<{ label: { id: string; name: string; color?: string } }>;
+   _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
+}
+
+export type TaskViewLayout = 'list' | 'board';
+export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'priority';
+export type TaskViewSubGrouping = 'none' | TaskViewGrouping;
+export type TaskViewOrdering = 'priority' | 'updatedAt' | 'createdAt' | 'dueAt' | 'title';
+export type TaskViewCompletedIssues = 'all' | 'week' | 'month' | 'none';
+export type TaskViewDisplayProperty =
+   | 'id'
+   | 'status'
+   | 'assignee'
+   | 'priority'
+   | 'project'
+   | 'dueAt'
+   | 'labels'
+   | 'milestone'
+   | 'links'
+   | 'timeInStatus'
+   | 'createdAt'
+   | 'updatedAt';
+
+export interface TaskaraTaskViewState {
+   scope: 'tasks';
+   teamId: string;
+   query: string;
+   status: string[];
+   assigneeIds: string[];
+   priority: string[];
+   projectIds: string[];
+   labels: string[];
+   layout: TaskViewLayout;
+   groupBy: TaskViewGrouping;
+   subGroupBy: TaskViewSubGrouping;
+   orderBy: TaskViewOrdering;
+   showEmptyGroups: boolean;
+   showSubIssues: boolean;
+   nestedSubIssues: boolean;
+   orderCompletedByRecency: boolean;
+   completedIssues: TaskViewCompletedIssues;
+   displayProperties: TaskViewDisplayProperty[];
+}
+
+export interface TaskaraView {
+   id: string;
+   workspaceId: string;
+   ownerId?: string | null;
+   name: string;
+   isShared: boolean;
+   createdAt: string;
+   updatedAt: string;
+   state: TaskaraTaskViewState;
+}
+
+export interface TaskaraTaskComment {
+   id: string;
+   taskId: string;
+   authorId?: string | null;
+   body: string;
+   source: string;
+   mattermostPostId?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   author?: {
+      id: string;
+      name: string;
+      email: string;
+      mattermostUsername?: string | null;
+   } | null;
+}
+
+export interface TaskaraAttachment {
+   id: string;
+   taskId: string;
+   name: string;
+   documentId?: string | null;
+   object: string;
+   url: string;
+   mimeType?: string | null;
+   sizeBytes?: number | null;
+   createdAt: string;
+}
+
+export interface TaskaraUser {
+   id: string;
+   membershipId: string;
+   email: string;
+   name: string;
+   role: string;
+   joinedAt: string;
+   mattermostUsername?: string | null;
+   avatarUrl?: string | null;
+   _count?: {
+      assignedTasks: number;
+      reportedTasks: number;
+      comments: number;
+   };
+}
+
+export interface TaskaraTeam {
+   id: string;
+   name: string;
+   slug: string;
+   description?: string | null;
+   _count?: {
+      members?: number;
+      projects?: number;
+   };
+}
+
+export interface TaskaraTeamMember {
+   membershipId: string;
+   teamId: string;
+   userId: string;
+   role: string;
+   joinedAt: string;
+   user: {
+      id: string;
+      email: string;
+      name: string;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+}
+
+export interface TaskaraWorkspaceMembership {
+   membershipId: string;
+   role: string;
+   joinedAt: string;
+   workspace: {
+      id: string;
+      name: string;
+      slug: string;
+      description?: string | null;
+   };
+}
+
+export interface TaskaraNotification {
+   id: string;
+   type: string;
+   title: string;
+   body?: string | null;
+   readAt?: string | null;
+   createdAt: string;
+   task?: {
+      id: string;
+      key: string;
+      title: string;
+      status: string;
+      priority: string;
+   } | null;
+}
+
+export interface TaskaraActivity {
+   id: string;
+   action: string;
+   entityType: string;
+   entityId: string;
+   createdAt: string;
+   actor?: {
+      id: string;
+      name: string;
+      email: string;
+   } | null;
+}
+
+export interface TaskaraMe {
+   workspace: {
+      id: string;
+      name: string;
+      slug: string;
+      description?: string | null;
+   };
+   user: {
+      id: string;
+      name: string;
+      email: string;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+   role?: string | null;
+   unreadNotifications: number;
+}
+
+export interface TaskaraAuthSession {
+   token: string;
+   expiresAt: string;
+   workspace?: TaskaraMe['workspace'] | null;
+   user: TaskaraMe['user'];
+   role?: string | null;
+}
+
+export interface TaskaraOnboardingStatus {
+   needsOnboarding: boolean;
+   workspace?: TaskaraMe['workspace'] | null;
+   workspaces?: TaskaraWorkspaceMembership[];
+}
+
+export interface TaskaraAuthWorkspacesResponse {
+   items: TaskaraWorkspaceMembership[];
+   total: number;
+   user: TaskaraMe['user'];
+}
+
+export interface TaskaraWorkspaceInvite {
+   id: string;
+   email: string;
+   name?: string | null;
+   role: string;
+   createdAt: string;
+   expiresAt: string;
+   invitedBy?: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string | null;
+      mattermostUsername?: string | null;
+   } | null;
+   inviteUrl?: string | null;
+   workspace?: TaskaraMe['workspace'];
+}
+
+export interface PaginatedResponse<T> {
+   items: T[];
+   total: number;
+   limit: number;
+   offset: number;
+}
+
+export interface NotificationsResponse extends PaginatedResponse<TaskaraNotification> {
+   unreadCount: number;
+}

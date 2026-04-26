@@ -1,0 +1,23 @@
+{
+  "name": "Taskara",
+  "short_name": "Taskara",
+  "description": "Taskara workspace UI for teams and task management.",
+  "lang": "fa",
+  "dir": "rtl",
+  "display": "standalone",
+  "start_url": "/",
+  "background_color": "#080809",
+  "theme_color": "#080809",
+  "icons": [
+    {
+      "src": "/brand/taskara-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/taskara-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

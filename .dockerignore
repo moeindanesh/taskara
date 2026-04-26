@@ -1,0 +1,16 @@
+.git
+.agents
+node_modules
+**/node_modules
+.env
+.env.*
+!.env.example
+dist
+build
+coverage
+.next
+**/.next
+.prisma
+.DS_Store
+apps/web/dist
+packages/db/src/generated/client

@@ -1,0 +1,500 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+  AGENT
+}
+
+enum ProjectRole {
+  LEAD
+  MEMBER
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  DONE
+  CANCELED
+}
+
+enum TaskPriority {
+  NO_PRIORITY
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskSource {
+  WEB
+  API
+  MATTERMOST
+  CODEX
+  AGENT
+  SYSTEM
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  AGENT
+  MATTERMOST
+  CODEX
+}
+
+enum IntegrationProvider {
+  MATTERMOST
+  CODEX
+}
+
+enum AgentRunKind {
+  TRIAGE
+  FOLLOW_UP
+  DAILY_PLAN
+  PROJECT_HEALTH
+  THREAD_TO_TASKS
+}
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum AgentActionStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  APPLIED
+}
+
+model Workspace {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users              WorkspaceMember[]
+  teams              Team[]
+  projects           Project[]
+  tasks              Task[]
+  labels             Label[]
+  cycles             Cycle[]
+  views              View[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  integrations       IntegrationAccount[]
+  mattermostBindings MattermostBinding[]
+  agentRuns          AgentRun[]
+  invites            WorkspaceInvite[]
+}
+
+model User {
+  id                 String   @id @default(uuid()) @db.Uuid
+  email              String   @unique
+  name               String
+  passwordHash       String?
+  mattermostUserId   String?  @unique
+  mattermostUsername String?  @unique
+  avatarUrl          String?
+  onboardingCompletedAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspaces         WorkspaceMember[]
+  authSessions       AuthSession[]
+  teamMemberships    TeamMember[]
+  projectMemberships ProjectMember[]
+  ledProjects        Project[] @relation("ProjectLead")
+  assignedTasks      Task[]    @relation("AssignedTasks")
+  reportedTasks      Task[]    @relation("ReportedTasks")
+  comments           TaskComment[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  createdAgentRuns   AgentRun[]
+  approvedActions    AgentAction[]
+  sentInvites        WorkspaceInvite[] @relation("WorkspaceInviteInviter")
+  acceptedInvites    WorkspaceInvite[] @relation("WorkspaceInviteAccepter")
+}
+
+model AuthSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  tokenHash   String   @unique
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+  expiresAt   DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WorkspaceInvite {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @db.Uuid
+  email        String
+  name         String?
+  role         WorkspaceRole @default(MEMBER)
+  token        String?       @unique
+  tokenHash    String        @unique
+  invitedById  String?       @db.Uuid
+  acceptedById String?       @db.Uuid
+  acceptedAt   DateTime?
+  revokedAt    DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy  User?     @relation("WorkspaceInviteInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy User?     @relation("WorkspaceInviteAccepter", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, email])
+  @@index([expiresAt])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String       @db.Uuid
+  userId      String       @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Team {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  name        String
+  slug        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+  projects  Project[]
+
+  @@unique([workspaceId, slug])
+}
+
+model TeamMember {
+  id        String        @id @default(uuid()) @db.Uuid
+  teamId    String        @db.Uuid
+  userId    String        @db.Uuid
+  role      WorkspaceRole @default(MEMBER)
+  createdAt DateTime      @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String       @db.Uuid
+  teamId      String?      @db.Uuid
+  parentId    String?      @db.Uuid
+  leadId      String?      @db.Uuid
+  name        String
+  keyPrefix   String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  nextTaskNumber Int       @default(1)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  parent    Project?  @relation("ProjectTree", fields: [parentId], references: [id], onDelete: SetNull)
+  subprojects Project[] @relation("ProjectTree")
+  lead      User?     @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  members   ProjectMember[]
+  tasks     Task[]
+  cycles    Cycle[]
+  mattermostBindings MattermostBinding[]
+
+  @@unique([workspaceId, keyPrefix])
+  @@index([workspaceId, parentId])
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid()) @db.Uuid
+  projectId String     @db.Uuid
+  userId    String     @db.Uuid
+  role      ProjectRole @default(MEMBER)
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Cycle {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  projectId   String? @db.Uuid
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+}
+
+model Task {
+  id          String       @id @default(uuid()) @db.Uuid
+  workspaceId String      @db.Uuid
+  projectId   String      @db.Uuid
+  cycleId     String?     @db.Uuid
+  parentId    String?     @db.Uuid
+  key         String
+  sequence    Int
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(NO_PRIORITY)
+  assigneeId  String?      @db.Uuid
+  reporterId  String?      @db.Uuid
+  dueAt       DateTime?
+  completedAt DateTime?
+  source      TaskSource   @default(WEB)
+  version     Int          @default(1)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cycle     Cycle?    @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  parent    Task?     @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks  Task[]    @relation("TaskTree")
+  assignee  User?     @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporter  User?     @relation("ReportedTasks", fields: [reporterId], references: [id], onDelete: SetNull)
+  comments  TaskComment[]
+  attachments TaskAttachment[]
+  labels    TaskLabel[]
+  blockingDependencies TaskDependency[] @relation("TaskBlockedBy")
+  blockedTasks TaskDependency[] @relation("TaskBlocks")
+  notifications Notification[]
+
+  @@unique([workspaceId, key])
+  @@unique([projectId, sequence])
+  @@index([workspaceId, status])
+  @@index([workspaceId, assigneeId])
+  @@index([workspaceId, dueAt])
+}
+
+model TaskDependency {
+  id              String @id @default(uuid()) @db.Uuid
+  taskId          String @db.Uuid
+  blockedByTaskId String @db.Uuid
+  createdAt       DateTime @default(now())
+
+  task          Task @relation("TaskBlockedBy", fields: [taskId], references: [id], onDelete: Cascade)
+  blockedByTask Task @relation("TaskBlocks", fields: [blockedByTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, blockedByTaskId])
+}
+
+model TaskComment {
+  id                String     @id @default(uuid()) @db.Uuid
+  taskId            String     @db.Uuid
+  authorId          String?    @db.Uuid
+  body              String
+  source            TaskSource @default(WEB)
+  mattermostPostId  String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+}
+
+model TaskAttachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  taskId     String   @db.Uuid
+  name       String
+  documentId String?
+  object     String
+  mimeType   String?
+  sizeBytes  Int?
+  createdAt  DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([object])
+}
+
+model Label {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  name        String
+  color       String   @default("#64748b")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     TaskLabel[]
+
+  @@unique([workspaceId, name])
+}
+
+model TaskLabel {
+  taskId  String @db.Uuid
+  labelId String @db.Uuid
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+}
+
+model View {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  ownerId     String? @db.Uuid
+  name        String
+  filters     Json
+  isShared    Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  userId      String  @db.Uuid
+  taskId      String? @db.Uuid
+  type        String
+  title       String
+  body        String?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt])
+}
+
+model ActivityLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  actorId     String?  @db.Uuid
+  actorType   ActorType
+  entityType  String
+  entityId    String
+  action      String
+  before      Json?
+  after       Json?
+  source      TaskSource @default(API)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, entityType, entityId])
+  @@index([actorId, createdAt])
+}
+
+model IntegrationAccount {
+  id          String              @id @default(uuid()) @db.Uuid
+  workspaceId String             @db.Uuid
+  provider    IntegrationProvider
+  externalId  String?
+  accessToken String?
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, externalId])
+}
+
+model MattermostBinding {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  channelId   String
+  channelName String?
+  projectId   String  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, channelId])
+}
+
+model AgentRun {
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  kind        AgentRunKind
+  status      AgentRunStatus @default(RUNNING)
+  input       Json
+  output      Json?
+  error       String?
+  createdById String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+  completedAt DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  actions   AgentAction[]
+
+  @@index([workspaceId, kind, createdAt])
+}
+
+model AgentAction {
+  id          String            @id @default(uuid()) @db.Uuid
+  agentRunId  String            @db.Uuid
+  kind        String
+  payload     Json
+  status      AgentActionStatus @default(PROPOSED)
+  approverId  String?           @db.Uuid
+  decidedAt   DateTime?
+  createdAt   DateTime          @default(now())
+
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  approver User?    @relation(fields: [approverId], references: [id], onDelete: SetNull)
+}

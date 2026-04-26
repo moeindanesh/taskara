@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.*
+!.env.example
+dist
+build
+coverage
+.next
+**/.next
+.prisma
+.DS_Store
+packages/db/src/generated/client
+apps/web/dist

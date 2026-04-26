@@ -1,0 +1,40 @@
+FROM oven/bun:1.2-alpine AS deps
+
+WORKDIR /app
+
+ENV PRISMA_GENERATE_SKIP_AUTOINSTALL=1
+
+RUN apk add --no-cache openssl
+
+COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY apps/mattermost-bot/package.json apps/mattermost-bot/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY plugins/taskara-agent/package.json plugins/taskara-agent/package.json
+
+RUN bun install --frozen-lockfile
+
+FROM deps AS runtime
+
+ENV NODE_ENV=production
+ENV API_HOST=0.0.0.0
+ENV API_PORT=4000
+ENV TASKARA_RUN_MIGRATIONS=true
+
+COPY apps/api apps/api
+COPY packages/db packages/db
+COPY packages/shared packages/shared
+COPY docker/api-entrypoint.sh /usr/local/bin/taskara-api-entrypoint
+
+RUN chmod +x /usr/local/bin/taskara-api-entrypoint \
+  && DATABASE_URL="postgresql://taskara:taskara@localhost:5432/taskara?schema=public" bun run db:generate
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["bun", "-e", "const port = process.env.API_PORT || '4000'; const res = await fetch('http://127.0.0.1:' + port + '/health').catch(() => null); process.exit(res?.ok ? 0 : 1)"]
+
+ENTRYPOINT ["taskara-api-entrypoint"]
+CMD ["bun", "run", "--filter", "@taskara/api", "start"]

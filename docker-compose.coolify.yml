@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=taskara
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DB=taskara
+    volumes:
+      - taskara-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskara -d taskara"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - SERVICE_URL_API_4000
+      - DATABASE_URL=postgresql://taskara:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/taskara?schema=public
+      - API_HOST=0.0.0.0
+      - API_PORT=4000
+      - WEB_ORIGIN=${SERVICE_URL_WEB_80}
+      - TASKARA_ALLOWED_ORIGINS=${TASKARA_ALLOWED_ORIGINS:-}
+      - TASKARA_CDN_UPLOAD_URL=${TASKARA_CDN_UPLOAD_URL:-}
+      - TASKARA_CDN_MEDIA_BASE_URL=${TASKARA_CDN_MEDIA_BASE_URL:-}
+      - TASKARA_CDN_APP=${TASKARA_CDN_APP:-taskara}
+      - TASKARA_RUN_MIGRATIONS=${TASKARA_RUN_MIGRATIONS:-true}
+      - MATTERMOST_SLASH_TOKEN=${MATTERMOST_SLASH_TOKEN:-}
+      - MATTERMOST_BASE_URL=${MATTERMOST_BASE_URL:-}
+      - MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN:-}
+      - MATTERMOST_SYNTHETIC_EMAIL_DOMAIN=${MATTERMOST_SYNTHETIC_EMAIL_DOMAIN:-mattermost.example.invalid}
+      - MATTERMOST_WORKSPACE_SLUG=${MATTERMOST_WORKSPACE_SLUG:-}
+    expose:
+      - "4000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const res = await fetch('http://127.0.0.1:4000/health').catch(() => null); process.exit(res?.ok ? 0 : 1)"
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - SERVICE_URL_WEB_80
+      - TASKARA_API_URL=${SERVICE_URL_API_4000}
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  taskara-postgres:

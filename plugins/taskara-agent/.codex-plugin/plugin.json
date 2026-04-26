@@ -1,0 +1,36 @@
+{
+  "name": "taskara-agent",
+  "version": "0.1.0",
+  "description": "Codex workflow helper for the Taskara team task manager.",
+  "author": {
+    "name": "Taskara Team"
+  },
+  "license": "MIT",
+  "keywords": [
+    "tasks",
+    "projects",
+    "mattermost",
+    "agentic"
+  ],
+  "skills": "./skills/",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "Taskara Agent",
+    "shortDescription": "Create, search, update, and plan Taskara work from Codex.",
+    "longDescription": "Adds Taskara task-management workflows to Codex using the Taskara API. Optimized for team projects, follow-ups, and auditable agent proposals.",
+    "developerName": "Taskara Team",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "MCP Tools"
+    ],
+    "defaultPrompt": [
+      "Create Taskara tasks from this plan.",
+      "Find my blocked Taskara work.",
+      "Generate today's Taskara focus list."
+    ],
+    "brandColor": "#1F7A52"
+  },
+  "mcpServers": "./.mcp.json"
+}
