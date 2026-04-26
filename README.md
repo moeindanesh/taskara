@@ -51,17 +51,17 @@ Recommended Coolify setup for one Compose application:
 3. Let Coolify generate the service URLs and Postgres password from:
 
 ```txt
-SERVICE_URL_WEB_80
-SERVICE_URL_API_4000
+SERVICE_URL_WEB
+SERVICE_URL_API
 SERVICE_PASSWORD_POSTGRES
 ```
 
-The API is exposed on port `4000`; the web UI is exposed on port `80`. The compose file wires `WEB_ORIGIN` to the generated web URL and writes `TASKARA_API_URL` into the web container at startup, so the same web image can be reused across environments.
+The API and web UI both listen on internal container port `80` in the Coolify compose deployment, so Coolify can generate clean public URLs without `:4000` or `:80`. The compose file wires `WEB_ORIGIN` to the generated web URL and writes `TASKARA_API_URL` into the web container at startup, so the same web image can be reused across environments.
 
 You can also deploy them as two separate Dockerfile resources:
 
 ```txt
-API Dockerfile: Dockerfile.api, port 4000
+API Dockerfile: Dockerfile.api, port 80
 Web Dockerfile: Dockerfile.web, port 80
 ```
 
@@ -71,7 +71,7 @@ For the API resource, set:
 DATABASE_URL=postgresql://...
 WEB_ORIGIN=https://your-web-domain.example
 API_HOST=0.0.0.0
-API_PORT=4000
+API_PORT=80
 TASKARA_RUN_MIGRATIONS=true
 ```
 

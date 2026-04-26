@@ -20,7 +20,7 @@ FROM deps AS runtime
 
 ENV NODE_ENV=production
 ENV API_HOST=0.0.0.0
-ENV API_PORT=4000
+ENV API_PORT=80
 ENV TASKARA_RUN_MIGRATIONS=true
 
 COPY apps/api apps/api
@@ -31,10 +31,10 @@ COPY docker/api-entrypoint.sh /usr/local/bin/taskara-api-entrypoint
 RUN chmod +x /usr/local/bin/taskara-api-entrypoint \
   && DATABASE_URL="postgresql://taskara:taskara@localhost:5432/taskara?schema=public" bun run db:generate
 
-EXPOSE 4000
+EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["bun", "-e", "const port = process.env.API_PORT || '4000'; const res = await fetch('http://127.0.0.1:' + port + '/health').catch(() => null); process.exit(res?.ok ? 0 : 1)"]
+  CMD ["bun", "-e", "const port = process.env.API_PORT || '80'; const res = await fetch('http://127.0.0.1:' + port + '/health').catch(() => null); process.exit(res?.ok ? 0 : 1)"]
 
 ENTRYPOINT ["taskara-api-entrypoint"]
 CMD ["bun", "run", "--filter", "@taskara/api", "start"]
