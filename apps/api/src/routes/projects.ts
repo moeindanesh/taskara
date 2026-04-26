@@ -18,7 +18,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       include: {
         team: { select: { id: true, name: true, slug: true } },
         parent: { select: { id: true, name: true, keyPrefix: true } },
-        lead: { select: { id: true, name: true, email: true } },
+        lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
         _count: { select: { tasks: true, subprojects: true } }
       }
     });

@@ -120,6 +120,25 @@ export function uploadTaskAttachment(task: string, file: File, name = file.name)
    });
 }
 
+export function uploadTaskCommentAttachment(
+   task: string,
+   commentId: string,
+   file: File,
+   name = file.name
+): Promise<TaskaraAttachment> {
+   const form = new FormData();
+   form.set('name', name);
+   form.set('file', file, file.name);
+
+   return taskaraRequest<TaskaraAttachment>(
+      `/tasks/${encodeURIComponent(task)}/comments/${encodeURIComponent(commentId)}/attachments`,
+      {
+         method: 'POST',
+         body: form,
+      }
+   );
+}
+
 export function uploadMedia(file: File, name = file.name): Promise<UploadedMediaObject> {
    const form = new FormData();
    form.set('name', name);

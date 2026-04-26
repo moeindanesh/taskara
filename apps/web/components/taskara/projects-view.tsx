@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ChevronDown, FolderKanban, Milestone, Plus } from 'lucide-react';
+import { ChevronDown, FolderKanban, Plus } from 'lucide-react';
 import {
    Dialog,
    DialogContent,
@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-   LinearAvatar,
    LinearEmptyState,
    LinearPill,
    LinearSelectPill,
@@ -26,7 +25,7 @@ import {
 } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { taskaraRequest } from '@/lib/taskara-client';
-import type { PaginatedResponse, TaskaraProject, TaskaraTeam, TaskaraUser } from '@/lib/taskara-types';
+import type { TaskaraProject, TaskaraTeam } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 
 const initialProjectForm = {
@@ -34,7 +33,6 @@ const initialProjectForm = {
    keyPrefix: '',
    description: '',
    teamId: '',
-   leadId: '',
 };
 
 export function ProjectsView() {
@@ -42,7 +40,6 @@ export function ProjectsView() {
    const activeTeamSlug = teamId && teamId !== 'all' ? teamId : null;
    const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [teams, setTeams] = useState<TaskaraTeam[]>([]);
-   const [users, setUsers] = useState<TaskaraUser[]>([]);
    const [form, setForm] = useState(initialProjectForm);
    const [modalOpen, setModalOpen] = useState(false);
    const [filter, setFilter] = useState<'all' | 'active'>('all');
@@ -57,19 +54,12 @@ export function ProjectsView() {
    const load = useCallback(async () => {
       setError('');
       try {
-         const [projectData, teamData, userData] = await Promise.all([
+         const [projectData, teamData] = await Promise.all([
             taskaraRequest<TaskaraProject[]>('/projects'),
             taskaraRequest<TaskaraTeam[]>('/teams'),
-            taskaraRequest<PaginatedResponse<TaskaraUser>>('/users?limit=100').catch(() => ({
-               items: [],
-               total: 0,
-               limit: 0,
-               offset: 0,
-            })),
          ]);
          setProjects(projectData);
          setTeams(teamData);
-         setUsers(userData.items);
          const activeTeam = activeTeamSlug ? teamData.find((team) => team.slug === activeTeamSlug) : null;
          setForm((current) => ({
             ...current,
@@ -140,7 +130,6 @@ export function ProjectsView() {
                keyPrefix: form.keyPrefix.trim().toUpperCase(),
                description: form.description.trim() || undefined,
                teamId: form.teamId || undefined,
-               leadId: form.leadId || undefined,
             }),
          });
          toast.success(fa.project.created);
@@ -261,18 +250,6 @@ export function ProjectsView() {
                               </option>
                            ))}
                         </LinearSelectPill>
-                        <LinearSelectPill
-                           ariaLabel={fa.project.lead}
-                           value={form.leadId}
-                           onChange={(leadId) => setForm((current) => ({ ...current, leadId }))}
-                        >
-                           <option value="">{fa.app.unset}</option>
-                           {users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                 {user.name}
-                              </option>
-                           ))}
-                        </LinearSelectPill>
                      </div>
                      <Textarea
                         className="min-h-64 resize-none border-none bg-transparent px-0 text-base leading-8 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
@@ -356,15 +333,7 @@ function ProjectRow({
                   </option>
                ))}
             </select>
-            <span className="hidden items-center gap-1 md:flex">
-               <LinearAvatar name={project.lead?.name} className="size-5" />
-               {project.lead?.name || fa.app.unset}
-            </span>
             <span>{(project._count?.tasks || 0).toLocaleString('fa-IR')} {fa.project.issueCount}</span>
-            <span className="hidden items-center gap-1 lg:flex">
-               <Milestone className="size-4" />
-               {(project._count?.subprojects || 0).toLocaleString('fa-IR')} {fa.project.subprojectCount}
-            </span>
          </div>
       </article>
    );

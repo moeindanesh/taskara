@@ -7,12 +7,11 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { taskaraRequest } from '@/lib/taskara-client';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { PriorityBadge, StatusBadge } from '@/lib/taskara-presenters';
-import type { NotificationsResponse, TaskaraActivity, TaskaraNotification } from '@/lib/taskara-types';
+import type { NotificationsResponse, TaskaraNotification } from '@/lib/taskara-types';
 import { fa } from '@/lib/fa-copy';
 
 export function InboxView() {
    const [notifications, setNotifications] = useState<TaskaraNotification[]>([]);
-   const [activity, setActivity] = useState<TaskaraActivity[]>([]);
    const [selected, setSelected] = useState<TaskaraNotification | null>(null);
    const [error, setError] = useState('');
    const [loading, setLoading] = useState(true);
@@ -22,14 +21,12 @@ export function InboxView() {
    async function load() {
       setError('');
       try {
-         const [notificationsResult, activityResult] = await Promise.all([
-            taskaraRequest<NotificationsResponse>('/notifications?limit=100'),
-            taskaraRequest<TaskaraActivity[]>('/activity'),
-         ]);
+         const notificationsResult = await taskaraRequest<NotificationsResponse>('/notifications?limit=100');
          setNotifications(notificationsResult.items);
          setUnreadCount(notificationsResult.unreadCount);
-         setSelected((current) => current || notificationsResult.items[0] || null);
-         setActivity(activityResult);
+         setSelected(
+            (current) => notificationsResult.items.find((item) => item.id === current?.id) || notificationsResult.items[0] || null
+         );
       } catch (err) {
          setError(err instanceof Error ? err.message : fa.inbox.loadFailed);
       } finally {
@@ -79,25 +76,8 @@ export function InboxView() {
                   {loading ? (
                      <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{fa.app.loading}</div>
                   ) : notifications.length === 0 ? (
-                     <div className="space-y-3">
-                        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                           {fa.inbox.noNotifications}
-                        </div>
-                        <Card>
-                           <CardHeader>
-                              <CardTitle className="text-base">آخرین فعالیت‌ها</CardTitle>
-                           </CardHeader>
-                           <CardContent className="space-y-3">
-                              {activity.slice(0, 8).map((item) => (
-                                 <div key={item.id} className="rounded-lg border px-3 py-3 text-sm">
-                                    <div className="font-medium">{item.actor?.name || fa.app.unknown} / {item.action}</div>
-                                    <div className="mt-1 text-xs text-muted-foreground">
-                                       {item.entityType} · {formatJalaliDateTime(item.createdAt)}
-                                    </div>
-                                 </div>
-                              ))}
-                           </CardContent>
-                        </Card>
+                     <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                        {fa.inbox.noNotifications}
                      </div>
                   ) : (
                      <div className="space-y-2">

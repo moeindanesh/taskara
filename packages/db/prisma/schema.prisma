@@ -343,6 +343,7 @@ model TaskComment {
 
   task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  attachments TaskAttachment[]
 
   @@index([taskId, createdAt])
 }
@@ -350,6 +351,7 @@ model TaskComment {
 model TaskAttachment {
   id         String   @id @default(uuid()) @db.Uuid
   taskId     String   @db.Uuid
+  commentId  String?  @db.Uuid
   name       String
   documentId String?
   object     String
@@ -357,9 +359,11 @@ model TaskAttachment {
   sizeBytes  Int?
   createdAt  DateTime @default(now())
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task    Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  comment TaskComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@index([taskId, createdAt])
+  @@index([commentId, createdAt])
   @@index([object])
 }
 

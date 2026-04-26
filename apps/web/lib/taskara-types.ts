@@ -6,7 +6,7 @@ export interface TaskaraProject {
    status: string;
    parentId?: string | null;
    team?: { id: string; name: string; slug: string } | null;
-   lead?: { id: string; name: string; email: string } | null;
+   lead?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    _count?: { tasks?: number; subprojects?: number };
 }
 
@@ -27,8 +27,8 @@ export interface TaskaraTask {
       keyPrefix: string;
       team?: { id: string; name: string; slug: string } | null;
    } | null;
-   assignee?: { id: string; name: string; email: string } | null;
-   reporter?: { id: string; name: string; email: string } | null;
+   assignee?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   reporter?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    attachments?: TaskaraAttachment[];
    comments?: TaskaraTaskComment[];
    subtasks?: Array<{ id: string; key: string; title: string; status: string }>;
@@ -103,12 +103,15 @@ export interface TaskaraTaskComment {
       name: string;
       email: string;
       mattermostUsername?: string | null;
+      avatarUrl?: string | null;
    } | null;
+   attachments?: TaskaraAttachment[];
 }
 
 export interface TaskaraAttachment {
    id: string;
    taskId: string;
+   commentId?: string | null;
    name: string;
    documentId?: string | null;
    object: string;
@@ -193,6 +196,10 @@ export interface TaskaraActivity {
    action: string;
    entityType: string;
    entityId: string;
+   actorType?: string;
+   source?: string;
+   before?: Record<string, unknown> | null;
+   after?: Record<string, unknown> | null;
    createdAt: string;
    actor?: {
       id: string;

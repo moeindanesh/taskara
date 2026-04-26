@@ -154,6 +154,14 @@
    }
 }
 
+@media (hover: none) and (pointer: coarse) {
+   input,
+   select,
+   textarea {
+      font-size: 16px !important;
+   }
+}
+
 .ltr {
    direction: ltr;
 }

@@ -343,6 +343,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             >
                <LinearAvatar
                   name={me?.user.name || workspaceName}
+                  src={me?.user.avatarUrl}
                   className="size-8 shrink-0"
                />
                <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">

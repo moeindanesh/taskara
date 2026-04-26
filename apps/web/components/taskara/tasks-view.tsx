@@ -2,7 +2,7 @@
 
 import type { ChangeEvent, Dispatch, DragEvent, FormEvent, ReactNode, SetStateAction } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
    Check,
@@ -52,7 +52,6 @@ import {
    ContextMenuContent,
    ContextMenuItem,
    ContextMenuSeparator,
-   ContextMenuShortcut,
    ContextMenuSub,
    ContextMenuSubContent,
    ContextMenuSubTrigger,
@@ -116,6 +115,7 @@ type MenuAnchor = { bottom: number; left: number; right: number; top: number; wi
 type TaskUpdatePatch = {
    title?: string;
    description?: string | null;
+   projectId?: string;
    status?: string;
    priority?: string;
    assigneeId?: string | null;
@@ -405,6 +405,7 @@ function matchesCompletedIssueSetting(task: TaskaraTask, setting: TaskViewComple
 }
 
 export function TasksView() {
+   const location = useLocation();
    const navigate = useNavigate();
    const { orgId, teamId } = useParams();
    const { session } = useAuthSession();
@@ -733,9 +734,17 @@ export function TasksView() {
 
    const openIssuePage = useCallback(
       (task: TaskaraTask) => {
-         navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`);
+         navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`, {
+            state: {
+               from: {
+                  hash: location.hash,
+                  pathname: location.pathname,
+                  search: location.search,
+               },
+            },
+         });
       },
-      [navigate, orgId]
+      [location.hash, location.pathname, location.search, navigate, orgId]
    );
 
    useEffect(() => {
@@ -983,6 +992,23 @@ export function TasksView() {
       }
    }
 
+   async function deleteTask(task: TaskaraTask) {
+      if (!window.confirm(`${fa.issue.deleteConfirm}\n${task.key} ${task.title}`)) return;
+
+      try {
+         await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}`, { method: 'DELETE' });
+         setTasks((current) => current.filter((item) => item.id !== task.id));
+         setSelectedTaskId((current) => (current === task.id ? null : current));
+         setHighlightedIndex(null);
+         toast.success(fa.issue.deleted);
+         startTransition(() => {
+            void load();
+         });
+      } catch (err) {
+         toast.error(err instanceof Error ? err.message : fa.issue.deleteFailed);
+      }
+   }
+
    function applySystemView(key: SystemViewKey) {
       setActiveViewKey(`system:${key}`);
       setDraftView(buildSystemViewState(key, currentTeamKey));
@@ -1217,13 +1243,16 @@ export function TasksView() {
                               group={group}
                               highlightedIndex={highlightedIndex}
                               labelOptions={labelOptions}
+                              projects={scopedProjects}
                               selectedTaskId={selectedTaskId}
                               onAdd={() => openComposerForGroup(group)}
+                              onDelete={(task) => void deleteTask(task)}
                               onOpen={openIssuePage}
                               onAssigneeChange={(task, assigneeId) => void updateTask(task, { assigneeId })}
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onPriorityChange={(task, priority) => void updateTask(task, { priority })}
+                              onProjectChange={(task, projectId) => void updateTask(task, { projectId })}
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
                                  setHighlightedIndex(absoluteIndex);
@@ -1244,10 +1273,13 @@ export function TasksView() {
                               group={group}
                               highlightedIndex={highlightedIndex}
                               labelOptions={labelOptions}
+                              projects={scopedProjects}
                               selectedTaskId={selectedTaskId}
                               onAdd={() => openComposerForGroup(group)}
+                              onDelete={(task) => void deleteTask(task)}
                               onOpen={openIssuePage}
                               onPriorityChange={(task, priority) => void updateTask(task, { priority })}
+                              onProjectChange={(task, projectId) => void updateTask(task, { projectId })}
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
                                  setHighlightedIndex(absoluteIndex);
@@ -1953,12 +1985,12 @@ function FilterSubmenu({
    const currentUser = currentUserId ? users.find((user) => user.id === currentUserId) || null : null;
    const priorityOrder = ['NO_PRIORITY', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
    const topBySection: Record<FilterMenuSection, number> = {
-      status: 95,
-      assignee: 131,
-      priority: 167,
-      labels: 203,
-      project: 239,
-      content: 275,
+      status: 48,
+      assignee: 84,
+      priority: 120,
+      labels: 156,
+      project: 192,
+      content: 228,
    };
 
    useEffect(() => {
@@ -2372,11 +2404,14 @@ function ListGroup({
    selectedTaskId,
    highlightedIndex,
    labelOptions,
+   projects,
    onAdd,
+   onDelete,
    onSelect,
    onOpen,
    onStatusChange,
    onPriorityChange,
+   onProjectChange,
    onAssigneeChange,
    onDueAtChange,
    onLabelsChange,
@@ -2389,11 +2424,14 @@ function ListGroup({
    selectedTaskId: string | null;
    highlightedIndex: number | null;
    labelOptions: Array<{ id: string; name: string }>;
+   projects: TaskaraProject[];
    onAdd: () => void;
+   onDelete: (task: TaskaraTask) => void;
    onSelect: (task: TaskaraTask, absoluteIndex: number) => void;
    onOpen: (task: TaskaraTask) => void;
    onStatusChange: (task: TaskaraTask, status: string) => void;
    onPriorityChange: (task: TaskaraTask, priority: string) => void;
+   onProjectChange: (task: TaskaraTask, projectId: string) => void;
    onAssigneeChange: (task: TaskaraTask, assigneeId: string | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
@@ -2446,11 +2484,14 @@ function ListGroup({
                         onOpen(task);
                      }}
                      onPriorityChange={(priority) => onPriorityChange(task, priority)}
+                     onProjectChange={(projectId) => onProjectChange(task, projectId)}
                      onStatusChange={(status) => onStatusChange(task, status)}
                      onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
                      onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
                      onLabelsChange={(labels) => onLabelsChange(task, labels)}
+                     onDelete={() => onDelete(task)}
                      labelOptions={labelOptions}
+                     projects={projects}
                      users={users}
                   />
                ))}
@@ -2467,11 +2508,14 @@ function BoardGroup({
    selectedTaskId,
    highlightedIndex,
    labelOptions,
+   projects,
    onAdd,
+   onDelete,
    onSelect,
    onOpen,
    onStatusChange,
    onPriorityChange,
+   onProjectChange,
    onAssigneeChange,
    onDueAtChange,
    onLabelsChange,
@@ -2484,11 +2528,14 @@ function BoardGroup({
    selectedTaskId: string | null;
    highlightedIndex: number | null;
    labelOptions: Array<{ id: string; name: string }>;
+   projects: TaskaraProject[];
    onAdd: () => void;
+   onDelete: (task: TaskaraTask) => void;
    onSelect: (task: TaskaraTask, absoluteIndex: number) => void;
    onOpen: (task: TaskaraTask) => void;
    onStatusChange: (task: TaskaraTask, status: string) => void;
    onPriorityChange: (task: TaskaraTask, priority: string) => void;
+   onProjectChange: (task: TaskaraTask, projectId: string) => void;
    onAssigneeChange: (task: TaskaraTask, assigneeId: string | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
@@ -2543,11 +2590,14 @@ function BoardGroup({
                         onOpen(task);
                      }}
                      onPriorityChange={(priority) => onPriorityChange(task, priority)}
+                     onProjectChange={(projectId) => onProjectChange(task, projectId)}
                      onStatusChange={(status) => onStatusChange(task, status)}
                      onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
                      onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
                      onLabelsChange={(labels) => onLabelsChange(task, labels)}
+                     onDelete={() => onDelete(task)}
                      labelOptions={labelOptions}
+                     projects={projects}
                      users={users}
                   />
                ))
@@ -2565,10 +2615,13 @@ function IssueRow({
    onClick,
    onStatusChange,
    onPriorityChange,
+   onProjectChange,
    onAssigneeChange,
    onDueAtChange,
    onLabelsChange,
+   onDelete,
    labelOptions,
+   projects,
    users,
 }: {
    task: TaskaraTask;
@@ -2578,17 +2631,20 @@ function IssueRow({
    onClick: () => void;
    onStatusChange: (status: string) => void;
    onPriorityChange: (priority: string) => void;
+   onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onDelete: () => void;
    labelOptions: Array<{ id: string; name: string }>;
+   projects: TaskaraProject[];
    users: TaskaraUser[];
 }) {
    const stopRowPropagation = (event: { stopPropagation: () => void }) => event.stopPropagation();
    const shows = (property: TaskViewDisplayProperty) => displayProperties.includes(property);
 
    return (
-      <ContextMenu>
+      <ContextMenu dir="rtl">
          <ContextMenuTrigger asChild>
             <div
                className={cn(
@@ -2639,13 +2695,16 @@ function IssueRow({
          </ContextMenuTrigger>
          <TaskIssueContextMenu
             labelOptions={labelOptions}
+            projects={projects}
             task={task}
             users={users}
             onAssigneeChange={onAssigneeChange}
+            onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
+            onProjectChange={onProjectChange}
             onStatusChange={onStatusChange}
          />
       </ContextMenu>
@@ -2660,10 +2719,13 @@ function IssueCard({
    onClick,
    onStatusChange,
    onPriorityChange,
+   onProjectChange,
    onAssigneeChange,
    onDueAtChange,
    onLabelsChange,
+   onDelete,
    labelOptions,
+   projects,
    users,
 }: {
    task: TaskaraTask;
@@ -2673,16 +2735,19 @@ function IssueCard({
    onClick: () => void;
    onStatusChange: (status: string) => void;
    onPriorityChange: (priority: string) => void;
+   onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onDelete: () => void;
    labelOptions: Array<{ id: string; name: string }>;
+   projects: TaskaraProject[];
    users: TaskaraUser[];
 }) {
    const shows = (property: TaskViewDisplayProperty) => displayProperties.includes(property);
 
    return (
-      <ContextMenu>
+      <ContextMenu dir="rtl">
          <ContextMenuTrigger asChild>
             <div
                className={cn(
@@ -2716,7 +2781,7 @@ function IssueCard({
                   </span>
                   {shows('assignee') ? (
                      task.assignee ? (
-                        <LinearAvatar name={task.assignee.name} className="size-5" />
+                        <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-5" />
                      ) : (
                         <NoAssigneeIcon className="size-5 text-zinc-500" />
                      )
@@ -2730,13 +2795,16 @@ function IssueCard({
          </ContextMenuTrigger>
          <TaskIssueContextMenu
             labelOptions={labelOptions}
+            projects={projects}
             task={task}
             users={users}
             onAssigneeChange={onAssigneeChange}
+            onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
+            onProjectChange={onProjectChange}
             onStatusChange={onStatusChange}
          />
       </ContextMenu>
@@ -2849,7 +2917,7 @@ function TaskAssigneeControl({
                onDoubleClick={(event) => event.stopPropagation()}
             >
                {assignee ? (
-                  <LinearAvatar name={assignee.name} className="size-5" />
+                  <LinearAvatar name={assignee.name} src={assignee.avatarUrl} className="size-5" />
                ) : (
                   <NoAssigneeIcon className="size-5 text-zinc-500" />
                )}
@@ -2965,23 +3033,29 @@ function TaskLabelSummary({ labels }: { labels: NonNullable<TaskaraTask['labels'
 function TaskIssueContextMenu({
    task,
    users,
+   projects,
    labelOptions,
    onOpen,
    onStatusChange,
    onPriorityChange,
+   onProjectChange,
    onAssigneeChange,
    onDueAtChange,
    onLabelsChange,
+   onDelete,
 }: {
    task: TaskaraTask;
    users: TaskaraUser[];
+   projects: TaskaraProject[];
    labelOptions: Array<{ id: string; name: string }>;
    onOpen: () => void;
    onStatusChange: (status: string) => void;
    onPriorityChange: (priority: string) => void;
+   onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onDelete: () => void;
 }) {
    const taskLabelNames = labelNames(task);
    const allLabelOptions = [
@@ -3004,10 +3078,10 @@ function TaskIssueContextMenu({
    };
 
    return (
-      <ContextMenuContent className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl">
+      <ContextMenuContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl">
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<StatusIcon status={task.status} />} label={fa.issue.status} shortcut="S" />
-            <ContextMenuSubContent className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                {taskStatuses.map((item, index) => (
                   <LinearContextItem
                      key={item}
@@ -3023,7 +3097,7 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<PriorityIcon priority={task.priority} />} label={fa.issue.priority} shortcut="P" />
-            <ContextMenuSubContent className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                {taskPriorities.map((item, index) => (
                   <LinearContextItem
                      key={item}
@@ -3039,11 +3113,11 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger
-               icon={task.assignee ? <LinearAvatar name={task.assignee.name} className="size-4" /> : <NoAssigneeIcon className="size-4 text-zinc-500" />}
+               icon={task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-4" /> : <NoAssigneeIcon className="size-4 text-zinc-500" />}
                label={fa.issue.assignee}
                shortcut="A"
             />
-            <ContextMenuSubContent className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                <LinearContextItem
                   active={!task.assignee?.id}
                   icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
@@ -3066,7 +3140,7 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<CalendarClock className="size-4 text-zinc-400" />} label={fa.issue.dueAt} shortcut="⇧D" />
-            <ContextMenuSubContent className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="فردا" shortcut="۱" onSelect={() => onDueAtChange(makeDueDate(1))} />
                <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="پایان این هفته" shortcut="۲" onSelect={() => onDueAtChange(makeEndOfIranWorkWeek())} />
                <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="یک هفته دیگر" shortcut="۳" onSelect={() => onDueAtChange(makeDueDate(7))} />
@@ -3076,7 +3150,7 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<Tag className="size-4 text-zinc-400" />} label={fa.issue.labels} shortcut="L" />
-            <ContextMenuSubContent className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                {allLabelOptions.length ? (
                   allLabelOptions.map((label) => (
                      <LinearContextItem
@@ -3097,12 +3171,23 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<FolderKanban className="size-4 text-pink-400" />} label={fa.issue.project} shortcut="⇧P" />
-            <ContextMenuSubContent className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               <LinearContextItem
-                  active
-                  icon={<FolderKanban className="size-4 text-pink-400" />}
-                  label={task.project?.name || fa.app.unknown}
-               />
+            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+               <LinearMenuSearch title={fa.issue.project} />
+               {projects.length ? (
+                  projects.map((project) => (
+                     <LinearContextItem
+                        key={project.id}
+                        active={task.project?.id === project.id}
+                        icon={<FolderKanban className="size-4 text-pink-400" />}
+                        label={project.name}
+                        onSelect={() => onProjectChange(project.id)}
+                     />
+                  ))
+               ) : (
+                  <ContextMenuItem disabled className="text-zinc-500">
+                     {fa.issue.projectRequired}
+                  </ContextMenuItem>
+               )}
             </ContextMenuSubContent>
          </ContextMenuSub>
 
@@ -3112,7 +3197,7 @@ function TaskIssueContextMenu({
          <LinearContextItem icon={<Repeat2 className="size-4 text-zinc-400" />} label="ایجاد کار مرتبط" />
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<Check className="size-4 text-zinc-400" />} label="علامت‌گذاری" />
-            <ContextMenuSubContent className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent dir="rtl" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                <LinearContextItem icon={<Check className="size-4 text-indigo-300" />} label={fa.status.DONE} onSelect={() => onStatusChange('DONE')} />
                <LinearContextItem icon={<XCircle className="size-4 text-zinc-500" />} label={fa.status.CANCELED} onSelect={() => onStatusChange('CANCELED')} />
             </ContextMenuSubContent>
@@ -3122,7 +3207,7 @@ function TaskIssueContextMenu({
          <LinearContextItem icon={<Copy className="size-4 text-zinc-400" />} label="کپی عنوان" onSelect={() => copyValue(task.title, 'عنوان کپی شد.')} />
          <LinearContextItem icon={<Star className="size-4 text-zinc-400" />} label="علاقه‌مندی" shortcut="F" onSelect={() => toast.success('به علاقه‌مندی‌ها اضافه شد.')} />
          <ContextMenuSeparator className="bg-white/8" />
-         <LinearContextItem destructive icon={<Trash2 className="size-4" />} label="حذف..." shortcut="⌘⌫" />
+         <LinearContextItem destructive icon={<Trash2 className="size-4" />} label="حذف..." shortcut="⌘⌫" onSelect={onDelete} />
       </ContextMenuContent>
    );
 }
@@ -3165,12 +3250,11 @@ function LinearMenuOption({
    );
 }
 
-function LinearContextSubTrigger({ icon, label, shortcut }: { icon: ReactNode; label: string; shortcut?: string }) {
+function LinearContextSubTrigger({ icon, label }: { icon: ReactNode; label: string; shortcut?: string }) {
    return (
       <ContextMenuSubTrigger className="h-9 rounded-lg px-3 text-zinc-300 focus:bg-white/[0.07] data-[state=open]:bg-white/[0.07]">
          <span className="flex size-5 items-center justify-center">{icon}</span>
          <span className="flex-1 truncate text-start">{label}</span>
-         {shortcut ? <ContextMenuShortcut className="mx-2 text-zinc-500">{shortcut}</ContextMenuShortcut> : null}
       </ContextMenuSubTrigger>
    );
 }
@@ -3180,7 +3264,6 @@ function LinearContextItem({
    destructive = false,
    icon,
    label,
-   shortcut,
    onSelect,
 }: {
    active?: boolean;
@@ -3201,7 +3284,7 @@ function LinearContextItem({
       >
          <span className="flex size-5 items-center justify-center">{icon}</span>
          <span className="min-w-0 flex-1 truncate text-start">{label}</span>
-         {active ? <Check className="size-4 text-zinc-400" /> : shortcut ? <ContextMenuShortcut className="mx-0 text-zinc-500">{shortcut}</ContextMenuShortcut> : null}
+         {active ? <Check className="size-4 text-zinc-400" /> : null}
       </ContextMenuItem>
    );
 }

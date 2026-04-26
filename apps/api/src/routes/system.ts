@@ -5,6 +5,7 @@ import { logActivity } from '../services/audit';
 import { getRequestActor, getWorkspaceRole } from '../services/actor';
 import { requireSessionUser } from '../services/auth';
 import { HttpError } from '../services/http';
+import { assignedInboxNotificationWhere } from '../services/notifications';
 
 const meUserSelect = {
   id: true,
@@ -53,7 +54,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
     const actor = await getRequestActor(request);
     const role = await getWorkspaceRole(actor.workspace.id, actor.user.id);
     const notifications = await prisma.notification.count({
-      where: { workspaceId: actor.workspace.id, userId: actor.user.id, readAt: null }
+      where: assignedInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
     });
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: actor.user.id },
@@ -99,7 +100,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
 
     const role = await getWorkspaceRole(actor.workspace.id, actor.user.id);
     const notifications = await prisma.notification.count({
-      where: { workspaceId: actor.workspace.id, userId: actor.user.id, readAt: null }
+      where: assignedInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
     });
 
     return { workspace: actor.workspace, user, role, unreadNotifications: notifications };

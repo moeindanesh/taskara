@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
+import { TASK_ASSIGNED_NOTIFICATION_TYPE } from './notifications';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
@@ -19,9 +20,9 @@ export const taskInclude = {
       team: { select: { id: true, name: true, slug: true } }
     }
   },
-  assignee: { select: { id: true, name: true, email: true, mattermostUsername: true } },
-  reporter: { select: { id: true, name: true, email: true, mattermostUsername: true } },
-  attachments: { orderBy: { createdAt: 'asc' } },
+  assignee: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
+  reporter: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
+  attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
   _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
 } satisfies Prisma.TaskInclude;
@@ -95,7 +96,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput) {
         workspaceId: actor.workspace.id,
         userId: task.assigneeId,
         taskId: task.id,
-        type: 'task_assigned',
+        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
         title: `${task.key}: ${task.title}`,
         body: `${actor.user.name} assigned this task to you.`
       }
@@ -144,11 +145,26 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
   if (!existing) throw new Error('Task not found in this workspace');
 
   const task = await prisma.$transaction(async (tx) => {
-    await assertTaskRelations(tx, actor.workspace.id, input, existing.projectId, taskId);
+    const targetProjectId = input.projectId ?? existing.projectId;
+    const isProjectChange = targetProjectId !== existing.projectId;
+
+    if (isProjectChange) {
+      const targetProject = await tx.project.findFirst({
+        where: { id: targetProjectId, workspaceId: actor.workspace.id },
+        select: { id: true }
+      });
+      if (!targetProject) throw new HttpError(400, 'Project not found in this workspace');
+    }
+
+    await assertTaskRelations(tx, actor.workspace.id, input, targetProjectId, taskId);
+    const reservedKey = isProjectChange ? await reserveTaskKey(tx, targetProjectId) : null;
 
     const updated = await tx.task.update({
       where: { id: taskId },
       data: {
+        projectId: isProjectChange ? targetProjectId : undefined,
+        key: reservedKey?.key,
+        sequence: reservedKey?.sequence,
         title: input.title,
         description: input.description === undefined ? undefined : input.description,
         status: input.status,
@@ -183,13 +199,13 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
     source: actor.source
   });
 
-  if (input.assigneeId && input.assigneeId !== existing.assigneeId) {
+  if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
     await prisma.notification.create({
       data: {
         workspaceId: actor.workspace.id,
         userId: input.assigneeId,
         taskId: task.id,
-        type: 'task_assigned',
+        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
         title: `${task.key}: ${task.title}`,
         body: `${actor.user.name} assigned this task to you.`
       }
@@ -197,6 +213,29 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
   }
 
   return task;
+}
+
+export async function deleteTask(actor: RequestActor, taskId: string) {
+  const existing = await prisma.task.findFirst({
+    where: { id: taskId, workspaceId: actor.workspace.id },
+    include: taskInclude
+  });
+  if (!existing) throw new Error('Task not found in this workspace');
+
+  await prisma.task.delete({ where: { id: taskId } });
+
+  await logActivity({
+    workspaceId: actor.workspace.id,
+    actorId: actor.user.id,
+    actorType: actor.actorType,
+    entityType: 'task',
+    entityId: existing.id,
+    action: 'deleted',
+    before: existing,
+    source: actor.source
+  });
+
+  return existing;
 }
 
 export async function addTaskComment(actor: RequestActor, taskId: string, body: string, source: TaskSource, mattermostPostId?: string) {
@@ -211,7 +250,10 @@ export async function addTaskComment(actor: RequestActor, taskId: string, body: 
       source,
       mattermostPostId
     },
-    include: { author: { select: { id: true, name: true, email: true } } }
+    include: {
+      author: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      attachments: { orderBy: { createdAt: 'asc' } }
+    }
   });
 
   await logActivity({
@@ -303,11 +345,26 @@ export function serializeForJson<T>(value: T): T {
 }
 
 export function serializeTaskForResponse<T extends Record<string, unknown>>(task: T): T {
-  if (!Array.isArray(task.attachments)) return task;
-  return {
-    ...task,
-    attachments: task.attachments.map((attachment) =>
+  const taskRecord = task as Record<string, unknown>;
+  const serialized: Record<string, unknown> = { ...taskRecord };
+
+  if (Array.isArray(taskRecord.attachments)) {
+    serialized.attachments = taskRecord.attachments.map((attachment) =>
       serializeTaskAttachment(attachment as Parameters<typeof serializeTaskAttachment>[0])
-    )
-  };
+    );
+  }
+  if (Array.isArray(taskRecord.comments)) {
+    serialized.comments = taskRecord.comments.map((comment) => {
+      if (!comment || typeof comment !== 'object' || !('attachments' in comment)) return comment;
+      const typedComment = comment as Record<string, unknown>;
+      if (!Array.isArray(typedComment.attachments)) return comment;
+      return {
+        ...typedComment,
+        attachments: typedComment.attachments.map((attachment) =>
+          serializeTaskAttachment(attachment as Parameters<typeof serializeTaskAttachment>[0])
+        )
+      };
+    });
+  }
+  return serialized as T;
 }
