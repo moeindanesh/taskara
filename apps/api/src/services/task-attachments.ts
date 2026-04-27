@@ -1,10 +1,28 @@
-import { prisma, type TaskAttachment } from '@taskara/db';
+import { prisma, type Prisma, type SyncEvent, type TaskAttachment } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMediaUrl, uploadMediaToCdn, type MediaUploadInput } from './media';
+import { appendSyncEvent, publishSyncEvent } from './sync';
 
 export type TaskAttachmentResponse = TaskAttachment & { url: string };
+
+const taskAttachmentSyncInclude = {
+  project: {
+    select: {
+      id: true,
+      name: true,
+      keyPrefix: true,
+      parentId: true,
+      team: { select: { id: true, name: true, slug: true } }
+    }
+  },
+  assignee: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
+  reporter: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
+  attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
+  labels: { include: { label: true } },
+  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+} satisfies Prisma.TaskInclude;
 
 export function serializeTaskAttachment(attachment: TaskAttachment): TaskAttachmentResponse {
   return {
@@ -32,18 +50,38 @@ export async function createTaskAttachment(
   if (commentId) await ensureCommentForTask(taskId, commentId);
 
   const media = await uploadMediaToCdn(upload);
-  const attachment = await prisma.taskAttachment.create({
-    data: {
-      taskId,
-      commentId,
-      name: media.name,
-      documentId: media.documentId,
-      object: media.object,
-      mimeType: media.mimeType,
-      sizeBytes: media.sizeBytes
-    }
+  let syncEvent: SyncEvent | null = null;
+  const attachment = await prisma.$transaction(async (tx) => {
+    const attachment = await tx.taskAttachment.create({
+      data: {
+        taskId,
+        commentId,
+        name: media.name,
+        documentId: media.documentId,
+        object: media.object,
+        mimeType: media.mimeType,
+        sizeBytes: media.sizeBytes
+      }
+    });
+    const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: taskId }, include: taskAttachmentSyncInclude });
+    const response = serializeTaskAttachment(attachment);
+    syncEvent = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'task',
+      entityId: taskId,
+      operation: commentId ? 'comment_attachment_added' : 'attachment_added',
+      entityVersion: updatedTask.version,
+      actorId: actor.user.id,
+      payload: {
+        attachment: response,
+        after: serializeTaskSnapshot(updatedTask),
+        changedFields: commentId ? ['comments', 'attachments'] : ['attachments']
+      }
+    });
+    return attachment;
   });
   const response = serializeTaskAttachment(attachment);
+  if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -54,7 +92,7 @@ export async function createTaskAttachment(
     action: commentId ? 'comment_attachment_added' : 'attachment_added',
     after: response,
     source: actor.source
-  });
+  }).catch(() => undefined);
 
   return response;
 }
@@ -75,4 +113,15 @@ async function ensureCommentForTask(taskId: string, commentId: string) {
   });
   if (!comment) throw new HttpError(404, 'Comment not found for this task');
   return comment;
+}
+
+function serializeTaskSnapshot<T extends Record<string, unknown>>(task: T): T {
+  const taskRecord = task as Record<string, unknown>;
+  if (!Array.isArray(taskRecord.attachments)) return task;
+  return {
+    ...taskRecord,
+    attachments: taskRecord.attachments.map((attachment) =>
+      serializeTaskAttachment(attachment as Parameters<typeof serializeTaskAttachment>[0])
+    )
+  } as unknown as T;
 }

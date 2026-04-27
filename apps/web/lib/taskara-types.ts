@@ -29,6 +29,9 @@ export interface TaskaraTask {
    } | null;
    assignee?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    reporter?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   version?: number;
+   syncState?: 'pending';
+   syncMutationId?: string;
    attachments?: TaskaraAttachment[];
    comments?: TaskaraTaskComment[];
    subtasks?: Array<{ id: string; key: string; title: string; status: string }>;

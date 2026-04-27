@@ -11,11 +11,13 @@ import { registerMattermostRoutes } from './routes/mattermost';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProjectRoutes } from './routes/projects';
 import { registerSystemRoutes } from './routes/system';
+import { registerSyncRoutes } from './routes/sync';
 import { registerTaskRoutes } from './routes/tasks';
 import { registerTeamRoutes } from './routes/teams';
 import { registerUserRoutes } from './routes/users';
 import { registerViewRoutes } from './routes/views';
 import { HttpError } from './services/http';
+import { startSyncEventPoller } from './services/sync';
 
 export async function registerApp(app: FastifyInstance): Promise<void> {
   const allowedOrigins = new Set([
@@ -56,6 +58,7 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerSystemRoutes);
   await app.register(registerNotificationRoutes);
   await app.register(registerMediaRoutes);
+  await app.register(registerSyncRoutes);
   await app.register(registerTeamRoutes);
   await app.register(registerUserRoutes);
   await app.register(registerProjectRoutes);
@@ -63,4 +66,6 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerViewRoutes);
   await app.register(registerMattermostRoutes);
   await app.register(registerAgentRoutes);
+
+  startSyncEventPoller();
 }

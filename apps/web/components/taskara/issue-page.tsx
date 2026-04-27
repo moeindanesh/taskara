@@ -29,6 +29,7 @@ import {
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment, uploadTaskCommentAttachment } from '@/lib/taskara-client';
+import { sendTaskSyncMutation, useTaskSyncPulse } from '@/lib/task-sync';
 import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
 import type {
    PaginatedResponse,
@@ -69,6 +70,29 @@ function getIssueReturnPath(state: unknown): string | null {
    if (!from || typeof from.pathname !== 'string' || !from.pathname.startsWith('/')) return null;
 
    return `${from.pathname}${from.search || ''}${from.hash || ''}`;
+}
+
+function applyIssuePatch(task: TaskaraTask, patch: TaskUpdatePatch, users: TaskaraUser[]): TaskaraTask {
+   const { assigneeId: _assigneeId, ...scalarPatch } = patch;
+   const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
+
+   if ('assigneeId' in patch) {
+      const assignee = patch.assigneeId ? users.find((user) => user.id === patch.assigneeId) || null : null;
+      next.assignee = assignee
+         ? {
+              id: assignee.id,
+              name: assignee.name,
+              email: assignee.email,
+              avatarUrl: assignee.avatarUrl,
+           }
+         : null;
+   }
+
+   if (patch.status) {
+      next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
+   }
+
+   return next;
 }
 
 export function IssuePage() {
@@ -149,6 +173,10 @@ export function IssuePage() {
       void load();
    }, [load]);
 
+   useTaskSyncPulse(() => {
+      void load();
+   }, Boolean(taskKey));
+
    useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
          if (event.key !== 'Escape') return;
@@ -161,15 +189,21 @@ export function IssuePage() {
 
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
+      const previous = task;
+      const optimistic = applyIssuePatch(task, patch, users);
+      setTask(optimistic);
       try {
-         const updated = await taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(task.key)}`, {
-            method: 'PATCH',
-            body: JSON.stringify(patch),
+         const { entity: updated } = await sendTaskSyncMutation<TaskaraTask>('task.update', {
+            idOrKey: task.key,
+            baseVersion: task.version,
+            patch,
          });
+         if (!updated) throw new Error(fa.issue.updateFailed);
          setTask((current) => (current ? { ...current, ...updated } : updated));
          await loadActivity(task.key);
          return updated;
       } catch (err) {
+         setTask(previous);
          toast.error(err instanceof Error ? err.message : fa.issue.updateFailed);
          return null;
       }
@@ -256,10 +290,12 @@ export function IssuePage() {
 
       setCommentSubmitting(true);
       try {
-         const comment = await taskaraRequest<TaskaraTaskComment>(`/tasks/${encodeURIComponent(task.key)}/comments`, {
-            method: 'POST',
-            body: JSON.stringify({ body, source: 'WEB' }),
+         const { entity: comment } = await sendTaskSyncMutation<TaskaraTaskComment>('task.comment.create', {
+            idOrKey: task.key,
+            body,
+            source: 'WEB',
          });
+         if (!comment) throw new Error(fa.issue.commentFailed);
          let uploaded: TaskaraAttachment[] = [];
          if (commentFiles.length) {
             try {

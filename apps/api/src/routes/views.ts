@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@taskara/db';
+import { prisma, type SyncEvent } from '@taskara/db';
 import {
   createTaskViewSchema,
   taskViewQuerySchema,
@@ -7,6 +7,7 @@ import {
   updateTaskViewSchema
 } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
+import { appendSyncEvent, publishSyncEvent } from '../services/sync';
 
 function serializeView(view: {
   id: string;
@@ -50,15 +51,28 @@ export async function registerViewRoutes(app: FastifyInstance): Promise<void> {
   app.post('/views', async (request, reply) => {
     const actor = await getRequestActor(request);
     const input = createTaskViewSchema.parse(request.body);
-    const view = await prisma.view.create({
-      data: {
+    let syncEvent: SyncEvent | null = null;
+    const view = await prisma.$transaction(async (tx) => {
+      const view = await tx.view.create({
+        data: {
+          workspaceId: actor.workspace.id,
+          ownerId: actor.user.id,
+          name: input.name,
+          filters: input.state,
+          isShared: input.isShared
+        }
+      });
+      syncEvent = await appendSyncEvent(tx, {
         workspaceId: actor.workspace.id,
-        ownerId: actor.user.id,
-        name: input.name,
-        filters: input.state,
-        isShared: input.isShared
-      }
+        entityType: 'view',
+        entityId: view.id,
+        operation: 'created',
+        actorId: actor.user.id,
+        payload: { after: serializeView(view), changedFields: Object.keys(input) }
+      });
+      return view;
     });
+    if (syncEvent) publishSyncEvent(syncEvent);
 
     return reply.code(201).send(serializeView(view));
   });
@@ -77,14 +91,27 @@ export async function registerViewRoutes(app: FastifyInstance): Promise<void> {
 
     if (!existing) return reply.code(404).send({ message: 'View not found' });
 
-    const view = await prisma.view.update({
-      where: { id },
-      data: {
-        name: input.name,
-        isShared: input.isShared,
-        filters: input.state
-      }
+    let syncEvent: SyncEvent | null = null;
+    const view = await prisma.$transaction(async (tx) => {
+      const view = await tx.view.update({
+        where: { id },
+        data: {
+          name: input.name,
+          isShared: input.isShared,
+          filters: input.state
+        }
+      });
+      syncEvent = await appendSyncEvent(tx, {
+        workspaceId: actor.workspace.id,
+        entityType: 'view',
+        entityId: view.id,
+        operation: 'updated',
+        actorId: actor.user.id,
+        payload: { before: serializeView(existing), after: serializeView(view), changedFields: Object.keys(input) }
+      });
+      return view;
     });
+    if (syncEvent) publishSyncEvent(syncEvent);
 
     return serializeView(view);
   });
@@ -102,7 +129,19 @@ export async function registerViewRoutes(app: FastifyInstance): Promise<void> {
 
     if (!existing) return reply.code(404).send({ message: 'View not found' });
 
-    await prisma.view.delete({ where: { id } });
+    let syncEvent: SyncEvent | null = null;
+    await prisma.$transaction(async (tx) => {
+      await tx.view.delete({ where: { id } });
+      syncEvent = await appendSyncEvent(tx, {
+        workspaceId: actor.workspace.id,
+        entityType: 'view',
+        entityId: existing.id,
+        operation: 'deleted',
+        actorId: actor.user.id,
+        payload: { before: serializeView(existing), changedFields: ['deleted'] }
+      });
+    });
+    if (syncEvent) publishSyncEvent(syncEvent);
     return reply.code(204).send();
   });
 }

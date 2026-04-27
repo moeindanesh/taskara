@@ -421,6 +421,49 @@ model Notification {
   @@index([userId, readAt])
 }
 
+model WorkspaceSyncState {
+  workspaceId String   @id @db.Uuid
+  nextSeq     BigInt   @default(1)
+  updatedAt   DateTime @updatedAt
+}
+
+model SyncEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid
+  workspaceSeq  BigInt
+  entityType    String
+  entityId      String   @db.Uuid
+  operation     String
+  entityVersion Int?
+  actorId       String?  @db.Uuid
+  clientId      String?
+  mutationId    String?
+  payload       Json
+  createdAt     DateTime @default(now())
+
+  @@unique([workspaceId, workspaceSeq])
+  @@index([workspaceId, entityType, entityId])
+  @@index([workspaceId, clientId, mutationId])
+}
+
+model ClientMutation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workspaceId        String   @db.Uuid
+  userId             String   @db.Uuid
+  clientId           String
+  mutationId         String
+  name               String
+  status             String
+  resultWorkspaceSeq BigInt?
+  errorCode          String?
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([workspaceId, clientId, mutationId])
+  @@index([workspaceId, userId, createdAt])
+}
+
 model ActivityLog {
   id          String    @id @default(uuid()) @db.Uuid
   workspaceId String   @db.Uuid

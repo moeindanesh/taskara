@@ -1,4 +1,4 @@
-import { prisma, type Prisma, type Task, type TaskSource } from '@taskara/db';
+import { prisma, type Prisma, type SyncEvent, type Task, type TaskSource } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { logActivity, snapshot } from './audit';
 import type { z } from 'zod';
@@ -6,6 +6,7 @@ import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
 import { TASK_ASSIGNED_NOTIFICATION_TYPE } from './notifications';
+import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
@@ -41,7 +42,8 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
   });
 }
 
-export async function createTask(actor: RequestActor, input: CreateTaskInput) {
+export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
+  let syncEvent: SyncEvent | null = null;
   const task = await prisma.$transaction(async (tx) => {
     const project = await tx.project.findFirst({
       where: { id: input.projectId, workspaceId: actor.workspace.id },
@@ -76,8 +78,24 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput) {
     });
 
     await syncTaskLabels(tx, actor.workspace.id, created.id, input.labels);
-    return tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
+    const task = await tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
+    syncEvent = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'task',
+      entityId: task.id,
+      operation: 'created',
+      entityVersion: task.version,
+      actorId: actor.user.id,
+      payload: {
+        after: serializeTaskForResponse(task),
+        changedFields: Object.keys(input)
+      },
+      mutation: syncMutation
+    });
+    return task;
   });
+
+  if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -88,7 +106,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput) {
     action: 'created',
     after: task,
     source: input.source
-  });
+  }).catch(() => undefined);
 
   if (task.assigneeId && task.assigneeId !== actor.user.id) {
     await prisma.notification.create({
@@ -100,7 +118,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput) {
         title: `${task.key}: ${task.title}`,
         body: `${actor.user.name} assigned this task to you.`
       }
-    });
+    }).catch(() => undefined);
   }
 
   return task;
@@ -137,13 +155,21 @@ async function reserveTaskKey(
   };
 }
 
-export async function updateTask(actor: RequestActor, taskId: string, input: UpdateTaskInput) {
+export async function updateTask(
+  actor: RequestActor,
+  taskId: string,
+  input: UpdateTaskInput,
+  syncMutation?: SyncMutationMeta,
+  baseVersion?: number
+) {
   const existing = await prisma.task.findFirst({
     where: { id: taskId, workspaceId: actor.workspace.id },
     include: taskInclude
   });
   if (!existing) throw new Error('Task not found in this workspace');
+  await assertNoConflictingTaskUpdate(actor.workspace.id, taskId, input, existing.version, baseVersion);
 
+  let syncEvent: SyncEvent | null = null;
   const task = await prisma.$transaction(async (tx) => {
     const targetProjectId = input.projectId ?? existing.projectId;
     const isProjectChange = targetProjectId !== existing.projectId;
@@ -184,8 +210,25 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
       await syncTaskLabels(tx, actor.workspace.id, taskId, input.labels);
     }
 
-    return tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
+    const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
+    syncEvent = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'task',
+      entityId: task.id,
+      operation: 'updated',
+      entityVersion: task.version,
+      actorId: actor.user.id,
+      payload: {
+        before: serializeTaskForResponse(existing),
+        after: serializeTaskForResponse(task),
+        changedFields: Object.keys(input)
+      },
+      mutation: syncMutation
+    });
+    return task;
   });
+
+  if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -197,7 +240,7 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
     before: existing,
     after: task,
     source: actor.source
-  });
+  }).catch(() => undefined);
 
   if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
     await prisma.notification.create({
@@ -209,20 +252,39 @@ export async function updateTask(actor: RequestActor, taskId: string, input: Upd
         title: `${task.key}: ${task.title}`,
         body: `${actor.user.name} assigned this task to you.`
       }
-    });
+    }).catch(() => undefined);
   }
 
   return task;
 }
 
-export async function deleteTask(actor: RequestActor, taskId: string) {
-  const existing = await prisma.task.findFirst({
-    where: { id: taskId, workspaceId: actor.workspace.id },
-    include: taskInclude
-  });
-  if (!existing) throw new Error('Task not found in this workspace');
+export async function deleteTask(actor: RequestActor, taskId: string, syncMutation?: SyncMutationMeta) {
+  let syncEvent: SyncEvent | null = null;
+  const existing = await prisma.$transaction(async (tx) => {
+    const existing = await tx.task.findFirst({
+      where: { id: taskId, workspaceId: actor.workspace.id },
+      include: taskInclude
+    });
+    if (!existing) throw new Error('Task not found in this workspace');
 
-  await prisma.task.delete({ where: { id: taskId } });
+    await tx.task.delete({ where: { id: taskId } });
+    syncEvent = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'task',
+      entityId: existing.id,
+      operation: 'deleted',
+      entityVersion: existing.version,
+      actorId: actor.user.id,
+      payload: {
+        before: serializeTaskForResponse(existing),
+        changedFields: ['deleted']
+      },
+      mutation: syncMutation
+    });
+    return existing;
+  });
+
+  if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -233,28 +295,56 @@ export async function deleteTask(actor: RequestActor, taskId: string) {
     action: 'deleted',
     before: existing,
     source: actor.source
-  });
+  }).catch(() => undefined);
 
   return existing;
 }
 
-export async function addTaskComment(actor: RequestActor, taskId: string, body: string, source: TaskSource, mattermostPostId?: string) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId: actor.workspace.id } });
-  if (!task) throw new Error('Task not found in this workspace');
+export async function addTaskComment(
+  actor: RequestActor,
+  taskId: string,
+  body: string,
+  source: TaskSource,
+  mattermostPostId?: string,
+  syncMutation?: SyncMutationMeta
+) {
+  let syncEvent: SyncEvent | null = null;
+  const { task, comment } = await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findFirst({ where: { id: taskId, workspaceId: actor.workspace.id } });
+    if (!task) throw new Error('Task not found in this workspace');
 
-  const comment = await prisma.taskComment.create({
-    data: {
-      taskId,
-      authorId: actor.user.id,
-      body,
-      source,
-      mattermostPostId
-    },
-    include: {
-      author: { select: { id: true, name: true, email: true, avatarUrl: true } },
-      attachments: { orderBy: { createdAt: 'asc' } }
-    }
+    const comment = await tx.taskComment.create({
+      data: {
+        taskId,
+        authorId: actor.user.id,
+        body,
+        source,
+        mattermostPostId
+      },
+      include: {
+        author: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        attachments: { orderBy: { createdAt: 'asc' } }
+      }
+    });
+    const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    syncEvent = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'task',
+      entityId: task.id,
+      operation: 'commented',
+      entityVersion: updatedTask.version,
+      actorId: actor.user.id,
+      payload: {
+        comment: serializeForJson(comment),
+        after: serializeTaskForResponse(updatedTask),
+        changedFields: ['comments']
+      },
+      mutation: syncMutation
+    });
+    return { task, comment };
   });
+
+  if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -265,7 +355,7 @@ export async function addTaskComment(actor: RequestActor, taskId: string, body: 
     action: 'commented',
     after: comment,
     source
-  });
+  }).catch(() => undefined);
 
   return comment;
 }
@@ -338,6 +428,58 @@ async function assertTaskRelations(
   if (input.assigneeId && !assignee) throw new HttpError(400, 'Assignee must belong to this workspace');
   if (input.parentId && !parent) throw new HttpError(400, 'Parent task not found in this project');
   if (input.cycleId && !cycle) throw new HttpError(400, 'Cycle not found for this project');
+}
+
+async function assertNoConflictingTaskUpdate(
+  workspaceId: string,
+  taskId: string,
+  input: UpdateTaskInput,
+  currentVersion: number,
+  baseVersion?: number
+): Promise<void> {
+  if (baseVersion === undefined || baseVersion >= currentVersion) return;
+
+  const changedFields = new Set(Object.keys(input));
+  if (changedFields.size === 0) return;
+
+  const remoteEvents = await prisma.syncEvent.findMany({
+    where: {
+      workspaceId,
+      entityType: 'task',
+      entityId: taskId,
+      entityVersion: { gt: baseVersion },
+      operation: { in: ['updated', 'deleted'] }
+    },
+    select: { operation: true, payload: true }
+  });
+
+  if (hasTaskFieldConflict([...changedFields], remoteEvents)) {
+    throw new HttpError(409, 'Task changed on another client');
+  }
+}
+
+export function hasTaskFieldConflict(
+  localChangedFields: string[],
+  remoteEvents: Array<{ operation: string; payload: unknown }>
+): boolean {
+  const changedFields = new Set(localChangedFields);
+  for (const event of remoteEvents) {
+    if (event.operation === 'deleted') {
+      return true;
+    }
+
+    const remoteChangedFields = syncEventChangedFields(event.payload);
+    if (remoteChangedFields.some((field) => changedFields.has(field))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function syncEventChangedFields(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object' || !('changedFields' in payload)) return [];
+  const changedFields = (payload as { changedFields?: unknown }).changedFields;
+  return Array.isArray(changedFields) ? changedFields.filter((field): field is string => typeof field === 'string') : [];
 }
 
 export function serializeForJson<T>(value: T): T {

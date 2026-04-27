@@ -73,9 +73,9 @@ import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-pick
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTimeInput } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
+import { useTaskSync, type TaskUpdatePatch } from '@/lib/task-sync';
 import { useAuthSession } from '@/store/auth-store';
 import type {
-   PaginatedResponse,
    TaskViewCompletedIssues,
    TaskViewDisplayProperty,
    TaskViewGrouping,
@@ -111,17 +111,6 @@ const initialTaskForm = {
 type SystemViewKey = 'all' | 'active' | 'backlog';
 type ActiveViewKey = `system:${SystemViewKey}` | string;
 type MenuAnchor = { bottom: number; left: number; right: number; top: number; width: number; height: number };
-
-type TaskUpdatePatch = {
-   title?: string;
-   description?: string | null;
-   projectId?: string;
-   status?: string;
-   priority?: string;
-   assigneeId?: string | null;
-   dueAt?: string | null;
-   labels?: string[];
-};
 
 type FilterSection = 'status' | 'assignee' | 'priority' | 'project' | 'labels';
 type FilterMenuSection = FilterSection | 'content';
@@ -413,11 +402,21 @@ export function TasksView() {
    const currentTeamKey = activeTeamSlug || currentTeamFallback;
    const isMyIssuesView = currentTeamKey === currentTeamFallback;
    const currentUserId = session?.user.id || null;
+   const taskSync = useTaskSync({ workspaceSlug: orgId || 'taskara', teamId: activeTeamSlug || 'all', mine: isMyIssuesView });
+   const {
+      tasks,
+      projects,
+      teams,
+      users,
+      views: syncedViews,
+      loading,
+      error,
+      refresh: load,
+      createTask: createSyncedTask,
+      updateTask: updateSyncedTask,
+      deleteTask: deleteSyncedTask,
+   } = taskSync;
 
-   const [tasks, setTasks] = useState<TaskaraTask[]>([]);
-   const [projects, setProjects] = useState<TaskaraProject[]>([]);
-   const [teams, setTeams] = useState<TaskaraTeam[]>([]);
-   const [users, setUsers] = useState<TaskaraUser[]>([]);
    const [views, setViews] = useState<TaskaraView[]>([]);
    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
    const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
@@ -428,8 +427,6 @@ export function TasksView() {
    const [composerFiles, setComposerFiles] = useState<File[]>([]);
    const [composerSubmitting, setComposerSubmitting] = useState(false);
    const [composerDraggingFiles, setComposerDraggingFiles] = useState(false);
-   const [error, setError] = useState('');
-   const [loading, setLoading] = useState(true);
    const [isPending, startTransition] = useTransition();
    const [activeViewKey, setActiveViewKey] = useState<ActiveViewKey>('system:active');
    const [draftView, setDraftView] = useState<TaskaraTaskViewState>(() =>
@@ -516,10 +513,23 @@ export function TasksView() {
       setHighlightedIndex(null);
    }, [currentTeamKey]);
 
+   useEffect(() => {
+      setViews(syncedViews);
+   }, [syncedViews]);
+
    const scopedProjects = useMemo(
       () => (activeTeamSlug ? projects.filter((project) => project.team?.slug === activeTeamSlug) : projects),
       [activeTeamSlug, projects]
    );
+
+   useEffect(() => {
+      setForm((current) => ({
+         ...current,
+         projectId: scopedProjects.some((project) => project.id === current.projectId)
+            ? current.projectId
+            : scopedProjects[0]?.id || '',
+      }));
+   }, [scopedProjects]);
 
    const activeTeam = useMemo(
       () => (activeTeamSlug ? teams.find((team) => team.slug === activeTeamSlug) || null : null),
@@ -540,6 +550,10 @@ export function TasksView() {
       },
       [activeTeamSlug, currentUserId, isMyIssuesView, tasks]
    );
+
+   useEffect(() => {
+      setSelectedTaskId((current) => (current && scopedTasks.some((task) => task.id === current) ? current : null));
+   }, [scopedTasks]);
 
    const labelOptions = useMemo(() => {
       const map = new Map<string, string>();
@@ -667,65 +681,6 @@ export function TasksView() {
       }),
       [scopedTasks]
    );
-
-   const load = useCallback(async () => {
-      setError('');
-      setLoading(true);
-      try {
-         const taskQuery = new URLSearchParams({ limit: '100' });
-         if (activeTeamSlug) {
-            taskQuery.set('teamId', activeTeamSlug);
-         } else {
-            taskQuery.set('mine', 'true');
-         }
-         const tasksPath = `/tasks?${taskQuery.toString()}`;
-         const [tasksResult, projectsResult, teamsResult, usersResult, viewsResult] = await Promise.all([
-            taskaraRequest<PaginatedResponse<TaskaraTask>>(tasksPath),
-            taskaraRequest<TaskaraProject[]>('/projects'),
-            taskaraRequest<TaskaraTeam[]>('/teams'),
-            taskaraRequest<PaginatedResponse<TaskaraUser>>('/users?limit=100').catch(() => ({
-               items: [],
-               total: 0,
-               limit: 0,
-               offset: 0,
-            })),
-            taskaraRequest<TaskaraView[]>(`/views?scope=tasks&teamId=${encodeURIComponent(currentTeamKey)}`).catch(
-               () => []
-            ),
-         ]);
-
-         setTasks(tasksResult.items);
-         setProjects(projectsResult);
-         setTeams(teamsResult);
-         setUsers(usersResult.items);
-         setViews(viewsResult);
-
-         const nextProjects = activeTeamSlug
-            ? projectsResult.filter((project) => project.team?.slug === activeTeamSlug)
-            : projectsResult;
-         const nextTasks = activeTeamSlug
-            ? tasksResult.items.filter((task) => task.project?.team?.slug === activeTeamSlug)
-            : tasksResult.items;
-
-         setForm((current) => ({
-            ...current,
-            projectId: nextProjects.some((project) => project.id === current.projectId)
-               ? current.projectId
-               : nextProjects[0]?.id || '',
-         }));
-         setSelectedTaskId((current) =>
-            current && nextTasks.some((task) => task.id === current) ? current : null
-         );
-      } catch (err) {
-         setError(err instanceof Error ? err.message : fa.issue.loadFailed);
-      } finally {
-         setLoading(false);
-      }
-   }, [activeTeamSlug, currentTeamKey]);
-
-   useEffect(() => {
-      void load();
-   }, [load]);
 
    const openComposer = useCallback((fullscreen = false) => {
       setComposerFullscreen(fullscreen);
@@ -907,25 +862,25 @@ export function TasksView() {
       try {
          setComposerSubmitting(true);
          const filesToUpload = composerFiles;
-         const createdTask = await taskaraRequest<TaskaraTask>('/tasks', {
-            method: 'POST',
-            body: JSON.stringify({
-               projectId: form.projectId,
-               title: form.title.trim(),
-               description: form.description.trim() || undefined,
-               status: form.status,
-               priority: form.priority,
-               assigneeId: form.assigneeId || undefined,
-               dueAt: form.dueAt || undefined,
-               labels: form.labels
-                  .split(',')
-                  .map((label) => label.trim())
-                  .filter(Boolean),
-               source: 'WEB',
-            }),
+         const createdTask = await createSyncedTask({
+            projectId: form.projectId,
+            title: form.title.trim(),
+            description: form.description.trim() || undefined,
+            status: form.status,
+            priority: form.priority,
+            assigneeId: form.assigneeId || undefined,
+            dueAt: form.dueAt || undefined,
+            labels: form.labels
+               .split(',')
+               .map((label) => label.trim())
+               .filter(Boolean),
+            source: 'WEB',
          });
 
-         if (filesToUpload.length) {
+         const createdLocally = createdTask.syncState === 'pending';
+         if (filesToUpload.length && createdLocally) {
+            toast.error('پس از همگام‌سازی کار، فایل‌ها را دوباره پیوست کنید.');
+         } else if (filesToUpload.length) {
             const uploadResults = await Promise.allSettled(
                filesToUpload.map((file) => uploadTaskAttachment(createdTask.key || createdTask.id, file))
             );
@@ -954,9 +909,6 @@ export function TasksView() {
             priority: 'NO_PRIORITY',
          });
          if (!createMore) setComposerOpen(false);
-         startTransition(() => {
-            void load();
-         });
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.createFailed);
       } finally {
@@ -965,28 +917,8 @@ export function TasksView() {
    }
 
    async function updateTask(task: TaskaraTask, patch: TaskUpdatePatch) {
-      const patchKeys = Object.keys(patch);
-      const isDueAtOnlyUpdate = patchKeys.length === 1 && patchKeys[0] === 'dueAt';
-
       try {
-         const updated = await taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(task.key)}`, {
-            method: 'PATCH',
-            body: JSON.stringify(patch),
-         });
-         setTasks((current) =>
-            current.map((item) =>
-               item.id === updated.id
-                  ? isDueAtOnlyUpdate
-                    ? { ...item, dueAt: updated.dueAt }
-                    : { ...item, ...updated }
-                  : item
-            )
-         );
-         if (!isDueAtOnlyUpdate) {
-            startTransition(() => {
-               void load();
-            });
-         }
+         await updateSyncedTask(task, patch);
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.updateFailed);
       }
@@ -996,14 +928,10 @@ export function TasksView() {
       if (!window.confirm(`${fa.issue.deleteConfirm}\n${task.key} ${task.title}`)) return;
 
       try {
-         await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}`, { method: 'DELETE' });
-         setTasks((current) => current.filter((item) => item.id !== task.id));
+         await deleteSyncedTask(task);
          setSelectedTaskId((current) => (current === task.id ? null : current));
          setHighlightedIndex(null);
          toast.success(fa.issue.deleted);
-         startTransition(() => {
-            void load();
-         });
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.deleteFailed);
       }

@@ -20,14 +20,17 @@ export class TaskaraClientError extends Error {
    }
 }
 
-export async function taskaraRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function taskaraApiBaseUrl(): string {
+   return requiredViteEnv('VITE_TASKARA_API_URL').replace(/\/$/, '');
+}
+
+export function taskaraRequestHeaders(init: RequestInit = {}): Headers {
    const pathParts = typeof window !== 'undefined' ? window.location.pathname.split('/').filter(Boolean) : [];
    const publicRouteRoots = new Set(['login', 'signup', 'onboarding', 'accept-invite']);
    const workspaceSlug =
       typeof window !== 'undefined' && pathParts[0] && !publicRouteRoots.has(pathParts[0])
          ? pathParts[0]
          : undefined;
-   const apiBaseUrl = requiredViteEnv('VITE_TASKARA_API_URL').replace(/\/$/, '');
 
    const headers = new Headers(init.headers);
    const token = getAuthToken();
@@ -36,6 +39,13 @@ export async function taskaraRequest<T>(path: string, init: RequestInit = {}): P
    if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('content-type')) {
       headers.set('content-type', 'application/json');
    }
+
+   return headers;
+}
+
+export async function taskaraRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+   const apiBaseUrl = taskaraApiBaseUrl();
+   const headers = taskaraRequestHeaders(init);
 
    const response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,

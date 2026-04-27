@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma, type Project } from '@taskara/db';
+import { prisma, type Project, type SyncEvent } from '@taskara/db';
 import { createProjectSchema, updateProjectSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
+import { appendSyncEvent, publishSyncEvent } from '../services/sync';
 
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
@@ -29,18 +30,30 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     const input = createProjectSchema.parse(request.body);
     await assertProjectRelations(actor.workspace.id, input);
 
+    let syncEvent: SyncEvent | null = null;
     let project: Project;
     try {
-      project = await prisma.project.create({
-        data: {
+      project = await prisma.$transaction(async (tx) => {
+        const project = await tx.project.create({
+          data: {
+            workspaceId: actor.workspace.id,
+            teamId: input.teamId,
+            parentId: input.parentId,
+            leadId: input.leadId,
+            name: input.name,
+            keyPrefix: input.keyPrefix,
+            description: input.description
+          }
+        });
+        syncEvent = await appendSyncEvent(tx, {
           workspaceId: actor.workspace.id,
-          teamId: input.teamId,
-          parentId: input.parentId,
-          leadId: input.leadId,
-          name: input.name,
-          keyPrefix: input.keyPrefix,
-          description: input.description
-        }
+          entityType: 'project',
+          entityId: project.id,
+          operation: 'created',
+          actorId: actor.user.id,
+          payload: { after: project, changedFields: Object.keys(input) }
+        });
+        return project;
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -48,6 +61,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       }
       throw error;
     }
+    if (syncEvent) publishSyncEvent(syncEvent);
 
     await logActivity({
       workspaceId: actor.workspace.id,
@@ -58,7 +72,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       action: 'created',
       after: project,
       source: actor.source
-    });
+    }).catch(() => undefined);
 
     return reply.code(201).send(project);
   });
@@ -86,11 +100,23 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     if (!existing) return reply.code(404).send({ message: 'Project not found' });
     await assertProjectRelations(actor.workspace.id, input, id);
 
+    let syncEvent: SyncEvent | null = null;
     let project: Project;
     try {
-      project = await prisma.project.update({
-        where: { id },
-        data: input
+      project = await prisma.$transaction(async (tx) => {
+        const project = await tx.project.update({
+          where: { id },
+          data: input
+        });
+        syncEvent = await appendSyncEvent(tx, {
+          workspaceId: actor.workspace.id,
+          entityType: 'project',
+          entityId: project.id,
+          operation: 'updated',
+          actorId: actor.user.id,
+          payload: { before: existing, after: project, changedFields: Object.keys(input) }
+        });
+        return project;
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -98,6 +124,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       }
       throw error;
     }
+    if (syncEvent) publishSyncEvent(syncEvent);
 
     await logActivity({
       workspaceId: actor.workspace.id,
@@ -109,7 +136,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       before: existing,
       after: project,
       source: actor.source
-    });
+    }).catch(() => undefined);
 
     return project;
   });
