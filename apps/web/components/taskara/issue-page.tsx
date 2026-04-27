@@ -59,6 +59,7 @@ type TaskUpdatePatch = {
    status?: string;
    priority?: string;
    assigneeId?: string | null;
+   projectId?: string | null;
    dueAt?: string | null;
 };
 
@@ -95,7 +96,7 @@ function applyIssuePatch(
    task: TaskaraTask,
    patch: TaskUpdatePatch,
    users: TaskaraUser[],
-   projects: IssueProjectOption[]
+   projects: TaskaraProject[]
 ): TaskaraTask {
    const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
@@ -109,6 +110,18 @@ function applyIssuePatch(
               email: assignee.email,
               phone: assignee.phone,
               avatarUrl: assignee.avatarUrl,
+           }
+         : null;
+   }
+
+   if ('projectId' in patch) {
+      const project = patch.projectId ? projects.find((item) => item.id === patch.projectId) || null : null;
+      next.project = project
+         ? {
+              id: project.id,
+              name: project.name,
+              keyPrefix: project.keyPrefix,
+              team: project.team || null,
            }
          : null;
    }
@@ -140,6 +153,7 @@ export function IssuePage() {
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [titleDraft, setTitleDraft] = useState('');
    const [descriptionDraft, setDescriptionDraft] = useState('');
    const [commentBody, setCommentBody] = useState('');
@@ -238,7 +252,7 @@ export function IssuePage() {
       }
       setError('');
       try {
-         const [taskResult, usersResult, activityResult] = await Promise.all([
+         const [taskResult, usersResult, projectsResult, activityResult] = await Promise.all([
             taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(taskKey)}`),
             syncUsers.length
                ? Promise.resolve({
@@ -253,12 +267,14 @@ export function IssuePage() {
                     limit: 0,
                     offset: 0,
                  })),
+            taskaraRequest<TaskaraProject[]>('/projects').catch(() => []),
             taskaraRequest<TaskaraActivity[]>(`/tasks/${encodeURIComponent(taskKey)}/activity`).catch(() => []),
          ]);
          setTask(taskResult);
          if (!titleFocusedRef.current) setTitleDraft(taskResult.title);
          if (!descriptionFocusedRef.current) setDescriptionDraft(taskResult.description || '');
          setUsers(usersResult.items);
+         setProjects(projectsResult);
          setActivities(activityResult);
       } catch (err) {
          if (!cachedTask) setError(err instanceof Error ? err.message : fa.issue.loadFailed);
@@ -288,7 +304,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
-      const optimistic = applyIssuePatch(task, patch, users, projectOptions);
+      const optimistic = applyIssuePatch(task, patch, users, projects);
       setTask(optimistic);
       try {
          const { entity: updated } = await sendTaskSyncMutation<TaskaraTask>('task.update', {
@@ -489,7 +505,10 @@ export function IssuePage() {
 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
-   const labels = task.labels || [];
+   const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+   const hasCurrentProjectOption = task.project?.id
+      ? sortedProjects.some((project) => project.id === task.project?.id)
+      : true;
 
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
@@ -734,6 +753,55 @@ export function IssuePage() {
                   </SidebarSelectRow>
                   <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-zinc-400">
                      <CalendarClock className="size-5 shrink-0 text-zinc-500" />
+                     </DetailSelect>
+                  </PropertyRow>
+                  <PropertyRow label={fa.issue.assignee}>
+                     <div className="flex min-w-0 items-center gap-2">
+                        <LinearAvatar
+                           name={task.assignee?.name}
+                           src={task.assignee?.avatarUrl}
+                           className="size-5 shrink-0"
+                        />
+                        <DetailSelect
+                           aria-label={fa.issue.assignee}
+                           className="min-w-0 flex-1"
+                           value={task.assignee?.id || ''}
+                           onChange={(event) => void updateTask({ assigneeId: event.target.value || null })}
+                        >
+                           <option value="">{fa.app.unset}</option>
+                           {users.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                 {user.name}
+                              </option>
+                           ))}
+                        </DetailSelect>
+                     </div>
+                  </PropertyRow>
+                  <PropertyRow label={fa.issue.project}>
+                     <DetailSelect
+                        aria-label={fa.issue.project}
+                        value={task.project?.id || ''}
+                        disabled={!sortedProjects.length}
+                        onChange={(event) => {
+                           if (!event.target.value) return;
+                           if (event.target.value === task.project?.id) return;
+                           void updateTask({ projectId: event.target.value });
+                        }}
+                     >
+                        {!task.project?.id ? (
+                           <option value="">{fa.app.unset}</option>
+                        ) : null}
+                        {!hasCurrentProjectOption && task.project?.id ? (
+                           <option value={task.project.id}>{task.project.name || fa.app.unknown}</option>
+                        ) : null}
+                        {sortedProjects.map((project) => (
+                           <option key={project.id} value={project.id}>
+                              {project.name}
+                           </option>
+                        ))}
+                     </DetailSelect>
+                  </PropertyRow>
+                  <PropertyRow label={fa.issue.dueAt}>
                      <LazyJalaliDatePicker
                         ariaLabel={fa.issue.dueAt}
                         value={task.dueAt || null}
