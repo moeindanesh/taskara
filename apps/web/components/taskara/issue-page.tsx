@@ -35,6 +35,7 @@ import type {
    PaginatedResponse,
    TaskaraActivity,
    TaskaraAttachment,
+   TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
    TaskaraUser,
@@ -47,6 +48,7 @@ type TaskUpdatePatch = {
    status?: string;
    priority?: string;
    assigneeId?: string | null;
+   projectId?: string | null;
    dueAt?: string | null;
 };
 
@@ -72,8 +74,13 @@ function getIssueReturnPath(state: unknown): string | null {
    return `${from.pathname}${from.search || ''}${from.hash || ''}`;
 }
 
-function applyIssuePatch(task: TaskaraTask, patch: TaskUpdatePatch, users: TaskaraUser[]): TaskaraTask {
-   const { assigneeId: _assigneeId, ...scalarPatch } = patch;
+function applyIssuePatch(
+   task: TaskaraTask,
+   patch: TaskUpdatePatch,
+   users: TaskaraUser[],
+   projects: TaskaraProject[]
+): TaskaraTask {
+   const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
 
    if ('assigneeId' in patch) {
@@ -84,6 +91,18 @@ function applyIssuePatch(task: TaskaraTask, patch: TaskUpdatePatch, users: Taska
               name: assignee.name,
               email: assignee.email,
               avatarUrl: assignee.avatarUrl,
+           }
+         : null;
+   }
+
+   if ('projectId' in patch) {
+      const project = patch.projectId ? projects.find((item) => item.id === patch.projectId) || null : null;
+      next.project = project
+         ? {
+              id: project.id,
+              name: project.name,
+              keyPrefix: project.keyPrefix,
+              team: project.team || null,
            }
          : null;
    }
@@ -102,6 +121,7 @@ export function IssuePage() {
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [titleDraft, setTitleDraft] = useState('');
    const [descriptionDraft, setDescriptionDraft] = useState('');
    const [commentBody, setCommentBody] = useState('');
@@ -147,7 +167,7 @@ export function IssuePage() {
       setLoading(true);
       setError('');
       try {
-         const [taskResult, usersResult, activityResult] = await Promise.all([
+         const [taskResult, usersResult, projectsResult, activityResult] = await Promise.all([
             taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(taskKey)}`),
             taskaraRequest<PaginatedResponse<TaskaraUser>>('/users?limit=100').catch(() => ({
                items: [],
@@ -155,12 +175,14 @@ export function IssuePage() {
                limit: 0,
                offset: 0,
             })),
+            taskaraRequest<TaskaraProject[]>('/projects').catch(() => []),
             taskaraRequest<TaskaraActivity[]>(`/tasks/${encodeURIComponent(taskKey)}/activity`).catch(() => []),
          ]);
          setTask(taskResult);
          setTitleDraft(taskResult.title);
          setDescriptionDraft(taskResult.description || '');
          setUsers(usersResult.items);
+         setProjects(projectsResult);
          setActivities(activityResult);
       } catch (err) {
          setError(err instanceof Error ? err.message : fa.issue.loadFailed);
@@ -190,7 +212,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
-      const optimistic = applyIssuePatch(task, patch, users);
+      const optimistic = applyIssuePatch(task, patch, users, projects);
       setTask(optimistic);
       try {
          const { entity: updated } = await sendTaskSyncMutation<TaskaraTask>('task.update', {
@@ -345,6 +367,10 @@ export function IssuePage() {
 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
+   const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+   const hasCurrentProjectOption = task.project?.id
+      ? sortedProjects.some((project) => project.id === task.project?.id)
+      : true;
 
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
@@ -541,7 +567,30 @@ export function IssuePage() {
                         </DetailSelect>
                      </div>
                   </PropertyRow>
-                  <PropertyRow label={fa.issue.project}>{task.project?.name || fa.app.unknown}</PropertyRow>
+                  <PropertyRow label={fa.issue.project}>
+                     <DetailSelect
+                        aria-label={fa.issue.project}
+                        value={task.project?.id || ''}
+                        disabled={!sortedProjects.length}
+                        onChange={(event) => {
+                           if (!event.target.value) return;
+                           if (event.target.value === task.project?.id) return;
+                           void updateTask({ projectId: event.target.value });
+                        }}
+                     >
+                        {!task.project?.id ? (
+                           <option value="">{fa.app.unset}</option>
+                        ) : null}
+                        {!hasCurrentProjectOption && task.project?.id ? (
+                           <option value={task.project.id}>{task.project.name || fa.app.unknown}</option>
+                        ) : null}
+                        {sortedProjects.map((project) => (
+                           <option key={project.id} value={project.id}>
+                              {project.name}
+                           </option>
+                        ))}
+                     </DetailSelect>
+                  </PropertyRow>
                   <PropertyRow label={fa.issue.dueAt}>
                      <LazyJalaliDatePicker
                         ariaLabel={fa.issue.dueAt}
