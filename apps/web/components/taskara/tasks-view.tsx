@@ -1130,6 +1130,13 @@ export function TasksView() {
          : 0;
    }, [activeSavedView, currentTeamKey, scopedTasks]);
 
+   const usersForAssignee = useMemo(() => {
+      if (!currentUserId) return users;
+      const currentUser = users.find((user) => user.id === currentUserId);
+      if (!currentUser) return users;
+      return [currentUser, ...users.filter((user) => user.id !== currentUserId)];
+   }, [currentUserId, users]);
+
    const activeFilterCount =
       draftView.status.length +
       draftView.assigneeIds.length +
@@ -1245,7 +1252,7 @@ export function TasksView() {
                               }}
                               onStatusChange={(task, status) => void updateTask(task, { status })}
                               onToggleCollapse={() => toggleGroup(group.key)}
-                              users={users}
+                              users={usersForAssignee}
                            />
                         ))}
                      </div>
@@ -1275,7 +1282,7 @@ export function TasksView() {
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onToggleCollapse={() => toggleGroup(group.key)}
-                              users={users}
+                              users={usersForAssignee}
                            />
                         ))}
                      </div>
@@ -1505,7 +1512,7 @@ export function TasksView() {
                            onChange={(assigneeId) => setForm((current) => ({ ...current, assigneeId }))}
                         >
                            <option value="">{fa.app.unset}</option>
-                           {users.map((user) => (
+                           {usersForAssignee.map((user) => (
                               <option key={user.id} value={user.id}>
                                  {user.name}
                               </option>
