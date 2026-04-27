@@ -1,6 +1,7 @@
 'use client';
 
 import type { ComponentType, ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
    AlertTriangle,
    Archive,
@@ -347,6 +348,7 @@ export function LinearAvatar({
    src?: string | null;
    className?: string;
 }) {
+   const [imageFailed, setImageFailed] = useState(false);
    const initials = (name || '?')
       .split(/\s+/)
       .filter(Boolean)
@@ -355,12 +357,17 @@ export function LinearAvatar({
       .join('')
       .toUpperCase();
 
-   if (src) {
+   useEffect(() => {
+      setImageFailed(false);
+   }, [src]);
+
+   if (src && !imageFailed) {
       return (
          <img
             alt={name || fa.table.user}
-            className={cn('size-6 rounded-full border border-white/10 object-cover', className)}
+            className={cn('block size-6 shrink-0 rounded-full border border-white/10 object-cover', className)}
             src={src}
+            onError={() => setImageFailed(true)}
          />
       );
    }
@@ -368,7 +375,7 @@ export function LinearAvatar({
    return (
       <span
          className={cn(
-            'inline-flex size-6 items-center justify-center rounded-full border border-white/10 bg-lime-500/25 text-[10px] font-bold text-lime-100',
+            'inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-lime-500/25 text-[10px] font-bold leading-none text-lime-100',
             className
          )}
       >
@@ -381,7 +388,7 @@ export function LinearEmptyState({ children, className }: { children: ReactNode;
    return (
       <div
          className={cn(
-            'rounded-xl border border-dashed border-white/10 bg-white/[0.015] px-4 py-8 text-center text-sm text-zinc-500',
+            'rounded-lg border border-dashed border-white/10 bg-white/[0.015] px-4 py-6 text-center text-sm text-zinc-500',
             className
          )}
       >
@@ -400,7 +407,7 @@ export function LinearPanel({
    className?: string;
 }) {
    return (
-      <section className={cn('rounded-xl border border-white/8 bg-[#19191b] shadow-sm', className)}>
+      <section className={cn('rounded-lg border border-white/8 bg-[#19191b] shadow-sm', className)}>
          {title ? (
             <div className="border-b border-white/7 px-4 py-3 text-sm font-semibold text-zinc-300">{title}</div>
          ) : null}

@@ -19,7 +19,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
             <motion.div
                {...(layoutId && { layoutId: `issue-line-${issue.identifier}` })}
                //href={`/issue/${issue.identifier}`}
-               className="w-full flex items-center justify-start h-11 px-6 hover:bg-sidebar/50"
+               className="w-full flex items-center justify-start h-9 px-4 hover:bg-sidebar/50"
             >
                <div className="flex items-center gap-0.5">
                   <PrioritySelector priority={issue.priority} issueId={issue.id} />

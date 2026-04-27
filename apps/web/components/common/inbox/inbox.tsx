@@ -84,7 +84,7 @@ export default function Inbox() {
             <div className="flex items-center justify-between px-4 h-10 border-b border-border">
                <div className="flex items-center gap-2">
                   <SidebarTrigger className="inline-flex lg:hidden" />
-                  <h2 className="text-lg font-semibold">Inbox</h2>
+                  <h2 className="text-base font-semibold">Inbox</h2>
                   <DropdownMenu>
                      <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="xs">

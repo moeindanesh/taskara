@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChangeEvent, Dispatch, DragEvent, FormEvent, ReactNode, SetStateAction } from 'react';
+import type { ChangeEvent, Dispatch, DragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -73,7 +73,8 @@ import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-pick
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTimeInput } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
-import { useTaskSync, type TaskUpdatePatch } from '@/lib/task-sync';
+import type { TaskUpdatePatch } from '@/lib/task-sync';
+import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { useAuthSession } from '@/store/auth-store';
 import type {
    TaskViewCompletedIssues,
@@ -130,6 +131,13 @@ const systemViewOrder: Array<{ key: SystemViewKey; label: string }> = [
    { key: 'active', label: fa.issue.active },
    { key: 'backlog', label: fa.issue.backlog },
 ];
+
+function getSystemViewKey(viewKey: ActiveViewKey): SystemViewKey | null {
+   if (viewKey === 'system:all') return 'all';
+   if (viewKey === 'system:active') return 'active';
+   if (viewKey === 'system:backlog') return 'backlog';
+   return null;
+}
 
 const layoutOptions: Array<{ value: TaskViewLayout; label: string; icon: typeof LayoutList }> = [
    { value: 'list', label: fa.issue.listView, icon: LayoutList },
@@ -402,7 +410,7 @@ export function TasksView() {
    const currentTeamKey = activeTeamSlug || currentTeamFallback;
    const isMyIssuesView = currentTeamKey === currentTeamFallback;
    const currentUserId = session?.user.id || null;
-   const taskSync = useTaskSync({ workspaceSlug: orgId || 'taskara', teamId: activeTeamSlug || 'all', mine: isMyIssuesView });
+   const taskSync = useWorkspaceTaskSync();
    const {
       tasks,
       projects,
@@ -513,9 +521,14 @@ export function TasksView() {
       setHighlightedIndex(null);
    }, [currentTeamKey]);
 
+   const scopedSyncedViews = useMemo(
+      () => syncedViews.filter((view) => (view.state.teamId || currentTeamFallback) === currentTeamKey),
+      [currentTeamKey, syncedViews]
+   );
+
    useEffect(() => {
-      setViews(syncedViews);
-   }, [syncedViews]);
+      setViews(scopedSyncedViews);
+   }, [scopedSyncedViews]);
 
    const scopedProjects = useMemo(
       () => (activeTeamSlug ? projects.filter((project) => project.team?.slug === activeTeamSlug) : projects),
@@ -571,9 +584,16 @@ export function TasksView() {
    );
 
    const hasDraftChanges = useMemo(() => {
-      if (!activeSavedView) return false;
-      return JSON.stringify(normalizeViewState(activeSavedView.state, currentTeamKey)) !== JSON.stringify(draftView);
-   }, [activeSavedView, currentTeamKey, draftView]);
+      const systemViewKey = getSystemViewKey(activeViewKey);
+      const baseline = activeSavedView
+         ? normalizeViewState(activeSavedView.state, currentTeamKey)
+         : systemViewKey
+           ? buildSystemViewState(systemViewKey, currentTeamKey)
+           : null;
+
+      if (!baseline) return false;
+      return JSON.stringify(baseline) !== JSON.stringify(draftView);
+   }, [activeSavedView, activeViewKey, currentTeamKey, draftView]);
 
    const filteredTasks = useMemo(() => {
       return scopedTasks
@@ -689,6 +709,10 @@ export function TasksView() {
 
    const openIssuePage = useCallback(
       (task: TaskaraTask) => {
+         if (task.syncState === 'pending') {
+            toast.message(fa.issue.pendingSync);
+            return;
+         }
          navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`, {
             state: {
                from: {
@@ -862,13 +886,14 @@ export function TasksView() {
       try {
          setComposerSubmitting(true);
          const filesToUpload = composerFiles;
+         const assigneeId = form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
          const createdTask = await createSyncedTask({
             projectId: form.projectId,
             title: form.title.trim(),
             description: form.description.trim() || undefined,
             status: form.status,
             priority: form.priority,
-            assigneeId: form.assigneeId || undefined,
+            assigneeId,
             dueAt: form.dueAt || undefined,
             labels: form.labels
                .split(',')
@@ -879,7 +904,7 @@ export function TasksView() {
 
          const createdLocally = createdTask.syncState === 'pending';
          if (filesToUpload.length && createdLocally) {
-            toast.error('پس از همگام‌سازی کار، فایل‌ها را دوباره پیوست کنید.');
+            toast.error(fa.issue.pendingAttachmentUpload);
          } else if (filesToUpload.length) {
             const uploadResults = await Promise.allSettled(
                filesToUpload.map((file) => uploadTaskAttachment(createdTask.key || createdTask.id, file))
@@ -899,7 +924,7 @@ export function TasksView() {
             }
          }
 
-         toast.success(fa.issue.created);
+         toast.success(createdLocally ? fa.issue.createdOffline : fa.issue.created);
          setSelectedTaskId(null);
          setComposerFiles([]);
          setForm({
@@ -915,6 +940,12 @@ export function TasksView() {
          setComposerSubmitting(false);
       }
    }
+
+   const handleComposerSubmitShortcut = (event: ReactKeyboardEvent<HTMLFormElement>) => {
+      if (event.key !== 'Enter' || !event.metaKey || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      event.currentTarget.requestSubmit();
+   };
 
    async function updateTask(task: TaskaraTask, patch: TaskUpdatePatch) {
       try {
@@ -1125,9 +1156,13 @@ export function TasksView() {
 
                      <div className="flex items-center gap-1.5">
                         <Button
+                           aria-label={activeSavedView ? fa.issue.updateView : fa.issue.saveView}
                            size="icon"
                            variant="ghost"
-                           className="size-10 rounded-full border border-white/8 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100"
+                           className={cn(
+                              'size-8 rounded-full border border-white/8 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100',
+                              !hasDraftChanges && 'hidden'
+                           )}
                            onClick={() => {
                               if (activeSavedView) {
                                  setSaveMode('update');
@@ -1363,7 +1398,7 @@ export function TasksView() {
                   <DialogDescription className="sr-only">{fa.issue.createIssue}</DialogDescription>
                </DialogHeader>
 
-               <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleCreateTask}>
+               <form className="flex min-h-0 flex-1 flex-col" onKeyDown={handleComposerSubmitShortcut} onSubmit={handleCreateTask}>
                   <div
                      className={cn(
                         'flex min-h-[246px] flex-1 flex-col px-5 pt-7',
@@ -1372,13 +1407,13 @@ export function TasksView() {
                   >
                      <Input
                         autoFocus
-                        className="h-auto border-none bg-transparent px-0 text-[23px] leading-8 font-semibold text-zinc-100 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
+                     className="h-auto border-none bg-transparent px-0 text-xl leading-7 font-semibold text-zinc-100 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.title}
                         onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                         placeholder={fa.issue.titlePlaceholder}
                      />
                      <Textarea
-                        className="mt-3 min-h-[88px] resize-none border-none bg-transparent px-0 text-[15px] leading-7 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                     className="mt-2 min-h-16 resize-none border-none bg-transparent px-0 text-sm leading-6 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.description}
                         onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                         placeholder={fa.issue.descriptionPlaceholder}
@@ -1405,7 +1440,7 @@ export function TasksView() {
                            ))}
                         </div>
                      ) : null}
-                     <div className="mt-auto flex flex-wrap items-center gap-2 pb-5">
+                     <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
                         <ComposerSelectPill
                            ariaLabel={fa.issue.status}
                            icon={<StatusIcon status={form.status} className="size-3.5" />}
@@ -1476,10 +1511,10 @@ export function TasksView() {
                            <PopoverTrigger asChild>
                               <button
                                  aria-label={fa.app.more}
-                                 className="inline-flex h-7 items-center justify-center rounded-full border border-white/8 bg-[#2a2a2d] px-2.5 text-zinc-500 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-indigo-400/35 focus-visible:outline-none"
+                                 className="inline-flex h-6 items-center justify-center rounded-full border border-white/8 bg-[#2a2a2d] px-2 text-zinc-500 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-indigo-400/35 focus-visible:outline-none"
                                  type="button"
                               >
-                                 <MoreHorizontal className="size-4" />
+                                 <MoreHorizontal className="size-3.5" />
                               </button>
                            </PopoverTrigger>
                            <PopoverContent
@@ -1514,7 +1549,7 @@ export function TasksView() {
                      />
                      <button
                         aria-label={fa.issue.attachments}
-                        className="inline-flex size-8 items-center justify-center rounded-full border border-white/8 bg-white/[0.04] text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-indigo-400/60 focus-visible:outline-none"
+                        className="inline-flex size-7 items-center justify-center rounded-full border border-white/8 bg-white/[0.04] text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-indigo-400/60 focus-visible:outline-none"
                         title={fa.issue.attachments}
                         type="button"
                         disabled={composerSubmitting}
@@ -1523,7 +1558,7 @@ export function TasksView() {
                         <Paperclip className="size-4" />
                      </button>
                      <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm text-zinc-500" htmlFor="composer-create-more">
+                        <label className="flex items-center gap-2 text-[13px] text-zinc-500" htmlFor="composer-create-more">
                            <Switch
                               checked={createMore}
                               className="border-0 data-[state=unchecked]:bg-white/14 data-[state=checked]:bg-indigo-500 [&_[data-slot=switch-thumb]]:bg-zinc-100 [&_[data-slot=switch-thumb]]:shadow-[0_1px_2px_rgb(0_0_0/0.35)] [&_[data-slot=switch-thumb][data-state=checked]]:-translate-x-4"
@@ -1535,7 +1570,7 @@ export function TasksView() {
                         </label>
                         <Button
                            disabled={composerSubmitting || isPending || !scopedProjects.length}
-                           className="h-9 rounded-full bg-indigo-500 px-4 font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                           className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
                         >
                            {fa.issue.createIssue}
                         </Button>
@@ -1606,14 +1641,14 @@ function ComposerSelectPill({
    value: string;
 }) {
    return (
-      <label className={cn('relative inline-flex h-7 max-w-[190px] shrink-0', className)}>
+      <label className={cn('relative inline-flex h-6 max-w-[168px] shrink-0', className)}>
          <span className="sr-only">{ariaLabel}</span>
-         <span className="pointer-events-none absolute start-2.5 top-1/2 z-10 flex -translate-y-1/2 items-center">
+         <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
             {icon}
          </span>
          <select
             aria-label={ariaLabel}
-            className="h-7 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-7 pe-3 text-xs font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
+            className="h-6 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
             value={value}
             onChange={(event) => onChange(event.target.value)}
          >
@@ -1637,14 +1672,14 @@ function ComposerTextPill({
    value: string;
 }) {
    return (
-      <label className="relative inline-flex h-7 w-[142px] shrink-0">
+      <label className="relative inline-flex h-6 w-[128px] shrink-0">
          <span className="sr-only">{ariaLabel}</span>
-         <span className="pointer-events-none absolute start-2.5 top-1/2 z-10 flex -translate-y-1/2 items-center">
+         <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
             {icon}
          </span>
          <input
             aria-label={ariaLabel}
-            className="h-7 w-full rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-7 pe-3 text-xs font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition placeholder:text-zinc-500 hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
+            className="h-6 w-full rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition placeholder:text-zinc-500 hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
             value={value}
             onChange={onChange}
             placeholder={placeholder}
@@ -1784,10 +1819,10 @@ function TaskFilterPopover({
    return (
       <div className="relative w-full">
          <div
-            className="overflow-y-auto rounded-2xl border border-white/10 bg-[#1b1b1d] py-1 shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
+            className="overflow-y-auto rounded-lg border border-white/10 bg-[#1b1b1d] py-1 shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
             style={{ maxHeight: 'min(360px, calc(100svh - 80px))' }}
          >
-            <label className="flex h-11 items-center border-b border-white/7 px-3">
+            <label className="flex h-9 items-center border-b border-white/7 px-2.5">
                <span className="sr-only">{filterMenuCopy.addFilter}</span>
                <input
                   className="h-full w-full bg-transparent text-sm font-normal text-zinc-200 outline-none placeholder:text-zinc-500"
@@ -2007,10 +2042,10 @@ function FilterSubmenu({
 
    return (
       <div
-         className="absolute w-[260px] overflow-hidden rounded-2xl border border-white/10 bg-[#1b1b1d] shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
+         className="absolute w-[260px] overflow-hidden rounded-lg border border-white/10 bg-[#1b1b1d] shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
          style={submenuStyle}
       >
-         <label className="flex h-10 items-center border-b border-white/7 px-3">
+         <label className="flex h-9 items-center border-b border-white/7 px-2.5">
             <span className="sr-only">{filterMenuCopy.filterPlaceholder}</span>
             <input
                className="h-full w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
@@ -2105,7 +2140,7 @@ function TaskDisplayPopover({
 
    return (
       <div
-         className="overflow-y-auto rounded-2xl border border-white/10 bg-[#1b1b1d] p-3 shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
+         className="overflow-y-auto rounded-lg border border-white/10 bg-[#1b1b1d] p-2 shadow-[0_18px_60px_rgb(0_0_0/0.5)]"
          style={{ maxHeight: 'min(460px, calc(100svh - 80px))' }}
       >
          <div className="grid grid-cols-2 gap-2">
@@ -2368,7 +2403,7 @@ function ListGroup({
 }) {
    return (
       <section>
-         <div className="sticky top-0 z-20 h-10 bg-[#151516]">
+         <div className="sticky top-0 z-20 h-8 bg-[#151516]">
             <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} />
             <div className="relative flex h-full items-center justify-between px-5">
                <button
@@ -2471,8 +2506,8 @@ function BoardGroup({
    users: TaskaraUser[];
 }) {
    return (
-      <section className={cn('flex h-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[#171719]', collapsed ? 'w-[56px]' : 'w-[340px]')}>
-         <div className="relative h-12 bg-[#171719]">
+      <section className={cn('flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-white/8 bg-[#171719]', collapsed ? 'w-[48px]' : 'w-[320px]')}>
+         <div className="relative h-10 bg-[#171719]">
             <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} />
             <div className="relative flex h-full items-center justify-between px-4">
                <button
@@ -2577,7 +2612,7 @@ function IssueRow({
             <div
                className={cn(
                   'group cursor-pointer',
-                  'grid min-h-11 w-full grid-cols-[30px_78px_28px_minmax(0,1fr)_auto] items-center gap-2 border-b border-white/5 px-5 text-start text-sm transition hover:bg-white/[0.035]',
+                  'grid min-h-9 w-full grid-cols-[26px_72px_24px_minmax(0,1fr)_auto] items-center gap-2 border-b border-white/5 px-4 text-start text-sm transition hover:bg-white/[0.035]',
                   selected && 'bg-indigo-400/8',
                   highlighted && 'ring-1 ring-inset ring-indigo-400/35'
                )}
@@ -2596,7 +2631,16 @@ function IssueRow({
                      <TaskPriorityControl priority={task.priority} iconOnly onChange={onPriorityChange} />
                   ) : null}
                </span>
-               <span className="ltr truncate text-xs font-medium text-zinc-500">{shows('id') ? task.key : null}</span>
+               <span className="ltr truncate text-xs font-medium text-zinc-500">
+                  {shows('id') ? (
+                     <span className="inline-flex max-w-full items-center gap-1">
+                        <span className="truncate">{task.key}</span>
+                        {task.syncState === 'pending' ? (
+                           <Repeat2 className="size-3 shrink-0 text-amber-300/80" aria-label={fa.issue.pendingSync} />
+                        ) : null}
+                     </span>
+                  ) : null}
+               </span>
                <span onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
                   {shows('status') ? <TaskStatusControl status={task.status} iconOnly onChange={onStatusChange} /> : null}
                </span>
@@ -2613,7 +2657,7 @@ function IssueRow({
                   <span className="hidden md:block" onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
                      {shows('dueAt') ? <TaskDueDateControl dueAt={task.dueAt} onChange={onDueAtChange} /> : null}
                   </span>
-                  <span onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
+                  <span className="flex items-center justify-center" onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
                      {shows('assignee') ? (
                         <TaskAssigneeControl assignee={task.assignee} users={users} onChange={onAssigneeChange} />
                      ) : null}
@@ -2679,7 +2723,7 @@ function IssueCard({
          <ContextMenuTrigger asChild>
             <div
                className={cn(
-                  'w-full cursor-pointer rounded-xl border border-white/8 bg-[#202024] p-3 text-start transition hover:bg-[#252529]',
+                  'w-full cursor-pointer rounded-lg border border-white/8 bg-[#202024] p-2.5 text-start transition hover:bg-[#252529]',
                   selected && 'border-indigo-400/40 bg-indigo-400/8',
                   highlighted && 'ring-1 ring-inset ring-indigo-400/35'
                )}
@@ -2696,7 +2740,14 @@ function IssueCard({
                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                      <div className="flex items-center gap-2">
-                        {shows('id') ? <span className="ltr text-xs text-zinc-500">{task.key}</span> : null}
+                        {shows('id') ? (
+                           <span className="ltr inline-flex min-w-0 items-center gap-1 text-xs text-zinc-500">
+                              <span className="truncate">{task.key}</span>
+                              {task.syncState === 'pending' ? (
+                                 <Repeat2 className="size-3 shrink-0 text-amber-300/80" aria-label={fa.issue.pendingSync} />
+                              ) : null}
+                           </span>
+                        ) : null}
                         {shows('status') ? <StatusIcon status={task.status} className="size-3.5" /> : null}
                      </div>
                      <div className="mt-1 line-clamp-2 text-sm font-normal text-zinc-100">{task.title}</div>
@@ -2839,7 +2890,7 @@ function TaskAssigneeControl({
          <PopoverTrigger asChild>
             <button
                aria-label={fa.issue.assignee}
-               className="inline-flex size-7 items-center justify-center rounded-md border border-transparent transition hover:border-white/8 hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-indigo-400/50 focus-visible:outline-none"
+               className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-transparent align-middle transition hover:border-white/8 hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-indigo-400/50 focus-visible:outline-none"
                type="button"
                onClick={(event) => event.stopPropagation()}
                onDoubleClick={(event) => event.stopPropagation()}
@@ -3142,7 +3193,7 @@ function TaskIssueContextMenu({
 
 function LinearMenuSearch({ title, shortcut }: { title: string; shortcut?: string }) {
    return (
-      <div className="flex h-11 items-center gap-2 border-b border-white/8 px-3 text-sm text-zinc-500">
+      <div className="flex h-9 items-center gap-2 border-b border-white/8 px-2.5 text-sm text-zinc-500">
          <span className="min-w-0 flex-1 truncate">{title}...</span>
          {shortcut ? <ShortcutKey>{shortcut}</ShortcutKey> : null}
       </div>
@@ -3166,7 +3217,7 @@ function LinearMenuOption({
 }) {
    return (
       <button
-         className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-zinc-300 outline-none transition hover:bg-white/[0.06] focus:bg-white/[0.08]"
+         className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-sm text-zinc-300 outline-none transition hover:bg-white/[0.06] focus:bg-white/[0.08]"
          type="button"
          onClick={onClick}
       >

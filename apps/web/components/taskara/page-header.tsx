@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
-import { Bell, Filter, PanelLeft, SlidersHorizontal } from 'lucide-react';
+import { Filter, SlidersHorizontal } from 'lucide-react';
 
 interface PageHeaderProps {
    title: string;
@@ -95,17 +95,6 @@ export function PageHeader({ title, description, count, action, compact = false 
                   onClick={openDisplay}
                >
                   <SlidersHorizontal className="size-4" />
-               </Button>
-               <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8 rounded-full text-zinc-500 hover:text-zinc-100"
-                  onClick={() => window.dispatchEvent(new CustomEvent('taskara:keyboard-shortcuts'))}
-               >
-                  <PanelLeft className="size-4" />
-               </Button>
-               <Button size="icon" variant="ghost" className="size-8 rounded-full text-zinc-500 hover:text-zinc-100">
-                  <Bell className="size-4" />
                </Button>
             </div>
          </div>

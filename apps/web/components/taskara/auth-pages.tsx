@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
 
 const inputClassName =
-   'h-10 border-white/10 bg-[#111113] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/25';
+   'h-9 border-white/10 bg-[#111113] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/25';
 
 function nextFromSearch(search: string) {
    const next = new URLSearchParams(search).get('next');
@@ -106,7 +106,7 @@ export function LoginPage() {
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                />
             </AuthField>
-            <Button className="h-10 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
+            <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
                {submitting ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
                ورود
             </Button>
@@ -184,7 +184,7 @@ export function SignupPage() {
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                />
             </AuthField>
-            <Button className="h-10 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
+            <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
                {submitting ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
                ساخت حساب
             </Button>
@@ -287,7 +287,7 @@ export function OnboardingPage() {
                   {loading ? (
                      <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-zinc-500">در حال بارگذاری...</div>
                   ) : workspaces.length === 0 ? (
-                     <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-zinc-500">
+                     <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
                         هنوز عضو هیچ فضای کاری نیستید.
                      </div>
                   ) : (
@@ -338,7 +338,7 @@ export function OnboardingPage() {
                         onChange={(event) => setForm((current) => ({ ...current, slug: event.target.value }))}
                      />
                   </AuthField>
-                  <Button className="h-10 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={creating}>
+                  <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={creating}>
                      {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                      ایجاد و ورود
                   </Button>
@@ -428,7 +428,7 @@ export function AcceptInvitePage() {
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                />
             </AuthField>
-            <Button className="h-10 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={loading || submitting || !invite}>
+            <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={loading || submitting || !invite}>
                {submitting ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
                ساخت حساب و ورود
             </Button>
@@ -452,12 +452,12 @@ function AuthShell({
 }) {
    return (
       <div dir="rtl" className="flex min-h-svh items-center justify-center bg-[#080809] px-4 py-10 text-zinc-100">
-         <main className={cn('w-full rounded-xl border border-white/10 bg-[#19191b] p-6 shadow-2xl', wide ? 'max-w-[860px]' : 'max-w-[460px]')}>
-            <div className="mb-5 flex justify-center">
-               <TaskaraLogo className="size-14 rounded-2xl border border-white/10 shadow-[0_18px_48px_rgb(0_0_0/0.35)]" />
+         <main className={cn('w-full rounded-lg border border-white/10 bg-[#19191b] p-5 shadow-2xl', wide ? 'max-w-[820px]' : 'max-w-[430px]')}>
+            <div className="mb-4 flex justify-center">
+               <TaskaraLogo className="size-10 rounded-xl border border-white/10 shadow-[0_18px_48px_rgb(0_0_0/0.35)]" />
             </div>
-            <div className="mb-6">
-               <div className="mb-2 text-xl font-semibold text-zinc-100">{title}</div>
+            <div className="mb-5">
+               <div className="mb-1 text-lg font-semibold text-zinc-100">{title}</div>
                <p className="text-sm leading-6 text-zinc-500">{description}</p>
             </div>
             {children}

@@ -27,6 +27,7 @@ import { RoleBadge, workspaceRoles } from '@/lib/taskara-presenters';
 import type { PaginatedResponse, TaskaraMe, TaskaraUser } from '@/lib/taskara-types';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
+import { getAuthSession, setAuthSession } from '@/store/auth-store';
 
 const settingsSections = ['profile', 'workspace', 'members', 'teams', 'projects'] as const;
 type SettingsSection = (typeof settingsSections)[number];
@@ -117,7 +118,7 @@ function SettingsChrome({
                بازگشت به برنامه
             </Link>
 
-            <nav className="flex min-w-0 gap-6 overflow-x-auto pb-1 lg:block lg:space-y-6 lg:overflow-visible lg:pb-0">
+            <nav className="flex min-w-0 gap-4 overflow-x-auto pb-1 lg:block lg:space-y-4 lg:overflow-visible lg:pb-0">
                {navGroups.map((group) => (
                   <div key={group.title} className="min-w-[190px] lg:min-w-0">
                      <div className="mb-2 px-2 text-[13px] font-medium text-zinc-500">{group.title}</div>
@@ -247,6 +248,15 @@ function ProfileSettingsPage() {
             avatarUrl: result.user.avatarUrl || '',
             mattermostUsername: result.user.mattermostUsername || '',
          });
+         const session = getAuthSession();
+         if (session) {
+            setAuthSession({
+               ...session,
+               role: result.role,
+               user: result.user,
+               workspace: result.workspace,
+            });
+         }
          setNotice('پروفایل به‌روزرسانی شد.');
          window.dispatchEvent(new CustomEvent('taskara:teams-updated'));
       } catch (err) {
@@ -257,17 +267,17 @@ function ProfileSettingsPage() {
    }
 
    return (
-      <div className="mx-auto w-full max-w-[900px] px-5 py-8 sm:px-8 lg:py-14">
+      <div className="mx-auto w-full max-w-[900px] px-5 py-6 sm:px-7 lg:py-10">
          <SettingsPageTitle title="پروفایل" />
 
          {error ? <SettingsMessage tone="error">{error}</SettingsMessage> : null}
          {notice ? <SettingsMessage tone="success">{notice}</SettingsMessage> : null}
 
-         <form className="space-y-6" onSubmit={handleProfileSave}>
+         <form className="space-y-4" onSubmit={handleProfileSave}>
             <SettingsPanel title="تصویر پروفایل">
-               <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+               <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-4">
-                     <LinearAvatar name={form.name || me?.user.name} src={form.avatarUrl.trim() || null} className="size-14 text-lg" />
+                     <LinearAvatar name={form.name || me?.user.name} src={form.avatarUrl.trim() || null} className="size-10 text-sm" />
                      <div className="min-w-0">
                         <div className="text-sm font-medium text-zinc-200">{form.name || me?.user.name || 'پروفایل شما'}</div>
                         <div className="mt-1 truncate text-xs text-zinc-500">{me?.user.email || (loading ? fa.app.loading : 'بدون ایمیل')}</div>
@@ -430,13 +440,13 @@ function WorkspaceAccessSettingsPage() {
    }
 
    return (
-      <div className="mx-auto w-full max-w-[1180px] px-5 py-8 sm:px-8 lg:py-14">
+      <div className="mx-auto w-full max-w-[1180px] px-5 py-6 sm:px-7 lg:py-10">
          <SettingsPageTitle title="فضای کاری" />
 
          {error ? <SettingsMessage tone="error">{error}</SettingsMessage> : null}
 
-         <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-            <div className="space-y-6">
+         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="space-y-4">
                <SettingsPanel title="نمای کلی">
                   <InfoRows>
                      {loading || !me ? (
@@ -453,7 +463,7 @@ function WorkspaceAccessSettingsPage() {
 
                {isWorkspaceAdmin ? (
                   <SettingsPanel title={fa.settings.createUser}>
-                     <form className="space-y-4 px-5 py-5" onSubmit={handleCreateUser}>
+                     <form className="space-y-3 px-4 py-4" onSubmit={handleCreateUser}>
                         <label className="grid gap-2 text-sm text-zinc-300">
                            <span>{fa.settings.name}</span>
                            <Input
@@ -588,8 +598,8 @@ function WorkspaceAccessSettingsPage() {
 
 function SettingsPageTitle({ title }: { title: string }) {
    return (
-      <div className="mb-7 flex items-center gap-3">
-         <h1 className="text-2xl font-semibold tracking-normal text-zinc-100">{title}</h1>
+      <div className="mb-5 flex items-center gap-3">
+         <h1 className="text-xl font-semibold tracking-normal text-zinc-100">{title}</h1>
       </div>
    );
 }
@@ -603,7 +613,7 @@ function SettingsPanel({
 }) {
    return (
       <section className="overflow-hidden rounded-lg border border-white/8 bg-[#19191b] shadow-sm">
-         <div className="border-b border-white/7 px-5 py-3 text-sm font-semibold text-zinc-200">{title}</div>
+         <div className="border-b border-white/7 px-4 py-2.5 text-sm font-semibold text-zinc-200">{title}</div>
          {children}
       </section>
    );
@@ -619,7 +629,7 @@ function SettingsField({
    label: ReactNode;
 }) {
    return (
-      <div className="grid gap-3 border-t border-white/7 px-5 py-4 first:border-t-0 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
+      <div className="grid gap-3 border-t border-white/7 px-4 py-3 first:border-t-0 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center">
          <div className="min-w-0">
             <div className="text-sm font-medium text-zinc-300">{label}</div>
             {description ? <div className="mt-1 text-sm text-zinc-500">{description}</div> : null}
@@ -650,7 +660,7 @@ function InfoRows({ children }: { children: ReactNode }) {
 
 function InfoRow({ detail, label, value }: { detail?: ReactNode; label: ReactNode; value: ReactNode }) {
    return (
-      <div className="px-5 py-4">
+      <div className="px-4 py-3">
          <div className="text-xs font-medium uppercase text-zinc-600">{label}</div>
          <div className="mt-1 truncate text-sm font-medium text-zinc-200">{value}</div>
          {detail ? <div className="ltr mt-1 truncate text-xs text-zinc-500">{detail}</div> : null}

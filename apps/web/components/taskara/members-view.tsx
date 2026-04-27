@@ -143,7 +143,7 @@ export function MembersView() {
    }
 
    return (
-      <div className="px-6 py-6">
+      <div className="px-5 py-5">
          <Card className="border-white/8 bg-[#19191b] text-zinc-100">
             <CardHeader className="flex flex-col gap-4 border-b border-white/7 sm:flex-row sm:items-start sm:justify-between">
                <div>
@@ -154,7 +154,7 @@ export function MembersView() {
                </div>
                {isWorkspaceAdmin ? (
                   <Button
-                     className="h-9 w-fit border border-white/10 bg-zinc-100 px-3 text-zinc-950 hover:bg-white"
+                     className="h-8 w-fit border border-white/10 bg-zinc-100 px-3 text-zinc-950 hover:bg-white"
                      type="button"
                      onClick={() => {
                         setCreatedInviteUrl('');
@@ -168,7 +168,7 @@ export function MembersView() {
             </CardHeader>
             <CardContent className="p-0">
                {error ? <p className="mx-5 mt-5 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
-               <div className="overflow-x-auto px-5 py-4">
+               <div className="overflow-x-auto px-4 py-3">
                   <Table>
                      <TableHeader>
                         <TableRow className="border-white/8 hover:bg-transparent">
@@ -183,11 +183,11 @@ export function MembersView() {
                      <TableBody>
                         {loading ? (
                            <TableRow className="border-white/8">
-                              <TableCell colSpan={6} className="py-8 text-center text-zinc-500">{fa.app.loading}</TableCell>
+                              <TableCell colSpan={6} className="py-6 text-center text-zinc-500">{fa.app.loading}</TableCell>
                            </TableRow>
                         ) : users.length === 0 ? (
                            <TableRow className="border-white/8">
-                              <TableCell colSpan={6} className="py-8 text-center text-zinc-500">عضوی برای نمایش وجود ندارد.</TableCell>
+                              <TableCell colSpan={6} className="py-6 text-center text-zinc-500">عضوی برای نمایش وجود ندارد.</TableCell>
                            </TableRow>
                         ) : (
                            users.map((user) => (
@@ -216,13 +216,13 @@ export function MembersView() {
          </Card>
 
          {isWorkspaceAdmin ? (
-            <Card className="mt-5 border-white/8 bg-[#19191b] text-zinc-100">
+            <Card className="mt-4 border-white/8 bg-[#19191b] text-zinc-100">
                <CardHeader className="border-b border-white/7">
-                  <CardTitle className="text-base">دعوت‌های باز</CardTitle>
+                  <CardTitle className="text-sm">دعوت‌های باز</CardTitle>
                   <CardDescription className="text-zinc-500">دعوت‌هایی که هنوز پذیرفته نشده‌اند.</CardDescription>
                </CardHeader>
                <CardContent className="p-0">
-                  <div className="overflow-x-auto px-5 py-4">
+                  <div className="overflow-x-auto px-4 py-3">
                      <Table>
                         <TableHeader>
                            <TableRow className="border-white/8 hover:bg-transparent">
@@ -235,11 +235,11 @@ export function MembersView() {
                         <TableBody>
                            {loading ? (
                               <TableRow className="border-white/8">
-                                 <TableCell colSpan={4} className="py-8 text-center text-zinc-500">{fa.app.loading}</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-zinc-500">{fa.app.loading}</TableCell>
                               </TableRow>
                            ) : invites.length === 0 ? (
                               <TableRow className="border-white/8">
-                                 <TableCell colSpan={4} className="py-8 text-center text-zinc-500">دعوت بازی وجود ندارد.</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-zinc-500">دعوت بازی وجود ندارد.</TableCell>
                               </TableRow>
                            ) : (
                               invites.map((invite) => (
@@ -291,18 +291,18 @@ export function MembersView() {
 
          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogContent className="max-w-[560px] gap-0 overflow-hidden border-white/10 bg-[#1d1d20] p-0 text-zinc-100">
-               <DialogHeader className="border-b border-white/8 px-6 py-5 text-right">
-                  <DialogTitle className="text-xl leading-7">افزودن عضو</DialogTitle>
-                  <DialogDescription className="max-w-[440px] text-sm leading-7 text-zinc-500">
+               <DialogHeader className="border-b border-white/8 px-5 py-4 text-right">
+                  <DialogTitle className="text-base leading-6">افزودن عضو</DialogTitle>
+                  <DialogDescription className="max-w-[440px] text-sm leading-6 text-zinc-500">
                      برای کاربر یک لینک دعوت ساخته می‌شود. او با ایمیل خودش و رمز عبور وارد فضای کاری خواهد شد.
                   </DialogDescription>
                </DialogHeader>
                <form onSubmit={handleCreateInvite}>
-                  <div className="space-y-5 px-6 py-5">
+                  <div className="space-y-4 px-5 py-4">
                      <label className="grid gap-2 text-sm text-zinc-300">
                         <span className="font-medium">ایمیل</span>
                         <Input
-                           className={cn(inputClassName, 'h-11 rounded-lg ltr')}
+                           className={cn(inputClassName, 'h-9 rounded-md ltr')}
                            disabled={creating || inviteCreated}
                            type="email"
                            value={inviteForm.email}
@@ -313,7 +313,7 @@ export function MembersView() {
                      <label className="grid gap-2 text-sm text-zinc-300">
                         <span className="font-medium">نام</span>
                         <Input
-                           className={cn(inputClassName, 'h-11 rounded-lg')}
+                           className={cn(inputClassName, 'h-9 rounded-md')}
                            disabled={creating || inviteCreated}
                            value={inviteForm.name}
                            onChange={(event) => setInviteForm((current) => ({ ...current, name: event.target.value }))}
@@ -323,7 +323,7 @@ export function MembersView() {
                      <label className="grid gap-2 text-sm text-zinc-300">
                         <span className="font-medium">{fa.settings.role}</span>
                         <select
-                           className={cn(selectClassName, 'h-11 rounded-lg')}
+                           className={cn(selectClassName, 'h-9 rounded-md')}
                            disabled={creating || inviteCreated}
                            value={inviteForm.role}
                            onChange={(event) => setInviteForm((current) => ({ ...current, role: event.target.value }))}
@@ -337,7 +337,7 @@ export function MembersView() {
                      </label>
 
                      {createdInviteUrl ? (
-                        <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4">
+                        <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 p-3">
                            <div className="mb-3 text-sm font-semibold text-emerald-200">لینک دعوت ساخته شد.</div>
                            <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                               <div
@@ -348,7 +348,7 @@ export function MembersView() {
                                  {createdInviteUrl}
                               </div>
                               <Button
-                                 className="h-10 justify-center rounded-lg border-white/10 bg-white/5 px-3 text-zinc-100 hover:bg-white/10"
+                                 className="h-8 justify-center rounded-md border-white/10 bg-white/5 px-3 text-zinc-100 hover:bg-white/10"
                                  type="button"
                                  variant="outline"
                                  onClick={copyInviteUrl}
@@ -361,7 +361,7 @@ export function MembersView() {
                      ) : null}
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 border-t border-white/8 bg-black/10 px-6 py-4">
+                  <div className="flex items-center justify-between gap-3 border-t border-white/8 bg-black/10 px-5 py-3">
                      <Button className="text-zinc-400 hover:bg-white/6 hover:text-zinc-100" type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
                         بستن
                      </Button>

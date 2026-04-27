@@ -116,7 +116,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       },
       orderBy: { createdAt: 'asc' },
       take: 100,
-      include: { actor: { select: { id: true, name: true, email: true } } }
+      include: { actor: { select: { id: true, name: true, email: true, avatarUrl: true } } }
     });
   });
 

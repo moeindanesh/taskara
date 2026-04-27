@@ -208,6 +208,7 @@ export interface TaskaraActivity {
       id: string;
       name: string;
       email: string;
+      avatarUrl?: string | null;
    } | null;
 }
 

@@ -401,7 +401,8 @@ async function listViews(actor: RequestActor, teamId: string) {
     }))
     .filter((view) => {
       const state = view.state as { scope?: string; teamId?: string };
-      return state.scope === 'tasks' && state.teamId === teamId;
+      if (state.scope !== 'tasks') return false;
+      return teamId === 'all' || state.teamId === teamId;
     });
 }
 

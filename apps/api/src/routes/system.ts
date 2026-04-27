@@ -112,7 +112,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
       where: { workspaceId: actor.workspace.id },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      include: { actor: { select: { id: true, name: true, email: true } } }
+      include: { actor: { select: { id: true, name: true, email: true, avatarUrl: true } } }
     });
   });
 }

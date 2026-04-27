@@ -42,7 +42,7 @@ export function SearchIssues() {
                      </div>
                   </div>
                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
+                  <div className="text-center py-6 text-muted-foreground">
                      No results found for &quot;{searchQuery}&quot;
                   </div>
                )}

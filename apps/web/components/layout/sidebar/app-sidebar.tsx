@@ -172,19 +172,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                      align="start"
-                     className="w-[280px] overflow-hidden rounded-2xl border-white/10 bg-[#1b1b1d] p-2 text-zinc-200 shadow-2xl [direction:rtl]"
+                     className="w-[260px] overflow-hidden rounded-lg border-white/10 bg-[#1b1b1d] p-1.5 text-zinc-200 shadow-2xl [direction:rtl]"
                      sideOffset={8}
                   >
                      <DropdownMenuGroup>
                         <DropdownMenuItem
-                           className="h-10 rounded-xl px-4 text-[15px]"
+                           className="h-8 rounded-md px-3 text-sm"
                            onSelect={() => navigate(`/${orgId}/settings/profile`)}
                         >
                            <span className="min-w-0 flex-1 truncate">تنظیمات</span>
                            <DropdownMenuShortcut className="ms-3 tracking-normal">G سپس S</DropdownMenuShortcut>
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                           className="h-10 rounded-xl px-4 text-[15px]"
+                           className="h-8 rounded-md px-3 text-sm"
                            onSelect={() => navigate(`/${orgId}/members`)}
                         >
                            دعوت و مدیریت اعضا
@@ -192,11 +192,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                      </DropdownMenuGroup>
                      <DropdownMenuSeparator className="-mx-2 my-2 bg-white/8" />
                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="h-10 rounded-xl px-4 text-[15px]">
+                        <DropdownMenuSubTrigger className="h-8 rounded-md px-3 text-sm">
                            <span className="min-w-0 flex-1 truncate">جابجایی فضای کاری</span>
                            <DropdownMenuShortcut className="ms-3 tracking-normal">O سپس W</DropdownMenuShortcut>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-64 rounded-xl border-white/10 bg-[#1b1b1d] text-zinc-200">
+                        <DropdownMenuSubContent className="w-60 rounded-lg border-white/10 bg-[#1b1b1d] text-zinc-200">
                            <DropdownMenuLabel>فضاهای کاری شما</DropdownMenuLabel>
                            <DropdownMenuSeparator className="bg-white/8" />
                            {workspaceItems.map((item) => {
@@ -218,7 +218,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         </DropdownMenuSubContent>
                      </DropdownMenuSub>
                      <DropdownMenuSeparator className="-mx-2 my-2 bg-white/8" />
-                     <DropdownMenuItem className="h-10 rounded-xl px-4 text-[15px]" onSelect={logout}>
+                     <DropdownMenuItem className="h-8 rounded-md px-3 text-sm" onSelect={logout}>
                         <span className="min-w-0 flex-1 truncate">خروج</span>
                         <DropdownMenuShortcut className="ms-3 tracking-normal">⌥ ⇧ Q</DropdownMenuShortcut>
                      </DropdownMenuItem>

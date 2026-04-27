@@ -234,18 +234,18 @@ const GuideCard = ({ guide }: { guide: Guide }) => {
 
 export default function Settings() {
    return (
-      <div className="w-full max-w-7xl mx-auto px-8 py-8">
-         <div className="mb-10">
-            <h1 className="text-2xl font-semibold mb-1">Workspace</h1>
+      <div className="w-full max-w-7xl mx-auto px-5 py-6">
+         <div className="mb-7">
+            <h1 className="mb-1 text-xl font-semibold">Workspace</h1>
             <p className="text-muted-foreground">
                Manage your workspace settings. Your workspace is in the{' '}
                <span className="font-medium">United States</span> region
             </p>
          </div>
 
-         <div className="mb-10">
-            <div className="flex items-center justify-between mb-6">
-               <h2 className="text-xl font-semibold">Explore features</h2>
+         <div className="mb-7">
+            <div className="flex items-center justify-between mb-4">
+               <h2 className="text-lg font-semibold">Explore features</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                {features.map((feature, index) => (
@@ -254,23 +254,23 @@ export default function Settings() {
             </div>
          </div>
 
-         <div className="mb-10">
-            <div className="flex items-center justify-between mb-6">
-               <h2 className="text-xl font-semibold">Integrations</h2>
+         <div className="mb-7">
+            <div className="flex items-center justify-between mb-4">
+               <h2 className="text-lg font-semibold">Integrations</h2>
                <Button variant="outline" size="sm" className="text-sm">
                   Browse all
                </Button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                {integrations.map((integration, index) => (
                   <IntegrationCard key={index} integration={integration} />
                ))}
             </div>
          </div>
 
-         <div className="mb-10">
-            <div className="flex items-center justify-between mb-6">
-               <h2 className="text-xl font-semibold">Go further</h2>
+         <div className="mb-7">
+            <div className="flex items-center justify-between mb-4">
+               <h2 className="text-lg font-semibold">Go further</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                {guides.map((guide, index) => (

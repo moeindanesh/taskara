@@ -1,20 +1,26 @@
 'use client';
 
-import type { ChangeEvent, FormEvent, SelectHTMLAttributes } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
    ArrowRight,
+   Box,
    CalendarClock,
-   ChevronDown,
+   Copy,
    ExternalLink,
+   FileArchive,
    FileText,
+   GitBranch,
    History,
+   ImageIcon,
+   Link2,
    Loader2,
-   MessageSquare,
+   MoreHorizontal,
    Paperclip,
    Send,
+   Tag,
    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,7 +28,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
 import {
    LinearAvatar,
-   LinearPanel,
+   NoAssigneeIcon,
+   PriorityIcon,
+   ProjectGlyph,
+   StatusIcon,
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
@@ -30,11 +39,13 @@ import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment, uploadTaskCommentAttachment } from '@/lib/taskara-client';
 import { sendTaskSyncMutation, useTaskSyncPulse } from '@/lib/task-sync';
+import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
 import type {
    PaginatedResponse,
    TaskaraActivity,
    TaskaraAttachment,
+   TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
    TaskaraUser,
@@ -44,13 +55,21 @@ import { cn } from '@/lib/utils';
 type TaskUpdatePatch = {
    title?: string;
    description?: string | null;
+   projectId?: string;
    status?: string;
    priority?: string;
    assigneeId?: string | null;
    dueAt?: string | null;
 };
 
+type IssueProjectOption = Pick<TaskaraProject, 'id' | 'name' | 'keyPrefix' | 'team'>;
 type SavingField = 'title' | 'description' | null;
+type PreviewableAttachment = {
+   name: string;
+   url: string;
+   mimeType?: string | null;
+   sizeBytes?: number | null;
+};
 
 type IssueReturnLocation = {
    hash?: string;
@@ -72,8 +91,13 @@ function getIssueReturnPath(state: unknown): string | null {
    return `${from.pathname}${from.search || ''}${from.hash || ''}`;
 }
 
-function applyIssuePatch(task: TaskaraTask, patch: TaskUpdatePatch, users: TaskaraUser[]): TaskaraTask {
-   const { assigneeId: _assigneeId, ...scalarPatch } = patch;
+function applyIssuePatch(
+   task: TaskaraTask,
+   patch: TaskUpdatePatch,
+   users: TaskaraUser[],
+   projects: IssueProjectOption[]
+): TaskaraTask {
+   const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
 
    if ('assigneeId' in patch) {
@@ -92,6 +116,18 @@ function applyIssuePatch(task: TaskaraTask, patch: TaskUpdatePatch, users: Taska
       next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
    }
 
+   if (patch.projectId) {
+      const project = projects.find((item) => item.id === patch.projectId);
+      if (project) {
+         next.project = {
+            id: project.id,
+            name: project.name,
+            keyPrefix: project.keyPrefix,
+            team: project.team || null,
+         };
+      }
+   }
+
    return next;
 }
 
@@ -99,6 +135,7 @@ export function IssuePage() {
    const location = useLocation();
    const navigate = useNavigate();
    const { orgId, taskKey } = useParams();
+   const taskSync = useWorkspaceTaskSync();
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
@@ -116,6 +153,12 @@ export function IssuePage() {
    const fallbackIssuesPath = `/${orgId || 'taskara'}/team/all/all`;
    const currentPath = `${location.pathname}${location.search}${location.hash}`;
    const returnPath = getIssueReturnPath(location.state);
+   const cachedTask = useMemo(
+      () => taskSync.tasks.find((item) => item.key === taskKey || item.id === taskKey) || null,
+      [taskKey, taskSync.tasks]
+   );
+   const cachedTaskRef = useRef<TaskaraTask | null>(null);
+   const syncUsersRef = useRef<TaskaraUser[]>([]);
 
    const closeIssuePage = useCallback(() => {
       if (location.key !== 'default') {
@@ -142,19 +185,70 @@ export function IssuePage() {
       }
    }, []);
 
+   useEffect(() => {
+      cachedTaskRef.current = cachedTask;
+      if (!cachedTask) return;
+      setTask(cachedTask);
+      setTitleDraft(cachedTask.title);
+      setDescriptionDraft(cachedTask.description || '');
+      setLoading(false);
+   }, [cachedTask]);
+
+   useEffect(() => {
+      syncUsersRef.current = taskSync.users;
+      if (taskSync.users.length) setUsers(taskSync.users);
+   }, [taskSync.users]);
+
+   const projectOptions = useMemo<IssueProjectOption[]>(() => {
+      const options = taskSync.projects.map((project) => ({
+         id: project.id,
+         name: project.name,
+         keyPrefix: project.keyPrefix,
+         team: project.team || null,
+      }));
+
+      if (task?.project && !options.some((project) => project.id === task.project?.id)) {
+         options.unshift({
+            id: task.project.id,
+            name: task.project.name,
+            keyPrefix: task.project.keyPrefix,
+            team: task.project.team || null,
+         });
+      }
+
+      return options;
+   }, [task?.project, taskSync.projects]);
+
    const load = useCallback(async () => {
       if (!taskKey) return;
-      setLoading(true);
+      const cachedTask = cachedTaskRef.current;
+      const syncUsers = syncUsersRef.current;
+      if (cachedTask) {
+         setTask(cachedTask);
+         setTitleDraft(cachedTask.title);
+         setDescriptionDraft(cachedTask.description || '');
+         if (syncUsers.length) setUsers(syncUsers);
+         setLoading(false);
+      } else {
+         setLoading(true);
+      }
       setError('');
       try {
          const [taskResult, usersResult, activityResult] = await Promise.all([
             taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(taskKey)}`),
-            taskaraRequest<PaginatedResponse<TaskaraUser>>('/users?limit=100').catch(() => ({
-               items: [],
-               total: 0,
-               limit: 0,
-               offset: 0,
-            })),
+            syncUsers.length
+               ? Promise.resolve({
+                    items: syncUsers,
+                    total: syncUsers.length,
+                    limit: syncUsers.length,
+                    offset: 0,
+                 } satisfies PaginatedResponse<TaskaraUser>)
+               : taskaraRequest<PaginatedResponse<TaskaraUser>>('/users?limit=100').catch(() => ({
+                    items: [],
+                    total: 0,
+                    limit: 0,
+                    offset: 0,
+                 })),
             taskaraRequest<TaskaraActivity[]>(`/tasks/${encodeURIComponent(taskKey)}/activity`).catch(() => []),
          ]);
          setTask(taskResult);
@@ -163,7 +257,7 @@ export function IssuePage() {
          setUsers(usersResult.items);
          setActivities(activityResult);
       } catch (err) {
-         setError(err instanceof Error ? err.message : fa.issue.loadFailed);
+         if (!cachedTask) setError(err instanceof Error ? err.message : fa.issue.loadFailed);
       } finally {
          setLoading(false);
       }
@@ -190,7 +284,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
-      const optimistic = applyIssuePatch(task, patch, users);
+      const optimistic = applyIssuePatch(task, patch, users, projectOptions);
       setTask(optimistic);
       try {
          const { entity: updated } = await sendTaskSyncMutation<TaskaraTask>('task.update', {
@@ -200,7 +294,14 @@ export function IssuePage() {
          });
          if (!updated) throw new Error(fa.issue.updateFailed);
          setTask((current) => (current ? { ...current, ...updated } : updated));
-         await loadActivity(task.key);
+         taskSync.applyTask(updated);
+         await loadActivity(updated.key || task.key);
+         if (updated.key && updated.key !== task.key) {
+            navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(updated.key)}`, {
+               replace: true,
+               state: location.state,
+            });
+         }
          return updated;
       } catch (err) {
          setTask(previous);
@@ -331,11 +432,31 @@ export function IssuePage() {
       }
    }
 
-   if (loading) return <div className="p-6 text-sm text-zinc-500">{fa.app.loading}</div>;
+   async function copyIssueUrl() {
+      if (typeof window === 'undefined' || !navigator.clipboard) return;
+      try {
+         await navigator.clipboard.writeText(window.location.href);
+         toast.success('پیوند کار کپی شد.');
+      } catch {
+         toast.error('کپی پیوند ناموفق بود.');
+      }
+   }
+
+   async function copyIssueKey() {
+      if (!task || !navigator.clipboard) return;
+      try {
+         await navigator.clipboard.writeText(task.key);
+         toast.success('کلید کار کپی شد.');
+      } catch {
+         toast.error('کپی کلید ناموفق بود.');
+      }
+   }
+
+   if (loading) return <div className="p-4 text-sm text-zinc-500">{fa.app.loading}</div>;
 
    if (error || !task) {
       return (
-         <div className="p-6">
+         <div className="p-4">
             <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
                {error || fa.issue.noIssueSelected}
             </p>
@@ -345,6 +466,7 @@ export function IssuePage() {
 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
+   const labels = task.labels || [];
 
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
@@ -365,7 +487,7 @@ export function IssuePage() {
 
             <div className="relative">
                <input
-                  className="w-full border-0 bg-transparent p-0 text-4xl font-bold leading-tight text-zinc-100 outline-none placeholder:text-zinc-600"
+                  className="w-full border-0 bg-transparent p-0 text-2xl font-semibold leading-8 text-zinc-100 outline-none placeholder:text-zinc-600"
                   dir="auto"
                   value={titleDraft}
                   onBlur={() => void saveTitleDraft()}
@@ -383,8 +505,8 @@ export function IssuePage() {
             <section className="mt-6">
                <div className="relative">
                   <Textarea
-                     className="min-h-28 resize-y border-0 bg-transparent p-0 text-base leading-8 text-zinc-400 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
-                     dir="auto"
+                     className="min-h-20 resize-y border-0 bg-transparent p-0 text-right text-sm leading-6 text-zinc-400 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                     dir="rtl"
                      value={descriptionDraft}
                      onBlur={() => void saveDescriptionDraft()}
                      onChange={(event) => setDescriptionDraft(event.target.value)}
@@ -422,80 +544,95 @@ export function IssuePage() {
                <AttachmentList attachments={attachments} className="mt-3" />
             </section>
 
-            <form className="mt-10 rounded-xl border border-white/8 bg-white/[0.03] p-3" onSubmit={submitComment}>
-               <Textarea
-                  className="min-h-20 resize-none border-0 bg-transparent p-0 text-sm text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
-                  value={commentBody}
-                  onChange={(event) => setCommentBody(event.target.value)}
-                  placeholder={fa.issue.leaveComment}
-               />
-               {commentFiles.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                     {commentFiles.map((file, index) => (
-                        <button
-                           key={`${file.name}-${file.size}-${index}`}
-                           className="inline-flex max-w-full items-center gap-2 rounded-md border border-white/8 bg-white/[0.04] px-2 py-1 text-xs text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200"
-                           type="button"
-                           onClick={() => removeCommentFile(index)}
-                        >
-                           <FileText className="size-3.5 shrink-0" />
-                           <span className="max-w-44 truncate">{file.name}</span>
-                           <X className="size-3.5 shrink-0" />
-                        </button>
-                     ))}
-                  </div>
-               ) : null}
-               <div className="mt-3 flex items-center justify-between">
-                  <input
-                     ref={commentFileInputRef}
-                     className="hidden"
-                     multiple
-                     type="file"
-                     onChange={selectCommentFiles}
-                  />
-                  <button
-                     aria-label={fa.issue.attachToComment}
-                     className="rounded-full bg-white/8 p-1.5 text-zinc-500 transition hover:bg-white/10 hover:text-zinc-200"
-                     type="button"
-                     onClick={() => commentFileInputRef.current?.click()}
-                  >
-                     <Paperclip className="size-4" />
-                  </button>
-                  <button
-                     className="rounded-full bg-white/8 p-1.5 text-zinc-500 transition hover:bg-white/10 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                     disabled={!commentBody.trim() || commentSubmitting}
-                     type="submit"
-                  >
-                     {commentSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  </button>
+            <section className="mt-8 border-t border-white/8 pt-5 pb-6">
+               <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-zinc-100">{fa.issue.activity}</h2>
                </div>
-            </form>
 
-            <div className="mt-6 pb-8">
-               <LinearPanel title={fa.issue.activity}>
-                  <ActivityTimeline activities={activities} comments={comments} updatedAt={task.updatedAt} />
-               </LinearPanel>
-            </div>
+               <ActivityTimeline activities={activities} comments={comments} />
+
+               <form
+                  className="mt-6 overflow-hidden rounded-lg border border-white/8 bg-[#19191b] shadow-[inset_0_1px_0_rgb(255_255_255/0.03)]"
+                  onSubmit={submitComment}
+               >
+                  <div className="p-3">
+                     <Textarea
+                        className="min-h-16 resize-none border-0 bg-transparent p-0 text-sm leading-6 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                        value={commentBody}
+                        onChange={(event) => setCommentBody(event.target.value)}
+                        placeholder={fa.issue.leaveComment}
+                     />
+                     <PendingAttachmentList files={commentFiles} className="mt-3" onRemove={removeCommentFile} />
+                  </div>
+                  <div className="flex items-center justify-between border-t border-white/7 px-3 py-2">
+                     <input
+                        ref={commentFileInputRef}
+                        className="hidden"
+                        multiple
+                        type="file"
+                        onChange={selectCommentFiles}
+                     />
+                     <button
+                        aria-label={fa.issue.attachToComment}
+                        className="inline-flex size-7 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/8 hover:text-zinc-200"
+                        type="button"
+                        onClick={() => commentFileInputRef.current?.click()}
+                     >
+                        <Paperclip className="size-4" />
+                     </button>
+                     <button
+                        aria-label={fa.issue.leaveComment}
+                        className="inline-flex size-8 items-center justify-center rounded-full bg-white/8 text-zinc-400 transition hover:bg-white/12 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!commentBody.trim() || commentSubmitting}
+                        type="submit"
+                     >
+                        {commentSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                     </button>
+                  </div>
+               </form>
+            </section>
          </main>
 
-         <aside className="min-w-0 border-s border-white/6 bg-[#141416] p-4">
-            <div className="mb-4 flex items-center justify-between">
-               <h2 className="text-sm font-semibold text-zinc-200">{fa.issue.details}</h2>
-               <button
-                  aria-label={fa.app.close}
-                  className="rounded-md p-1 text-zinc-500 hover:bg-white/6 hover:text-zinc-200"
-                  type="button"
-                  onClick={closeIssuePage}
-               >
-                  <X className="size-4" />
-               </button>
+         <aside className="min-w-0 border-s border-white/6 bg-[#141416] p-3">
+            <div className="mb-3 flex items-center justify-end gap-2">
+               <SidebarIconButton ariaLabel="Copy issue link" onClick={() => void copyIssueUrl()}>
+                  <Link2 className="size-4" />
+               </SidebarIconButton>
+               <SidebarIconButton ariaLabel="Copy issue key" onClick={() => void copyIssueKey()}>
+                  <Copy className="size-4" />
+               </SidebarIconButton>
+               <SidebarIconButton ariaLabel={fa.issue.dependencies}>
+                  <GitBranch className="size-4" />
+               </SidebarIconButton>
+               <div className="inline-flex h-9 items-center overflow-hidden rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]">
+                  <span
+                     aria-hidden="true"
+                     className="inline-flex h-full items-center justify-center px-3 text-zinc-500"
+                     title={fa.app.more}
+                  >
+                     <MoreHorizontal className="size-4" />
+                  </span>
+                  <span className="h-5 w-px bg-white/8" />
+                  <button
+                     aria-label={fa.app.close}
+                     className="inline-flex h-full items-center justify-center px-3 transition hover:bg-white/6 hover:text-zinc-100"
+                     type="button"
+                     onClick={closeIssuePage}
+                  >
+                     <X className="size-4" />
+                  </button>
+               </div>
             </div>
 
-            <LinearPanel title={fa.issue.properties}>
-               <div className="grid gap-3 p-4 text-sm">
-                  <PropertyRow label={fa.issue.status}>
-                     <DetailSelect
+            <SidebarSection title={fa.issue.properties}>
+               <div className="grid gap-1 p-2 text-sm">
+                  <SidebarSelectRow
+                     icon={<StatusIcon status={task.status} className="size-5" />}
+                     label={linearStatusMeta[task.status]?.label || task.status}
+                  >
+                     <select
                         aria-label={fa.issue.status}
+                        className="absolute inset-0 cursor-pointer opacity-0"
                         value={task.status}
                         onChange={(event) => void updateTask({ status: event.target.value })}
                      >
@@ -504,11 +641,20 @@ export function IssuePage() {
                               {linearStatusMeta[status]?.label || status}
                            </option>
                         ))}
-                     </DetailSelect>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.priority}>
-                     <DetailSelect
+                     </select>
+                  </SidebarSelectRow>
+                  <SidebarSelectRow
+                     muted={task.priority === 'NO_PRIORITY'}
+                     icon={<PriorityIcon priority={task.priority} className="size-5" />}
+                     label={
+                        task.priority === 'NO_PRIORITY'
+                           ? fa.issue.priority
+                           : linearPriorityMeta[task.priority]?.label || task.priority
+                     }
+                  >
+                     <select
                         aria-label={fa.issue.priority}
+                        className="absolute inset-0 cursor-pointer opacity-0"
                         value={task.priority}
                         onChange={(event) => void updateTask({ priority: event.target.value })}
                      >
@@ -517,46 +663,101 @@ export function IssuePage() {
                               {linearPriorityMeta[priority]?.label || priority}
                            </option>
                         ))}
-                     </DetailSelect>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.assignee}>
-                     <div className="flex min-w-0 items-center gap-2">
-                        <LinearAvatar
-                           name={task.assignee?.name}
-                           src={task.assignee?.avatarUrl}
-                           className="size-5 shrink-0"
-                        />
-                        <DetailSelect
-                           aria-label={fa.issue.assignee}
-                           className="min-w-0 flex-1"
-                           value={task.assignee?.id || ''}
-                           onChange={(event) => void updateTask({ assigneeId: event.target.value || null })}
-                        >
-                           <option value="">{fa.app.unset}</option>
-                           {users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                 {user.name}
-                              </option>
-                           ))}
-                        </DetailSelect>
-                     </div>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.project}>{task.project?.name || fa.app.unknown}</PropertyRow>
-                  <PropertyRow label={fa.issue.dueAt}>
+                     </select>
+                  </SidebarSelectRow>
+                  <SidebarSelectRow
+                     muted={!task.assignee}
+                     icon={
+                        task.assignee ? (
+                           <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-5" />
+                        ) : (
+                           <NoAssigneeIcon className="size-5 text-zinc-500" />
+                        )
+                     }
+                     label={task.assignee?.name || fa.issue.assignee}
+                  >
+                     <select
+                        aria-label={fa.issue.assignee}
+                        className="absolute inset-0 cursor-pointer opacity-0"
+                        value={task.assignee?.id || ''}
+                        onChange={(event) => void updateTask({ assigneeId: event.target.value || null })}
+                     >
+                        <option value="">{fa.app.unset}</option>
+                        {users.map((user) => (
+                           <option key={user.id} value={user.id}>
+                              {user.name}
+                           </option>
+                        ))}
+                     </select>
+                  </SidebarSelectRow>
+                  <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-zinc-400">
+                     <CalendarClock className="size-5 shrink-0 text-zinc-500" />
                      <LazyJalaliDatePicker
                         ariaLabel={fa.issue.dueAt}
                         value={task.dueAt || null}
                         onChange={(dueAt) => void updateTask({ dueAt })}
                      />
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.comments}>
-                     {(task._count?.comments ?? comments.length).toLocaleString('fa-IR')}
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.attachments}>
-                     {(task._count?.attachments ?? attachments.length).toLocaleString('fa-IR')}
-                  </PropertyRow>
+                  </div>
                </div>
-            </LinearPanel>
+            </SidebarSection>
+
+            <SidebarSection title={fa.issue.labels} className="mt-3">
+               <div className="min-h-9 p-2">
+                  {labels.length ? (
+                     <div className="flex flex-wrap gap-2">
+                        {labels.map(({ label }) => (
+                           <span
+                              key={label.id}
+                              className="inline-flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm text-zinc-300 transition hover:bg-white/5"
+                           >
+                              <span
+                                 className="size-2.5 shrink-0 rounded-full"
+                                 style={{ backgroundColor: label.color || '#71717a' }}
+                              />
+                              <span className="truncate">{label.name}</span>
+                           </span>
+                        ))}
+                     </div>
+                  ) : (
+                     <SidebarEmptyRow icon={<Tag className="size-5" />} label={fa.issue.labels} />
+                  )}
+               </div>
+            </SidebarSection>
+
+            <SidebarSection title={fa.issue.project} className="mt-3">
+               <div className="grid gap-1 p-2 text-sm">
+                  <SidebarSelectRow
+                     muted={!task.project}
+                     icon={
+                        task.project ? (
+                           <ProjectGlyph className="size-5 rounded-sm bg-white/6" />
+                        ) : (
+                           <Box className="size-5 text-zinc-500" />
+                        )
+                     }
+                     label={task.project?.name || fa.issue.project}
+                  >
+                     <select
+                        aria-label={fa.issue.project}
+                        className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                        disabled={!projectOptions.length}
+                        value={task.project?.id || ''}
+                        onChange={(event) => {
+                           const projectId = event.target.value;
+                           if (!projectId || projectId === task.project?.id) return;
+                           void updateTask({ projectId });
+                        }}
+                     >
+                        {!task.project ? <option value="">{fa.app.unset}</option> : null}
+                        {projectOptions.map((project) => (
+                           <option key={project.id} value={project.id}>
+                              {project.name}
+                           </option>
+                        ))}
+                     </select>
+                  </SidebarSelectRow>
+               </div>
+            </SidebarSection>
          </aside>
       </div>
    );
@@ -569,11 +770,9 @@ type TimelineItem =
 function ActivityTimeline({
    activities,
    comments,
-   updatedAt,
 }: {
    activities: TaskaraActivity[];
    comments: TaskaraTaskComment[];
-   updatedAt?: string;
 }) {
    const items = useMemo<TimelineItem[]>(() => {
       const activityItems: TimelineItem[] = activities
@@ -597,16 +796,7 @@ function ActivityTimeline({
    }, [activities, comments]);
 
    return (
-      <div className="space-y-4 p-4 text-sm text-zinc-500">
-         {updatedAt ? (
-            <div className="flex items-center gap-2">
-               <CalendarClock className="size-4" />
-               <span>
-                  {fa.issue.updatedAt}: {formatJalaliDateTime(updatedAt)}
-               </span>
-            </div>
-         ) : null}
-
+      <div className="space-y-3.5 text-sm text-zinc-500">
          {items.length ? (
             items.map((item) =>
                item.type === 'comment' ? (
@@ -616,7 +806,9 @@ function ActivityTimeline({
                )
             )
          ) : (
-            <p className="rounded-xl border border-white/8 bg-white/[0.02] p-3 text-zinc-500">{fa.issue.noActivity}</p>
+            <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.015] p-3 text-sm text-zinc-500">
+               {fa.issue.noActivity}
+            </p>
          )}
       </div>
    );
@@ -624,52 +816,138 @@ function ActivityTimeline({
 
 function CommentTimelineItem({ comment }: { comment: TaskaraTaskComment }) {
    return (
-      <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3">
-         <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="inline-flex min-w-0 items-center gap-2 font-medium text-zinc-300">
-               <MessageSquare className="size-4 shrink-0 text-zinc-500" />
-               <span className="truncate">{comment.author?.name || fa.app.unknown}</span>
-            </span>
-            <span className="shrink-0 text-xs text-zinc-600">{formatJalaliDateTime(comment.createdAt)}</span>
+      <article className="overflow-hidden rounded-lg border border-white/8 bg-[#19191b] shadow-[inset_0_1px_0_rgb(255_255_255/0.03)]">
+         <div className="flex items-start gap-2.5 p-3">
+            <LinearAvatar
+               name={comment.author?.name}
+               src={comment.author?.avatarUrl}
+               className="mt-0.5 size-6 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+               <div className="mb-1.5 flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium text-zinc-100">
+                     {comment.author?.name || fa.app.unknown}
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-500">{formatJalaliDateTime(comment.createdAt)}</span>
+               </div>
+               <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-200">{comment.body}</p>
+               <AttachmentList attachments={comment.attachments || []} compact className="mt-2.5" />
+            </div>
          </div>
-         <p className="whitespace-pre-wrap leading-7 text-zinc-400">{comment.body}</p>
-         <AttachmentList attachments={comment.attachments || []} compact className="mt-3" />
-      </div>
+      </article>
    );
 }
 
 function ActivityTimelineItem({ activity }: { activity: TaskaraActivity }) {
    const changes = getActivityChanges(activity);
    const attachment = activity.action === 'attachment_added' ? attachmentFromActivity(activity) : null;
+   const activityIcon = getActivityIcon(activity, changes);
 
    return (
-      <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3">
-         <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="inline-flex min-w-0 items-center gap-2 font-medium text-zinc-300">
-               <History className="size-4 shrink-0 text-zinc-500" />
-               <span className="truncate">{activity.actor?.name || fa.app.unknown}</span>
-            </span>
-            <span className="shrink-0 text-xs text-zinc-600">{formatJalaliDateTime(activity.createdAt)}</span>
-         </div>
-         <p className="leading-7 text-zinc-400">{activityTitle(activity)}</p>
-         {changes.length ? (
-            <div className="mt-3 space-y-2">
-               {changes.map((change) => (
-                  <div
-                     key={change.label}
-                     className="grid gap-2 rounded-lg border border-white/6 bg-black/10 p-2 text-xs text-zinc-500 sm:grid-cols-[96px_minmax(0,1fr)]"
-                  >
-                     <span className="text-zinc-400">{change.label}</span>
-                     <span className="min-w-0">
-                        <span className="break-words text-zinc-600">{change.before}</span>
-                        <span className="px-2 text-zinc-500">→</span>
-                        <span className="break-words text-zinc-300">{change.after}</span>
+      <div className="flex min-w-0 items-start gap-2.5">
+         <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center text-zinc-500">
+            {activityIcon}
+         </span>
+         <div className="min-w-0 flex-1">
+            <p className="min-w-0 text-sm leading-6 text-zinc-500">
+               <span className="font-medium text-zinc-400">{activity.actor?.name || fa.app.unknown}</span>
+               <span> {activityTitle(activity)}</span>
+               <span className="px-1 text-zinc-600">·</span>
+               <span className="text-zinc-500">{formatJalaliDateTime(activity.createdAt)}</span>
+            </p>
+            {changes.length ? (
+               <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {changes.map((change) => (
+                     <span
+                        key={change.label}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/7 bg-white/[0.025] px-2 py-0.5 text-xs text-zinc-500"
+                     >
+                        <span className="text-zinc-400">{change.label}</span>
+                        <span className="max-w-28 truncate text-zinc-600">{change.before}</span>
+                        <span className="text-zinc-600">←</span>
+                        <span className="max-w-32 truncate text-zinc-300">{change.after}</span>
                      </span>
-                  </div>
-               ))}
+                  ))}
+               </div>
+            ) : null}
+            {attachment ? <AttachmentList attachments={[attachment]} compact className="mt-2" /> : null}
+         </div>
+      </div>
+   );
+}
+
+function getActivityIcon(
+   activity: TaskaraActivity,
+   changes: Array<{ label: string; before: string; after: string }>
+): React.ReactNode {
+   if (activity.action === 'created') {
+      return <LinearAvatar name={activity.actor?.name} src={activity.actor?.avatarUrl} className="size-5" />;
+   }
+   if (activity.action === 'attachment_added' || activity.action === 'comment_attachment_added') {
+      return <Paperclip className="size-4" />;
+   }
+   const statusChange = changes.find((change) => change.label === fa.issue.status);
+   if (statusChange) {
+      const status = Object.entries(linearStatusMeta).find(([, meta]) => meta.label === statusChange.after)?.[0];
+      return <StatusIcon status={status || 'TODO'} className="size-4" />;
+   }
+   return <History className="size-4" />;
+}
+
+function PendingAttachmentList({
+   files,
+   className,
+   onRemove,
+}: {
+   files: File[];
+   className?: string;
+   onRemove: (index: number) => void;
+}) {
+   const previews = useMemo(
+      () =>
+         files.map((file, index) => ({
+            file,
+            index,
+            url: URL.createObjectURL(file),
+         })),
+      [files]
+   );
+
+   useEffect(() => {
+      return () => previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+   }, [previews]);
+
+   if (!files.length) return null;
+
+   return (
+      <div className={cn('flex flex-wrap gap-2', className)}>
+         {previews.map(({ file, index, url }) => (
+            <div
+               key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+               className="group w-full max-w-64 overflow-hidden rounded-md border border-white/8 bg-[#151517]"
+            >
+               <AttachmentPreviewSurface
+                  attachment={{
+                     name: file.name,
+                     url,
+                     mimeType: file.type,
+                     sizeBytes: file.size,
+                  }}
+                  compact
+               />
+               <div className="flex items-center justify-between gap-2 border-t border-white/7 px-2.5 py-1.5">
+                  <span className="min-w-0 truncate text-xs text-zinc-400">{file.name}</span>
+                  <button
+                     aria-label={fa.issue.removeAttachment}
+                     className="shrink-0 rounded-full p-1 text-zinc-500 transition hover:bg-white/8 hover:text-zinc-200"
+                     type="button"
+                     onClick={() => onRemove(index)}
+                  >
+                     <X className="size-3.5" />
+                  </button>
+               </div>
             </div>
-         ) : null}
-         {attachment ? <AttachmentList attachments={[attachment]} compact className="mt-3" /> : null}
+         ))}
       </div>
    );
 }
@@ -686,26 +964,93 @@ function AttachmentList({
    if (!attachments.length) return null;
 
    return (
-      <div className={cn('grid gap-2', className)}>
+      <div className={cn(compact ? 'flex flex-wrap gap-2' : 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3', className)}>
          {attachments.map((attachment) => (
             <a
                key={attachment.id}
                className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-lg border border-white/8 bg-white/[0.03] text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200',
-                  compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'
+                  'group overflow-hidden border border-white/8 bg-[#19191b] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.03)] transition hover:border-white/14 hover:bg-[#1d1d20] hover:text-zinc-200',
+                  compact ? 'w-full max-w-64 rounded-md bg-[#151517]' : 'rounded-lg'
                )}
                href={attachment.url}
                rel="noreferrer"
                target="_blank"
             >
-               <FileText className="size-4 shrink-0 text-zinc-500" />
-               <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-               {attachment.sizeBytes ? (
-                  <span className="shrink-0 text-xs text-zinc-600">{formatFileSize(attachment.sizeBytes)}</span>
-               ) : null}
-               <ExternalLink className="size-3.5 shrink-0 text-zinc-600" />
+               <AttachmentPreviewSurface attachment={attachment} compact={compact} />
+               <div className="flex min-w-0 items-center gap-2 border-t border-white/7 px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs text-zinc-400">{attachment.name}</span>
+                  {attachment.sizeBytes ? (
+                     <span className="shrink-0 text-[11px] text-zinc-600">
+                        {formatFileSize(attachment.sizeBytes)}
+                     </span>
+                  ) : null}
+                  <ExternalLink className="size-3.5 shrink-0 text-zinc-600 transition group-hover:text-zinc-300" />
+               </div>
             </a>
          ))}
+      </div>
+   );
+}
+
+function AttachmentPreviewSurface({
+   attachment,
+   compact = false,
+}: {
+   attachment: PreviewableAttachment;
+   compact?: boolean;
+}) {
+   const [previewFailed, setPreviewFailed] = useState(false);
+   const kind = attachmentPreviewKind(attachment);
+   const heightClassName = compact ? 'h-16' : 'h-28';
+
+   if (kind === 'image' && !previewFailed) {
+      return (
+         <div className={cn('overflow-hidden bg-black/20', heightClassName)}>
+            <img
+               alt={attachment.name}
+               className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+               loading="lazy"
+               onError={() => setPreviewFailed(true)}
+               src={attachment.url}
+            />
+         </div>
+      );
+   }
+
+   if (kind === 'video' && !previewFailed) {
+      return (
+         <div className={cn('overflow-hidden bg-black/25', heightClassName)}>
+            <video
+               className="h-full w-full object-cover"
+               muted
+               preload="metadata"
+               src={attachment.url}
+               onError={() => setPreviewFailed(true)}
+            />
+         </div>
+      );
+   }
+
+   if (kind === 'pdf') {
+      return (
+         <div className={cn('overflow-hidden bg-zinc-950', heightClassName)}>
+            <iframe
+               className="pointer-events-none h-full w-full border-0 bg-zinc-950"
+               src={`${attachment.url}#toolbar=0&navpanes=0&scrollbar=0`}
+               title={attachment.name}
+            />
+         </div>
+      );
+   }
+
+   const Icon = kind === 'archive' ? FileArchive : kind === 'text' ? FileText : ImageIcon;
+
+   return (
+      <div className={cn('flex flex-col items-center justify-center gap-1.5 bg-white/[0.025]', heightClassName)}>
+         <Icon className={cn('text-zinc-500', compact ? 'size-5' : 'size-7')} />
+         <span className="max-w-[80%] truncate text-[11px] uppercase tracking-[0.08em] text-zinc-600">
+            {attachmentExtension(attachment.name) || fileKindLabel(attachment)}
+         </span>
       </div>
    );
 }
@@ -713,13 +1058,13 @@ function AttachmentList({
 function activityTitle(activity: TaskaraActivity): string {
    switch (activity.action) {
       case 'created':
-         return 'کار ایجاد شد.';
+         return 'کار را ایجاد کرد';
       case 'updated':
-         return 'کار به‌روزرسانی شد.';
+         return 'کار را به‌روزرسانی کرد';
       case 'attachment_added':
-         return 'پیوست به توضیح اضافه شد.';
+         return 'پیوست اضافه کرد';
       case 'comment_attachment_added':
-         return 'پیوست به دیدگاه اضافه شد.';
+         return 'پیوست به دیدگاه اضافه کرد';
       default:
          return activity.action;
    }
@@ -813,29 +1158,112 @@ function formatFileSize(bytes: number): string {
    return `${(kilobytes / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} MB`;
 }
 
-function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
+function attachmentPreviewKind(
+   attachment: PreviewableAttachment
+): 'image' | 'video' | 'pdf' | 'archive' | 'text' | 'file' {
+   const mimeType = attachment.mimeType?.toLowerCase() || '';
+   const extension = attachmentExtension(attachment.name);
+   if (mimeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'].includes(extension)) {
+      return 'image';
+   }
+   if (mimeType.startsWith('video/') || ['mp4', 'webm', 'mov', 'm4v'].includes(extension)) return 'video';
+   if (mimeType === 'application/pdf' || extension === 'pdf') return 'pdf';
+   if (mimeType.includes('zip') || ['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+      return 'archive';
+   }
+   if (mimeType.startsWith('text/') || ['txt', 'md', 'csv', 'json', 'log'].includes(extension)) return 'text';
+   return 'file';
+}
+
+function attachmentExtension(name: string): string {
+   const extension = name.split('.').pop();
+   return extension && extension !== name ? extension.toLowerCase() : '';
+}
+
+function fileKindLabel(attachment: PreviewableAttachment): string {
+   if (attachment.mimeType) return attachment.mimeType.split('/').pop() || 'file';
+   return 'file';
+}
+
+function SidebarIconButton({
+   ariaLabel,
+   children,
+   onClick,
+}: {
+   ariaLabel: string;
+   children: React.ReactNode;
+   onClick?: () => void;
+}) {
+   if (!onClick) {
+      return (
+         <span
+            aria-hidden="true"
+            className="inline-flex size-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.05] text-zinc-500 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]"
+            title={ariaLabel}
+         >
+            {children}
+         </span>
+      );
+   }
+
    return (
-      <div className="grid min-h-9 grid-cols-[92px_minmax(0,1fr)] items-center gap-3">
-         <span className="text-start text-xs text-zinc-500">{label}</span>
-         <span className="min-w-0 text-start text-zinc-300">{children}</span>
-      </div>
+      <button
+         aria-label={ariaLabel}
+         className="inline-flex size-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-white/8 hover:text-zinc-100"
+         type="button"
+         onClick={onClick}
+      >
+         {children}
+      </button>
    );
 }
 
-function DetailSelect({
+function SidebarSection({
+   title,
    className,
    children,
-   ...props
-}: SelectHTMLAttributes<HTMLSelectElement>) {
+}: {
+   title: string;
+   className?: string;
+   children: React.ReactNode;
+}) {
    return (
-      <span className={cn('relative block w-full min-w-0', className)}>
-         <select
-            className="h-8 w-full cursor-pointer appearance-none rounded-md border border-white/8 bg-white/[0.03] py-0 ps-3 pe-8 text-start text-sm text-zinc-300 outline-none transition hover:bg-white/[0.05] focus-visible:ring-1 focus-visible:ring-indigo-400/60"
-            {...props}
-         >
-            {children}
-         </select>
-         <ChevronDown className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
-      </span>
+      <section className={cn('overflow-hidden rounded-lg border border-white/8 bg-[#19191b]', className)}>
+         <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-400">
+            <span>{title}</span>
+         </div>
+         {children}
+      </section>
+   );
+}
+
+function SidebarSelectRow({
+   icon,
+   label,
+   muted = false,
+   children,
+}: {
+   icon: React.ReactNode;
+   label: string;
+   muted?: boolean;
+   children: React.ReactNode;
+}) {
+   return (
+      <label className="relative flex min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/5">
+         <span className="flex size-5 shrink-0 items-center justify-center">{icon}</span>
+         <span className={cn('min-w-0 flex-1 truncate text-base', muted ? 'text-zinc-500' : 'text-zinc-100')}>
+            {label}
+         </span>
+         {children}
+      </label>
+   );
+}
+
+function SidebarEmptyRow({ icon, label }: { icon: React.ReactNode; label: string }) {
+   return (
+      <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-base text-zinc-500 transition hover:bg-white/5">
+         <span className="flex size-5 shrink-0 items-center justify-center text-zinc-500">{icon}</span>
+         <span className="truncate">{label}</span>
+      </div>
    );
 }

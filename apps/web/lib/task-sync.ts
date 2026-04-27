@@ -64,7 +64,7 @@ type PushResponse = {
    }>;
 };
 
-type TaskSyncScope = {
+export type TaskSyncScope = {
    teamId: string;
    mine?: boolean;
    workspaceSlug?: string;
@@ -79,9 +79,12 @@ type TaskSyncResources = {
 
 const clientIdStorageKey = 'taskara.sync.clientId.v1';
 const pendingMutationsStorageKey = 'taskara.sync.pendingMutations.v1';
+const scopeSnapshotStoragePrefix = 'taskara.sync.scopeSnapshot.v1:';
 const taskSyncDbName = 'taskara-task-sync';
 const pendingMutationsStore = 'pendingMutations';
+const scopeSnapshotsStore = 'scopeSnapshots';
 const broadcastName = 'taskara.task-sync.v1';
+const windowSyncMessageEvent = 'taskara:task-sync-message';
 
 type PersistedTaskMutation = {
    clientId: string;
@@ -95,6 +98,11 @@ type PersistedTaskMutation = {
    deletedTaskKey?: string;
 };
 
+type CachedScopeSnapshot = BootstrapResponse & {
+   scopeKey: string;
+   savedAt: string;
+};
+
 type PendingMutationOptions = {
    mutationId?: string;
    keepPendingOnRetryable?: boolean;
@@ -103,6 +111,11 @@ type PendingMutationOptions = {
    deletedTaskId?: string;
    deletedTaskKey?: string;
 };
+
+type TaskSyncBroadcastMessage =
+   | { type: 'events'; scopeKey: string; cursor: string; events: SyncTaskEvent[] }
+   | { type: 'localTask'; scopeKey: string; task: TaskaraTask; mutationId?: string }
+   | { type: 'localTaskDeleted'; scopeKey: string; taskId?: string; taskKey?: string; mutationId?: string };
 
 export class TaskSyncMutationError extends Error {
    retryable: boolean;
@@ -113,6 +126,8 @@ export class TaskSyncMutationError extends Error {
       this.retryable = retryable;
    }
 }
+
+export type TaskSyncController = ReturnType<typeof useTaskSync>;
 
 export function useTaskSync(scope: TaskSyncScope) {
    const scopeKey = taskScopeKey(scope);
@@ -141,6 +156,27 @@ export function useTaskSync(scope: TaskSyncScope) {
    const applyTask = useCallback((task: TaskaraTask) => {
       setTasks((current) => upsertTask(current, task));
    }, []);
+
+   const applyBootstrap = useCallback(
+      async (result: BootstrapResponse, requestedScopeKey: string, runId: number): Promise<boolean> => {
+         if (bootstrapRunRef.current !== runId || taskScopeKey(scopeRef.current) !== requestedScopeKey) return false;
+         const tasksWithPending = await applyPendingMutationsToTasks(result.tasks, clientId, requestedScopeKey);
+         if (bootstrapRunRef.current !== runId || taskScopeKey(scopeRef.current) !== requestedScopeKey) return false;
+         cursorRef.current = result.cursor;
+         setCursor(result.cursor);
+         setTasks(tasksWithPending);
+         setResources({
+            projects: result.projects,
+            teams: result.teams,
+            users: result.users,
+            views: result.views,
+         });
+         bootstrappedRef.current = true;
+         lastBootstrappedScopeRef.current = requestedScopeKey;
+         return true;
+      },
+      [clientId]
+   );
 
    const applyEvents = useCallback(
       (events: SyncTaskEvent[], nextCursor: string, broadcast = true) => {
@@ -182,6 +218,7 @@ export function useTaskSync(scope: TaskSyncScope) {
       bootstrapRunRef.current = runId;
       const requestedScope = scopeRef.current;
       const requestedScopeKey = taskScopeKey(requestedScope);
+      let restoredFromCache = false;
       setLoading(true);
       setError('');
       bootstrappedRef.current = false;
@@ -190,28 +227,24 @@ export function useTaskSync(scope: TaskSyncScope) {
          setResources({ projects: [], teams: [], users: [], views: [] });
       }
       try {
+         const cached = await loadCachedBootstrap(requestedScopeKey);
+         if (cached) {
+            restoredFromCache = await applyBootstrap(cached, requestedScopeKey, runId);
+            if (restoredFromCache && bootstrapRunRef.current === runId) setLoading(false);
+         }
+
          const result = await taskaraRequest<BootstrapResponse>(`/sync/bootstrap?${scopeSearch(requestedScope)}`);
-         if (bootstrapRunRef.current !== runId || taskScopeKey(scopeRef.current) !== requestedScopeKey) return;
-         const tasksWithPending = await applyPendingMutationsToTasks(result.tasks, clientId, requestedScopeKey);
-         if (bootstrapRunRef.current !== runId || taskScopeKey(scopeRef.current) !== requestedScopeKey) return;
-         cursorRef.current = result.cursor;
-         setCursor(result.cursor);
-         setTasks(tasksWithPending);
-         setResources({
-            projects: result.projects,
-            teams: result.teams,
-            users: result.users,
-            views: result.views,
-         });
-         bootstrappedRef.current = true;
-         lastBootstrappedScopeRef.current = requestedScopeKey;
+         void saveCachedBootstrap(requestedScopeKey, result);
+         await applyBootstrap(result, requestedScopeKey, runId);
       } catch (err) {
          if (bootstrapRunRef.current !== runId) return;
-         setError(err instanceof Error ? err.message : 'Task sync failed.');
+         if (!restoredFromCache) {
+            setError(err instanceof Error ? err.message : 'Task sync failed.');
+         }
       } finally {
          if (bootstrapRunRef.current === runId) setLoading(false);
       }
-   }, [clientId]);
+   }, [applyBootstrap]);
 
    const pull = useCallback(async () => {
       if (!bootstrappedRef.current || pullingRef.current) return;
@@ -247,6 +280,18 @@ export function useTaskSync(scope: TaskSyncScope) {
    }, [refresh, scopeKey]);
 
    useEffect(() => {
+      if (!bootstrappedRef.current || loading) return;
+      void saveCachedBootstrap(scopeKey, {
+         cursor,
+         tasks,
+         projects: resources.projects,
+         teams: resources.teams,
+         users: resources.users,
+         views: resources.views,
+      });
+   }, [cursor, loading, resources.projects, resources.teams, resources.users, resources.views, scopeKey, tasks]);
+
+   useEffect(() => {
       const handlePageShow = (event: PageTransitionEvent) => {
          if (event.persisted) void refresh();
       };
@@ -271,15 +316,46 @@ export function useTaskSync(scope: TaskSyncScope) {
 
    useEffect(() => {
       const channel = createBroadcastChannel();
-      if (!channel) return;
-
-      channel.onmessage = (event) => {
-         const message = event.data as { type?: string; scopeKey?: string; cursor?: string; events?: SyncTaskEvent[] };
-         if (message.type !== 'events' || message.scopeKey !== scopeKey || !message.cursor || !message.events) return;
-         applyEvents(message.events, message.cursor, false);
+      const handleMessage = (message: Partial<TaskSyncBroadcastMessage>) => {
+         if (message.scopeKey !== scopeKey) return;
+         if (message.type === 'events' && message.cursor && message.events) {
+            applyEvents(message.events, message.cursor, false);
+            return;
+         }
+         if (message.type === 'localTask' && message.task) {
+            setTasks((current) => {
+               const withoutPending = message.mutationId
+                  ? current.filter((task) => task.syncMutationId !== message.mutationId)
+                  : current;
+               return upsertTask(withoutPending, message.task as TaskaraTask);
+            });
+            return;
+         }
+         if (message.type === 'localTaskDeleted') {
+            setTasks((current) =>
+               current.filter(
+                  (task) =>
+                     task.id !== message.taskId &&
+                     task.key !== message.taskKey &&
+                     (!message.mutationId || task.syncMutationId !== message.mutationId)
+               )
+            );
+         }
       };
 
-      return () => channel.close();
+      const handleWindowMessage = (event: Event) => {
+         handleMessage((event as CustomEvent<Partial<TaskSyncBroadcastMessage>>).detail || {});
+      };
+
+      if (channel) {
+         channel.onmessage = (event) => handleMessage(event.data as Partial<TaskSyncBroadcastMessage>);
+      }
+      window.addEventListener(windowSyncMessageEvent, handleWindowMessage);
+
+      return () => {
+         channel?.close();
+         window.removeEventListener(windowSyncMessageEvent, handleWindowMessage);
+      };
    }, [applyEvents, scopeKey]);
 
    useEffect(() => {
@@ -337,10 +413,11 @@ export function useTaskSync(scope: TaskSyncScope) {
 
    const createTask = useCallback(
       async (input: TaskCreateInput): Promise<TaskaraTask> => {
-         const tempId = `local-${crypto.randomUUID()}`;
          const mutationId = crypto.randomUUID();
+         const tempId = `local-${mutationId}`;
          const optimistic = buildOptimisticTask(tempId, input, resources, mutationId);
          setTasks((current) => upsertTask(current, optimistic));
+         broadcastLocalTask(scopeKey, optimistic);
 
          try {
             const created = await pushMutation('task.create', input, { mutationId, optimisticTask: optimistic });
@@ -349,15 +426,29 @@ export function useTaskSync(scope: TaskSyncScope) {
          } catch (err) {
             if (isRetryableTaskSyncError(err)) return optimistic;
             setTasks((current) => current.filter((task) => task.id !== tempId));
+            broadcastLocalTaskDeleted(scopeKey, optimistic);
             throw err;
          }
       },
-      [pushMutation, resources]
+      [pushMutation, resources, scopeKey]
    );
 
    const updateTask = useCallback(
       async (task: TaskaraTask, patch: TaskUpdatePatch): Promise<TaskaraTask> => {
          const previous = task;
+         if (isLocalOptimisticTask(task) && task.syncMutationId) {
+            const optimistic = { ...applyPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: task.syncMutationId };
+            setTasks((current) => current.map((item) => (item.id === task.id ? optimistic : item)));
+            try {
+               await updatePendingCreateTaskMutation(task.syncMutationId, patch, optimistic);
+               broadcastLocalTask(scopeKey, optimistic);
+               return optimistic;
+            } catch (err) {
+               setTasks((current) => current.map((item) => (item.id === task.id ? previous : item)));
+               throw err;
+            }
+         }
+
          const mutationId = crypto.randomUUID();
          const optimistic = { ...applyPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: mutationId };
          setTasks((current) => current.map((item) => (item.id === task.id ? optimistic : item)));
@@ -376,12 +467,23 @@ export function useTaskSync(scope: TaskSyncScope) {
             throw err;
          }
       },
-      [pushMutation, resources]
+      [pushMutation, resources, scopeKey]
    );
 
    const deleteTask = useCallback(
       async (task: TaskaraTask): Promise<void> => {
          setTasks((current) => current.filter((item) => item.id !== task.id));
+         if (isLocalOptimisticTask(task) && task.syncMutationId) {
+            try {
+               await removePendingMutation(task.syncMutationId);
+               broadcastLocalTaskDeleted(scopeKey, task);
+               return;
+            } catch (err) {
+               setTasks((current) => upsertTask(current, task));
+               throw err;
+            }
+         }
+
          try {
             await pushMutation('task.delete', { idOrKey: task.key || task.id }, { deletedTaskId: task.id, deletedTaskKey: task.key });
          } catch (err) {
@@ -390,7 +492,7 @@ export function useTaskSync(scope: TaskSyncScope) {
             throw err;
          }
       },
-      [pushMutation]
+      [pushMutation, scopeKey]
    );
 
    return {
@@ -446,7 +548,12 @@ export function useTaskSyncPulse(onPulse: () => void, enabled = true) {
 }
 
 function upsertTask(tasks: TaskaraTask[], task: TaskaraTask): TaskaraTask[] {
-   const existingIndex = tasks.findIndex((item) => item.id === task.id || item.key === task.key);
+   const existingIndex = tasks.findIndex(
+      (item) =>
+         item.id === task.id ||
+         (task.syncMutationId && item.syncMutationId === task.syncMutationId) ||
+         (canMatchTaskByKey(item, task) && item.key === task.key)
+   );
    if (existingIndex === -1) return [task, ...tasks];
    const next = [...tasks];
    const merged = { ...next[existingIndex], ...task };
@@ -456,6 +563,18 @@ function upsertTask(tasks: TaskaraTask[], task: TaskaraTask): TaskaraTask[] {
    }
    next[existingIndex] = merged;
    return next;
+}
+
+function canMatchTaskByKey(left: TaskaraTask, right: TaskaraTask): boolean {
+   return Boolean(left.key && right.key && !isLocalTaskKey(left.key) && !isLocalTaskKey(right.key));
+}
+
+function isLocalTaskKey(key: string): boolean {
+   return key === 'NEW' || key.startsWith('NEW-');
+}
+
+function isLocalOptimisticTask(task: TaskaraTask): boolean {
+   return task.syncState === 'pending' && Boolean(task.syncMutationId) && (task.id.startsWith('local-') || isLocalTaskKey(task.key));
 }
 
 async function applyPendingMutationsToTasks(
@@ -493,7 +612,7 @@ function buildOptimisticTask(
 
    return {
       id,
-      key: 'NEW',
+      key: optimisticTaskKey(syncMutationId),
       title: input.title,
       description: input.description || null,
       status: input.status,
@@ -524,6 +643,10 @@ function buildOptimisticTask(
       labels: input.labels.map((name) => ({ label: { id: `local-${name}`, name } })),
       _count: { comments: 0, subtasks: 0, blockingDependencies: 0, attachments: 0 },
    };
+}
+
+function optimisticTaskKey(syncMutationId: string): string {
+   return `NEW-${syncMutationId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
 
 function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSyncResources): TaskaraTask {
@@ -565,6 +688,62 @@ function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSy
    }
 
    return next;
+}
+
+async function updatePendingCreateTaskMutation(
+   mutationId: string,
+   patch: TaskUpdatePatch,
+   optimisticTask: TaskaraTask
+): Promise<void> {
+   const mutation = (await loadPendingMutations()).find((item) => item.mutationId === mutationId);
+   if (!mutation || mutation.name !== 'task.create' || !isTaskCreateInput(mutation.args)) {
+      throw new TaskSyncMutationError('Pending issue create could not be updated.', false);
+   }
+
+   await persistPendingMutation({
+      ...mutation,
+      args: mergeTaskCreateInput(mutation.args, patch),
+      optimisticTask,
+   });
+}
+
+function mergeTaskCreateInput(input: TaskCreateInput, patch: TaskUpdatePatch): TaskCreateInput {
+   const next: TaskCreateInput = { ...input };
+   if (patch.title !== undefined) next.title = patch.title;
+   if (patch.status !== undefined) next.status = patch.status;
+   if (patch.priority !== undefined) next.priority = patch.priority;
+   if (patch.projectId !== undefined) next.projectId = patch.projectId;
+   if (patch.labels !== undefined) next.labels = patch.labels;
+
+   if (patch.description !== undefined) {
+      if (patch.description === null) delete next.description;
+      else next.description = patch.description;
+   }
+
+   if (patch.assigneeId !== undefined) {
+      if (patch.assigneeId) next.assigneeId = patch.assigneeId;
+      else delete next.assigneeId;
+   }
+
+   if (patch.dueAt !== undefined) {
+      if (patch.dueAt) next.dueAt = patch.dueAt;
+      else delete next.dueAt;
+   }
+
+   return next;
+}
+
+function isTaskCreateInput(value: unknown): value is TaskCreateInput {
+   if (!value || typeof value !== 'object') return false;
+   const input = value as Partial<TaskCreateInput>;
+   return (
+      typeof input.projectId === 'string' &&
+      typeof input.title === 'string' &&
+      typeof input.status === 'string' &&
+      typeof input.priority === 'string' &&
+      Array.isArray(input.labels) &&
+      input.source === 'WEB'
+   );
 }
 
 async function consumeSyncStream(clientId: string, signal: AbortSignal, onSync: () => void): Promise<void> {
@@ -722,6 +901,9 @@ export async function sendTaskSyncMutation<T>(
    await persistPendingMutation(mutation);
 
    try {
+      if (options.keepPendingOnRetryable && typeof navigator !== 'undefined' && navigator.onLine === false) {
+         throw new TaskSyncMutationError('Task mutation queued until connection is restored.', true);
+      }
       const response = await sendPersistedMutation(mutation);
       const result = response.results[0];
       if (!result || result.status === 'rejected' || result.status === 'conflict') {
@@ -755,6 +937,19 @@ export async function flushPendingTaskSyncMutations(clientId = getOrCreateTaskSy
             const response = await sendPersistedMutation(mutation);
             const result = response.results[0];
             if (!result || result.status === 'applied' || result.status === 'duplicate') {
+               if (
+                  result?.status === 'applied' &&
+                  mutation.name !== 'task.delete' &&
+                  mutation.scopeKey &&
+                  isTaskaraTaskEntity(result.entity)
+               ) {
+                  publishTaskSyncMessage({
+                     type: 'localTask',
+                     scopeKey: mutation.scopeKey,
+                     task: result.entity,
+                     mutationId: mutation.mutationId,
+                  });
+               }
                await removePendingMutation(mutation.mutationId);
                continue;
             }
@@ -810,7 +1005,9 @@ async function loadPendingMutations(): Promise<PersistedTaskMutation[]> {
    const db = await openTaskSyncDb();
    if (db) {
       try {
-         return await idbGetAll<PersistedTaskMutation>(db, pendingMutationsStore);
+         return (await idbGetAll<unknown>(db, pendingMutationsStore)).filter(isPersistedTaskMutation);
+      } catch {
+         // Fall back to localStorage below.
       } finally {
          db.close();
       }
@@ -840,6 +1037,8 @@ async function persistPendingMutation(mutation: PersistedTaskMutation): Promise<
       try {
          await idbPut(db, pendingMutationsStore, mutation);
          return;
+      } catch {
+         // Fall back to localStorage below.
       } finally {
          db.close();
       }
@@ -855,12 +1054,83 @@ async function removePendingMutation(mutationId: string): Promise<void> {
       try {
          await idbDelete(db, pendingMutationsStore, mutationId);
          return;
+      } catch {
+         // Fall back to localStorage below.
       } finally {
          db.close();
       }
    }
 
    savePendingMutationsFallback(loadPendingMutationsFallback().filter((mutation) => mutation.mutationId !== mutationId));
+}
+
+async function loadCachedBootstrap(scopeKey: string): Promise<BootstrapResponse | null> {
+   if (typeof window === 'undefined') return null;
+   const db = await openTaskSyncDb();
+   if (db) {
+      try {
+         const snapshot = await idbGet<CachedScopeSnapshot>(db, scopeSnapshotsStore, scopeKey);
+         if (isCachedScopeSnapshot(snapshot)) return bootstrapFromSnapshot(snapshot);
+      } catch {
+         // Fall back to localStorage below.
+      } finally {
+         db.close();
+      }
+   }
+
+   return loadCachedBootstrapFallback(scopeKey);
+}
+
+async function saveCachedBootstrap(scopeKey: string, response: BootstrapResponse): Promise<void> {
+   if (typeof window === 'undefined') return;
+   const snapshot: CachedScopeSnapshot = {
+      ...response,
+      scopeKey,
+      savedAt: new Date().toISOString(),
+   };
+   const db = await openTaskSyncDb();
+   if (db) {
+      try {
+         await idbPut(db, scopeSnapshotsStore, snapshot);
+         return;
+      } catch {
+         // Fall back to localStorage below.
+      } finally {
+         db.close();
+      }
+   }
+
+   saveCachedBootstrapFallback(snapshot);
+}
+
+function loadCachedBootstrapFallback(scopeKey: string): BootstrapResponse | null {
+   try {
+      const raw = window.localStorage.getItem(`${scopeSnapshotStoragePrefix}${scopeKey}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return isCachedScopeSnapshot(parsed) ? bootstrapFromSnapshot(parsed) : null;
+   } catch {
+      return null;
+   }
+}
+
+function saveCachedBootstrapFallback(snapshot: CachedScopeSnapshot): void {
+   try {
+      window.localStorage.setItem(`${scopeSnapshotStoragePrefix}${snapshot.scopeKey}`, JSON.stringify(snapshot));
+   } catch {
+      // IndexedDB is the durable path; localStorage cache writes are best effort.
+   }
+}
+
+function bootstrapFromSnapshot(snapshot: CachedScopeSnapshot): BootstrapResponse {
+   return {
+      cursor: snapshot.cursor,
+      tasks: snapshot.tasks,
+      projects: snapshot.projects,
+      teams: snapshot.teams,
+      users: snapshot.users,
+      views: snapshot.views,
+   };
 }
 
 function isPersistedTaskMutation(value: unknown): value is PersistedTaskMutation {
@@ -874,15 +1144,45 @@ function isPersistedTaskMutation(value: unknown): value is PersistedTaskMutation
    );
 }
 
+function isCachedScopeSnapshot(value: unknown): value is CachedScopeSnapshot {
+   if (!value || typeof value !== 'object') return false;
+   const snapshot = value as Partial<CachedScopeSnapshot>;
+   return (
+      typeof snapshot.scopeKey === 'string' &&
+      typeof snapshot.savedAt === 'string' &&
+      typeof snapshot.cursor === 'string' &&
+      Array.isArray(snapshot.tasks) &&
+      Array.isArray(snapshot.projects) &&
+      Array.isArray(snapshot.teams) &&
+      Array.isArray(snapshot.users) &&
+      Array.isArray(snapshot.views)
+   );
+}
+
+function isTaskaraTaskEntity(value: unknown): value is TaskaraTask {
+   if (!value || typeof value !== 'object') return false;
+   const task = value as Partial<TaskaraTask>;
+   return (
+      typeof task.id === 'string' &&
+      typeof task.key === 'string' &&
+      typeof task.title === 'string' &&
+      typeof task.status === 'string' &&
+      typeof task.priority === 'string'
+   );
+}
+
 function openTaskSyncDb(): Promise<IDBDatabase | null> {
    if (typeof indexedDB === 'undefined') return Promise.resolve(null);
 
    return new Promise((resolve) => {
-      const request = indexedDB.open(taskSyncDbName, 1);
+      const request = indexedDB.open(taskSyncDbName, 2);
       request.onupgradeneeded = () => {
          const db = request.result;
          if (!db.objectStoreNames.contains(pendingMutationsStore)) {
             db.createObjectStore(pendingMutationsStore, { keyPath: 'mutationId' });
+         }
+         if (!db.objectStoreNames.contains(scopeSnapshotsStore)) {
+            db.createObjectStore(scopeSnapshotsStore, { keyPath: 'scopeKey' });
          }
       };
       request.onsuccess = () => resolve(request.result);
@@ -895,12 +1195,21 @@ function idbGetAll<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
    return new Promise((resolve, reject) => {
       const transaction = db.transaction(storeName, 'readonly');
       const request = transaction.objectStore(storeName).getAll();
-      request.onsuccess = () => resolve((request.result as T[]).filter(isPersistedTaskMutation) as T[]);
+      request.onsuccess = () => resolve(request.result as T[]);
       request.onerror = () => reject(request.error);
    });
 }
 
-function idbPut(db: IDBDatabase, storeName: string, value: PersistedTaskMutation): Promise<void> {
+function idbGet<T>(db: IDBDatabase, storeName: string, key: string): Promise<T | null> {
+   return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, 'readonly');
+      const request = transaction.objectStore(storeName).get(key);
+      request.onsuccess = () => resolve((request.result as T | undefined) || null);
+      request.onerror = () => reject(request.error);
+   });
+}
+
+function idbPut<T>(db: IDBDatabase, storeName: string, value: T): Promise<void> {
    return new Promise((resolve, reject) => {
       const transaction = db.transaction(storeName, 'readwrite');
       transaction.oncomplete = () => resolve();
@@ -945,6 +1254,26 @@ function broadcastSyncMessage(message: unknown): void {
    if (!channel) return;
    channel.postMessage(message);
    channel.close();
+}
+
+function publishTaskSyncMessage(message: TaskSyncBroadcastMessage): void {
+   broadcastSyncMessage(message);
+   if (typeof window === 'undefined') return;
+   window.dispatchEvent(new CustomEvent(windowSyncMessageEvent, { detail: message }));
+}
+
+function broadcastLocalTask(scopeKey: string, task: TaskaraTask): void {
+   publishTaskSyncMessage({ type: 'localTask', scopeKey, task, mutationId: task.syncMutationId } satisfies TaskSyncBroadcastMessage);
+}
+
+function broadcastLocalTaskDeleted(scopeKey: string, task: TaskaraTask): void {
+   publishTaskSyncMessage({
+      type: 'localTaskDeleted',
+      scopeKey,
+      taskId: task.id,
+      taskKey: task.key,
+      mutationId: task.syncMutationId,
+   } satisfies TaskSyncBroadcastMessage);
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {

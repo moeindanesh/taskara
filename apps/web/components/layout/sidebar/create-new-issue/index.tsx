@@ -99,7 +99,7 @@ export function CreateNewIssue() {
 
             <div className="px-4 pb-0 space-y-3 w-full">
                <Input
-                  className="border-none w-full shadow-none outline-none text-2xl font-medium px-0 h-auto focus-visible:ring-0 overflow-hidden text-ellipsis whitespace-normal break-words"
+                  className="border-none w-full shadow-none outline-none text-xl font-medium px-0 h-auto focus-visible:ring-0 overflow-hidden text-ellipsis whitespace-normal break-words"
                   placeholder="Issue title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}

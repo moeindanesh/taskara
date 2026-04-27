@@ -11,6 +11,7 @@ import { SettingsView } from '@/components/taskara/settings-view';
 import { TasksView } from '@/components/taskara/tasks-view';
 import { TeamsView } from '@/components/taskara/teams-view';
 import { fa } from '@/lib/fa-copy';
+import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
 import { useAuthSession } from '@/store/auth-store';
 
 const pageMetaByRoute = {
@@ -74,7 +75,11 @@ function AuthenticatedWorkspaceShell() {
     return <Navigate replace to="/onboarding" />;
   }
 
-  return <WorkspaceShell />;
+  return (
+    <WorkspaceTaskSyncProvider workspaceSlug={orgId || session.workspace?.slug || 'taskara'}>
+      <WorkspaceShell />
+    </WorkspaceTaskSyncProvider>
+  );
 }
 
 function RootRedirect() {

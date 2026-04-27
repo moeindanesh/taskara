@@ -72,7 +72,7 @@ export function InboxView() {
                      {fa.inbox.markAllRead}
                   </Button>
                </div>
-               <div className="h-[calc(100%-40px)] overflow-y-auto p-3">
+               <div className="h-[calc(100%-40px)] overflow-y-auto p-2">
                   {loading ? (
                      <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{fa.app.loading}</div>
                   ) : notifications.length === 0 ? (
@@ -84,7 +84,7 @@ export function InboxView() {
                         {notifications.map((notification) => (
                            <button
                               key={notification.id}
-                              className={`w-full rounded-xl border p-4 text-right transition-colors ${selected?.id === notification.id ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
+                              className={`w-full rounded-lg border p-3 text-right transition-colors ${selected?.id === notification.id ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
                               onClick={() => setSelected(notification)}
                               type="button"
                            >
@@ -108,7 +108,7 @@ export function InboxView() {
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={58} minSize={32}>
-               <div className="h-full overflow-y-auto p-6">
+               <div className="h-full overflow-y-auto p-4">
                   {selected ? (
                      <Card className="max-w-4xl">
                         <CardHeader>
@@ -138,7 +138,7 @@ export function InboxView() {
                               </div>
                            </div>
                            {selected.task ? (
-                              <div className="rounded-xl border bg-background/70 p-4">
+                              <div className="rounded-lg border bg-background/70 p-3">
                                  <div className="mb-2 flex items-center justify-between gap-3">
                                     <div>
                                        <div className="ltr text-xs text-muted-foreground">{selected.task.key}</div>
@@ -152,7 +152,7 @@ export function InboxView() {
                         </CardContent>
                      </Card>
                   ) : (
-                     <div className="flex h-full items-center justify-center rounded-xl border border-dashed text-center text-muted-foreground">
+                     <div className="flex h-full items-center justify-center rounded-lg border border-dashed text-center text-muted-foreground">
                         {fa.inbox.selectNotification}
                      </div>
                   )}

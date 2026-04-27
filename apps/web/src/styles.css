@@ -7,6 +7,22 @@
 @theme {
    --font-sans: var(--font-vazirmatn);
    --font-mono: var(--font-geist-mono);
+   --text-xs: 0.6875rem;
+   --text-xs--line-height: 0.95rem;
+   --text-sm: 0.8125rem;
+   --text-sm--line-height: 1.15rem;
+   --text-base: 0.875rem;
+   --text-base--line-height: 1.3rem;
+   --text-lg: 1rem;
+   --text-lg--line-height: 1.45rem;
+   --text-xl: 1.125rem;
+   --text-xl--line-height: 1.6rem;
+   --text-2xl: 1.25rem;
+   --text-2xl--line-height: 1.75rem;
+   --text-3xl: 1.5rem;
+   --text-3xl--line-height: 2rem;
+   --text-4xl: 1.875rem;
+   --text-4xl--line-height: 2.25rem;
 }
 
 :root {
@@ -146,6 +162,8 @@
       direction: rtl;
       font-family: var(--font-vazirmatn);
       font-feature-settings: "ss01", "kern";
+      font-size: var(--text-sm);
+      line-height: var(--text-sm--line-height);
       text-rendering: geometricPrecision;
    }
 

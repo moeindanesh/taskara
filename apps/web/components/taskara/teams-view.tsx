@@ -158,11 +158,11 @@ export function TeamsView() {
    }
 
    return (
-      <div className="space-y-6 px-6 py-6">
+      <div className="space-y-4 px-5 py-5">
          {error ? <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</p> : null}
 
-         <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-            <div className="space-y-6">
+         <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="space-y-4">
                {isWorkspaceAdmin ? (
                   <Card>
                      <CardHeader>
@@ -266,7 +266,7 @@ export function TeamsView() {
                </Card>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
                <Card>
                   <CardHeader>
                      <CardTitle>فهرست تیم‌ها</CardTitle>
@@ -285,11 +285,11 @@ export function TeamsView() {
                         <TableBody>
                            {loading ? (
                               <TableRow>
-                                 <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">{fa.app.loading}</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">{fa.app.loading}</TableCell>
                               </TableRow>
                            ) : teams.length === 0 ? (
                               <TableRow>
-                                 <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">هنوز تیمی ثبت نشده است.</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">هنوز تیمی ثبت نشده است.</TableCell>
                               </TableRow>
                            ) : (
                               teams.map((team) => (
@@ -333,15 +333,15 @@ export function TeamsView() {
                         <TableBody>
                            {membersLoading ? (
                               <TableRow>
-                                 <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">{fa.app.loading}</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">{fa.app.loading}</TableCell>
                               </TableRow>
                            ) : !selectedTeam ? (
                               <TableRow>
-                                 <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">تیمی برای مدیریت وجود ندارد.</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">تیمی برای مدیریت وجود ندارد.</TableCell>
                               </TableRow>
                            ) : members.length === 0 ? (
                               <TableRow>
-                                 <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">این تیم هنوز عضوی ندارد.</TableCell>
+                                 <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">این تیم هنوز عضوی ندارد.</TableCell>
                               </TableRow>
                            ) : (
                               members.map((member) => (

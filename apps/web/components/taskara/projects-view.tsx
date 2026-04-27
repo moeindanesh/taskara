@@ -151,7 +151,7 @@ export function ProjectsView() {
             </p>
          ) : null}
 
-         <div className="flex h-12 items-center justify-between border-b border-white/6 px-3">
+         <div className="flex h-10 items-center justify-between border-b border-white/6 px-3">
             <div className="flex items-center gap-2">
                <ViewChip active={filter === 'all'} onClick={() => setFilter('all')}>
                   {fa.project.all}
@@ -173,7 +173,7 @@ export function ProjectsView() {
             </Button>
          </div>
 
-         <div className="h-[calc(100%-48px)] overflow-auto">
+         <div className="h-[calc(100%-40px)] overflow-auto">
             {loading ? (
                <div className="p-4 text-sm text-zinc-500">{fa.app.loading}</div>
             ) : visibleProjects.length === 0 ? (
@@ -213,17 +213,17 @@ export function ProjectsView() {
                </DialogHeader>
 
                <form onSubmit={handleCreateProject}>
-                  <div className="space-y-4 px-5 py-5">
+                  <div className="space-y-3 px-5 py-4">
                      <ProjectGlyph />
                      <Input
                         autoFocus
-                        className="h-auto border-none bg-transparent px-0 text-3xl font-bold text-zinc-100 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                        className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-zinc-100 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.name}
                         onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                         placeholder={fa.project.namePlaceholder}
                      />
                      <Input
-                        className="border-none bg-transparent px-0 text-lg text-zinc-500 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                        className="border-none bg-transparent px-0 text-sm text-zinc-500 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.description.split('\n')[0] || ''}
                         onChange={(event) =>
                            setForm((current) => ({
@@ -252,7 +252,7 @@ export function ProjectsView() {
                         </LinearSelectPill>
                      </div>
                      <Textarea
-                        className="min-h-64 resize-none border-none bg-transparent px-0 text-base leading-8 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                        className="min-h-44 resize-none border-none bg-transparent px-0 text-sm leading-6 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.description}
                         onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                         placeholder={fa.project.descriptionPlaceholder}
@@ -299,7 +299,7 @@ function ProjectRow({
    return (
       <article
          className={cn(
-            'grid min-h-16 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 transition hover:bg-white/[0.035]',
+            'grid min-h-10 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-1.5 transition hover:bg-white/[0.035]',
             activeTeamId && !currentTeamId && 'bg-pink-500/[0.025]'
          )}
       >
@@ -351,7 +351,7 @@ function ViewChip({
    return (
       <button
          className={cn(
-            'inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm transition',
+            'inline-flex h-7 items-center gap-2 rounded-full border px-2.5 text-sm transition',
             active
                ? 'border-white/10 bg-white/8 text-zinc-100'
                : 'border-white/7 bg-transparent text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
