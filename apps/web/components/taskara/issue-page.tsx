@@ -148,6 +148,8 @@ export function IssuePage() {
    const [savingField, setSavingField] = useState<SavingField>(null);
    const [descriptionUploading, setDescriptionUploading] = useState(false);
    const [commentSubmitting, setCommentSubmitting] = useState(false);
+   const titleFocusedRef = useRef(false);
+   const descriptionFocusedRef = useRef(false);
    const descriptionFileInputRef = useRef<HTMLInputElement>(null);
    const commentFileInputRef = useRef<HTMLInputElement>(null);
    const fallbackIssuesPath = `/${orgId || 'taskara'}/team/all/all`;
@@ -189,8 +191,8 @@ export function IssuePage() {
       cachedTaskRef.current = cachedTask;
       if (!cachedTask) return;
       setTask(cachedTask);
-      setTitleDraft(cachedTask.title);
-      setDescriptionDraft(cachedTask.description || '');
+      if (!titleFocusedRef.current) setTitleDraft(cachedTask.title);
+      if (!descriptionFocusedRef.current) setDescriptionDraft(cachedTask.description || '');
       setLoading(false);
    }, [cachedTask]);
 
@@ -225,8 +227,8 @@ export function IssuePage() {
       const syncUsers = syncUsersRef.current;
       if (cachedTask) {
          setTask(cachedTask);
-         setTitleDraft(cachedTask.title);
-         setDescriptionDraft(cachedTask.description || '');
+         if (!titleFocusedRef.current) setTitleDraft(cachedTask.title);
+         if (!descriptionFocusedRef.current) setDescriptionDraft(cachedTask.description || '');
          if (syncUsers.length) setUsers(syncUsers);
          setLoading(false);
       } else {
@@ -252,8 +254,8 @@ export function IssuePage() {
             taskaraRequest<TaskaraActivity[]>(`/tasks/${encodeURIComponent(taskKey)}/activity`).catch(() => []),
          ]);
          setTask(taskResult);
-         setTitleDraft(taskResult.title);
-         setDescriptionDraft(taskResult.description || '');
+         if (!titleFocusedRef.current) setTitleDraft(taskResult.title);
+         if (!descriptionFocusedRef.current) setDescriptionDraft(taskResult.description || '');
          setUsers(usersResult.items);
          setActivities(activityResult);
       } catch (err) {
@@ -490,7 +492,13 @@ export function IssuePage() {
                   className="w-full border-0 bg-transparent p-0 text-2xl font-semibold leading-8 text-zinc-100 outline-none placeholder:text-zinc-600"
                   dir="auto"
                   value={titleDraft}
-                  onBlur={() => void saveTitleDraft()}
+                  onFocus={() => {
+                     titleFocusedRef.current = true;
+                  }}
+                  onBlur={() => {
+                     titleFocusedRef.current = false;
+                     void saveTitleDraft();
+                  }}
                   onChange={(event) => setTitleDraft(event.target.value)}
                   onKeyDown={(event) => {
                      if (event.key === 'Enter') event.currentTarget.blur();
@@ -508,7 +516,13 @@ export function IssuePage() {
                      className="min-h-20 resize-y border-0 bg-transparent p-0 text-right text-sm leading-6 text-zinc-400 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
                      dir="rtl"
                      value={descriptionDraft}
-                     onBlur={() => void saveDescriptionDraft()}
+                     onFocus={() => {
+                        descriptionFocusedRef.current = true;
+                     }}
+                     onBlur={() => {
+                        descriptionFocusedRef.current = false;
+                        void saveDescriptionDraft();
+                     }}
                      onChange={(event) => setDescriptionDraft(event.target.value)}
                      placeholder={fa.issue.descriptionPlaceholder}
                   />
