@@ -3,6 +3,7 @@ import { prisma, type Prisma } from '@taskara/db';
 import { createCommentSchema, createTaskSchema, taskListQuerySchema, updateTaskSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
+import { sendTaskCreatedSms } from '../services/task-sms';
 import { addTaskComment, createTask, deleteTask, findTaskByIdOrKey, serializeTaskForResponse, taskInclude, updateTask } from '../services/tasks';
 import { readMultipartMediaUpload } from '../services/upload-request';
 
@@ -149,6 +150,16 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const input = createCommentSchema.parse(request.body);
     const comment = await addTaskComment(actor, existing.id, input.body, input.source, input.mattermostPostId);
     return reply.code(201).send(comment);
+  });
+
+  app.post('/tasks/:idOrKey/sms/task-created', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    const result = await sendTaskCreatedSms(actor, existing.id);
+    return reply.send(result);
   });
 
   app.post('/tasks/:idOrKey/comments/:commentId/attachments', async (request, reply) => {

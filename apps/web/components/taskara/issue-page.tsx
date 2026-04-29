@@ -107,6 +107,7 @@ function applyIssuePatch(
               id: assignee.id,
               name: assignee.name,
               email: assignee.email,
+              phone: assignee.phone,
               avatarUrl: assignee.avatarUrl,
            }
          : null;
@@ -148,6 +149,7 @@ export function IssuePage() {
    const [savingField, setSavingField] = useState<SavingField>(null);
    const [descriptionUploading, setDescriptionUploading] = useState(false);
    const [commentSubmitting, setCommentSubmitting] = useState(false);
+   const [smsSending, setSmsSending] = useState(false);
    const titleFocusedRef = useRef(false);
    const descriptionFocusedRef = useRef(false);
    const descriptionFileInputRef = useRef<HTMLInputElement>(null);
@@ -454,6 +456,25 @@ export function IssuePage() {
       }
    }
 
+   async function sendAssigneeTaskSms() {
+      if (!task) return;
+      if (!task.assignee) {
+         toast.error(fa.issue.smsNoAssignee);
+         return;
+      }
+
+      setSmsSending(true);
+      try {
+         await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}/sms/task-created`, { method: 'POST' });
+         toast.success(fa.issue.smsSent);
+      } catch (err) {
+         const message = err instanceof Error ? err.message : fa.issue.smsFailed;
+         toast.error(message === 'Task assignee has no phone number' ? fa.issue.smsNoPhone : message);
+      } finally {
+         setSmsSending(false);
+      }
+   }
+
    if (loading) return <div className="p-4 text-sm text-zinc-500">{fa.app.loading}</div>;
 
    if (error || !task) {
@@ -609,6 +630,13 @@ export function IssuePage() {
 
          <aside className="min-w-0 border-s border-white/6 bg-[#141416] p-3">
             <div className="mb-3 flex items-center justify-end gap-2">
+               <SidebarIconButton
+                  ariaLabel={fa.issue.sendTaskSms}
+                  disabled={smsSending}
+                  onClick={() => void sendAssigneeTaskSms()}
+               >
+                  {smsSending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+               </SidebarIconButton>
                <SidebarIconButton ariaLabel="Copy issue link" onClick={() => void copyIssueUrl()}>
                   <Link2 className="size-4" />
                </SidebarIconButton>
@@ -1202,10 +1230,12 @@ function fileKindLabel(attachment: PreviewableAttachment): string {
 function SidebarIconButton({
    ariaLabel,
    children,
+   disabled = false,
    onClick,
 }: {
    ariaLabel: string;
    children: React.ReactNode;
+   disabled?: boolean;
    onClick?: () => void;
 }) {
    if (!onClick) {
@@ -1223,7 +1253,9 @@ function SidebarIconButton({
    return (
       <button
          aria-label={ariaLabel}
-         className="inline-flex size-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-white/8 hover:text-zinc-100"
+         className="inline-flex size-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-white/8 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/[0.05] disabled:hover:text-zinc-400"
+         disabled={disabled}
+         title={ariaLabel}
          type="button"
          onClick={onClick}
       >

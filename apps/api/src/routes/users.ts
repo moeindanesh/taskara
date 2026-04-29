@@ -12,11 +12,13 @@ import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { buildInviteUrl, createRawToken, hashToken, normalizeEmail } from '../services/auth';
 import { HttpError } from '../services/http';
+import { assertPhoneAvailable } from '../services/users';
 
 const userSelect = {
   id: true,
   email: true,
   name: true,
+  phone: true,
   mattermostUserId: true,
   mattermostUsername: true,
   avatarUrl: true,
@@ -50,6 +52,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
           OR: [
             { email: { contains: query.q, mode: 'insensitive' } },
             { name: { contains: query.q, mode: 'insensitive' } },
+            { phone: { contains: query.q, mode: 'insensitive' } },
             { mattermostUsername: { contains: query.q, mode: 'insensitive' } }
           ]
         }
@@ -251,18 +254,24 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     if (existingByMattermost && existingByMattermost.email !== input.email) {
       throw new HttpError(409, 'Mattermost username is already linked to another user');
     }
+    const existingByPhone = input.phone ? await prisma.user.findUnique({ where: { phone: input.phone } }) : null;
+    if (existingByPhone && existingByPhone.email !== input.email) {
+      throw new HttpError(409, 'Phone number is already linked to another user');
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.upsert({
         where: { email: input.email },
         update: {
           name: input.name,
+          phone: input.phone,
           mattermostUsername: input.mattermostUsername,
           avatarUrl: input.avatarUrl
         },
         create: {
           email: input.email,
           name: input.name,
+          phone: input.phone,
           mattermostUsername: input.mattermostUsername,
           avatarUrl: input.avatarUrl
         },
@@ -316,6 +325,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       const existing = await prisma.user.findUnique({ where: { mattermostUsername: input.mattermostUsername } });
       if (existing && existing.id !== id) throw new HttpError(409, 'Mattermost username is already linked to another user');
     }
+    await assertPhoneAvailable(input.phone, id);
 
     const user = await prisma.user.update({
       where: { id },

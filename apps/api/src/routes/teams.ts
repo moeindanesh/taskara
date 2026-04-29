@@ -9,6 +9,7 @@ const teamMemberUserSelect = {
   id: true,
   email: true,
   name: true,
+  phone: true,
   mattermostUsername: true,
   avatarUrl: true
 } satisfies Prisma.UserSelect;

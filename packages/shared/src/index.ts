@@ -62,9 +62,24 @@ export const taskViewSubGroupingSchema = z.enum(taskViewSubGroupings);
 export const taskViewCompletedIssuesSchema = z.enum(taskViewCompletedIssues);
 export const taskViewDisplayPropertySchema = z.enum(taskViewDisplayProperties);
 
+function normalizePhoneNumberInput(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().replace(/[\s-]/g, '');
+  return normalized || undefined;
+}
+
+const phoneNumberSchema = z.string().regex(/^\+?\d{7,15}$/, 'Invalid phone number');
+
+const optionalPhoneNumberSchema = z.preprocess(normalizePhoneNumberInput, phoneNumberSchema.optional());
+const nullablePhoneNumberSchema = z.preprocess((value) => {
+  const normalized = normalizePhoneNumberInput(value);
+  return normalized === undefined ? null : normalized;
+}, phoneNumberSchema.nullable()).optional();
+
 export const createUserSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   name: z.string().trim().min(1).max(160),
+  phone: optionalPhoneNumberSchema,
   mattermostUsername: z.string().trim().toLowerCase().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).optional(),
   avatarUrl: z.string().trim().url().optional(),
   role: workspaceRoleSchema.default('MEMBER')
@@ -72,6 +87,7 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   name: z.string().trim().min(1).max(160).optional(),
+  phone: nullablePhoneNumberSchema,
   mattermostUsername: z.string().trim().toLowerCase().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).nullable().optional(),
   avatarUrl: z.string().trim().url().nullable().optional()
 });

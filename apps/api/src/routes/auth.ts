@@ -316,6 +316,7 @@ function pickPublicUser(user: User) {
     id: user.id,
     email: user.email,
     name: user.name,
+    phone: user.phone,
     avatarUrl: user.avatarUrl,
     mattermostUsername: user.mattermostUsername
   };

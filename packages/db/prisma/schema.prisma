@@ -117,6 +117,7 @@ model User {
   id                 String   @id @default(uuid()) @db.Uuid
   email              String   @unique
   name               String
+  phone              String?  @unique
   passwordHash       String?
   mattermostUserId   String?  @unique
   mattermostUsername String?  @unique
@@ -419,6 +420,18 @@ model Notification {
   task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt])
+}
+
+model SmsDailyReminderRun {
+  id                String    @id @default(uuid()) @db.Uuid
+  dateKey           String    @unique
+  noPlanSent        Int       @default(0)
+  todayReminderSent Int       @default(0)
+  failed            Int       @default(0)
+  skipped           Int       @default(0)
+  error             String?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
 }
 
 model WorkspaceSyncState {

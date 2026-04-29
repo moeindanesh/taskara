@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChangeEvent, Dispatch, DragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
+import type { ChangeEvent, CSSProperties, Dispatch, DragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -92,6 +92,7 @@ import type {
 } from '@/lib/taskara-types';
 import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
 import { cn } from '@/lib/utils';
+import { getUserColorsFromName } from '@/lib/name-colors';
 
 const activeStatuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'];
 const currentTeamFallback = 'all';
@@ -121,6 +122,7 @@ type GroupDescriptor = {
    key: string;
    label: string;
    toneClassName: string;
+   toneStyle?: CSSProperties;
    icon: ReactNode;
    tasks: TaskaraTask[];
    offset: number;
@@ -670,13 +672,18 @@ export function TasksView() {
                tasks: filteredTasks.filter((task) => !task.assignee?.id),
             },
             ...users
-               .map((user) => ({
-                  key: user.id,
-                  label: user.name,
-                  icon: <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />,
-                  toneClassName: 'bg-lime-500/7',
-                  tasks: filteredTasks.filter((task) => task.assignee?.id === user.id),
-               }))
+               .map((user) => {
+                  const colors = getUserColorsFromName(user.name);
+
+                  return {
+                     key: user.id,
+                     label: user.name,
+                     icon: <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />,
+                     toneClassName: '',
+                     toneStyle: { backgroundColor: colors.groupBackground },
+                     tasks: filteredTasks.filter((task) => task.assignee?.id === user.id),
+                  };
+               })
                .sort((a, b) => a.label.localeCompare(b.label, 'fa')),
          ];
 
@@ -2420,7 +2427,7 @@ function ListGroup({
    return (
       <section>
          <div className="sticky top-0 z-20 h-8 bg-[#151516]">
-            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} />
+            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
             <div className="relative flex h-full items-center justify-between px-5">
                <button
                   aria-expanded={!collapsed}
@@ -2524,7 +2531,7 @@ function BoardGroup({
    return (
       <section className={cn('flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-white/8 bg-[#171719]', collapsed ? 'w-[48px]' : 'w-[320px]')}>
          <div className="relative h-10 bg-[#171719]">
-            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} />
+            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
             <div className="relative flex h-full items-center justify-between px-4">
                <button
                   aria-expanded={!collapsed}

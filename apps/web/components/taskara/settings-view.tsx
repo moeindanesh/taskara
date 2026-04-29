@@ -36,12 +36,14 @@ type SettingsIcon = ComponentType<{ className?: string }>;
 const initialUserForm = {
    name: '',
    email: '',
+   phone: '',
    role: 'MEMBER',
    mattermostUsername: '',
 };
 
 const initialProfileForm = {
    name: '',
+   phone: '',
    avatarUrl: '',
    mattermostUsername: '',
 };
@@ -179,6 +181,7 @@ function ProfileSettingsPage() {
             setMe(result);
             setForm({
                name: result.user.name || '',
+               phone: result.user.phone || '',
                avatarUrl: result.user.avatarUrl || '',
                mattermostUsername: result.user.mattermostUsername || '',
             });
@@ -237,6 +240,7 @@ function ProfileSettingsPage() {
             method: 'PATCH',
             body: JSON.stringify({
                name: form.name.trim(),
+               phone: form.phone.trim() || null,
                avatarUrl: form.avatarUrl.trim() || null,
                mattermostUsername: form.mattermostUsername.trim() || null,
             }),
@@ -245,6 +249,7 @@ function ProfileSettingsPage() {
          setMe(result);
          setForm({
             name: result.user.name || '',
+            phone: result.user.phone || '',
             avatarUrl: result.user.avatarUrl || '',
             mattermostUsername: result.user.mattermostUsername || '',
          });
@@ -331,6 +336,16 @@ function ProfileSettingsPage() {
                      onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                   />
                </SettingsField>
+               <SettingsField label={fa.settings.phone} description="برای ارسال پیامک‌های یادآوری و کارهای سپرده‌شده.">
+                  <Input
+                     className={cn(inputClassName, 'ltr')}
+                     disabled={loading}
+                     inputMode="tel"
+                     placeholder="09123456789"
+                     value={form.phone}
+                     onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                  />
+               </SettingsField>
                <SettingsField label="نام کاربری مترموست" description="یک کلمه، مثل نام کوتاه یا نام کوچک.">
                   <Input
                      className={cn(inputClassName, 'ltr')}
@@ -397,6 +412,7 @@ function WorkspaceAccessSettingsPage() {
             body: JSON.stringify({
                name: form.name.trim(),
                email: form.email.trim(),
+               phone: form.phone.trim() || undefined,
                role: form.role,
                mattermostUsername: form.mattermostUsername.trim() || undefined,
             }),
@@ -483,6 +499,16 @@ function WorkspaceAccessSettingsPage() {
                            />
                         </label>
                         <label className="grid gap-2 text-sm text-zinc-300">
+                           <span>{fa.settings.phone}</span>
+                           <Input
+                              className={cn(inputClassName, 'ltr')}
+                              inputMode="tel"
+                              value={form.phone}
+                              onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                              placeholder="09123456789"
+                           />
+                        </label>
+                        <label className="grid gap-2 text-sm text-zinc-300">
                            <span>{fa.settings.mattermostUsername}</span>
                            <Input
                               className={cn(inputClassName, 'ltr')}
@@ -520,6 +546,7 @@ function WorkspaceAccessSettingsPage() {
                         <TableRow className="border-white/8 hover:bg-transparent">
                            <TableHead className="text-right text-zinc-500">{fa.table.user}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.table.role}</TableHead>
+                           <TableHead className="text-right text-zinc-500">{fa.table.phone}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.table.mattermost}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.table.joinedAt}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.table.changeRole}</TableHead>
@@ -529,11 +556,11 @@ function WorkspaceAccessSettingsPage() {
                      <TableBody>
                         {loading ? (
                            <TableRow className="border-white/8">
-                              <TableCell colSpan={6} className="py-10 text-center text-zinc-500">{fa.app.loading}</TableCell>
+                              <TableCell colSpan={7} className="py-10 text-center text-zinc-500">{fa.app.loading}</TableCell>
                            </TableRow>
                         ) : users.length === 0 ? (
                            <TableRow className="border-white/8">
-                              <TableCell colSpan={6} className="py-10 text-center text-zinc-500">{fa.settings.noUsers}</TableCell>
+                              <TableCell colSpan={7} className="py-10 text-center text-zinc-500">{fa.settings.noUsers}</TableCell>
                            </TableRow>
                         ) : (
                            users.map((user) => {
@@ -554,6 +581,7 @@ function WorkspaceAccessSettingsPage() {
                                        </div>
                                     </TableCell>
                                     <TableCell><RoleBadge role={user.role} /></TableCell>
+                                    <TableCell className="ltr text-zinc-400">{user.phone || '-'}</TableCell>
                                     <TableCell className="ltr text-zinc-400">{user.mattermostUsername ? `@${user.mattermostUsername}` : '-'}</TableCell>
                                     <TableCell className="text-zinc-400">{formatJalaliDateTime(user.joinedAt)}</TableCell>
                                     <TableCell>

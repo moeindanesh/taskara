@@ -27,8 +27,8 @@ export interface TaskaraTask {
       keyPrefix: string;
       team?: { id: string; name: string; slug: string } | null;
    } | null;
-   assignee?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
-   reporter?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   reporter?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    version?: number;
    syncState?: 'pending';
    syncMutationId?: string;
@@ -129,6 +129,7 @@ export interface TaskaraUser {
    membershipId: string;
    email: string;
    name: string;
+   phone?: string | null;
    role: string;
    joinedAt: string;
    mattermostUsername?: string | null;
@@ -161,6 +162,7 @@ export interface TaskaraTeamMember {
       id: string;
       email: string;
       name: string;
+      phone?: string | null;
       mattermostUsername?: string | null;
       avatarUrl?: string | null;
    };
@@ -223,6 +225,7 @@ export interface TaskaraMe {
       id: string;
       name: string;
       email: string;
+      phone?: string | null;
       mattermostUsername?: string | null;
       avatarUrl?: string | null;
    };

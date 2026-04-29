@@ -637,6 +637,7 @@ function buildOptimisticTask(
               id: assignee.id,
               name: assignee.name,
               email: assignee.email,
+              phone: assignee.phone,
               avatarUrl: assignee.avatarUrl,
            }
          : null,
@@ -660,6 +661,7 @@ function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSy
               id: assignee.id,
               name: assignee.name,
               email: assignee.email,
+              phone: assignee.phone,
               avatarUrl: assignee.avatarUrl,
            }
          : null;

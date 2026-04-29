@@ -17,6 +17,7 @@ import { registerTeamRoutes } from './routes/teams';
 import { registerUserRoutes } from './routes/users';
 import { registerViewRoutes } from './routes/views';
 import { HttpError } from './services/http';
+import { startDailySmsReminderScheduler } from './services/sms-reminders';
 import { startSyncEventPoller } from './services/sync';
 
 export async function registerApp(app: FastifyInstance): Promise<void> {
@@ -68,4 +69,5 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerAgentRoutes);
 
   startSyncEventPoller();
+  startDailySmsReminderScheduler();
 }

@@ -17,8 +17,8 @@ const taskAttachmentSyncInclude = {
       team: { select: { id: true, name: true, slug: true } }
     }
   },
-  assignee: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
-  reporter: { select: { id: true, name: true, email: true, mattermostUsername: true, avatarUrl: true } },
+  assignee: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
+  reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
   _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }

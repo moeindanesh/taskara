@@ -6,11 +6,13 @@ import { getRequestActor, getWorkspaceRole } from '../services/actor';
 import { requireSessionUser } from '../services/auth';
 import { HttpError } from '../services/http';
 import { assignedInboxNotificationWhere } from '../services/notifications';
+import { assertPhoneAvailable } from '../services/users';
 
 const meUserSelect = {
   id: true,
   email: true,
   name: true,
+  phone: true,
   mattermostUserId: true,
   mattermostUsername: true,
   avatarUrl: true,
@@ -73,6 +75,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
         throw new HttpError(409, 'Mattermost username is already linked to another user');
       }
     }
+    await assertPhoneAvailable(input.phone, actor.user.id);
 
     const user = await prisma.user.update({
       where: { id: actor.user.id },
@@ -91,6 +94,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
         id: actor.user.id,
         email: actor.user.email,
         name: actor.user.name,
+        phone: actor.user.phone,
         mattermostUsername: actor.user.mattermostUsername,
         avatarUrl: actor.user.avatarUrl
       },

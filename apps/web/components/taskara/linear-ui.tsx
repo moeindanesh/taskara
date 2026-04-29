@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fa } from '@/lib/fa-copy';
+import { getUserColorsFromName } from '@/lib/name-colors';
 
 type IconType = ComponentType<{ className?: string }>;
 
@@ -349,6 +350,7 @@ export function LinearAvatar({
    className?: string;
 }) {
    const [imageFailed, setImageFailed] = useState(false);
+   const colors = getUserColorsFromName(name);
    const initials = (name || '?')
       .split(/\s+/)
       .filter(Boolean)
@@ -367,6 +369,7 @@ export function LinearAvatar({
             alt={name || fa.table.user}
             className={cn('block size-6 shrink-0 rounded-full border border-white/10 object-cover', className)}
             src={src}
+            style={{ backgroundColor: colors.background, borderColor: colors.border }}
             onError={() => setImageFailed(true)}
          />
       );
@@ -375,9 +378,10 @@ export function LinearAvatar({
    return (
       <span
          className={cn(
-            'inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-lime-500/25 text-[10px] font-bold leading-none text-lime-100',
+            'inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold leading-none',
             className
          )}
+         style={{ backgroundColor: colors.backgroundStrong, borderColor: colors.border, color: colors.foreground }}
       >
          {initials || <UserRound className="size-3.5" />}
       </span>

@@ -355,6 +355,7 @@ async function listUsers(workspaceId: string) {
           id: true,
           email: true,
           name: true,
+          phone: true,
           mattermostUserId: true,
           mattermostUsername: true,
           avatarUrl: true,
