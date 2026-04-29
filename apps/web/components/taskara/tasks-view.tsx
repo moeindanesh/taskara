@@ -885,9 +885,11 @@ export function TasksView() {
 
       try {
          setComposerSubmitting(true);
-         const filesToUpload = composerFiles;
+         const filesToUpload = [...composerFiles];
+         const submittedProjectId = form.projectId;
+         const submittedStatus = form.status;
          const assigneeId = form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
-         const createdTask = await createSyncedTask({
+         const createTaskPromise = createSyncedTask({
             projectId: form.projectId,
             title: form.title.trim(),
             description: form.description.trim() || undefined,
@@ -902,42 +904,56 @@ export function TasksView() {
             source: 'WEB',
          });
 
-         const createdLocally = createdTask.syncState === 'pending';
-         if (filesToUpload.length && createdLocally) {
-            toast.error(fa.issue.pendingAttachmentUpload);
-         } else if (filesToUpload.length) {
-            const uploadResults = await Promise.allSettled(
-               filesToUpload.map((file) => uploadTaskAttachment(createdTask.key || createdTask.id, file))
-            );
-            const failedUploads = uploadResults.filter((result) => result.status === 'rejected').length;
-            const successfulUploads = filesToUpload.length - failedUploads;
-
-            if (successfulUploads > 0) {
-               toast.success(
-                  successfulUploads === 1
-                     ? fa.issue.attachmentUploaded
-                     : fa.issue.attachmentsUploaded.replace('{count}', successfulUploads.toLocaleString('fa-IR'))
-               );
-            }
-            if (failedUploads > 0) {
-               toast.error(fa.issue.attachmentUploadFailed);
-            }
-         }
-
-         toast.success(createdLocally ? fa.issue.createdOffline : fa.issue.created);
          setSelectedTaskId(null);
          setComposerFiles([]);
          setForm({
             ...initialTaskForm,
-            projectId: form.projectId,
-            status: form.status,
+            projectId: submittedProjectId,
+            status: submittedStatus,
             priority: 'NO_PRIORITY',
          });
          if (!createMore) setComposerOpen(false);
+         void handleCreatedTaskAttachments(createTaskPromise, filesToUpload);
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.createFailed);
       } finally {
          setComposerSubmitting(false);
+      }
+   }
+
+   async function handleCreatedTaskAttachments(createTaskPromise: Promise<TaskaraTask>, filesToUpload: File[]) {
+      let createdTask: TaskaraTask;
+      try {
+         createdTask = await createTaskPromise;
+      } catch (err) {
+         toast.error(err instanceof Error ? err.message : fa.issue.createFailed);
+         return;
+      }
+
+      const createdLocally = createdTask.syncState === 'pending';
+      toast.success(createdLocally ? fa.issue.createdOffline : fa.issue.created);
+
+      if (!filesToUpload.length) return;
+      if (createdLocally) {
+         toast.error(fa.issue.pendingAttachmentUpload);
+         return;
+      }
+
+      const uploadResults = await Promise.allSettled(
+         filesToUpload.map((file) => uploadTaskAttachment(createdTask.key || createdTask.id, file))
+      );
+      const failedUploads = uploadResults.filter((result) => result.status === 'rejected').length;
+      const successfulUploads = filesToUpload.length - failedUploads;
+
+      if (successfulUploads > 0) {
+         toast.success(
+            successfulUploads === 1
+               ? fa.issue.attachmentUploaded
+               : fa.issue.attachmentsUploaded.replace('{count}', successfulUploads.toLocaleString('fa-IR'))
+         );
+      }
+      if (failedUploads > 0) {
+         toast.error(fa.issue.attachmentUploadFailed);
       }
    }
 
