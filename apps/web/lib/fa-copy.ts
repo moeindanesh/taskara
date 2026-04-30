@@ -245,6 +245,12 @@ export const fa = {
    leaderboard: {
       topEmployeeBadge: '(کارمندان نمونه)',
       loadFailed: 'بارگذاری لیدربورد ناموفق بود.',
+      timeFilter: 'بازه زمانی',
+      daily: 'روزانه',
+      weekly: 'هفتگی',
+      monthly: 'ماهانه',
+      yearly: 'سالانه',
+      yearlyDisabled: '(غیرفعال)',
    },
    table: {
       rank: 'رتبه',
@@ -256,7 +262,7 @@ export const fa = {
       changeRole: 'تغییر نقش',
       assigned: 'سپرده‌شده',
       done: 'انجام‌شده',
-      speed: 'سرعت عمل',
+      speed: 'عملکرد',
       reported: 'گزارش‌شده',
       team: 'تیم',
       slug: 'شناسه',

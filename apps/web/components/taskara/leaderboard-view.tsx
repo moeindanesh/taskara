@@ -1,14 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Trophy } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, Trophy } from 'lucide-react';
+import moment from 'moment-jalaali';
 import { LinearAvatar } from '@/components/taskara/linear-ui';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fa } from '@/lib/fa-copy';
 import { taskaraRequest } from '@/lib/taskara-client';
-import type { PaginatedResponse, TaskaraTask, TaskaraUser } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 
 type LeaderboardRow = {
@@ -21,7 +23,19 @@ type LeaderboardRow = {
    speedRatio: number;
 };
 
-const pageSize = 200;
+type LeaderboardTimeRange = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+type TimeRangeBounds = {
+   start: Date;
+   endExclusive: Date;
+};
+
+type TimeRangeLabel = {
+   title: string;
+   detail: string;
+};
+
+moment.loadPersian({ dialect: 'persian-modern', usePersianDigits: true });
 
 function formatFaNumber(value: number) {
    return value.toLocaleString('fa-IR');
@@ -38,38 +52,83 @@ function RankTrophy({ rank }: { rank: number }) {
    return null;
 }
 
-async function fetchAllPages<T>(path: string): Promise<T[]> {
-   const items: T[] = [];
-   let offset = 0;
-   const separator = path.includes('?') ? '&' : '?';
+function getTimeRangeBounds(timeRange: LeaderboardTimeRange, now = moment()): TimeRangeBounds {
+   const localNow = now.clone().locale('fa');
 
-   while (true) {
-      const response = await taskaraRequest<PaginatedResponse<T>>(`${path}${separator}limit=${pageSize}&offset=${offset}`);
-      items.push(...response.items);
-      offset += response.items.length;
-
-      if (!response.items.length || offset >= response.total) break;
+   if (timeRange === 'daily') {
+      const start = localNow.clone().startOf('day');
+      const endExclusive = start.clone().add(1, 'day');
+      return { start: start.toDate(), endExclusive: endExclusive.toDate() };
    }
 
-   return items;
+   if (timeRange === 'weekly') {
+      const start = localNow.clone().startOf('week');
+      const endExclusive = start.clone().add(1, 'week');
+      return { start: start.toDate(), endExclusive: endExclusive.toDate() };
+   }
+
+   if (timeRange === 'monthly') {
+      const start = localNow.clone().startOf('jMonth');
+      const endExclusive = start.clone().add(1, 'jMonth');
+      return { start: start.toDate(), endExclusive: endExclusive.toDate() };
+   }
+
+   const start = localNow.clone().startOf('jYear');
+   const endExclusive = start.clone().add(1, 'jYear');
+   return { start: start.toDate(), endExclusive: endExclusive.toDate() };
 }
 
+function getTimeRangeLabels(now = moment()): Record<LeaderboardTimeRange, TimeRangeLabel> {
+   const localNow = now.clone().locale('fa');
+   const weekStart = localNow.clone().startOf('week');
+   const weekEnd = localNow.clone().endOf('week');
+
+   return {
+      daily: { title: fa.leaderboard.daily, detail: localNow.format('dddd jD jMMMM') },
+      weekly: { title: fa.leaderboard.weekly, detail: `${weekStart.format('jMM/jDD')}-${weekEnd.format('jMM/jDD')}` },
+      monthly: { title: fa.leaderboard.monthly, detail: localNow.format('jMMMM') },
+      yearly: { title: fa.leaderboard.yearly, detail: localNow.format('jYYYY') },
+   };
+}
+
+function TimeRangeLabelText({
+   label,
+   className,
+}: {
+   label: TimeRangeLabel;
+   className?: string;
+}) {
+   return (
+      <span className={cn('inline-flex items-baseline gap-1 whitespace-nowrap [direction:rtl] [unicode-bidi:plaintext]', className)}>
+         <span>{label.title}</span>
+         <span className="text-[10px] text-zinc-400">({label.detail})</span>
+      </span>
+   );
+}
+
+type LeaderboardResponse = {
+   items: LeaderboardRow[];
+   total: number;
+};
+
 export function LeaderboardView() {
-   const [users, setUsers] = useState<TaskaraUser[]>([]);
-   const [tasks, setTasks] = useState<TaskaraTask[]>([]);
+   const [rows, setRows] = useState<LeaderboardRow[]>([]);
    const [loading, setLoading] = useState(true);
    const [error, setError] = useState('');
+   const [timeRange, setTimeRange] = useState<LeaderboardTimeRange>('daily');
+   const timeRangeBounds = useMemo(() => getTimeRangeBounds(timeRange), [timeRange]);
 
-   const loadLeaderboard = useCallback(async () => {
+   const loadLeaderboard = useCallback(async (bounds: TimeRangeBounds) => {
       setLoading(true);
       setError('');
       try {
-         const [workspaceUsers, workspaceTasks] = await Promise.all([
-            fetchAllPages<TaskaraUser>('/users'),
-            fetchAllPages<TaskaraTask>('/tasks?teamId=all'),
-         ]);
-         setUsers(workspaceUsers);
-         setTasks(workspaceTasks);
+         const query = new URLSearchParams({
+            startsAt: bounds.start.toISOString(),
+            endsAt: bounds.endExclusive.toISOString(),
+            teamId: 'all',
+         });
+         const response = await taskaraRequest<LeaderboardResponse>(`/leaderboard?${query.toString()}`);
+         setRows(response.items);
       } catch (err) {
          setError(err instanceof Error ? err.message : fa.leaderboard.loadFailed);
       } finally {
@@ -78,58 +137,67 @@ export function LeaderboardView() {
    }, []);
 
    useEffect(() => {
-      void loadLeaderboard();
-   }, [loadLeaderboard]);
+      void loadLeaderboard(timeRangeBounds);
+   }, [loadLeaderboard, timeRangeBounds]);
 
-   const rows = useMemo(() => {
-      const assignedByUser = new Map<string, number>();
-      const doneByUser = new Map<string, number>();
-
-      for (const task of tasks) {
-         const assigneeId = task.assignee?.id;
-         if (!assigneeId) continue;
-
-         assignedByUser.set(assigneeId, (assignedByUser.get(assigneeId) || 0) + 1);
-         if (task.status === 'DONE') {
-            doneByUser.set(assigneeId, (doneByUser.get(assigneeId) || 0) + 1);
-         }
-      }
-
-      return users
-         .map<LeaderboardRow>((user) => {
-            const assignedCount = assignedByUser.get(user.id) || 0;
-            const doneCount = doneByUser.get(user.id) || 0;
-            const speedRatio = assignedCount ? doneCount / assignedCount : 0;
-
-            return {
-               userId: user.id,
-               name: user.name,
-               email: user.email,
-               avatarUrl: user.avatarUrl,
-               assignedCount,
-               doneCount,
-               speedRatio,
-            };
-         })
-         .sort((a, b) => {
-            if (b.doneCount !== a.doneCount) return b.doneCount - a.doneCount;
-            if (b.assignedCount !== a.assignedCount) return b.assignedCount - a.assignedCount;
-            return a.name.localeCompare(b.name, 'fa');
-         });
-   }, [tasks, users]);
+   const timeRangeLabels = getTimeRangeLabels();
+   const timeRangeLabel = timeRangeLabels[timeRange];
 
    return (
       <div className="space-y-5 px-6 py-6">
-         <Card className="overflow-hidden border-white/8 bg-[#19191b] text-zinc-100">
+         <Card className="relative overflow-hidden border-white/8 bg-[#19191b] text-zinc-100">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-amber-300/10 to-transparent" />
             <CardHeader className="relative border-b border-white/7">
-               <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-amber-300/10 to-transparent" />
-               <CardTitle className="relative flex items-center gap-2">
-                  <Trophy className="size-5 text-amber-300" />
-                  {fa.nav.leaderboard}
-               </CardTitle>
-               <CardDescription className="relative text-zinc-500">
-                  {fa.pages.leaderboardDescription}
-               </CardDescription>
+               <div className="relative flex flex-wrap items-start gap-3">
+                  <div className="space-y-1">
+                     <CardTitle className="flex items-center gap-2">
+                        <Trophy className="size-5 text-amber-300" />
+                        {fa.nav.leaderboard}
+                     </CardTitle>
+                     <CardDescription className="text-zinc-500">
+                        {fa.pages.leaderboardDescription}
+                     </CardDescription>
+                  </div>
+                  <div className="ms-auto flex items-center gap-2">
+                     <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
+                        <CalendarDays className="size-3.5" />
+                        {fa.leaderboard.timeFilter}
+                     </span>
+                     <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                           <Button
+                              size="xs"
+                              variant="secondary"
+                              className="h-8 min-w-[260px] justify-between border border-white/10 bg-black/20 text-xs text-zinc-200 hover:bg-black/30"
+                           >
+                              <TimeRangeLabelText label={timeRangeLabel} />
+                              <ChevronDown className="size-3.5 opacity-60" />
+                           </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                           align="end"
+                           className="w-[260px] border-white/10 bg-[#1f1f22] text-zinc-100"
+                        >
+                           <DropdownMenuItem onClick={() => setTimeRange('daily')} className="justify-between [direction:rtl]">
+                              <TimeRangeLabelText label={timeRangeLabels.daily} />
+                              {timeRange === 'daily' ? <Check className="size-3.5 text-amber-300" /> : null}
+                           </DropdownMenuItem>
+                           <DropdownMenuItem onClick={() => setTimeRange('weekly')} className="justify-between [direction:rtl]">
+                              <TimeRangeLabelText label={timeRangeLabels.weekly} />
+                              {timeRange === 'weekly' ? <Check className="size-3.5 text-amber-300" /> : null}
+                           </DropdownMenuItem>
+                           <DropdownMenuItem onClick={() => setTimeRange('monthly')} className="justify-between [direction:rtl]">
+                              <TimeRangeLabelText label={timeRangeLabels.monthly} />
+                              {timeRange === 'monthly' ? <Check className="size-3.5 text-amber-300" /> : null}
+                           </DropdownMenuItem>
+                           <DropdownMenuItem onClick={() => setTimeRange('yearly')} className="justify-between [direction:rtl]">
+                              <TimeRangeLabelText label={timeRangeLabels.yearly} />
+                              {timeRange === 'yearly' ? <Check className="size-3.5 text-amber-300" /> : null}
+                           </DropdownMenuItem>
+                        </DropdownMenuContent>
+                     </DropdownMenu>
+                  </div>
+               </div>
             </CardHeader>
             <CardContent className="p-0">
                {error ? (
@@ -143,8 +211,8 @@ export function LeaderboardView() {
                         <TableRow className="border-white/8 hover:bg-transparent">
                            <TableHead className="w-[90px] text-right text-zinc-500">{fa.table.rank}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.settings.name}</TableHead>
-                           <TableHead className="text-right text-zinc-500">{fa.table.assigned}</TableHead>
-                           <TableHead className="text-right text-zinc-500">{fa.table.done}</TableHead>
+                           <TableHead className="w-[120px] text-right text-zinc-500">{fa.table.assigned}</TableHead>
+                           <TableHead className="w-[120px] text-right text-zinc-500">{fa.table.done}</TableHead>
                            <TableHead className="text-right text-zinc-500">{fa.table.speed}</TableHead>
                         </TableRow>
                      </TableHeader>
@@ -194,10 +262,12 @@ export function LeaderboardView() {
                                           </div>
                                        </div>
                                     </TableCell>
-                                    <TableCell className="text-zinc-300">
+                                    <TableCell className="w-[120px] text-right text-zinc-300">
                                        {formatFaNumber(row.assignedCount)}
                                     </TableCell>
-                                    <TableCell className="text-zinc-100">{formatFaNumber(row.doneCount)}</TableCell>
+                                    <TableCell className="w-[120px] text-right text-zinc-100">
+                                       {formatFaNumber(row.doneCount)}
+                                    </TableCell>
                                     <TableCell className="text-zinc-300">
                                        <span className="inline-flex items-center gap-2">
                                           <span>{formatSpeedRatio(row.speedRatio)}</span>
