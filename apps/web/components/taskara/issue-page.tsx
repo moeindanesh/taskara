@@ -536,6 +536,8 @@ export function IssuePage() {
                   <DescriptionEditor
                      value={descriptionDraft}
                      users={users}
+                     variant="plain"
+                     showToolbar={false}
                      onBlur={(nextDescription) => {
                         descriptionFocusedRef.current = false;
                         void saveDescriptionDraft(nextDescription);
@@ -549,14 +551,14 @@ export function IssuePage() {
                         descriptionFocusedRef.current = true;
                      }}
                      placeholder={fa.issue.descriptionPlaceholder}
-                     contentClassName="min-h-32 resize-y text-right text-sm leading-6 text-zinc-300"
+                     contentClassName="min-h-24 text-right text-sm leading-6 text-zinc-300"
                   />
                   {savingField === 'description' ? (
                      <Loader2 className="absolute left-0 top-1 size-4 animate-spin text-zinc-500" />
                   ) : null}
                </div>
 
-               <div className="mt-4 flex flex-wrap items-center gap-2">
+               <div className="mt-2 flex flex-wrap items-center gap-1">
                   <input
                      ref={descriptionFileInputRef}
                      className="hidden"
@@ -566,8 +568,9 @@ export function IssuePage() {
                   />
                   <button
                      aria-label={fa.issue.attachToDescription}
-                     className="inline-flex h-8 items-center gap-2 rounded-md border border-white/8 bg-white/[0.03] px-3 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                     className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/8 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                      disabled={descriptionUploading}
+                     title={fa.issue.uploadAttachment}
                      type="button"
                      onClick={() => descriptionFileInputRef.current?.click()}
                   >
@@ -576,7 +579,7 @@ export function IssuePage() {
                      ) : (
                         <Paperclip className="size-4" />
                      )}
-                     {fa.issue.uploadAttachment}
+                     <span className="sr-only">{fa.issue.uploadAttachment}</span>
                   </button>
                </div>
 

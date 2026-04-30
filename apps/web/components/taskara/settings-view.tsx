@@ -110,7 +110,7 @@ function SettingsChrome({
    ];
 
    return (
-      <div dir="rtl" className="flex min-h-full flex-col bg-[#101011] text-zinc-200 lg:flex-row">
+      <div dir="rtl" className="flex h-full min-h-0 flex-col bg-[#101011] text-zinc-200 lg:flex-row">
          <aside className="flex w-full shrink-0 flex-col border-b border-white/8 bg-[#09090a] px-3 py-3 lg:min-h-full lg:w-[280px] lg:border-b-0 lg:border-l lg:border-r-0">
             <Link
                className="mb-5 inline-flex h-8 w-fit items-center gap-2 rounded-md px-2 text-sm font-medium text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"

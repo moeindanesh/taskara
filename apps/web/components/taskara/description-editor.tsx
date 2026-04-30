@@ -12,6 +12,7 @@ import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 import { ListPlugin } from '@lexical/react/LexicalListPlugin';
+import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import {
    LexicalTypeaheadMenuPlugin,
@@ -20,13 +21,16 @@ import {
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import { AutoLinkNode, LinkNode } from '@lexical/link';
 import {
+   $insertList,
    INSERT_CHECK_LIST_COMMAND,
    INSERT_ORDERED_LIST_COMMAND,
    INSERT_UNORDERED_LIST_COMMAND,
    ListItemNode,
    ListNode,
 } from '@lexical/list';
-import { HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { CHECK_LIST, HEADING, ORDERED_LIST, QUOTE, UNORDERED_LIST } from '@lexical/markdown';
+import { $createHeadingNode, $createQuoteNode, HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { $setBlocksType } from '@lexical/selection';
 import {
    $applyNodeReplacement,
    $createLineBreakNode,
@@ -41,6 +45,7 @@ import {
    CONTROLLED_TEXT_INSERTION_COMMAND,
    FOCUS_COMMAND,
    FORMAT_TEXT_COMMAND,
+   KEY_DOWN_COMMAND,
    KEY_ESCAPE_COMMAND,
    TextNode,
    type EditorConfig,
@@ -53,7 +58,21 @@ import {
    type SerializedTextNode,
    type Spread,
 } from 'lexical';
-import { AtSign, Bold, Code2, Italic, List, ListChecks, ListOrdered, Strikethrough } from 'lucide-react';
+import {
+   AtSign,
+   Bold,
+   Code2,
+   Heading1,
+   Heading2,
+   Heading3,
+   Italic,
+   List,
+   ListChecks,
+   ListOrdered,
+   Pilcrow,
+   Quote,
+   Strikethrough,
+} from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { TaskaraUser } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
@@ -72,8 +91,10 @@ type DescriptionEditorProps = {
    onFocus?: () => void;
    placeholder: string;
    placeholderClassName?: string;
+   showToolbar?: boolean;
    toolbarClassName?: string;
    users?: MentionUser[];
+   variant?: 'framed' | 'plain';
 };
 
 type SerializedMentionNode = Spread<
@@ -87,6 +108,7 @@ type SerializedMentionNode = Spread<
 >;
 
 const externalSyncTag = 'taskara-description-editor:external-sync';
+const descriptionMarkdownTransformers = [HEADING, QUOTE, UNORDERED_LIST, ORDERED_LIST, CHECK_LIST];
 
 const editorTheme: EditorThemeClasses = {
    heading: {
@@ -494,7 +516,7 @@ function MentionMenu({
       <div
          className="z-50 overflow-hidden rounded-lg border border-white/10 bg-[#202023] p-1.5 text-right shadow-2xl"
          dir="rtl"
-         style={getMentionMenuStyle(anchor)}
+         style={getFloatingMenuStyle(anchor)}
       >
          {options.map((option, index) => (
             <button
@@ -520,18 +542,263 @@ function MentionMenu({
    );
 }
 
-function getMentionMenuStyle(anchor: HTMLElement): CSSProperties {
+type FloatingMenuStyleOptions = {
+   estimatedHeight?: number;
+   maxHeight?: string;
+   minWidth?: number;
+   preferredWidth?: number;
+};
+
+class SlashCommandOption extends MenuOption {
+   command: () => void;
+   description: string;
+   iconNode: ReactNode;
+   searchText: string;
+   shortcut?: string;
+
+   constructor({
+      command,
+      description,
+      icon,
+      key,
+      keywords,
+      shortcut,
+      title,
+   }: {
+      command: () => void;
+      description: string;
+      icon: ReactNode;
+      key: string;
+      keywords: string[];
+      shortcut?: string;
+      title: string;
+   }) {
+      super(key);
+      this.command = command;
+      this.description = description;
+      this.iconNode = icon;
+      this.shortcut = shortcut;
+      this.title = title;
+      this.searchText = [title, description, ...keywords].join(' ').toLocaleLowerCase('en-US');
+   }
+}
+
+const slashCommandOptions = [
+   new SlashCommandOption({
+      command: () => $setBlocksType($getSelection(), () => $createParagraphNode()),
+      description: 'Plain text block',
+      icon: <Pilcrow className="size-4" />,
+      key: 'paragraph',
+      keywords: ['text', 'normal', 'body'],
+      title: 'Paragraph',
+   }),
+   new SlashCommandOption({
+      command: () => $setBlocksType($getSelection(), () => $createHeadingNode('h1')),
+      description: 'Large section heading',
+      icon: <Heading1 className="size-4" />,
+      key: 'heading-1',
+      keywords: ['h1', 'title'],
+      shortcut: '# Space',
+      title: 'Heading 1',
+   }),
+   new SlashCommandOption({
+      command: () => $setBlocksType($getSelection(), () => $createHeadingNode('h2')),
+      description: 'Medium section heading',
+      icon: <Heading2 className="size-4" />,
+      key: 'heading-2',
+      keywords: ['h2', 'subtitle'],
+      shortcut: '## Space',
+      title: 'Heading 2',
+   }),
+   new SlashCommandOption({
+      command: () => $setBlocksType($getSelection(), () => $createHeadingNode('h3')),
+      description: 'Small section heading',
+      icon: <Heading3 className="size-4" />,
+      key: 'heading-3',
+      keywords: ['h3', 'subheading'],
+      shortcut: '### Space',
+      title: 'Heading 3',
+   }),
+   new SlashCommandOption({
+      command: () => $insertList('bullet'),
+      description: 'Create a bulleted list',
+      icon: <List className="size-4" />,
+      key: 'bulleted-list',
+      keywords: ['unordered', 'ul', 'list'],
+      shortcut: '- Space',
+      title: 'Bulleted list',
+   }),
+   new SlashCommandOption({
+      command: () => $insertList('number'),
+      description: 'Create a numbered list',
+      icon: <ListOrdered className="size-4" />,
+      key: 'numbered-list',
+      keywords: ['ordered', 'ol', 'list'],
+      shortcut: '1. Space',
+      title: 'Numbered list',
+   }),
+   new SlashCommandOption({
+      command: () => $insertList('check'),
+      description: 'Create a checklist',
+      icon: <ListChecks className="size-4" />,
+      key: 'checklist',
+      keywords: ['todo', 'task', 'checkbox'],
+      shortcut: '[]',
+      title: 'Checklist',
+   }),
+   new SlashCommandOption({
+      command: () => $setBlocksType($getSelection(), () => $createQuoteNode()),
+      description: 'Create a block quote',
+      icon: <Quote className="size-4" />,
+      key: 'blockquote',
+      keywords: ['quote', 'blockquote', 'callout'],
+      shortcut: '> Space',
+      title: 'Blockquote',
+   }),
+   new SlashCommandOption({
+      command: () => {
+         const selection = $getSelection();
+         if ($isRangeSelection(selection)) selection.insertText('@');
+      },
+      description: 'Mention a workspace member',
+      icon: <AtSign className="size-4" />,
+      key: 'mention',
+      keywords: ['user', 'member', 'person'],
+      shortcut: '@',
+      title: 'Mention',
+   }),
+];
+
+function SlashCommandsPlugin(): JSX.Element | null {
+   const [editor] = useLexicalComposerContext();
+   const [queryString, setQueryString] = useState<string | null>(null);
+   const checkForSlashMatch = useBasicTypeaheadTriggerMatch('/', {
+      allowWhitespace: false,
+      maxLength: 40,
+      minLength: 0,
+   });
+
+   const options = useMemo(() => {
+      const query = (queryString || '').trim().toLocaleLowerCase('en-US');
+      if (!query) return slashCommandOptions;
+      return slashCommandOptions.filter((option) => option.searchText.includes(query));
+   }, [queryString]);
+
+   const onSelectOption = useCallback(
+      (selectedOption: SlashCommandOption, textNodeContainingQuery: TextNode | null, closeMenu: () => void) => {
+         editor.update(() => {
+            if (textNodeContainingQuery) {
+               const parent = textNodeContainingQuery.getParent();
+               textNodeContainingQuery.remove();
+               parent?.selectEnd();
+            }
+            selectedOption.command();
+            closeMenu();
+         });
+      },
+      [editor]
+   );
+
+   return (
+      <LexicalTypeaheadMenuPlugin<SlashCommandOption>
+         ignoreEntityBoundary
+         options={options.slice(0, 8)}
+         triggerFn={checkForSlashMatch}
+         onQueryChange={setQueryString}
+         onSelectOption={onSelectOption}
+         menuRenderFn={(anchorElementRef, { options, selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
+            return (
+               <SlashCommandMenu
+                  anchorElementRef={anchorElementRef}
+                  options={options}
+                  selectedIndex={selectedIndex}
+                  selectOptionAndCleanUp={selectOptionAndCleanUp}
+                  setHighlightedIndex={setHighlightedIndex}
+               />
+            );
+         }}
+      />
+   );
+}
+
+function SlashCommandMenu({
+   anchorElementRef,
+   options,
+   selectedIndex,
+   selectOptionAndCleanUp,
+   setHighlightedIndex,
+}: {
+   anchorElementRef: RefObject<HTMLElement | null>;
+   options: SlashCommandOption[];
+   selectedIndex: number | null;
+   selectOptionAndCleanUp: (option: SlashCommandOption) => void;
+   setHighlightedIndex: (index: number) => void;
+}) {
+   const anchor = anchorElementRef.current;
+   const portalTarget = anchor?.ownerDocument.body;
+   if (!anchor || !portalTarget || !options.length) return null;
+
+   return createPortal(
+      <div
+         className="z-50 overflow-hidden rounded-xl border border-white/10 bg-[#202023] p-1.5 text-left shadow-2xl"
+         dir="ltr"
+         style={getFloatingMenuStyle(anchor, {
+            estimatedHeight: 420,
+            maxHeight: 'min(28rem, calc(100vh - 24px))',
+            minWidth: 272,
+            preferredWidth: 320,
+         })}
+      >
+         {options.map((option, index) => (
+            <button
+               key={option.key}
+               ref={option.setRefElement}
+               aria-selected={selectedIndex === index}
+               className={cn(
+                  'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-300 outline-none transition',
+                  selectedIndex === index ? 'bg-white/10 text-zinc-100' : 'hover:bg-white/8'
+               )}
+               role="option"
+               type="button"
+               onClick={() => selectOptionAndCleanUp(option)}
+               onMouseDown={(event) => event.preventDefault()}
+               onMouseEnter={() => setHighlightedIndex(index)}
+            >
+               <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-white/7 text-zinc-400">
+                  {option.iconNode}
+               </span>
+               <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-zinc-100">{option.title}</span>
+                  <span className="block truncate text-xs text-zinc-500">{option.description}</span>
+               </span>
+               {option.shortcut ? (
+                  <kbd className="shrink-0 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-zinc-500">
+                     {option.shortcut}
+                  </kbd>
+               ) : null}
+            </button>
+         ))}
+      </div>,
+      portalTarget
+   );
+}
+
+function getFloatingMenuStyle(anchor: HTMLElement, options: FloatingMenuStyleOptions = {}): CSSProperties {
    const ownerWindow = anchor.ownerDocument.defaultView || window;
    const rect = getActiveSelectionRect(ownerWindow) || anchor.getBoundingClientRect();
-   const width = Math.min(240, Math.max(184, ownerWindow.innerWidth - 24));
+   const width = Math.min(
+      options.preferredWidth ?? 240,
+      Math.max(options.minWidth ?? 184, ownerWindow.innerWidth - 24)
+   );
    const viewportPadding = 12;
    const maxRight = Math.max(viewportPadding, ownerWindow.innerWidth - width - viewportPadding);
    const right = Math.min(Math.max(viewportPadding, ownerWindow.innerWidth - rect.right), maxRight);
-   const opensAbove = rect.bottom + 260 > ownerWindow.innerHeight && rect.top > 260;
+   const estimatedHeight = options.estimatedHeight ?? 260;
+   const opensAbove = rect.bottom + estimatedHeight > ownerWindow.innerHeight && rect.top > estimatedHeight;
 
    return {
       bottom: opensAbove ? ownerWindow.innerHeight - rect.top + 8 : undefined,
-      maxHeight: 'min(18rem, calc(100vh - 24px))',
+      maxHeight: options.maxHeight ?? 'min(18rem, calc(100vh - 24px))',
       overflowY: 'auto',
       position: 'fixed',
       right,
@@ -566,6 +833,44 @@ function MentionAvatar({ user }: { user: MentionUser }) {
    );
 }
 
+function CompactChecklistShortcutPlugin() {
+   const [editor] = useLexicalComposerContext();
+
+   useEffect(() => {
+      return editor.registerCommand(
+         KEY_DOWN_COMMAND,
+         (event) => {
+            if (event.key !== ']') return false;
+
+            const selection = $getSelection();
+            if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== 'text') {
+               return false;
+            }
+
+            const textNode = selection.anchor.getNode();
+            const parent = textNode.getParent();
+            if (
+               !textNode.isSimpleText() ||
+               selection.anchor.offset !== textNode.getTextContentSize() ||
+               !parent ||
+               parent.getTextContent() !== '['
+            ) {
+               return false;
+            }
+
+            event.preventDefault();
+            textNode.remove();
+            parent.selectEnd();
+            $insertList('check');
+            return true;
+         },
+         COMMAND_PRIORITY_HIGH
+      );
+   }, [editor]);
+
+   return null;
+}
+
 function RtlListDomPlugin() {
    const [editor] = useLexicalComposerContext();
 
@@ -597,8 +902,10 @@ export function DescriptionEditor({
    onFocus,
    placeholder,
    placeholderClassName,
+   showToolbar = true,
    toolbarClassName,
    users,
+   variant = 'framed',
 }: DescriptionEditorProps) {
    const initialValueRef = useRef(value);
    const initialConfig = useMemo<InitialConfigType>(
@@ -620,12 +927,14 @@ export function DescriptionEditor({
       <LexicalComposer initialConfig={initialConfig}>
          <div
             className={cn(
-               'relative min-w-0 overflow-visible rounded-lg border border-white/8 bg-transparent text-right transition focus-within:border-indigo-400/35',
+               variant === 'framed'
+                  ? 'relative min-w-0 overflow-visible rounded-lg border border-white/8 bg-transparent text-right transition focus-within:border-indigo-400/35'
+                  : 'relative min-w-0 overflow-visible bg-transparent text-right',
                className
             )}
             dir="rtl"
          >
-            <DescriptionToolbar className={toolbarClassName} />
+            {showToolbar ? <DescriptionToolbar className={toolbarClassName} /> : null}
             <div className="relative">
                <RichTextPlugin
                   contentEditable={
@@ -633,7 +942,9 @@ export function DescriptionEditor({
                         aria-label={ariaLabel || placeholder}
                         aria-multiline
                         className={cn(
-                           'min-h-24 w-full overflow-auto break-words bg-transparent px-3 py-3 text-right text-sm leading-6 text-zinc-300 outline-none',
+                           variant === 'framed'
+                              ? 'min-h-24 w-full overflow-auto break-words bg-transparent px-3 py-3 text-right text-sm leading-6 text-zinc-300 outline-none'
+                              : 'min-h-16 w-full overflow-auto break-words bg-transparent px-0 py-1 text-right text-sm leading-6 text-zinc-300 outline-none',
                            contentClassName
                         )}
                         dir="rtl"
@@ -643,7 +954,9 @@ export function DescriptionEditor({
                   placeholder={
                      <div
                         className={cn(
-                           'pointer-events-none absolute inset-x-3 top-3 text-right text-sm leading-6 text-zinc-600',
+                           variant === 'framed'
+                              ? 'pointer-events-none absolute inset-x-3 top-3 text-right text-sm leading-6 text-zinc-600'
+                              : 'pointer-events-none absolute inset-x-0 top-1 text-right text-sm leading-6 text-zinc-600',
                            placeholderClassName
                         )}
                         dir="rtl"
@@ -657,9 +970,12 @@ export function DescriptionEditor({
             <HistoryPlugin />
             <ListPlugin />
             <CheckListPlugin />
+            <MarkdownShortcutPlugin transformers={descriptionMarkdownTransformers} />
+            <CompactChecklistShortcutPlugin />
             <RtlListDomPlugin />
             <LinkPlugin />
             <MentionsPlugin users={users} />
+            <SlashCommandsPlugin />
             <DescriptionEditorBridge
                value={value}
                onBlur={onBlur}

@@ -55,7 +55,15 @@ const roleMeta = {
    AGENT: { label: 'عامل', className: 'bg-slate-500/10 text-slate-700 dark:text-slate-200' },
 } as const;
 
-export const taskStatuses = Object.keys(statusMeta) as Array<keyof typeof statusMeta>;
+export const taskStatuses: Array<keyof typeof statusMeta> = [
+   'BACKLOG',
+   'TODO',
+   'IN_PROGRESS',
+   'IN_REVIEW',
+   'DONE',
+   'BLOCKED',
+   'CANCELED',
+];
 export const taskPriorities = Object.keys(priorityMeta) as Array<keyof typeof priorityMeta>;
 export const workspaceRoles = Object.keys(roleMeta) as Array<keyof typeof roleMeta>;
 

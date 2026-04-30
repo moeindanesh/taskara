@@ -1452,8 +1452,10 @@ export function TasksView() {
                      />
                      <DescriptionEditor
                         className="mt-2"
-                        contentClassName="min-h-20 resize-y text-right text-sm leading-6 text-zinc-300"
+                        contentClassName="min-h-20 text-right text-sm leading-6 text-zinc-300"
+                        showToolbar={false}
                         value={form.description}
+                        variant="plain"
                         users={users}
                         onChange={(description) => setForm((current) => ({ ...current, description }))}
                         placeholder={fa.issue.descriptionPlaceholder}

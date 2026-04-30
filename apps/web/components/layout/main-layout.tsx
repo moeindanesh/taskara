@@ -44,10 +44,12 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
+   const routeKey = pathParts[1] || 'team';
    const activeTeamSlug = pathParts[1] === 'team' && pathParts[2] !== 'all' ? pathParts[2] : null;
    const isIssueListRoute = pathParts[1] === 'team' && pathParts[3] === 'all';
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
+   const pageOwnsScroll = ['heartbeat', 'inbox', 'issue', 'projects', 'settings', 'team'].includes(routeKey);
    const height = {
       1: 'h-[calc(100svh-40px)] lg:h-[calc(100svh-48px)]',
       2: 'h-[calc(100svh-80px)] lg:h-[calc(100svh-88px)]',
@@ -169,12 +171,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    return (
       <SidebarProvider>
          {showSidebar ? <AppSidebar /> : null}
-         <div className="h-svh w-full overflow-hidden bg-[#050506] lg:p-2 lg:pe-0">
+         <div className="h-svh w-full overflow-hidden bg-[#050506] lg:p-2">
             <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden bg-container lg:rounded-xl lg:border lg:border-white/8">
                {header}
                <div
                   className={cn(
-                     'w-full overflow-auto',
+                     'min-h-0 w-full',
+                     pageOwnsScroll ? 'overflow-hidden' : 'overflow-auto',
                      isEmptyHeader(header) ? 'h-full' : height[headersNumber as keyof typeof height]
                   )}
                >
