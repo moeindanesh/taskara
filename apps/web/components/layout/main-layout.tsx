@@ -46,10 +46,10 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const orgId = pathParts[0] || 'taskara';
    const routeKey = pathParts[1] || 'team';
    const activeTeamSlug = pathParts[1] === 'team' && pathParts[2] !== 'all' ? pathParts[2] : null;
-   const isIssueListRoute = pathParts[1] === 'team' && pathParts[3] === 'all';
+   const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
-   const pageOwnsScroll = ['heartbeat', 'inbox', 'issue', 'projects', 'settings', 'team'].includes(routeKey);
+   const pageOwnsScroll = ['heartbeat', 'inbox', 'issue', 'projects', 'settings', 'tasks', 'team'].includes(routeKey);
    const height = {
       1: 'h-[calc(100svh-40px)] lg:h-[calc(100svh-48px)]',
       2: 'h-[calc(100svh-80px)] lg:h-[calc(100svh-88px)]',
@@ -123,6 +123,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
          icon: ListTodo,
          shortcut: 'G I',
          run: () => navigate(`/${orgId}/team/all/all`),
+      },
+      {
+         label: fa.command.goAllTasks,
+         description: fa.pages.allTasksDescription,
+         icon: ListTodo,
+         shortcut: 'G A',
+         run: () => navigate(`/${orgId}/tasks`),
       },
       {
          label: fa.command.goInbox,

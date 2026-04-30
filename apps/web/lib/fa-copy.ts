@@ -15,6 +15,7 @@ export const fa = {
    },
    nav: {
       inbox: 'صندوق ورودی',
+      allTasks: 'همه کارها',
       myIssues: 'کارهای من',
       workspace: 'فضای کاری',
       projects: 'پروژه‌ها',
@@ -35,6 +36,7 @@ export const fa = {
    },
    pages: {
       inboxDescription: 'اعلان‌های مرتبط با کارهای تسکارا و آخرین رویدادهای فضای کاری.',
+      allTasksDescription: 'نمای همه کارها در تمام تیم‌ها و پروژه‌های فضای کاری.',
       membersDescription: 'نمای کاربران، نقش‌ها، اتصال مترموست و حجم کار جاری.',
       leaderboardDescription: 'جدول رقابتی عملکرد کارکنان بر اساس تعداد کارهای انجام‌شده.',
       projectsDescription: 'فهرست پروژه‌ها با ساختار و رفتار نزدیک به لینیر.',
@@ -94,6 +96,7 @@ export const fa = {
    },
    heartbeat: {
       active: 'فعال',
+      activeAssignedTasks: 'کار فعال',
       activeNow: 'فعال اکنون',
       activePastDue: 'فعال و گذشته از موعد',
       allTeams: 'همه تیم‌ها',
@@ -114,7 +117,10 @@ export const fa = {
       latest: 'آخرین تغییر',
       needsAttention: 'نیازمند توجه',
       noDone: 'در این بازه کاری انجام نشده است.',
+      noIdlePeople: 'شخصی بدون کار در حال انجام وجود ندارد.',
       noInProgress: 'کاری در جریان نیست.',
+      noActiveAssignedTasks: 'بدون کار فعال',
+      noOverdue: 'کاری از موعد گذشته نیست.',
       noRecentUpdates: 'در این بازه تغییری ثبت نشده است.',
       noRisks: 'ریسک فعالی دیده نمی‌شود.',
       noTeamData: 'داده‌ای برای این تیم‌ها وجود ندارد.',
@@ -138,6 +144,7 @@ export const fa = {
       updatedInWindow: 'به‌روزشده',
       watch: 'قابل پیگیری',
       workInSystem: 'بک‌لاگ، انجام‌دادنی، در جریان و مسدود',
+      withoutInProgress: 'بدون کار در حال انجام',
    },
    issue: {
       all: 'همه کارها',
@@ -271,6 +278,7 @@ export const fa = {
       createIssueDescription: 'باز کردن فرم ساخت کار',
       createProject: 'ایجاد پروژه',
       createProjectDescription: 'باز کردن فرم ساخت پروژه',
+      goAllTasks: 'رفتن به همه کارها',
       goIssues: 'رفتن به کارها',
       goInbox: 'رفتن به صندوق ورودی',
       goProjects: 'رفتن به پروژه‌ها',

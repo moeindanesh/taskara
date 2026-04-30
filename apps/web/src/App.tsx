@@ -21,6 +21,10 @@ const pageMetaByRoute = {
     title: fa.nav.inbox,
     description: fa.pages.inboxDescription,
   },
+  tasks: {
+    title: fa.nav.allTasks,
+    description: fa.pages.allTasksDescription,
+  },
   members: {
     title: fa.nav.members,
     description: fa.pages.membersDescription,
@@ -120,6 +124,7 @@ export function App() {
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />
         <Route path="projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
         <Route path="settings/*" element={<WorkspacePage><SettingsView /></WorkspacePage>} />
+        <Route path="tasks" element={<WorkspacePage><TasksView defaultSystemView="all" personalOnly={false} /></WorkspacePage>} />
         <Route path="team/:teamId/all" element={<WorkspacePage><TasksView /></WorkspacePage>} />
         <Route path="team/:teamId/projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
         <Route path="issue/:taskKey" element={<WorkspacePage><IssuePage /></WorkspacePage>} />

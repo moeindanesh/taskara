@@ -123,7 +123,7 @@ const initialTaskForm = {
    labels: '',
 };
 
-type SystemViewKey = 'all' | 'active' | 'backlog';
+type SystemViewKey = 'all' | 'active';
 type ActiveViewKey = `system:${SystemViewKey}` | string;
 type MenuAnchor = { bottom: number; left: number; right: number; top: number; width: number; height: number };
 
@@ -144,14 +144,46 @@ type GroupDescriptor = {
 const systemViewOrder: Array<{ key: SystemViewKey; label: string }> = [
    { key: 'all', label: fa.issue.all },
    { key: 'active', label: fa.issue.active },
-   { key: 'backlog', label: fa.issue.backlog },
 ];
 
 function getSystemViewKey(viewKey: ActiveViewKey): SystemViewKey | null {
    if (viewKey === 'system:all') return 'all';
    if (viewKey === 'system:active') return 'active';
-   if (viewKey === 'system:backlog') return 'backlog';
    return null;
+}
+
+const activeViewQueryParam = 'view';
+const activeViewStoragePrefix = 'taskara:tasks-active-view';
+
+function taskViewSelectionStorageKey(workspaceKey: string, teamKey: string) {
+   return `${activeViewStoragePrefix}:${workspaceKey}:${teamKey}`;
+}
+
+function getActiveViewKeyFromSearch(search: string): ActiveViewKey | null {
+   const value = new URLSearchParams(search).get(activeViewQueryParam);
+   return value ? (value as ActiveViewKey) : null;
+}
+
+function readStoredActiveViewKey(workspaceKey: string, teamKey: string): ActiveViewKey | null {
+   if (typeof window === 'undefined') return null;
+   return window.localStorage.getItem(taskViewSelectionStorageKey(workspaceKey, teamKey)) as ActiveViewKey | null;
+}
+
+function writeStoredActiveViewKey(workspaceKey: string, teamKey: string, viewKey: ActiveViewKey) {
+   if (typeof window === 'undefined') return;
+   window.localStorage.setItem(taskViewSelectionStorageKey(workspaceKey, teamKey), viewKey);
+}
+
+function searchWithActiveView(search: string, viewKey: ActiveViewKey, defaultViewKey: ActiveViewKey) {
+   const params = new URLSearchParams(search);
+   if (viewKey === defaultViewKey) {
+      params.delete(activeViewQueryParam);
+   } else {
+      params.set(activeViewQueryParam, viewKey);
+   }
+
+   const next = params.toString();
+   return next ? `?${next}` : '';
 }
 
 const layoutOptions: Array<{ value: TaskViewLayout; label: string; icon: typeof LayoutList }> = [
@@ -281,24 +313,6 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
       };
    }
 
-   if (key === 'backlog') {
-      return {
-         scope: 'tasks',
-         teamId,
-         query: '',
-         status: ['BACKLOG'],
-         assigneeIds: [],
-         priority: [],
-         projectIds: [],
-         labels: [],
-         layout: 'list',
-         groupBy: 'status',
-         orderBy: 'priority',
-         showEmptyGroups: false,
-         ...viewDisplayDefaults(),
-      };
-   }
-
    return {
       scope: 'tasks',
       teamId,
@@ -335,6 +349,28 @@ function normalizeViewState(state: Partial<TaskaraTaskViewState> | undefined, te
       completedIssues: state?.completedIssues || 'all',
       displayProperties: state?.displayProperties || [...defaultDisplayProperties],
    };
+}
+
+function viewBelongsToTaskPage(view: TaskaraView, currentTeamKey: string) {
+   if (view.state.scope !== 'tasks') return false;
+   if (currentTeamKey === currentTeamFallback) return true;
+   return (view.state.teamId || currentTeamFallback) === currentTeamKey;
+}
+
+function mergeTaskViews(primary: TaskaraView[], secondary: TaskaraView[], currentTeamKey: string) {
+   const byId = new Map<string, TaskaraView>();
+
+   for (const view of secondary) {
+      if (viewBelongsToTaskPage(view, currentTeamKey)) byId.set(view.id, view);
+   }
+
+   for (const view of primary) {
+      if (viewBelongsToTaskPage(view, currentTeamKey)) byId.set(view.id, view);
+   }
+
+   return [...byId.values()].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+   );
 }
 
 function compareDateString(a?: string | null, b?: string | null, fallback = 0) {
@@ -415,14 +451,21 @@ function matchesCompletedIssueSetting(task: TaskaraTask, setting: TaskViewComple
    return age <= maxAge * 24 * 60 * 60 * 1000;
 }
 
-export function TasksView() {
+interface TasksViewProps {
+   defaultSystemView?: SystemViewKey;
+   personalOnly?: boolean;
+}
+
+export function TasksView({ defaultSystemView = 'active', personalOnly = true }: TasksViewProps) {
    const location = useLocation();
    const navigate = useNavigate();
    const { orgId, teamId } = useParams();
    const { session } = useAuthSession();
+   const workspaceKey = orgId || 'taskara';
    const activeTeamSlug = teamId && teamId !== currentTeamFallback ? teamId : null;
    const currentTeamKey = activeTeamSlug || currentTeamFallback;
-   const isMyIssuesView = currentTeamKey === currentTeamFallback;
+   const isMyIssuesView = personalOnly && currentTeamKey === currentTeamFallback;
+   const viewScopeKey = isMyIssuesView ? 'mine' : currentTeamKey;
    const currentUserId = session?.user.id || null;
    const taskSync = useWorkspaceTaskSync();
    const {
@@ -450,9 +493,9 @@ export function TasksView() {
    const [composerSubmitting, setComposerSubmitting] = useState(false);
    const [composerDraggingFiles, setComposerDraggingFiles] = useState(false);
    const [isPending, startTransition] = useTransition();
-   const [activeViewKey, setActiveViewKey] = useState<ActiveViewKey>('system:active');
+   const [activeViewKey, setActiveViewKey] = useState<ActiveViewKey>(`system:${defaultSystemView}`);
    const [draftView, setDraftView] = useState<TaskaraTaskViewState>(() =>
-      buildSystemViewState('active', currentTeamKey)
+      buildSystemViewState(defaultSystemView, currentTeamKey)
    );
    const [filterOpen, setFilterOpen] = useState(false);
    const [displayOpen, setDisplayOpen] = useState(false);
@@ -464,6 +507,28 @@ export function TasksView() {
    const [viewShared, setViewShared] = useState(true);
    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
    const composerFileInputRef = useRef<HTMLInputElement>(null);
+   const restoredViewRequestRef = useRef<string | null>(null);
+   const defaultActiveViewKey: ActiveViewKey = `system:${defaultSystemView}`;
+   const viewRestoreRequestKey = `${workspaceKey}:${viewScopeKey}:${location.search}`;
+
+   const persistActiveViewSelection = useCallback(
+      (viewKey: ActiveViewKey) => {
+         writeStoredActiveViewKey(workspaceKey, viewScopeKey, viewKey);
+
+         const nextSearch = searchWithActiveView(location.search, viewKey, defaultActiveViewKey);
+         if (nextSearch !== location.search) {
+            navigate(
+               {
+                  pathname: location.pathname,
+                  search: nextSearch,
+                  hash: location.hash,
+               },
+               { replace: true }
+            );
+         }
+      },
+      [defaultActiveViewKey, location.hash, location.pathname, location.search, navigate, viewScopeKey, workspaceKey]
+   );
 
    const getDefaultMenuAnchor = useCallback((): MenuAnchor => {
       const right = Math.max(window.innerWidth - 24, 0);
@@ -528,21 +593,71 @@ export function TasksView() {
       );
    }, [displayOpen, filterOpen]);
 
-   useEffect(() => {
-      const nextState = buildSystemViewState('active', currentTeamKey);
-      setActiveViewKey('system:active');
-      setDraftView(nextState);
-      setHighlightedIndex(null);
-   }, [currentTeamKey]);
-
    const scopedSyncedViews = useMemo(
-      () => syncedViews.filter((view) => (view.state.teamId || currentTeamFallback) === currentTeamKey),
+      () => syncedViews.filter((view) => viewBelongsToTaskPage(view, currentTeamKey)),
       [currentTeamKey, syncedViews]
+   );
+
+   const visibleViews = useMemo(
+      () => mergeTaskViews(scopedSyncedViews, views, currentTeamKey),
+      [currentTeamKey, scopedSyncedViews, views]
    );
 
    useEffect(() => {
       setViews(scopedSyncedViews);
    }, [scopedSyncedViews]);
+
+   useEffect(() => {
+      restoredViewRequestRef.current = null;
+   }, [viewRestoreRequestKey]);
+
+   useEffect(() => {
+      if (restoredViewRequestRef.current === viewRestoreRequestKey) return;
+
+      const requestedViewKey =
+         getActiveViewKeyFromSearch(location.search) ||
+         readStoredActiveViewKey(workspaceKey, viewScopeKey) ||
+         defaultActiveViewKey;
+      const systemViewKey = getSystemViewKey(requestedViewKey);
+
+      if (systemViewKey) {
+         setActiveViewKey(`system:${systemViewKey}`);
+         setDraftView(buildSystemViewState(systemViewKey, currentTeamKey));
+         setSelectedTaskId(null);
+         setHighlightedIndex(null);
+         restoredViewRequestRef.current = viewRestoreRequestKey;
+         return;
+      }
+
+      const savedView = visibleViews.find((view) => view.id === requestedViewKey);
+      if (savedView) {
+         setActiveViewKey(savedView.id);
+         setDraftView(normalizeViewState(savedView.state, currentTeamKey));
+         setSelectedTaskId(null);
+         setHighlightedIndex(null);
+         restoredViewRequestRef.current = viewRestoreRequestKey;
+         return;
+      }
+
+      if (loading) return;
+
+      setActiveViewKey(defaultActiveViewKey);
+      setDraftView(buildSystemViewState(defaultSystemView, currentTeamKey));
+      setSelectedTaskId(null);
+      setHighlightedIndex(null);
+      writeStoredActiveViewKey(workspaceKey, viewScopeKey, defaultActiveViewKey);
+      restoredViewRequestRef.current = viewRestoreRequestKey;
+   }, [
+      currentTeamKey,
+      defaultActiveViewKey,
+      defaultSystemView,
+      loading,
+      location.search,
+      viewRestoreRequestKey,
+      viewScopeKey,
+      visibleViews,
+      workspaceKey,
+   ]);
 
    const scopedProjects = useMemo(
       () => (activeTeamSlug ? projects.filter((project) => project.team?.slug === activeTeamSlug) : projects),
@@ -593,8 +708,8 @@ export function TasksView() {
    }, [scopedTasks]);
 
    const activeSavedView = useMemo(
-      () => views.find((view) => view.id === activeViewKey) || null,
-      [activeViewKey, views]
+      () => visibleViews.find((view) => view.id === activeViewKey) || null,
+      [activeViewKey, visibleViews]
    );
 
    const hasDraftChanges = useMemo(() => {
@@ -721,7 +836,6 @@ export function TasksView() {
       () => ({
          all: scopedTasks.length,
          active: scopedTasks.filter((task) => activeStatuses.includes(task.status)).length,
-         backlog: scopedTasks.filter((task) => task.status === 'BACKLOG').length,
       }),
       [scopedTasks]
    );
@@ -737,17 +851,18 @@ export function TasksView() {
             toast.message(fa.issue.pendingSync);
             return;
          }
+         const returnSearch = searchWithActiveView(location.search, activeViewKey, defaultActiveViewKey);
          navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`, {
             state: {
                from: {
                   hash: location.hash,
                   pathname: location.pathname,
-                  search: location.search,
+                  search: returnSearch,
                },
             },
          });
       },
-      [location.hash, location.pathname, location.search, navigate, orgId]
+      [activeViewKey, defaultActiveViewKey, location.hash, location.pathname, location.search, navigate, orgId]
    );
 
    useEffect(() => {
@@ -1017,8 +1132,10 @@ export function TasksView() {
    }
 
    function applySystemView(key: SystemViewKey) {
-      setActiveViewKey(`system:${key}`);
+      const viewKey: ActiveViewKey = `system:${key}`;
+      setActiveViewKey(viewKey);
       setDraftView(buildSystemViewState(key, currentTeamKey));
+      persistActiveViewSelection(viewKey);
       setSelectedTaskId(null);
       setHighlightedIndex(null);
    }
@@ -1026,6 +1143,7 @@ export function TasksView() {
    function applySavedView(view: TaskaraView) {
       setActiveViewKey(view.id);
       setDraftView(normalizeViewState(view.state, currentTeamKey));
+      persistActiveViewSelection(view.id);
       setSelectedTaskId(null);
       setHighlightedIndex(null);
    }
@@ -1092,6 +1210,10 @@ export function TasksView() {
          });
          setViews((current) => [created, ...current]);
          setActiveViewKey(created.id);
+         persistActiveViewSelection(created.id);
+         startTransition(() => {
+            void load();
+         });
          setSaveDialogOpen(false);
          toast.success(fa.issue.saveView);
       } catch (err) {
@@ -1112,6 +1234,10 @@ export function TasksView() {
          });
          setViews((current) => current.map((view) => (view.id === updated.id ? updated : view)));
          setActiveViewKey(updated.id);
+         persistActiveViewSelection(updated.id);
+         startTransition(() => {
+            void load();
+         });
          setSaveDialogOpen(false);
          toast.success(fa.issue.updateView);
       } catch (err) {
@@ -1124,7 +1250,10 @@ export function TasksView() {
       try {
          await taskaraRequest(`/views/${activeSavedView.id}`, { method: 'DELETE' });
          setViews((current) => current.filter((view) => view.id !== activeSavedView.id));
-         applySystemView('active');
+         applySystemView(defaultSystemView);
+         startTransition(() => {
+            void load();
+         });
          toast.success(fa.issue.deleteView);
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.deleteView);
@@ -1195,7 +1324,7 @@ export function TasksView() {
                               <span>{viewCounts[view.key].toLocaleString('fa-IR')}</span>
                            </ViewChip>
                         ))}
-                        {views.map((view) => (
+                        {visibleViews.map((view) => (
                            <ViewChip
                               key={view.id}
                               active={activeViewKey === view.id}

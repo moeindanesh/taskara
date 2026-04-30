@@ -166,13 +166,13 @@ export function IssuePage() {
    const syncUsersRef = useRef<TaskaraUser[]>([]);
 
    const closeIssuePage = useCallback(() => {
-      if (location.key !== 'default') {
-         navigate(-1);
+      if (returnPath && returnPath !== currentPath) {
+         navigate(returnPath);
          return;
       }
 
-      if (returnPath && returnPath !== currentPath) {
-         navigate(returnPath);
+      if (location.key !== 'default') {
+         navigate(-1);
          return;
       }
 

@@ -45,7 +45,11 @@ export async function registerViewRoutes(app: FastifyInstance): Promise<void> {
 
     return views
       .map(serializeView)
-      .filter((view) => view.state.scope === query.scope && view.state.teamId === query.teamId);
+      .filter(
+        (view) =>
+          view.state.scope === query.scope &&
+          (query.teamId === 'all' || view.state.teamId === query.teamId)
+      );
   });
 
   app.post('/views', async (request, reply) => {

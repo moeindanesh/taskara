@@ -170,6 +170,20 @@
    #root {
       min-height: 100svh;
    }
+
+   *,
+   *::before,
+   *::after,
+   *:focus,
+   *:focus-visible,
+   *:focus-within,
+   *:active {
+      --tw-ring-color: transparent !important;
+      --tw-ring-offset-shadow: 0 0 #0000 !important;
+      --tw-ring-shadow: 0 0 #0000 !important;
+      outline: none !important;
+      box-shadow: none !important;
+   }
 }
 
 @media (hover: none) and (pointer: coarse) {

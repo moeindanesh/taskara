@@ -58,13 +58,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const [teams, setTeams] = React.useState<TaskaraTeam[]>([]);
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
    const [unreadCount, setUnreadCount] = React.useState(0);
+   const [allIssueCount, setAllIssueCount] = React.useState(0);
    const [myIssueCount, setMyIssueCount] = React.useState(0);
    const [loadingTeams, setLoadingTeams] = React.useState(true);
    const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>({});
 
    const pathParts = pathname.split('/').filter(Boolean);
    const activeTeamSlug = pathParts[1] === 'team' ? pathParts[2] : null;
-   const isIssueListRoute = pathParts[1] === 'team' && pathParts[3] === 'all';
+   const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -75,11 +76,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const loadSidebarData = React.useCallback(async (isCancelled: () => boolean) => {
       setLoadingTeams(true);
 
-      const [meResult, teamsResult, workspacesResult, notificationsResult, myTasksResult] = await Promise.allSettled([
+      const [meResult, teamsResult, workspacesResult, notificationsResult, allTasksResult, myTasksResult] = await Promise.allSettled([
          taskaraRequest<TaskaraMe>('/me'),
          taskaraRequest<TaskaraTeam[]>('/teams'),
          taskaraRequest<{ items: TaskaraWorkspaceMembership[]; total: number }>('/workspaces'),
          taskaraRequest<NotificationsResponse>('/notifications?limit=1'),
+         taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?limit=1'),
          taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?mine=true&limit=1'),
       ]);
 
@@ -91,6 +93,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       const notificationData =
          notificationsResult.status === 'fulfilled' ? (notificationsResult.value as NotificationsResponse) : null;
       setUnreadCount(notificationData?.unreadCount ?? 0);
+      setAllIssueCount(allTasksResult.status === 'fulfilled' ? allTasksResult.value.total : 0);
       setMyIssueCount(myTasksResult.status === 'fulfilled' ? myTasksResult.value.total : 0);
       setLoadingTeams(false);
    }, []);
@@ -149,6 +152,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
    const primaryItems = [
       { title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
+      { title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
       { title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
       { title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
    ];
