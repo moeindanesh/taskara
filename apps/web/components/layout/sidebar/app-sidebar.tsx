@@ -45,6 +45,7 @@ import {
    ChevronDown,
    Plus,
    Search,
+   Trophy,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -149,6 +150,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const primaryItems = [
       { title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
       { title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
+      { title: fa.nav.leaderboard, href: `/${orgId}/leaderboard`, icon: Trophy },
    ];
    const teamItems = (team: TaskaraTeam) => [
       { title: fa.nav.issues, href: `/${orgId}/team/${team.slug}/all`, icon: SidebarIssueIcon },
