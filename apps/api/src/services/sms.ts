@@ -148,7 +148,7 @@ function addLookupParam(
 function toLookupCodeToken(value: string | number): string {
   const token = String(value)
     .normalize('NFKC')
-    .replace(/[^\p{L}\p{N}]/gu, '')
+    .replace(/[^\p{L}\p{N}]/gu, '-')
     .slice(0, 100);
 
   return token || '0';
