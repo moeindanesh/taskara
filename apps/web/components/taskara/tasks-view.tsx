@@ -1,6 +1,16 @@
 'use client';
 
-import type { ChangeEvent, CSSProperties, Dispatch, DragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
+import type {
+   ChangeEvent,
+   ClipboardEvent as ReactClipboardEvent,
+   CSSProperties,
+   Dispatch,
+   DragEvent,
+   FormEvent,
+   KeyboardEvent as ReactKeyboardEvent,
+   ReactNode,
+   SetStateAction,
+} from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -14,7 +24,6 @@ import {
    ChevronRight,
    CircleDashed,
    Copy,
-   FolderKanban,
    Link as LinkIcon,
    LayoutGrid,
    LayoutList,
@@ -44,7 +53,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -64,14 +72,17 @@ import {
    LinearPill,
    NoAssigneeIcon,
    PriorityIcon,
+   ProjectGlyph,
    ShortcutKey,
    StatusIcon,
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { TaskDueDateControl, makeDueDate, makeEndOfIranWorkWeek } from '@/components/taskara/task-due-date-control';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
 import { fa } from '@/lib/fa-copy';
-import { formatJalaliDate, formatJalaliDateTimeInput } from '@/lib/jalali';
+import { formatJalaliDateTimeInput } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
 import type { TaskUpdatePatch } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
@@ -92,7 +103,7 @@ import type {
 } from '@/lib/taskara-types';
 import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
 import { cn } from '@/lib/utils';
-import { getUserColorsFromName } from '@/lib/name-colors';
+import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
 
 const activeStatuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'];
 const currentTeamFallback = 'all';
@@ -329,22 +340,6 @@ function compareDateString(a?: string | null, b?: string | null, fallback = 0) {
    if (!a) return 1;
    if (!b) return -1;
    return new Date(a).getTime() - new Date(b).getTime();
-}
-
-function makeDueDate(daysFromNow: number) {
-   const dueDate = new Date();
-   dueDate.setDate(dueDate.getDate() + daysFromNow);
-   dueDate.setHours(18, 0, 0, 0);
-   return dueDate.toISOString();
-}
-
-function makeEndOfIranWorkWeek() {
-   const dueDate = new Date();
-   const day = dueDate.getDay();
-   const daysUntilFriday = (5 - day + 7) % 7 || 7;
-   dueDate.setDate(dueDate.getDate() + daysUntilFriday);
-   dueDate.setHours(18, 0, 0, 0);
-   return dueDate.toISOString();
 }
 
 function labelNames(task: TaskaraTask) {
@@ -652,13 +647,18 @@ export function TasksView() {
          }
       } else if (draftView.groupBy === 'project') {
          const availableProjects = scopedProjects
-            .map((project) => ({
-               key: project.id,
-               label: project.name,
-               icon: <FolderKanban className="size-4 text-pink-400" />,
-               toneClassName: 'bg-pink-500/7',
-               tasks: filteredTasks.filter((task) => task.project?.id === project.id),
-            }))
+            .map((project) => {
+               const colors = getProjectColorsFromName(project.name);
+
+               return {
+                  key: project.id,
+                  label: project.name,
+                  icon: <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />,
+                  toneClassName: '',
+                  toneStyle: { backgroundColor: colors.groupBackground },
+                  tasks: filteredTasks.filter((task) => task.project?.id === project.id),
+               };
+            })
             .sort((a, b) => a.label.localeCompare(b.label, 'fa'));
 
          for (const project of availableProjects) pushGroup(project);
@@ -876,6 +876,14 @@ export function TasksView() {
       event.stopPropagation();
       setComposerDraggingFiles(false);
       addComposerFiles(event.dataTransfer.files);
+   };
+
+   const handleComposerPaste = (event: ReactClipboardEvent<HTMLFormElement>) => {
+      const files = clipboardImageFiles(event.clipboardData);
+      if (!files.length) return;
+
+      event.preventDefault();
+      addComposerFiles(files);
    };
 
    async function handleCreateTask(event: FormEvent<HTMLFormElement>) {
@@ -1410,9 +1418,11 @@ export function TasksView() {
                   </div>
                   <DialogTitle className="flex min-w-0 items-center gap-2 pe-20 text-sm font-semibold text-zinc-200">
                      <LinearPill className="h-7 max-w-[190px] shrink-0 font-normal">
-                        <span className="inline-flex size-4 items-center justify-center rounded bg-pink-500/15 text-pink-300">
-                           <FolderKanban className="size-3" />
-                        </span>
+                        <ProjectGlyph
+                           name={composerProject?.name || fa.project.newProject}
+                           className="size-4 rounded"
+                           iconClassName="size-3"
+                        />
                         <span className="truncate">{composerProject?.name || fa.project.newProject}</span>
                      </LinearPill>
                      <ChevronLeft className="size-4 shrink-0 text-zinc-600" />
@@ -1421,7 +1431,12 @@ export function TasksView() {
                   <DialogDescription className="sr-only">{fa.issue.createIssue}</DialogDescription>
                </DialogHeader>
 
-               <form className="flex min-h-0 flex-1 flex-col" onKeyDown={handleComposerSubmitShortcut} onSubmit={handleCreateTask}>
+               <form
+                  className="flex min-h-0 flex-1 flex-col"
+                  onKeyDown={handleComposerSubmitShortcut}
+                  onPaste={handleComposerPaste}
+                  onSubmit={handleCreateTask}
+               >
                   <div
                      className={cn(
                         'flex min-h-[246px] flex-1 flex-col px-5 pt-7',
@@ -1430,39 +1445,20 @@ export function TasksView() {
                   >
                      <Input
                         autoFocus
-                     className="h-auto border-none bg-transparent px-0 text-xl leading-7 font-semibold text-zinc-100 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
+                        className="h-auto border-none bg-transparent px-0 text-xl leading-7 font-semibold text-zinc-100 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.title}
                         onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                         placeholder={fa.issue.titlePlaceholder}
                      />
-                     <Textarea
-                     className="mt-2 min-h-16 resize-none border-none bg-transparent px-0 text-sm leading-6 text-zinc-300 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
+                     <DescriptionEditor
+                        className="mt-2"
+                        contentClassName="min-h-20 resize-y text-right text-sm leading-6 text-zinc-300"
                         value={form.description}
-                        onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                        users={users}
+                        onChange={(description) => setForm((current) => ({ ...current, description }))}
                         placeholder={fa.issue.descriptionPlaceholder}
                      />
-                     {composerFiles.length ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                           {composerFiles.map((file, index) => (
-                              <span
-                                 key={`${file.name}-${file.lastModified}-${index}`}
-                                 className="inline-flex h-7 max-w-full items-center gap-2 rounded-full border border-white/8 bg-white/[0.04] ps-2.5 pe-1 text-xs text-zinc-300"
-                              >
-                                 <Paperclip className="size-3.5 shrink-0 text-zinc-500" />
-                                 <span className="min-w-0 max-w-[220px] truncate">{file.name}</span>
-                                 <span className="shrink-0 text-zinc-600">{formatFileSize(file.size)}</span>
-                                 <button
-                                    aria-label={fa.issue.removeAttachment}
-                                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/8 hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-indigo-400/60 focus-visible:outline-none"
-                                    type="button"
-                                    onClick={() => removeComposerFile(index)}
-                                 >
-                                    <X className="size-3.5" />
-                                 </button>
-                              </span>
-                           ))}
-                        </div>
-                     ) : null}
+                     <ComposerAttachmentPreviewList files={composerFiles} onRemove={removeComposerFile} />
                      <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
                         <ComposerSelectPill
                            ariaLabel={fa.issue.status}
@@ -1513,7 +1509,13 @@ export function TasksView() {
                         </ComposerSelectPill>
                         <ComposerSelectPill
                            ariaLabel={fa.issue.project}
-                           icon={<FolderKanban className="size-3.5 text-pink-400" />}
+                           icon={
+                              <ProjectGlyph
+                                 name={composerProject?.name || fa.issue.project}
+                                 className="size-4 rounded"
+                                 iconClassName="size-3"
+                              />
+                           }
                            value={form.projectId}
                            onChange={(projectId) => setForm((current) => ({ ...current, projectId }))}
                         >
@@ -1621,6 +1623,162 @@ function formatFileSize(bytes: number) {
    return `${size.toLocaleString('fa-IR', {
       maximumFractionDigits: unitIndex === 0 ? 0 : 1,
    })} ${units[unitIndex]}`;
+}
+
+function ComposerAttachmentPreviewList({
+   files,
+   onRemove,
+}: {
+   files: File[];
+   onRemove: (index: number) => void;
+}) {
+   if (!files.length) return null;
+
+   return (
+      <div className="mt-4 mb-5 flex max-h-[132px] flex-wrap gap-2 overflow-y-auto pe-1">
+         {files.map((file, index) => (
+            <ComposerAttachmentPreview
+               key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+               file={file}
+               index={index}
+               onRemove={onRemove}
+            />
+         ))}
+      </div>
+   );
+}
+
+function ComposerAttachmentPreview({
+   file,
+   index,
+   onRemove,
+}: {
+   file: File;
+   index: number;
+   onRemove: (index: number) => void;
+}) {
+   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+   const [previewFailed, setPreviewFailed] = useState(false);
+   const canPreview = isPreviewableImageFile(file);
+   const extension = fileExtension(file.name) || fileKindLabel(file);
+
+   useEffect(() => {
+      setPreviewFailed(false);
+      if (!canPreview) {
+         setPreviewUrl(null);
+         return;
+      }
+
+      const nextUrl = URL.createObjectURL(file);
+      setPreviewUrl(nextUrl);
+      return () => URL.revokeObjectURL(nextUrl);
+   }, [canPreview, file]);
+
+   return (
+      <div
+         className="group relative h-20 w-[132px] overflow-hidden rounded-lg border border-white/8 bg-[#17171a] shadow-[inset_0_1px_0_rgb(255_255_255/0.03)]"
+         title={file.name}
+      >
+         {previewUrl && !previewFailed ? (
+            <img
+               alt={file.name}
+               className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+               src={previewUrl}
+               onError={() => setPreviewFailed(true)}
+            />
+         ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-white/[0.025] px-3 pb-7 pt-3 text-zinc-500">
+               <Paperclip className="size-5" />
+               <span className="max-w-full truncate text-[11px] uppercase text-zinc-600">{extension}</span>
+            </div>
+         )}
+         <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5">
+            <span className="block truncate text-[11px] font-medium text-zinc-100" dir="auto">
+               {file.name}
+            </span>
+            <span className="block truncate text-[10px] text-zinc-400">{formatFileSize(file.size)}</span>
+         </div>
+         <button
+            aria-label={fa.issue.removeAttachment}
+            className="absolute top-1 end-1 inline-flex size-5 items-center justify-center rounded-full bg-black/55 text-zinc-300 opacity-90 transition hover:bg-black/80 hover:text-white focus-visible:ring-1 focus-visible:ring-indigo-400/70 focus-visible:outline-none"
+            type="button"
+            onClick={() => onRemove(index)}
+         >
+            <X className="size-3.5" />
+         </button>
+      </div>
+   );
+}
+
+function clipboardImageFiles(clipboardData: DataTransfer): File[] {
+   const itemFiles = Array.from(clipboardData.items)
+      .filter((item) => item.kind === 'file' && item.type.toLowerCase().startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(isFile);
+   const files = itemFiles.length ? itemFiles : Array.from(clipboardData.files).filter(isPreviewableImageFile);
+   const timestamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+
+   return files
+      .filter((file) => file.size > 0 && isPreviewableImageFile(file))
+      .map((file, index) => withClipboardImageName(file, index, timestamp));
+}
+
+function withClipboardImageName(file: File, index: number, timestamp: string): File {
+   if (file.name && !/^image\.(png|jpe?g|gif|webp|avif|bmp|heic)$/i.test(file.name)) return file;
+
+   const extension = imageExtensionFromMimeType(file.type) || fileExtension(file.name) || 'png';
+   try {
+      return new File([file], `clipboard-image-${timestamp}-${index + 1}.${extension}`, {
+         type: file.type || `image/${extension}`,
+         lastModified: Date.now(),
+      });
+   } catch {
+      return file;
+   }
+}
+
+function isFile(value: File | null): value is File {
+   return value instanceof File;
+}
+
+function isPreviewableImageFile(file: File): boolean {
+   return (
+      file.type.toLowerCase().startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'].includes(fileExtension(file.name))
+   );
+}
+
+function imageExtensionFromMimeType(mimeType: string): string {
+   switch (mimeType.toLowerCase()) {
+      case 'image/jpeg':
+         return 'jpg';
+      case 'image/png':
+         return 'png';
+      case 'image/gif':
+         return 'gif';
+      case 'image/webp':
+         return 'webp';
+      case 'image/avif':
+         return 'avif';
+      case 'image/heic':
+         return 'heic';
+      case 'image/heif':
+         return 'heif';
+      case 'image/svg+xml':
+         return 'svg';
+      default:
+         return '';
+   }
+}
+
+function fileExtension(name: string): string {
+   const extension = name.split('.').pop();
+   return extension && extension !== name ? extension.toLowerCase() : '';
+}
+
+function fileKindLabel(file: File): string {
+   if (file.type) return file.type.split('/').pop() || 'file';
+   return 'file';
 }
 
 function ViewChip({
@@ -2047,7 +2205,7 @@ function FilterSubmenu({
                     label: project.name,
                     active: draftView.projectIds.includes(project.id),
                     count: tasks.filter((task) => task.project?.id === project.id).length,
-                    icon: <FolderKanban className="size-4 text-pink-400" />,
+                    icon: <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />,
                     onClick: () => onToggle('project', project.id),
                  }))
                : activeSection === 'labels'
@@ -2354,7 +2512,7 @@ function TeamProjectAttachEmpty({
                      key={project.id}
                      className="grid min-h-14 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2"
                   >
-                     <FolderKanban className="size-4 text-pink-400" />
+                     <ProjectGlyph name={project.name} className="size-6 rounded-md" iconClassName="size-3.5" />
                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                            <span className="truncate text-sm font-semibold text-zinc-200">{project.name}</span>
@@ -2425,30 +2583,32 @@ function ListGroup({
    users: TaskaraUser[];
 }) {
    return (
-      <section>
-         <div className="sticky top-0 z-20 h-8 bg-[#151516]">
-            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
-            <div className="relative flex h-full items-center justify-between px-5">
-               <button
-                  aria-expanded={!collapsed}
-                  className="group flex min-w-0 items-center gap-2 rounded-md text-sm font-semibold text-zinc-300 outline-none hover:text-zinc-100 focus-visible:ring-1 focus-visible:ring-indigo-400/50"
-                  title={collapsed ? 'باز کردن گروه' : 'بستن گروه'}
-                  type="button"
-                  onClick={onToggleCollapse}
-               >
-                  <ChevronRight className={cn('size-3.5 text-zinc-600 transition group-hover:text-zinc-300', !collapsed && 'rotate-90')} />
-                  {group.icon}
-                  <span className="truncate">{group.label}</span>
-                  <span className="text-zinc-500">{group.tasks.length.toLocaleString('fa-IR')}</span>
-               </button>
-               <button
-                  aria-label={fa.issue.newIssue}
-                  className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
-                  type="button"
-                  onClick={onAdd}
-               >
-                  <Plus className="size-4" />
-               </button>
+      <section className="pb-1">
+         <div className="sticky top-0 z-20 bg-[#101011] px-3 pt-2 pb-1">
+            <div className="relative h-11 overflow-hidden rounded-lg bg-[#171719]">
+               <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
+               <div className="relative flex h-full items-center justify-between px-4">
+                  <button
+                     aria-expanded={!collapsed}
+                     className="group flex min-w-0 items-center gap-2 rounded-md text-sm font-semibold text-zinc-300 outline-none hover:text-zinc-100 focus-visible:ring-1 focus-visible:ring-indigo-400/50"
+                     title={collapsed ? 'باز کردن گروه' : 'بستن گروه'}
+                     type="button"
+                     onClick={onToggleCollapse}
+                  >
+                     <ChevronRight className={cn('size-3.5 text-zinc-600 transition group-hover:text-zinc-300', !collapsed && 'rotate-90')} />
+                     {group.icon}
+                     <span className="truncate">{group.label}</span>
+                     <span className="text-zinc-500">{group.tasks.length.toLocaleString('fa-IR')}</span>
+                  </button>
+                  <button
+                     aria-label={fa.issue.newIssue}
+                     className="rounded-md p-1 text-zinc-500 transition hover:bg-white/6 hover:text-zinc-200"
+                     type="button"
+                     onClick={onAdd}
+                  >
+                     <Plus className="size-4" />
+                  </button>
+               </div>
             </div>
          </div>
 
@@ -2457,7 +2617,7 @@ function ListGroup({
                <LinearEmptyState className="py-5">{fa.issue.noIssuesInGroup}</LinearEmptyState>
             </div>
          ) : (
-            <div>
+            <div className="space-y-0.5 px-3 pb-1">
                {group.tasks.map((task, index) => (
                   <IssueRow
                      key={task.id}
@@ -2635,9 +2795,9 @@ function IssueRow({
             <div
                className={cn(
                   'group cursor-pointer',
-                  'grid min-h-9 w-full grid-cols-[26px_72px_24px_minmax(0,1fr)_auto] items-center gap-2 border-b border-white/5 px-4 text-start text-sm transition hover:bg-white/[0.035]',
-                  selected && 'bg-indigo-400/8',
-                  highlighted && 'ring-1 ring-inset ring-indigo-400/35'
+                  'grid min-h-11 w-full grid-cols-[28px_88px_26px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-3 text-start text-sm outline-none transition-colors duration-150 hover:bg-white/[0.028] hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.015)]',
+                  selected && 'bg-indigo-400/10',
+                  highlighted && 'bg-white/[0.045] ring-1 ring-inset ring-indigo-400/35'
                )}
                role="button"
                tabIndex={0}
@@ -2839,15 +2999,13 @@ function TaskStatusControl({
                {!iconOnly ? <span>{linearStatusMeta[status]?.label || status}</span> : null}
             </button>
          </PopoverTrigger>
-         <PopoverContent align="start" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
-            <LinearMenuSearch title={fa.issue.status} shortcut="S" />
-            {taskStatuses.map((item, index) => (
+         <PopoverContent align="start" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
+            {taskStatuses.map((item) => (
                <LinearMenuOption
                   key={item}
                   active={status === item}
                   icon={<StatusIcon status={item} />}
                   label={linearStatusMeta[item]?.label || item}
-                  shortcut={String(index + 1)}
                   onClick={() => onChange(item)}
                />
             ))}
@@ -2949,73 +3107,6 @@ function TaskAssigneeControl({
    );
 }
 
-function TaskDueDateControl({
-   dueAt,
-   onChange,
-}: {
-   dueAt?: string | null;
-   onChange: (dueAt: string | null) => void;
-}) {
-   return (
-      <Popover>
-         <PopoverTrigger asChild>
-            <button
-               aria-label={fa.issue.dueAt}
-               className={cn(
-                  'inline-flex h-7 w-40 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs transition hover:border-white/8 hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-indigo-400/50 focus-visible:outline-none',
-                  dueAt ? 'text-zinc-400' : 'text-zinc-600'
-               )}
-               type="button"
-               onClick={(event) => event.stopPropagation()}
-               onDoubleClick={(event) => event.stopPropagation()}
-            >
-               <CalendarClock className="size-3.5" />
-               <span className="min-w-0 flex-1 truncate text-end">{dueAt ? formatJalaliDate(dueAt) : fa.issue.dueAt}</span>
-            </button>
-         </PopoverTrigger>
-         <PopoverContent align="start" className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
-            <LinearMenuSearch title={fa.issue.dueAt} shortcut="⇧D" />
-            <LinearMenuOption
-               active={false}
-               icon={<CalendarClock className="size-4 text-zinc-400" />}
-               label="فردا"
-               shortcut="۱"
-               meta="۱۸:۰۰"
-               onClick={() => onChange(makeDueDate(1))}
-            />
-            <LinearMenuOption
-               active={false}
-               icon={<CalendarClock className="size-4 text-zinc-400" />}
-               label="پایان این هفته"
-               shortcut="۲"
-               meta={formatJalaliDate(makeEndOfIranWorkWeek())}
-               onClick={() => onChange(makeEndOfIranWorkWeek())}
-            />
-            <LinearMenuOption
-               active={false}
-               icon={<CalendarClock className="size-4 text-zinc-400" />}
-               label="یک هفته دیگر"
-               shortcut="۳"
-               meta={formatJalaliDate(makeDueDate(7))}
-               onClick={() => onChange(makeDueDate(7))}
-            />
-            {dueAt ? (
-               <LinearMenuOption
-                  active={false}
-                  icon={<XCircle className="size-4 text-zinc-500" />}
-                  label={fa.issue.clearDueAt}
-                  onClick={() => onChange(null)}
-               />
-            ) : null}
-            <div className="border-t border-white/8 p-3">
-               <div className="mb-2 text-xs font-medium text-zinc-500">{fa.issue.dueAt}</div>
-               <LazyJalaliDatePicker ariaLabel={fa.issue.dueAt} value={dueAt} onChange={onChange} />
-            </div>
-         </PopoverContent>
-      </Popover>
-   );
-}
-
 function TaskLabelSummary({ labels }: { labels: NonNullable<TaskaraTask['labels']> }) {
    if (!labels.length) return null;
    const first = labels[0]?.label;
@@ -3083,14 +3174,13 @@ function TaskIssueContextMenu({
       <ContextMenuContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl">
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<StatusIcon status={task.status} />} label={fa.issue.status} shortcut="S" />
-            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               {taskStatuses.map((item, index) => (
+            <ContextMenuSubContent dir="rtl" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+               {taskStatuses.map((item) => (
                   <LinearContextItem
                      key={item}
                      active={task.status === item}
                      icon={<StatusIcon status={item} />}
                      label={linearStatusMeta[item]?.label || item}
-                     shortcut={String(index + 1)}
                      onSelect={() => onStatusChange(item)}
                   />
                ))}
@@ -3143,9 +3233,10 @@ function TaskIssueContextMenu({
          <ContextMenuSub>
             <LinearContextSubTrigger icon={<CalendarClock className="size-4 text-zinc-400" />} label={fa.issue.dueAt} shortcut="⇧D" />
             <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="فردا" shortcut="۱" onSelect={() => onDueAtChange(makeDueDate(1))} />
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="پایان این هفته" shortcut="۲" onSelect={() => onDueAtChange(makeEndOfIranWorkWeek())} />
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="یک هفته دیگر" shortcut="۳" onSelect={() => onDueAtChange(makeDueDate(7))} />
+               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="امروز" shortcut="۱" onSelect={() => onDueAtChange(makeDueDate(0))} />
+               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="فردا" shortcut="۲" onSelect={() => onDueAtChange(makeDueDate(1))} />
+               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="پایان این هفته" shortcut="۳" onSelect={() => onDueAtChange(makeEndOfIranWorkWeek())} />
+               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="یک هفته دیگر" shortcut="۴" onSelect={() => onDueAtChange(makeDueDate(7))} />
                {task.dueAt ? <LinearContextItem icon={<XCircle className="size-4 text-zinc-500" />} label={fa.issue.clearDueAt} onSelect={() => onDueAtChange(null)} /> : null}
             </ContextMenuSubContent>
          </ContextMenuSub>
@@ -3172,7 +3263,17 @@ function TaskIssueContextMenu({
          </ContextMenuSub>
 
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<FolderKanban className="size-4 text-pink-400" />} label={fa.issue.project} shortcut="⇧P" />
+            <LinearContextSubTrigger
+               icon={
+                  <ProjectGlyph
+                     name={task.project?.name || fa.issue.project}
+                     className="size-4 rounded-sm"
+                     iconClassName="size-3"
+                  />
+               }
+               label={fa.issue.project}
+               shortcut="⇧P"
+            />
             <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
                <LinearMenuSearch title={fa.issue.project} />
                {projects.length ? (
@@ -3180,7 +3281,7 @@ function TaskIssueContextMenu({
                      <LinearContextItem
                         key={project.id}
                         active={task.project?.id === project.id}
-                        icon={<FolderKanban className="size-4 text-pink-400" />}
+                        icon={<ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />}
                         label={project.name}
                         onSelect={() => onProjectChange(project.id)}
                      />

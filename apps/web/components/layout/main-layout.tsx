@@ -11,7 +11,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { ShortcutKey } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
-import { Bell, FolderKanban, ListTodo, Plus, Search, Settings, Users, UsersRound } from 'lucide-react';
+import { Activity, Bell, FolderKanban, ListTodo, Plus, Search, Settings, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -135,6 +135,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
          icon: FolderKanban,
          shortcut: 'G P',
          run: () => navigate(`/${orgId}/projects`),
+      },
+      {
+         label: fa.command.goHeartbeat,
+         description: fa.pages.heartbeatDescription,
+         icon: Activity,
+         shortcut: 'G H',
+         run: () => navigate(`/${orgId}/heartbeat`),
       },
       {
          label: fa.command.goMembers,

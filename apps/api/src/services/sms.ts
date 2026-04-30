@@ -25,6 +25,8 @@ export interface SendTemplateSmsInput {
   token?: string | number;
   token2?: string | number;
   token3?: string | number;
+  token10?: string | number;
+  token20?: string | number;
 }
 
 interface KavenegarResponse {
@@ -36,16 +38,18 @@ interface KavenegarResponse {
 }
 
 export async function sendTemplateSms(input: SendTemplateSmsInput): Promise<void> {
-  const { receptor, template, token, token2, token3 } = input;
+  const { receptor, template, token, token2, token3, token10, token20 } = input;
   const systemTemplateName = SMS_TEMPLATE_DEFINITIONS[template].systemTemplateName;
   const params: Record<string, string | number> = {
     receptor: receptorParam(receptor),
     template: systemTemplateName
   };
 
-  if (token !== undefined) params.token = token;
-  if (token2 !== undefined) params.token2 = token2;
-  if (token3 !== undefined) params.token3 = token3;
+  addLookupParam(params, 'token', token);
+  addLookupParam(params, 'token2', token2);
+  addLookupParam(params, 'token3', token3);
+  addLookupParam(params, 'token10', token10);
+  addLookupParam(params, 'token20', token20);
 
   if (isSmsDryRun()) {
     console.log('DEV TEMPLATE SMS:', { ...params, template: systemTemplateName });
@@ -117,7 +121,59 @@ function receptorParam(receptor: string | string[]): string {
 }
 
 function isSmsDryRun(): boolean {
+  return false
   return process.env.NODE_ENV !== 'production';
+}
+
+function addLookupParam(
+  params: Record<string, string | number>,
+  key: 'token' | 'token2' | 'token3' | 'token10' | 'token20',
+  value: string | number | undefined
+): void {
+  if (value === undefined) return;
+
+  if (key === 'token10') {
+    params[key] = toLookupTextToken(value, 5);
+    return;
+  }
+
+  if (key === 'token20') {
+    params[key] = toLookupTextToken(value, 8);
+    return;
+  }
+
+  params[key] = toLookupCodeToken(value);
+}
+
+function toLookupCodeToken(value: string | number): string {
+  const token = String(value)
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .slice(0, 100);
+
+  return token || '0';
+}
+
+function toLookupTextToken(value: string | number, maxSpaces: number): string {
+  const normalized = String(value)
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let spaces = 0;
+  let token = '';
+  for (const char of normalized) {
+    if (char === ' ') {
+      if (spaces >= maxSpaces) continue;
+      spaces += 1;
+    }
+
+    token += char;
+    if (token.length >= 100) break;
+  }
+
+  return token || '0';
 }
 
 async function requestKavenegar(path: string, params: Record<string, string | number>): Promise<KavenegarResponse> {
@@ -125,10 +181,10 @@ async function requestKavenegar(path: string, params: Record<string, string | nu
     throw new HttpError(503, 'SMS_KAVEH_KEY is required to send SMS');
   }
 
-  const url = new URL(`https://api.kavenegar.com/v1/${encodeURIComponent(config.SMS_KAVEH_KEY)}/${path}`);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, String(value));
-  }
+  const query = Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&');
+  const url = `https://api.kavenegar.com/v1/${encodeURIComponent(config.SMS_KAVEH_KEY)}/${path}?${query}`;
 
   let response: Response;
   try {

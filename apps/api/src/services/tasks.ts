@@ -5,7 +5,7 @@ import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
-import { TASK_ASSIGNED_NOTIFICATION_TYPE } from './notifications';
+import { TASK_ASSIGNED_NOTIFICATION_TYPE, createTaskMentionNotifications } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -79,6 +79,12 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
 
     await syncTaskLabels(tx, actor.workspace.id, created.id, input.labels);
     const task = await tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
+    await createTaskMentionNotifications(tx, {
+      workspaceId: actor.workspace.id,
+      actorUserId: actor.user.id,
+      actorName: actor.user.name,
+      task
+    });
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
@@ -211,6 +217,15 @@ export async function updateTask(
     }
 
     const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
+    if (input.description !== undefined) {
+      await createTaskMentionNotifications(tx, {
+        workspaceId: actor.workspace.id,
+        actorUserId: actor.user.id,
+        actorName: actor.user.name,
+        task,
+        previousDescription: existing.description
+      });
+    }
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
