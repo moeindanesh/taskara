@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
-import { Filter, SlidersHorizontal, Trophy } from 'lucide-react';
+import { Bell, Filter, PanelLeft, SlidersHorizontal, Trophy } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface PageHeaderProps {

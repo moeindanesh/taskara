@@ -243,7 +243,7 @@ export const fa = {
       openHelp: 'نمایش راهنمای میانبرها',
    },
    leaderboard: {
-      topEmployeeBadge: '(کارمندان نمونه)',
+      topEmployeeBadge: 'کارمندان نمونه',
       loadFailed: 'بارگذاری لیدربورد ناموفق بود.',
       timeFilter: 'بازه زمانی',
       daily: 'روزانه',

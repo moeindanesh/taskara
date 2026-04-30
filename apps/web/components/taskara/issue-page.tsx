@@ -55,7 +55,6 @@ import { cn } from '@/lib/utils';
 type TaskUpdatePatch = {
    title?: string;
    description?: string | null;
-   projectId?: string;
    status?: string;
    priority?: string;
    assigneeId?: string | null;
@@ -128,18 +127,6 @@ function applyIssuePatch(
 
    if (patch.status) {
       next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
-   }
-
-   if (patch.projectId) {
-      const project = projects.find((item) => item.id === patch.projectId);
-      if (project) {
-         next.project = {
-            id: project.id,
-            name: project.name,
-            keyPrefix: project.keyPrefix,
-            team: project.team || null,
-         };
-      }
    }
 
    return next;
@@ -505,10 +492,7 @@ export function IssuePage() {
 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
-   const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name, 'fa'));
-   const hasCurrentProjectOption = task.project?.id
-      ? sortedProjects.some((project) => project.id === task.project?.id)
-      : true;
+   const labels = task.labels || [];
 
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
@@ -753,55 +737,6 @@ export function IssuePage() {
                   </SidebarSelectRow>
                   <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-zinc-400">
                      <CalendarClock className="size-5 shrink-0 text-zinc-500" />
-                     </DetailSelect>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.assignee}>
-                     <div className="flex min-w-0 items-center gap-2">
-                        <LinearAvatar
-                           name={task.assignee?.name}
-                           src={task.assignee?.avatarUrl}
-                           className="size-5 shrink-0"
-                        />
-                        <DetailSelect
-                           aria-label={fa.issue.assignee}
-                           className="min-w-0 flex-1"
-                           value={task.assignee?.id || ''}
-                           onChange={(event) => void updateTask({ assigneeId: event.target.value || null })}
-                        >
-                           <option value="">{fa.app.unset}</option>
-                           {users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                 {user.name}
-                              </option>
-                           ))}
-                        </DetailSelect>
-                     </div>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.project}>
-                     <DetailSelect
-                        aria-label={fa.issue.project}
-                        value={task.project?.id || ''}
-                        disabled={!sortedProjects.length}
-                        onChange={(event) => {
-                           if (!event.target.value) return;
-                           if (event.target.value === task.project?.id) return;
-                           void updateTask({ projectId: event.target.value });
-                        }}
-                     >
-                        {!task.project?.id ? (
-                           <option value="">{fa.app.unset}</option>
-                        ) : null}
-                        {!hasCurrentProjectOption && task.project?.id ? (
-                           <option value={task.project.id}>{task.project.name || fa.app.unknown}</option>
-                        ) : null}
-                        {sortedProjects.map((project) => (
-                           <option key={project.id} value={project.id}>
-                              {project.name}
-                           </option>
-                        ))}
-                     </DetailSelect>
-                  </PropertyRow>
-                  <PropertyRow label={fa.issue.dueAt}>
                      <LazyJalaliDatePicker
                         ariaLabel={fa.issue.dueAt}
                         value={task.dueAt || null}
