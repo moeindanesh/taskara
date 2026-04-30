@@ -46,6 +46,7 @@ import type {
    TaskaraActivity,
    TaskaraAttachment,
    TaskaraProject,
+   TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
    TaskaraUser,
@@ -58,6 +59,7 @@ type TaskUpdatePatch = {
    status?: string;
    priority?: string;
    assigneeId?: string | null;
+   projectId?: string | null;
    projectId?: string | null;
    dueAt?: string | null;
 };
@@ -98,6 +100,13 @@ function applyIssuePatch(
    projects: TaskaraProject[]
 ): TaskaraTask {
    const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
+function applyIssuePatch(
+   task: TaskaraTask,
+   patch: TaskUpdatePatch,
+   users: TaskaraUser[],
+   projects: TaskaraProject[]
+): TaskaraTask {
+   const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
 
    if ('assigneeId' in patch) {
@@ -109,6 +118,18 @@ function applyIssuePatch(
               email: assignee.email,
               phone: assignee.phone,
               avatarUrl: assignee.avatarUrl,
+           }
+         : null;
+   }
+
+   if ('projectId' in patch) {
+      const project = patch.projectId ? projects.find((item) => item.id === patch.projectId) || null : null;
+      next.project = project
+         ? {
+              id: project.id,
+              name: project.name,
+              keyPrefix: project.keyPrefix,
+              team: project.team || null,
            }
          : null;
    }
@@ -140,6 +161,7 @@ export function IssuePage() {
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [titleDraft, setTitleDraft] = useState('');
    const [descriptionDraft, setDescriptionDraft] = useState('');
@@ -240,6 +262,7 @@ export function IssuePage() {
       setError('');
       try {
          const [taskResult, usersResult, projectsResult, activityResult] = await Promise.all([
+         const [taskResult, usersResult, projectsResult, activityResult] = await Promise.all([
             taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(taskKey)}`),
             syncUsers.length
                ? Promise.resolve({
@@ -261,6 +284,7 @@ export function IssuePage() {
          if (!titleFocusedRef.current) setTitleDraft(taskResult.title);
          if (!descriptionFocusedRef.current) setDescriptionDraft(taskResult.description || '');
          setUsers(usersResult.items);
+         setProjects(projectsResult);
          setProjects(projectsResult);
          setActivities(activityResult);
       } catch (err) {
@@ -291,6 +315,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
+      const optimistic = applyIssuePatch(task, patch, users, projects);
       const optimistic = applyIssuePatch(task, patch, users, projects);
       setTask(optimistic);
       try {
