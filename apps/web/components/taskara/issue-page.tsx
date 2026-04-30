@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import {
    ArrowRight,
    Box,
-   CalendarClock,
    Copy,
    ExternalLink,
    FileArchive,
@@ -25,7 +24,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
+import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import {
    LinearAvatar,
    NoAssigneeIcon,
@@ -336,9 +336,9 @@ export function IssuePage() {
       }
    }
 
-   async function saveDescriptionDraft() {
+   async function saveDescriptionDraft(value = descriptionDraft) {
       if (!task) return;
-      const nextDescription = descriptionDraft.trim() || null;
+      const nextDescription = value.trim() || null;
       const currentDescription = task.description?.trim() || null;
       if (nextDescription === currentDescription) return;
 
@@ -536,19 +536,23 @@ export function IssuePage() {
 
             <section className="mt-6">
                <div className="relative">
-                  <Textarea
-                     className="min-h-20 resize-y border-0 bg-transparent p-0 text-right text-sm leading-6 text-zinc-400 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
-                     dir="rtl"
+                  <DescriptionEditor
                      value={descriptionDraft}
+                     users={users}
+                     onBlur={(nextDescription) => {
+                        descriptionFocusedRef.current = false;
+                        void saveDescriptionDraft(nextDescription);
+                     }}
+                     onCancel={() => {
+                        descriptionFocusedRef.current = false;
+                        setDescriptionDraft(task.description || '');
+                     }}
+                     onChange={setDescriptionDraft}
                      onFocus={() => {
                         descriptionFocusedRef.current = true;
                      }}
-                     onBlur={() => {
-                        descriptionFocusedRef.current = false;
-                        void saveDescriptionDraft();
-                     }}
-                     onChange={(event) => setDescriptionDraft(event.target.value)}
                      placeholder={fa.issue.descriptionPlaceholder}
+                     contentClassName="min-h-32 resize-y text-right text-sm leading-6 text-zinc-300"
                   />
                   {savingField === 'description' ? (
                      <Loader2 className="absolute left-0 top-1 size-4 animate-spin text-zinc-500" />
@@ -735,14 +739,12 @@ export function IssuePage() {
                         ))}
                      </select>
                   </SidebarSelectRow>
-                  <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-zinc-400">
-                     <CalendarClock className="size-5 shrink-0 text-zinc-500" />
-                     <LazyJalaliDatePicker
-                        ariaLabel={fa.issue.dueAt}
-                        value={task.dueAt || null}
-                        onChange={(dueAt) => void updateTask({ dueAt })}
-                     />
-                  </div>
+                  <TaskDueDateControl
+                     className="h-auto min-h-9 w-full gap-3 rounded-lg px-2 py-2 text-sm"
+                     dueAt={task.dueAt || null}
+                     iconClassName="size-5 text-zinc-500"
+                     onChange={(dueAt) => void updateTask({ dueAt })}
+                  />
                </div>
             </SidebarSection>
 
@@ -775,7 +777,7 @@ export function IssuePage() {
                      muted={!task.project}
                      icon={
                         task.project ? (
-                           <ProjectGlyph className="size-5 rounded-sm bg-white/6" />
+                           <ProjectGlyph name={task.project.name} className="size-5 rounded-sm" iconClassName="size-3.5" />
                         ) : (
                            <Box className="size-5 text-zinc-500" />
                         )

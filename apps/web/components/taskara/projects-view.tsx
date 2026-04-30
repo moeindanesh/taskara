@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ChevronDown, FolderKanban, Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import {
    Dialog,
    DialogContent,
@@ -203,7 +203,11 @@ export function ProjectsView() {
                <DialogHeader className="border-b border-white/7 px-5 py-4">
                   <DialogTitle className="flex items-center gap-2 text-sm">
                      <LinearPill>
-                        <FolderKanban className="size-4 text-pink-400" />
+                        <ProjectGlyph
+                           name={form.name || fa.project.newProject}
+                           className="size-5 rounded-md"
+                           iconClassName="size-3.5"
+                        />
                         {fa.nav.projects}
                      </LinearPill>
                      <ChevronDown className="size-4 text-zinc-600" />
@@ -214,7 +218,7 @@ export function ProjectsView() {
 
                <form onSubmit={handleCreateProject}>
                   <div className="space-y-3 px-5 py-4">
-                     <ProjectGlyph />
+                     <ProjectGlyph name={form.name || fa.project.newProject} />
                      <Input
                         autoFocus
                         className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-zinc-100 shadow-none placeholder:text-zinc-600 focus-visible:ring-0"
@@ -303,7 +307,7 @@ function ProjectRow({
             activeTeamId && !currentTeamId && 'bg-pink-500/[0.025]'
          )}
       >
-         <ProjectGlyph />
+         <ProjectGlyph name={project.name} />
          <div className="min-w-0">
             <div className="flex items-center gap-2">
                <h2 className="truncate text-sm font-semibold text-zinc-200">{project.name}</h2>

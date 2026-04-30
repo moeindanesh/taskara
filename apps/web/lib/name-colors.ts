@@ -8,9 +8,10 @@ export type NameColorSet = {
    groupBackground: string;
 };
 
-const fallbackNameKey = 'taskara-user';
+const userFallbackNameKey = 'taskara-user';
+const projectFallbackNameKey = 'taskara-project';
 
-function normalizeName(name?: string | null) {
+function normalizeName(name?: string | null, fallbackNameKey = userFallbackNameKey) {
    return (name || fallbackNameKey).trim().normalize('NFKC').toLowerCase() || fallbackNameKey;
 }
 
@@ -25,8 +26,8 @@ function hashName(name: string) {
    return hash >>> 0;
 }
 
-export function getUserColorsFromName(name?: string | null): NameColorSet {
-   const hue = hashName(normalizeName(name)) % 360;
+function getColorsFromName(name?: string | null, fallbackNameKey = userFallbackNameKey): NameColorSet {
+   const hue = hashName(normalizeName(name, fallbackNameKey)) % 360;
 
    return {
       hue,
@@ -37,4 +38,12 @@ export function getUserColorsFromName(name?: string | null): NameColorSet {
       border: `hsl(${hue} 86% 78% / 0.32)`,
       groupBackground: `hsl(${hue} 78% 58% / 0.12)`,
    };
+}
+
+export function getUserColorsFromName(name?: string | null): NameColorSet {
+   return getColorsFromName(name, userFallbackNameKey);
+}
+
+export function getProjectColorsFromName(name?: string | null): NameColorSet {
+   return getColorsFromName(name, projectFallbackNameKey);
 }

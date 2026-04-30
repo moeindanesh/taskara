@@ -1,6 +1,6 @@
 'use client';
 
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import {
    AlertTriangle,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fa } from '@/lib/fa-copy';
-import { getUserColorsFromName } from '@/lib/name-colors';
+import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
 
 type IconType = ComponentType<{ className?: string }>;
 
@@ -110,11 +110,11 @@ export function NoAssigneeIcon({ className }: { className?: string }) {
             r="6.2"
             stroke="currentColor"
             strokeLinecap="round"
-            strokeWidth="1.8"
+            strokeWidth="1.2"
             strokeDasharray="0.8 3.2"
          />
-         <circle cx="8" cy="6.6" r="1.8" stroke="currentColor" strokeWidth="1.7" />
-         <path d="M4.7 12.1c.65-1.55 1.8-2.35 3.3-2.35s2.65.8 3.3 2.35" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+         <circle cx="8" cy="6.6" r="1.8" stroke="currentColor" strokeWidth="0.8" />
+         <path d="M4.7 12.1c.65-1.55 1.8-2.35 3.3-2.35s2.65.8 3.3 2.35" stroke="currentColor" strokeLinecap="round" strokeWidth="0.8" />
       </svg>
    );
 }
@@ -428,10 +428,30 @@ export function WorkspaceGlyph({ children = 'تس' }: { children?: ReactNode }) 
    );
 }
 
-export function ProjectGlyph({ className }: { className?: string }) {
+export function ProjectGlyph({
+   className,
+   iconClassName,
+   name,
+   style,
+}: {
+   className?: string;
+   iconClassName?: string;
+   name?: string | null;
+   style?: CSSProperties;
+}) {
+   const colors = getProjectColorsFromName(name);
+
    return (
-      <span className={cn('inline-flex size-7 items-center justify-center rounded-md bg-white/7', className)}>
-         <FolderKanban className="size-4 text-pink-400" />
+      <span
+         className={cn('inline-flex size-7 items-center justify-center rounded-md border', className)}
+         style={{
+            backgroundColor: colors.backgroundStrong,
+            borderColor: colors.border,
+            color: colors.foreground,
+            ...style,
+         }}
+      >
+         <FolderKanban className={cn('size-4', iconClassName)} />
       </span>
    );
 }

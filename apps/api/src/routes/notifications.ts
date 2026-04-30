@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@taskara/db';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
-import { assignedInboxNotificationWhere } from '../services/notifications';
+import { taskInboxNotificationWhere } from '../services/notifications';
 
 const notificationsQuerySchema = z.object({
   unread: z.coerce.boolean().optional(),
@@ -15,7 +15,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const actor = await getRequestActor(request);
     const query = notificationsQuerySchema.parse(request.query);
 
-    const where = assignedInboxNotificationWhere(actor.workspace.id, actor.user.id, {
+    const where = taskInboxNotificationWhere(actor.workspace.id, actor.user.id, {
       unreadOnly: query.unread
     });
 
@@ -39,7 +39,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
       }),
       prisma.notification.count({ where }),
       prisma.notification.count({
-        where: assignedInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
+        where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
       })
     ]);
 
@@ -53,7 +53,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const existing = await prisma.notification.findFirst({
       where: {
         id,
-        ...assignedInboxNotificationWhere(actor.workspace.id, actor.user.id)
+        ...taskInboxNotificationWhere(actor.workspace.id, actor.user.id)
       }
     });
 
@@ -68,7 +68,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
   app.post('/notifications/read-all', async (request) => {
     const actor = await getRequestActor(request);
     const result = await prisma.notification.updateMany({
-      where: assignedInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true }),
+      where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true }),
       data: { readAt: new Date() }
     });
 
