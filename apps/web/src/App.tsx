@@ -5,6 +5,7 @@ import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage } from '@/compo
 import { HeartbeatView } from '@/components/taskara/heartbeat-view';
 import { InboxView } from '@/components/taskara/inbox-view';
 import { IssuePage } from '@/components/taskara/issue-page';
+import { LeaderboardView } from '@/components/taskara/leaderboard-view';
 import { MembersView } from '@/components/taskara/members-view';
 import { PageHeader } from '@/components/taskara/page-header';
 import { ProjectsView } from '@/components/taskara/projects-view';
@@ -23,6 +24,10 @@ const pageMetaByRoute = {
   members: {
     title: fa.nav.members,
     description: fa.pages.membersDescription,
+  },
+  leaderboard: {
+    title: fa.nav.leaderboard,
+    description: fa.pages.leaderboardDescription,
   },
   heartbeat: {
     title: fa.nav.heartbeat,
@@ -110,6 +115,7 @@ export function App() {
       <Route path="/:orgId" element={<AuthenticatedWorkspaceShell />}>
         <Route index element={<WorkspaceRedirect />} />
         <Route path="inbox" element={<WorkspacePage><InboxView /></WorkspacePage>} />
+        <Route path="leaderboard" element={<WorkspacePage><LeaderboardView /></WorkspacePage>} />
         <Route path="heartbeat" element={<WorkspacePage><HeartbeatView /></WorkspacePage>} />
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />
         <Route path="projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />

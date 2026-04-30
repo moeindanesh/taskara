@@ -55,10 +55,10 @@ import { cn } from '@/lib/utils';
 type TaskUpdatePatch = {
    title?: string;
    description?: string | null;
-   projectId?: string;
    status?: string;
    priority?: string;
    assigneeId?: string | null;
+   projectId?: string | null;
    dueAt?: string | null;
 };
 
@@ -95,7 +95,7 @@ function applyIssuePatch(
    task: TaskaraTask,
    patch: TaskUpdatePatch,
    users: TaskaraUser[],
-   projects: IssueProjectOption[]
+   projects: TaskaraProject[]
 ): TaskaraTask {
    const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
@@ -113,20 +113,20 @@ function applyIssuePatch(
          : null;
    }
 
-   if (patch.status) {
-      next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
+   if ('projectId' in patch) {
+      const project = patch.projectId ? projects.find((item) => item.id === patch.projectId) || null : null;
+      next.project = project
+         ? {
+              id: project.id,
+              name: project.name,
+              keyPrefix: project.keyPrefix,
+              team: project.team || null,
+           }
+         : null;
    }
 
-   if (patch.projectId) {
-      const project = projects.find((item) => item.id === patch.projectId);
-      if (project) {
-         next.project = {
-            id: project.id,
-            name: project.name,
-            keyPrefix: project.keyPrefix,
-            team: project.team || null,
-         };
-      }
+   if (patch.status) {
+      next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
    }
 
    return next;
@@ -140,6 +140,7 @@ export function IssuePage() {
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [titleDraft, setTitleDraft] = useState('');
    const [descriptionDraft, setDescriptionDraft] = useState('');
    const [commentBody, setCommentBody] = useState('');
@@ -238,7 +239,7 @@ export function IssuePage() {
       }
       setError('');
       try {
-         const [taskResult, usersResult, activityResult] = await Promise.all([
+         const [taskResult, usersResult, projectsResult, activityResult] = await Promise.all([
             taskaraRequest<TaskaraTask>(`/tasks/${encodeURIComponent(taskKey)}`),
             syncUsers.length
                ? Promise.resolve({
@@ -253,12 +254,14 @@ export function IssuePage() {
                     limit: 0,
                     offset: 0,
                  })),
+            taskaraRequest<TaskaraProject[]>('/projects').catch(() => []),
             taskaraRequest<TaskaraActivity[]>(`/tasks/${encodeURIComponent(taskKey)}/activity`).catch(() => []),
          ]);
          setTask(taskResult);
          if (!titleFocusedRef.current) setTitleDraft(taskResult.title);
          if (!descriptionFocusedRef.current) setDescriptionDraft(taskResult.description || '');
          setUsers(usersResult.items);
+         setProjects(projectsResult);
          setActivities(activityResult);
       } catch (err) {
          if (!cachedTask) setError(err instanceof Error ? err.message : fa.issue.loadFailed);
@@ -288,7 +291,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
-      const optimistic = applyIssuePatch(task, patch, users, projectOptions);
+      const optimistic = applyIssuePatch(task, patch, users, projects);
       setTask(optimistic);
       try {
          const { entity: updated } = await sendTaskSyncMutation<TaskaraTask>('task.update', {

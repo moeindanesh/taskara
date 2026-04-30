@@ -109,6 +109,8 @@ const activeStatuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'];
 const currentTeamFallback = 'all';
 const createIssueShortcutKeys = new Set(['c', 'ز']);
 const hasSystemShortcutModifier = (event: KeyboardEvent) => event.metaKey || event.ctrlKey || event.altKey;
+const assigneeSearchPlaceholder = 'جستجو بین کارمندان...';
+const noAssigneeSearchResult = 'کارمندی پیدا نشد';
 
 const initialTaskForm = {
    projectId: '',
@@ -365,6 +367,21 @@ function taskMatchesQuery(task: TaskaraTask, query: string) {
       .join(' ')
       .toLowerCase()
       .includes(normalizedQuery);
+}
+
+function filterAssigneeUsers(users: TaskaraUser[], query: string) {
+   const normalizedQuery = query.trim().toLocaleLowerCase('fa');
+   if (!normalizedQuery) return users;
+   return users.filter((user) =>
+      [user.name, user.email, user.mattermostUsername || '']
+         .join(' ')
+         .toLocaleLowerCase('fa')
+         .includes(normalizedQuery)
+   );
+}
+
+function assigneeLabel(user: TaskaraUser, currentUserId: string | null) {
+   return user.id === currentUserId ? `${user.name} (شما)` : user.name;
 }
 
 function matchesViewState(task: TaskaraTask, state: TaskaraTaskViewState) {
@@ -1138,6 +1155,13 @@ export function TasksView() {
          : 0;
    }, [activeSavedView, currentTeamKey, scopedTasks]);
 
+   const usersForAssignee = useMemo(() => {
+      if (!currentUserId) return users;
+      const currentUser = users.find((user) => user.id === currentUserId);
+      if (!currentUser) return users;
+      return [currentUser, ...users.filter((user) => user.id !== currentUserId)];
+   }, [currentUserId, users]);
+
    const activeFilterCount =
       draftView.status.length +
       draftView.assigneeIds.length +
@@ -1253,7 +1277,7 @@ export function TasksView() {
                               }}
                               onStatusChange={(task, status) => void updateTask(task, { status })}
                               onToggleCollapse={() => toggleGroup(group.key)}
-                              users={users}
+                              users={usersForAssignee}
                            />
                         ))}
                      </div>
@@ -1283,7 +1307,7 @@ export function TasksView() {
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onToggleCollapse={() => toggleGroup(group.key)}
-                              users={users}
+                              users={usersForAssignee}
                            />
                         ))}
                      </div>
@@ -1501,9 +1525,9 @@ export function TasksView() {
                            onChange={(assigneeId) => setForm((current) => ({ ...current, assigneeId }))}
                         >
                            <option value="">{fa.app.unset}</option>
-                           {users.map((user) => (
+                           {usersForAssignee.map((user) => (
                               <option key={user.id} value={user.id}>
-                                 {user.name}
+                                 {assigneeLabel(user, currentUserId)}
                               </option>
                            ))}
                         </ComposerSelectPill>
@@ -3066,6 +3090,11 @@ function TaskAssigneeControl({
    users: TaskaraUser[];
    onChange: (assigneeId: string | null) => void;
 }) {
+   const { session } = useAuthSession();
+   const currentUserId = session?.user.id || null;
+   const [query, setQuery] = useState('');
+   const filteredUsers = useMemo(() => filterAssigneeUsers(users, query), [users, query]);
+
    return (
       <Popover>
          <PopoverTrigger asChild>
@@ -3084,24 +3113,35 @@ function TaskAssigneeControl({
             </button>
          </PopoverTrigger>
          <PopoverContent align="start" className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
-            <LinearMenuSearch title={fa.issue.assignee} shortcut="A" />
-            <LinearMenuOption
-               active={!assignee?.id}
-               icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
-               label={fa.issue.noAssignee}
-               shortcut="0"
-               onClick={() => onChange(null)}
-            />
-            {users.map((user, index) => (
+            <AssigneeSearchField value={query} onChange={setQuery} />
+            <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
                <LinearMenuOption
-                  key={user.id}
-                  active={assignee?.id === user.id}
-                  icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
-                  label={user.name}
-                  shortcut={String(index + 1)}
-                  onClick={() => onChange(user.id)}
+                  active={!assignee?.id}
+                  icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
+                  label={fa.issue.noAssignee}
+                  shortcut="0"
+                  onClick={() => onChange(null)}
                />
-            ))}
+               {filteredUsers.length ? (
+                  filteredUsers.map((user, index) => (
+                     <LinearMenuOption
+                        key={user.id}
+                        active={assignee?.id === user.id}
+                        className={
+                           user.id === currentUserId
+                              ? 'rounded-none border-b-2 border-indigo-400/70'
+                              : undefined
+                        }
+                        icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
+                        label={assigneeLabel(user, currentUserId)}
+                        shortcut={String(index + 1)}
+                        onClick={() => onChange(user.id)}
+                     />
+                  ))
+               ) : (
+                  <div className="px-3 py-2 text-xs text-zinc-500">{noAssigneeSearchResult}</div>
+               )}
+            </div>
          </PopoverContent>
       </Popover>
    );
@@ -3150,6 +3190,10 @@ function TaskIssueContextMenu({
    onLabelsChange: (labels: string[]) => void;
    onDelete: () => void;
 }) {
+   const { session } = useAuthSession();
+   const currentUserId = session?.user.id || null;
+   const [assigneeQuery, setAssigneeQuery] = useState('');
+   const filteredUsers = useMemo(() => filterAssigneeUsers(users, assigneeQuery), [users, assigneeQuery]);
    const taskLabelNames = labelNames(task);
    const allLabelOptions = [
       ...labelOptions,
@@ -3169,6 +3213,10 @@ function TaskIssueContextMenu({
       void navigator.clipboard?.writeText(value);
       toast.success(message);
    };
+
+   useEffect(() => {
+      setAssigneeQuery('');
+   }, [task.id]);
 
    return (
       <ContextMenuContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl">
@@ -3210,23 +3258,35 @@ function TaskIssueContextMenu({
                shortcut="A"
             />
             <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               <LinearContextItem
-                  active={!task.assignee?.id}
-                  icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
-                  label={fa.issue.noAssignee}
-                  shortcut="0"
-                  onSelect={() => onAssigneeChange(null)}
-               />
-               {users.map((user, index) => (
+               <AssigneeSearchField value={assigneeQuery} onChange={setAssigneeQuery} />
+               <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
                   <LinearContextItem
-                     key={user.id}
-                     active={task.assignee?.id === user.id}
-                     icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
-                     label={user.name}
-                     shortcut={String(index + 1)}
-                     onSelect={() => onAssigneeChange(user.id)}
+                     active={!task.assignee?.id}
+                     icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
+                     label={fa.issue.noAssignee}
+                     shortcut="0"
+                     onSelect={() => onAssigneeChange(null)}
                   />
-               ))}
+                  {filteredUsers.length ? (
+                     filteredUsers.map((user, index) => (
+                        <LinearContextItem
+                           key={user.id}
+                           active={task.assignee?.id === user.id}
+                           className={
+                              user.id === currentUserId
+                                 ? 'rounded-none border-b-2 border-indigo-400/70'
+                                 : undefined
+                           }
+                           icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
+                           label={assigneeLabel(user, currentUserId)}
+                           shortcut={String(index + 1)}
+                           onSelect={() => onAssigneeChange(user.id)}
+                        />
+                     ))
+                  ) : (
+                     <div className="px-3 py-2 text-xs text-zinc-500">{noAssigneeSearchResult}</div>
+                  )}
+               </div>
             </ContextMenuSubContent>
          </ContextMenuSub>
 
@@ -3324,12 +3384,38 @@ function LinearMenuSearch({ title, shortcut }: { title: string; shortcut?: strin
    );
 }
 
+function AssigneeSearchField({
+   value,
+   onChange,
+}: {
+   value: string;
+   onChange: (value: string) => void;
+}) {
+   return (
+      <div className="border-b border-white/8 p-2">
+         <label className="relative block">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-zinc-500" />
+            <Input
+               value={value}
+               onChange={(event) => onChange(event.target.value)}
+               placeholder={assigneeSearchPlaceholder}
+               className="h-8 rounded-md border-white/10 bg-[#1b1b1d] pr-3 pl-8 text-xs text-zinc-200 placeholder:text-zinc-500 focus-visible:ring-indigo-400/40"
+               onPointerDown={(event) => event.stopPropagation()}
+               onClick={(event) => event.stopPropagation()}
+               onKeyDown={(event) => event.stopPropagation()}
+            />
+         </label>
+      </div>
+   );
+}
+
 function LinearMenuOption({
    active = false,
    icon,
    label,
    meta,
    shortcut,
+   className,
    onClick,
 }: {
    active?: boolean;
@@ -3337,11 +3423,15 @@ function LinearMenuOption({
    label: string;
    meta?: string;
    shortcut?: string;
+   className?: string;
    onClick: () => void;
 }) {
    return (
       <button
-         className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-sm text-zinc-300 outline-none transition hover:bg-white/[0.06] focus:bg-white/[0.08]"
+         className={cn(
+            'flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-zinc-300 outline-none transition hover:bg-white/[0.06] focus:bg-white/[0.08]',
+            className
+         )}
          type="button"
          onClick={onClick}
       >
@@ -3367,6 +3457,7 @@ function LinearContextItem({
    destructive = false,
    icon,
    label,
+   className,
    onSelect,
 }: {
    active?: boolean;
@@ -3374,6 +3465,7 @@ function LinearContextItem({
    icon: ReactNode;
    label: string;
    shortcut?: string;
+   className?: string;
    onSelect?: () => void;
 }) {
    return (
@@ -3381,7 +3473,8 @@ function LinearContextItem({
          variant={destructive ? 'destructive' : 'default'}
          className={cn(
             'h-9 rounded-lg px-3 text-zinc-300 focus:bg-white/[0.07]',
-            destructive && 'text-red-300 focus:text-red-200'
+            destructive && 'text-red-300 focus:text-red-200',
+            className
          )}
          onSelect={onSelect}
       >
