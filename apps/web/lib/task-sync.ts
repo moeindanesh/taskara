@@ -85,6 +85,7 @@ const pendingMutationsStore = 'pendingMutations';
 const scopeSnapshotsStore = 'scopeSnapshots';
 const broadcastName = 'taskara.task-sync.v1';
 const windowSyncMessageEvent = 'taskara:task-sync-message';
+const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
 
 type PersistedTaskMutation = {
    clientId: string;
@@ -621,6 +622,7 @@ function buildOptimisticTask(
       createdAt: now,
       updatedAt: now,
       completedAt: input.status === 'DONE' ? now : null,
+      progressStartedAt: progressTaskStatuses.has(input.status) ? now : null,
       version: 0,
       syncState: 'pending',
       syncMutationId,
@@ -652,7 +654,8 @@ function optimisticTaskKey(syncMutationId: string): string {
 
 function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSyncResources): TaskaraTask {
    const { assigneeId: _assigneeId, projectId: _projectId, labels: _labels, ...scalarPatch } = patch;
-   const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
+   const now = new Date().toISOString();
+   const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: now };
 
    if ('assigneeId' in patch) {
       const assignee = patch.assigneeId ? resources.users.find((user) => user.id === patch.assigneeId) || null : null;
@@ -686,7 +689,12 @@ function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSy
    }
 
    if (patch.status) {
-      next.completedAt = patch.status === 'DONE' ? new Date().toISOString() : null;
+      next.completedAt = patch.status === 'DONE' ? now : null;
+      next.progressStartedAt = progressTaskStatuses.has(patch.status)
+         ? progressTaskStatuses.has(task.status)
+            ? task.progressStartedAt || task.updatedAt || now
+            : now
+         : null;
    }
 
    return next;

@@ -4,7 +4,16 @@ import { createCommentSchema, createTaskSchema, updateTaskSchema } from '@taskar
 import { z, ZodError } from 'zod';
 import { getRequestActor, type RequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
-import { addTaskComment, createTask, deleteTask, findTaskByIdOrKey, serializeTaskForResponse, taskInclude, updateTask } from '../services/tasks';
+import {
+  addTaskComment,
+  addTaskProgressStartedAt,
+  createTask,
+  deleteTask,
+  findTaskByIdOrKey,
+  serializeTaskForResponse,
+  taskInclude,
+  updateTask
+} from '../services/tasks';
 import {
   ensurePendingClientMutation,
   markClientMutationRejected,
@@ -263,14 +272,18 @@ async function applyMutation(
 ): Promise<unknown> {
   if (name === 'task.create') {
     const input = createTaskSchema.parse(args);
-    return serializeTaskForResponse(await createTask(actor, input, meta));
+    const task = serializeTaskForResponse(await createTask(actor, input, meta));
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [task]);
+    return decoratedTask;
   }
 
   if (name === 'task.update') {
     const input = updateTaskMutationArgsSchema.parse(args);
     const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey);
     if (!task) throw new HttpError(404, 'Task not found');
-    return serializeTaskForResponse(await updateTask(actor, task.id, input.patch, meta, input.baseVersion ?? baseVersion));
+    const updated = serializeTaskForResponse(await updateTask(actor, task.id, input.patch, meta, input.baseVersion ?? baseVersion));
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [updated]);
+    return decoratedTask;
   }
 
   if (name === 'task.delete') {
@@ -302,7 +315,7 @@ async function listTasksForScope(actor: RequestActor, query: z.infer<typeof sync
     prisma.task.count({ where })
   ]);
 
-  return { items: items.map(serializeTaskForResponse), total };
+  return { items: await addTaskProgressStartedAt(actor.workspace.id, items.map(serializeTaskForResponse)), total };
 }
 
 function taskWhereForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>): Prisma.TaskWhereInput {
@@ -430,11 +443,11 @@ export function mapSyncEventForScope(
   const beforeVisible = before ? taskVisibleInScope(before, query, actor) : false;
   const afterVisible = after ? taskVisibleInScope(after, query, actor) : false;
 
-  if (afterVisible) {
+  if (afterVisible && after) {
     return {
       ...serialized,
       type: 'upsert',
-      task: after
+      task: withEventProgressStartedAt(after, before, event.createdAt)
     };
   }
 
@@ -471,6 +484,31 @@ function taskVisibleInScope(
   }
 
   return true;
+}
+
+const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
+
+function withEventProgressStartedAt(
+  after: Record<string, unknown>,
+  before: Record<string, unknown> | null,
+  eventCreatedAt: Date
+): Record<string, unknown> {
+  const afterStatus = stringValue(after.status);
+  const beforeStatus = before ? stringValue(before.status) : null;
+
+  if (!progressTaskStatuses.has(afterStatus || '')) {
+    return { ...after, progressStartedAt: null };
+  }
+
+  if (!beforeStatus || !progressTaskStatuses.has(beforeStatus)) {
+    return { ...after, progressStartedAt: eventCreatedAt.toISOString() };
+  }
+
+  return after;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
 }
 
 function openSyncStream(

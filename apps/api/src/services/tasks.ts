@@ -11,6 +11,8 @@ import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
+const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
+
 export const taskInclude = {
   project: {
     select: {
@@ -524,4 +526,98 @@ export function serializeTaskForResponse<T extends Record<string, unknown>>(task
     });
   }
   return serialized as T;
+}
+
+type TaskWithProgressTimestamp = Record<string, unknown> & {
+  id: string;
+  status?: string | null;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  progressStartedAt?: string | null;
+};
+
+export async function addTaskProgressStartedAt<T extends TaskWithProgressTimestamp>(
+  workspaceId: string,
+  tasks: T[]
+): Promise<T[]> {
+  const progressTasks = tasks.filter((task) => task.id && isProgressTaskStatus(task.status));
+  if (progressTasks.length === 0) {
+    return tasks.map((task) => ({ ...task, progressStartedAt: null }));
+  }
+
+  const taskIds = progressTasks.map((task) => task.id);
+  const startedAtByTaskId = await progressStartedAtByTaskId(workspaceId, taskIds);
+
+  return tasks.map((task) => {
+    if (!isProgressTaskStatus(task.status)) return { ...task, progressStartedAt: null };
+    return {
+      ...task,
+      progressStartedAt:
+        startedAtByTaskId.get(task.id) ||
+        isoString(task.updatedAt) ||
+        isoString(task.createdAt) ||
+        null
+    };
+  });
+}
+
+async function progressStartedAtByTaskId(workspaceId: string, taskIds: string[]): Promise<Map<string, string>> {
+  if (taskIds.length === 0) return new Map();
+
+  const events = await prisma.syncEvent.findMany({
+    where: {
+      workspaceId,
+      entityType: 'task',
+      entityId: { in: taskIds },
+      operation: { in: ['created', 'updated'] }
+    },
+    orderBy: { workspaceSeq: 'asc' },
+    select: {
+      entityId: true,
+      operation: true,
+      payload: true,
+      createdAt: true
+    }
+  });
+  const startedAtByTaskId = new Map<string, string>();
+
+  for (const event of events) {
+    const payload = recordValue(event.payload);
+    const beforeStatus = taskStatusFromPayload(payload?.before);
+    const afterStatus = taskStatusFromPayload(payload?.after);
+
+    if (!afterStatus) continue;
+
+    if (isProgressTaskStatus(afterStatus)) {
+      if (event.operation === 'created' || !isProgressTaskStatus(beforeStatus)) {
+        startedAtByTaskId.set(event.entityId, event.createdAt.toISOString());
+      }
+      continue;
+    }
+
+    startedAtByTaskId.delete(event.entityId);
+  }
+
+  return startedAtByTaskId;
+}
+
+function taskStatusFromPayload(value: unknown): string | null {
+  const record = recordValue(value);
+  const status = record?.status;
+  return typeof status === 'string' ? status : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function isProgressTaskStatus(status: unknown): boolean {
+  return typeof status === 'string' && progressTaskStatuses.has(status);
+}
+
+function isoString(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }

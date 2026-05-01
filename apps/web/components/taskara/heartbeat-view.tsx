@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
    AlertTriangle,
@@ -16,6 +16,7 @@ import {
    ProjectGlyph,
 } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
+import { formatJalaliDateTime } from '@/lib/jalali';
 import type { TaskaraTask, TaskaraUser } from '@/lib/taskara-types';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { cn } from '@/lib/utils';
@@ -23,15 +24,16 @@ import { cn } from '@/lib/utils';
 type HeartbeatIdleUser = Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl'> & {
    activeAssignedCount: number;
 };
+type HeartbeatTaskDateKind = 'done' | 'overdue' | 'progress';
 
 const activeStatuses = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED']);
 const progressStatuses = ['IN_PROGRESS', 'IN_REVIEW'];
-const recentDoneWindowMs = 7 * 24 * 60 * 60 * 1000;
+const relativeTimeFormatter = new Intl.RelativeTimeFormat('fa-IR', { numeric: 'auto' });
 
 export function HeartbeatView() {
    const { orgId } = useParams();
    const { tasks, users, loading, error } = useWorkspaceTaskSync();
-   const now = Date.now();
+   const now = useNow();
 
    const activeTasks = useMemo(
       () =>
@@ -54,7 +56,7 @@ export function HeartbeatView() {
    const doneTasks = useMemo(
       () =>
          tasks
-            .filter((task) => task.status === 'DONE' && isWithinWindow(task.completedAt || task.updatedAt, recentDoneWindowMs, now))
+            .filter((task) => task.status === 'DONE' && isToday(task.completedAt || task.updatedAt, now))
             .sort((a, b) => taskTimestamp(b, 'completedAt') - taskTimestamp(a, 'completedAt')),
       [tasks, now]
    );
@@ -80,8 +82,10 @@ export function HeartbeatView() {
                <div className="mx-auto max-w-[1440px]">
                   <section className="grid gap-4 xl:grid-cols-2">
                      <TaskListPanel
+                        dateKind="overdue"
                         empty={fa.heartbeat.noOverdue}
                         orgId={orgId || 'taskara'}
+                        now={now}
                         tasks={overdueTasks}
                         title={
                            <HeartbeatCardTitle
@@ -93,8 +97,10 @@ export function HeartbeatView() {
                         }
                      />
                      <TaskListPanel
+                        dateKind="progress"
                         empty={fa.heartbeat.noInProgress}
                         orgId={orgId || 'taskara'}
+                        now={now}
                         tasks={inFlightTasks}
                         title={
                            <HeartbeatCardTitle
@@ -106,8 +112,10 @@ export function HeartbeatView() {
                         }
                      />
                      <TaskListPanel
+                        dateKind="done"
                         empty={fa.heartbeat.noDone}
                         orgId={orgId || 'taskara'}
+                        now={now}
                         tasks={doneTasks}
                         title={
                            <HeartbeatCardTitle
@@ -162,13 +170,17 @@ const heartbeatCardToneClasses = {
 
 function TaskListPanel({
    className,
+   dateKind,
    empty,
+   now,
    orgId,
    tasks,
    title,
 }: {
    className?: string;
+   dateKind: HeartbeatTaskDateKind;
    empty: string;
+   now: number;
    orgId: string;
    tasks: TaskaraTask[];
    title: ReactNode;
@@ -183,7 +195,9 @@ function TaskListPanel({
             ) : (
                tasks.map((task) => (
                   <TaskPulseRow
+                     dateKind={dateKind}
                      key={task.id}
+                     now={now}
                      orgId={orgId}
                      task={task}
                   />
@@ -236,15 +250,19 @@ function NoInProgressUsersPanel({ users }: { users: HeartbeatIdleUser[] }) {
 }
 
 function TaskPulseRow({
+   dateKind,
+   now,
    orgId,
    task,
 }: {
+   dateKind: HeartbeatTaskDateKind;
+   now: number;
    orgId: string;
    task: TaskaraTask;
 }) {
    const rowClassName =
       'block px-4 py-3 transition hover:bg-white/[0.018]';
-   const content = <TaskPulseRowContent task={task} />;
+   const content = <TaskPulseRowContent dateKind={dateKind} now={now} task={task} />;
 
    if (task.syncState === 'pending') {
       return (
@@ -265,28 +283,44 @@ function TaskPulseRow({
 }
 
 function TaskPulseRowContent({
+   dateKind,
+   now,
    task,
 }: {
+   dateKind: HeartbeatTaskDateKind;
+   now: number;
    task: TaskaraTask;
 }) {
+   const relatedDate = taskRelatedDate(task, dateKind);
+   const relatedDateLabel = relatedDate ? formatRelativeTime(relatedDate, now) : fa.app.noDate;
+
    return (
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[92px_minmax(0,1fr)_132px_32px] sm:[direction:rtl]">
-         <span className="ltr order-2 shrink-0 text-xs font-medium text-zinc-500 sm:order-none sm:justify-self-end">
-            {task.key}
+      <div className="flex min-w-0 items-center gap-3 [direction:rtl]">
+         <span className="flex size-6 shrink-0 items-center justify-center">
+            {task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-6" /> : null}
          </span>
-         <span className="order-1 min-w-0 truncate text-sm text-zinc-200 sm:order-none sm:text-right">
+         <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
             {task.title}
          </span>
-         <span className="order-4 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500 sm:order-none">
+         <span className="hidden min-w-[96px] max-w-[132px] items-center gap-1.5 text-xs text-zinc-500 sm:flex">
             <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
             <span className="truncate">{task.project?.name || fa.app.unset}</span>
          </span>
-         <span className="order-3 flex size-6 items-center justify-center justify-self-start sm:order-none sm:justify-self-center">
-            {task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-6" /> : null}
+         <span
+            className={cn('shrink-0 text-xs font-medium', heartbeatTaskDateToneClasses[dateKind])}
+            title={relatedDate ? formatJalaliDateTime(relatedDate) : undefined}
+         >
+            {relatedDateLabel}
          </span>
       </div>
    );
 }
+
+const heartbeatTaskDateToneClasses: Record<HeartbeatTaskDateKind, string> = {
+   done: 'text-emerald-200/70',
+   overdue: 'text-amber-200/80',
+   progress: 'text-indigo-200/70',
+};
 
 function buildNoInProgressUsers(users: TaskaraUser[], tasks: TaskaraTask[]): HeartbeatIdleUser[] {
    const people = users.length > 0 ? users : uniqueTaskAssignees(tasks);
@@ -336,16 +370,55 @@ function uniqueTaskAssignees(tasks: TaskaraTask[]): Array<Pick<TaskaraUser, 'id'
    return Array.from(assignees.values());
 }
 
+function useNow(intervalMs = 60_000) {
+   const [now, setNow] = useState(() => Date.now());
+
+   useEffect(() => {
+      const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+      return () => window.clearInterval(timer);
+   }, [intervalMs]);
+
+   return now;
+}
+
+function taskRelatedDate(task: TaskaraTask, dateKind: HeartbeatTaskDateKind): string | null {
+   if (dateKind === 'overdue') return task.dueAt || null;
+   if (dateKind === 'done') return task.completedAt || task.updatedAt || null;
+   return task.progressStartedAt || task.updatedAt || task.createdAt || null;
+}
+
+function formatRelativeTime(value: string, now: number): string {
+   const time = new Date(value).getTime();
+   if (!Number.isFinite(time)) return fa.app.noDate;
+
+   const diffSeconds = Math.round((time - now) / 1000);
+   const absoluteSeconds = Math.abs(diffSeconds);
+
+   if (absoluteSeconds < 45) return relativeTimeFormatter.format(0, 'second');
+   if (absoluteSeconds < 45 * 60) return relativeTimeFormatter.format(Math.round(diffSeconds / 60), 'minute');
+   if (absoluteSeconds < 22 * 60 * 60) return relativeTimeFormatter.format(Math.round(diffSeconds / (60 * 60)), 'hour');
+   if (absoluteSeconds < 26 * 24 * 60 * 60) return relativeTimeFormatter.format(Math.round(diffSeconds / (24 * 60 * 60)), 'day');
+   if (absoluteSeconds < 11 * 7 * 24 * 60 * 60) return relativeTimeFormatter.format(Math.round(diffSeconds / (7 * 24 * 60 * 60)), 'week');
+   if (absoluteSeconds < 320 * 24 * 60 * 60) return relativeTimeFormatter.format(Math.round(diffSeconds / (30 * 24 * 60 * 60)), 'month');
+   return relativeTimeFormatter.format(Math.round(diffSeconds / (365 * 24 * 60 * 60)), 'year');
+}
+
 function taskTimestamp(task: TaskaraTask, key: 'createdAt' | 'updatedAt' | 'completedAt' | 'dueAt') {
    const value = key === 'completedAt' ? task.completedAt || task.updatedAt : task[key];
    return value ? new Date(value).getTime() || 0 : 0;
 }
 
-function isWithinWindow(value: string | null | undefined, windowMs: number | null, now: number) {
+function isToday(value: string | null | undefined, now: number) {
    if (!value) return false;
-   if (windowMs === null) return true;
    const time = new Date(value).getTime();
-   return Number.isFinite(time) && now - time <= windowMs;
+   if (!Number.isFinite(time)) return false;
+
+   const startOfToday = new Date(now);
+   startOfToday.setHours(0, 0, 0, 0);
+   const startOfTomorrow = new Date(startOfToday);
+   startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+   return time >= startOfToday.getTime() && time < startOfTomorrow.getTime();
 }
 
 function isOverdue(task: TaskaraTask, now: number) {

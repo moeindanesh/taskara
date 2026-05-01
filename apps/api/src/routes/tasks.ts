@@ -6,7 +6,16 @@ import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import { sendTaskCreatedSms } from '../services/task-sms';
-import { addTaskComment, createTask, deleteTask, findTaskByIdOrKey, serializeTaskForResponse, taskInclude, updateTask } from '../services/tasks';
+import {
+  addTaskComment,
+  addTaskProgressStartedAt,
+  createTask,
+  deleteTask,
+  findTaskByIdOrKey,
+  serializeTaskForResponse,
+  taskInclude,
+  updateTask
+} from '../services/tasks';
 import { readMultipartMediaUpload } from '../services/upload-request';
 
 const leaderboardQuerySchema = z.object({
@@ -150,14 +159,20 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       prisma.task.count({ where })
     ]);
 
-    return { items: items.map(serializeTaskForResponse), total, limit: query.limit, offset: query.offset };
+    return {
+      items: await addTaskProgressStartedAt(actor.workspace.id, items.map(serializeTaskForResponse)),
+      total,
+      limit: query.limit,
+      offset: query.offset
+    };
   });
 
   app.post('/tasks', async (request, reply) => {
     const actor = await getRequestActor(request);
     const input = createTaskSchema.parse(request.body);
     const task = await createTask(actor, input);
-    return reply.code(201).send(serializeTaskForResponse(task));
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
+    return reply.code(201).send(decoratedTask);
   });
 
   app.get('/tasks/:idOrKey', async (request, reply) => {
@@ -182,7 +197,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         blockedTasks: { include: { task: true } }
       }
     });
-    return fullTask ? serializeTaskForResponse(fullTask) : null;
+    if (!fullTask) return null;
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(fullTask)]);
+    return decoratedTask;
   });
 
   app.patch('/tasks/:idOrKey', async (request, reply) => {
@@ -193,7 +210,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
     const input = updateTaskSchema.parse(request.body);
     const task = await updateTask(actor, existing.id, input);
-    return serializeTaskForResponse(task);
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
+    return decoratedTask;
   });
 
   app.delete('/tasks/:idOrKey', async (request, reply) => {

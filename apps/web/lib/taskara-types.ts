@@ -21,6 +21,7 @@ export interface TaskaraTask {
    createdAt?: string;
    updatedAt?: string;
    completedAt?: string | null;
+   progressStartedAt?: string | null;
    project?: {
       id: string;
       name: string;
