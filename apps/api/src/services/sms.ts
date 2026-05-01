@@ -1,66 +1,12 @@
 import { config } from '../config';
 import { HttpError } from './http';
 
-export const SMS_TEMPLATE_DEFINITIONS = {
-  'no-plan': {
-    templateName: 'no-plan',
-    systemTemplateName: config.SMS_TEMPLATE_NO_PLAN ?? 'no-plan'
-  },
-  'today-reminder': {
-    templateName: 'today-reminder',
-    systemTemplateName: config.SMS_TEMPLATE_TODAY_REMINDER ?? 'today-reminder'
-  },
-  'task-created': {
-    templateName: 'task-created',
-    systemTemplateName: config.SMS_TEMPLATE_TASK_CREATED ?? 'task-created'
-  }
-} as const;
-
-export type SmsTemplateName = keyof typeof SMS_TEMPLATE_DEFINITIONS;
-export type SmsSystemTemplateName = (typeof SMS_TEMPLATE_DEFINITIONS)[SmsTemplateName]['systemTemplateName'];
-
-export interface SendTemplateSmsInput {
-  receptor: string | string[];
-  template: SmsTemplateName;
-  token?: string | number;
-  token2?: string | number;
-  token3?: string | number;
-  token10?: string | number;
-  token20?: string | number;
-}
-
 interface KavenegarResponse {
   return?: {
     status?: number;
     message?: string;
   };
   entries?: Array<Record<string, unknown>>;
-}
-
-export async function sendTemplateSms(input: SendTemplateSmsInput): Promise<void> {
-  const { receptor, template, token, token2, token3, token10, token20 } = input;
-  const systemTemplateName = SMS_TEMPLATE_DEFINITIONS[template].systemTemplateName;
-  const params: Record<string, string | number> = {
-    receptor: receptorParam(receptor),
-    template: systemTemplateName
-  };
-
-  addLookupParam(params, 'token', token);
-  addLookupParam(params, 'token2', token2);
-  addLookupParam(params, 'token3', token3);
-  addLookupParam(params, 'token10', token10);
-  addLookupParam(params, 'token20', token20);
-
-  if (isSmsDryRun()) {
-    console.log('DEV TEMPLATE SMS:', { ...params, template: systemTemplateName });
-    return;
-  }
-
-  const response = await requestKavenegar('verify/lookup.json', params);
-  console.log('SMS sent successfully:', {
-    entries: response.entries,
-    template: systemTemplateName
-  });
 }
 
 export async function sendOTPSms(to: string, otp: number): Promise<void> {
@@ -123,57 +69,6 @@ function receptorParam(receptor: string | string[]): string {
 function isSmsDryRun(): boolean {
   return false
   return process.env.NODE_ENV !== 'production';
-}
-
-function addLookupParam(
-  params: Record<string, string | number>,
-  key: 'token' | 'token2' | 'token3' | 'token10' | 'token20',
-  value: string | number | undefined
-): void {
-  if (value === undefined) return;
-
-  if (key === 'token10') {
-    params[key] = toLookupTextToken(value, 5);
-    return;
-  }
-
-  if (key === 'token20') {
-    params[key] = toLookupTextToken(value, 8);
-    return;
-  }
-
-  params[key] = toLookupCodeToken(value);
-}
-
-function toLookupCodeToken(value: string | number): string {
-  const token = String(value)
-    .normalize('NFKC')
-    .replace(/[^\p{L}\p{N}]/gu, '-')
-    .slice(0, 100);
-
-  return token || '0';
-}
-
-function toLookupTextToken(value: string | number, maxSpaces: number): string {
-  const normalized = String(value)
-    .normalize('NFKC')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  let spaces = 0;
-  let token = '';
-  for (const char of normalized) {
-    if (char === ' ') {
-      if (spaces >= maxSpaces) continue;
-      spaces += 1;
-    }
-
-    token += char;
-    if (token.length >= 100) break;
-  }
-
-  return token || '0';
 }
 
 async function requestKavenegar(path: string, params: Record<string, string | number>): Promise<KavenegarResponse> {

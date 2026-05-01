@@ -15,12 +15,14 @@ import {
    ImageIcon,
    Link2,
    Loader2,
+   MoreHorizontal,
    Paperclip,
    Send,
    Tag,
    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
@@ -62,6 +64,7 @@ type TaskUpdatePatch = {
 
 type IssueProjectOption = Pick<TaskaraProject, 'id' | 'name' | 'keyPrefix' | 'team'>;
 type SavingField = 'title' | 'description' | null;
+type SmsSendingKind = 'taskCreated' | 'followUp';
 type PreviewableAttachment = {
    name: string;
    url: string;
@@ -148,7 +151,7 @@ export function IssuePage() {
    const [savingField, setSavingField] = useState<SavingField>(null);
    const [descriptionUploading, setDescriptionUploading] = useState(false);
    const [commentSubmitting, setCommentSubmitting] = useState(false);
-   const [smsSending, setSmsSending] = useState(false);
+   const [smsSending, setSmsSending] = useState<SmsSendingKind | null>(null);
    const titleFocusedRef = useRef(false);
    const descriptionFocusedRef = useRef(false);
    const descriptionFileInputRef = useRef<HTMLInputElement>(null);
@@ -457,7 +460,7 @@ export function IssuePage() {
       }
    }
 
-   async function sendTaskSms() {
+   async function sendTaskSms(kind: SmsSendingKind) {
       if (!task) return;
       if (!task.assignee) {
          toast.error(fa.issue.smsNoAssignee);
@@ -468,18 +471,21 @@ export function IssuePage() {
          return;
       }
 
-      setSmsSending(true);
+      const endpoint = kind === 'taskCreated' ? 'task-created' : 'follow-up';
+      const successMessage = kind === 'taskCreated' ? fa.issue.smsSent : fa.issue.smsFollowUpSent;
+
+      setSmsSending(kind);
       try {
          await taskaraRequest<{ sent: true; receptor: string }>(
-            `/tasks/${encodeURIComponent(task.key)}/sms/task-created`,
+            `/tasks/${encodeURIComponent(task.key)}/sms/${endpoint}`,
             { method: 'POST' }
          );
          await loadActivity(task.key);
-         toast.success(fa.issue.smsSent);
+         toast.success(successMessage);
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.smsFailed);
       } finally {
-         setSmsSending(false);
+         setSmsSending(null);
       }
    }
 
@@ -651,22 +657,52 @@ export function IssuePage() {
                <SidebarIconButton ariaLabel="Copy issue key" onClick={() => void copyIssueKey()}>
                   <Copy className="size-4" />
                </SidebarIconButton>
-               <SidebarIconButton
-                  ariaLabel={fa.issue.sendTaskSms}
-                  disabled={smsSending}
-                  onClick={() => void sendTaskSms()}
-               >
-                  {smsSending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-               </SidebarIconButton>
-               <div className="inline-flex h-9 items-center overflow-hidden rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]">
-                  <button
-                     aria-label={fa.app.close}
-                     className="inline-flex h-full items-center justify-center px-3 transition hover:bg-white/6 hover:text-zinc-100"
-                     type="button"
-                     onClick={closeIssuePage}
-                  >
+               <div className="inline-flex items-center gap-2">
+                  <DropdownMenu dir="rtl">
+                     <DropdownMenuTrigger asChild>
+                        <button
+                           aria-label={fa.issue.moreActions}
+                           className="inline-flex size-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-white/8 hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-indigo-400/35 focus-visible:outline-none"
+                           title={fa.issue.moreActions}
+                           type="button"
+                        >
+                           <MoreHorizontal className="size-4" />
+                        </button>
+                     </DropdownMenuTrigger>
+                     <DropdownMenuContent
+                        align="end"
+                        className="w-60 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl"
+                        sideOffset={8}
+                     >
+                        <DropdownMenuItem
+                           className="h-9 cursor-pointer justify-start gap-2 rounded-lg px-2.5 text-sm text-zinc-200 focus:bg-white/[0.07] focus:text-zinc-100"
+                           disabled={Boolean(smsSending)}
+                           onSelect={() => void sendTaskSms('taskCreated')}
+                        >
+                           {smsSending === 'taskCreated' ? (
+                              <Loader2 className="size-4 animate-spin text-zinc-400" />
+                           ) : (
+                              <Send className="size-4 text-zinc-400" />
+                           )}
+                           <span className="min-w-0 truncate">{fa.issue.sendTaskSms}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                           className="h-9 cursor-pointer justify-start gap-2 rounded-lg px-2.5 text-sm text-zinc-200 focus:bg-white/[0.07] focus:text-zinc-100"
+                           disabled={Boolean(smsSending)}
+                           onSelect={() => void sendTaskSms('followUp')}
+                        >
+                           {smsSending === 'followUp' ? (
+                              <Loader2 className="size-4 animate-spin text-zinc-400" />
+                           ) : (
+                              <History className="size-4 text-zinc-400" />
+                           )}
+                           <span className="min-w-0 truncate">{fa.issue.sendTaskFollowUpSms}</span>
+                        </DropdownMenuItem>
+                     </DropdownMenuContent>
+                  </DropdownMenu>
+                  <SidebarIconButton ariaLabel={fa.app.close} onClick={closeIssuePage}>
                      <X className="size-4" />
-                  </button>
+                  </SidebarIconButton>
                </div>
             </div>
 
@@ -1115,6 +1151,8 @@ function activityTitle(activity: TaskaraActivity): string {
          return 'پیوست به دیدگاه اضافه کرد';
       case 'sms_task_created_sent':
          return 'پیامک کار را ارسال کرد';
+      case 'sms_task_follow_up_sent':
+         return 'پیامک پیگیری کار را ارسال کرد';
       default:
          return 'رویداد ثبت کرد';
    }

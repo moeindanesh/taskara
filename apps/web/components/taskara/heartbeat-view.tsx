@@ -297,7 +297,11 @@ function TaskPulseRowContent({
    return (
       <div className="grid min-w-0 grid-cols-[82px_minmax(0,1fr)_32px] items-center gap-3 [direction:ltr] sm:grid-cols-[96px_132px_minmax(0,1fr)_32px]">
          <span
-            className={cn('min-w-0 truncate text-right text-xs font-medium', heartbeatTaskDateToneClasses[dateKind])}
+            className={cn(
+               'min-w-0 truncate text-right text-xs font-medium [direction:rtl] [unicode-bidi:plaintext]',
+               heartbeatTaskDateToneClasses[dateKind]
+            )}
+            dir="rtl"
             title={relatedDate ? formatJalaliDateTime(relatedDate) : undefined}
          >
             {relatedDateLabel}
@@ -306,7 +310,7 @@ function TaskPulseRowContent({
             <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
             <span className="min-w-0 truncate text-right">{task.project?.name || fa.app.unset}</span>
          </span>
-         <span className="min-w-0 truncate text-right text-sm text-zinc-200">
+         <span className="min-w-0 truncate text-right text-sm text-zinc-200 [direction:rtl] [unicode-bidi:plaintext]" dir="rtl">
             {task.title}
          </span>
          <span className="flex size-6 items-center justify-center justify-self-center">

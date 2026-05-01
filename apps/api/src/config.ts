@@ -10,11 +10,6 @@ const optionalUrl = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
-const optionalBoolean = z.preprocess((value) => {
-  if (typeof value === 'string' && value.trim() === '') return undefined;
-  return value;
-}, z.enum(['true', 'false']).default('true').transform((value) => value === 'true'));
-
 const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   API_HOST: z.string().min(1),
@@ -33,11 +28,7 @@ const envSchema = z.object({
   MATTERMOST_SYNTHETIC_EMAIL_DOMAIN: z.string().min(1),
   MATTERMOST_WORKSPACE_SLUG: optionalString,
   SMS_KAVEH_KEY: optionalString,
-  SMS_KAVEH_SENDER: optionalString,
-  SMS_TEMPLATE_NO_PLAN: optionalString,
-  SMS_TEMPLATE_TODAY_REMINDER: optionalString,
-  SMS_TEMPLATE_TASK_CREATED: optionalString,
-  TASKARA_SMS_DAILY_REMINDERS_ENABLED: optionalBoolean
+  SMS_KAVEH_SENDER: optionalString
 });
 
 export const config = envSchema.parse(process.env);

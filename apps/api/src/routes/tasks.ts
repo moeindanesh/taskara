@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
-import { sendTaskCreatedSms } from '../services/task-sms';
+import { sendTaskCreatedSms, sendTaskFollowUpSms } from '../services/task-sms';
 import {
   addTaskComment,
   addTaskProgressStartedAt,
@@ -280,6 +280,16 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const result = await sendTaskCreatedSms(actor, existing.id);
+    return reply.send(result);
+  });
+
+  app.post('/tasks/:idOrKey/sms/follow-up', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    const result = await sendTaskFollowUpSms(actor, existing.id);
     return reply.send(result);
   });
 
