@@ -1,7 +1,6 @@
 'use client';
 
 import type { ComponentType, CSSProperties, ReactNode } from 'react';
-import { useEffect, useState } from 'react';
 import {
    AlertTriangle,
    Archive,
@@ -17,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fa } from '@/lib/fa-copy';
+import { markCachedAvatarImageFailed, useCachedAvatarImage } from '@/lib/avatar-cache';
 import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
 
 type IconType = ComponentType<{ className?: string }>;
@@ -349,7 +349,7 @@ export function LinearAvatar({
    src?: string | null;
    className?: string;
 }) {
-   const [imageFailed, setImageFailed] = useState(false);
+   const avatarImage = useCachedAvatarImage(src);
    const colors = getUserColorsFromName(name);
    const initials = (name || '?')
       .split(/\s+/)
@@ -359,18 +359,14 @@ export function LinearAvatar({
       .join('')
       .toUpperCase();
 
-   useEffect(() => {
-      setImageFailed(false);
-   }, [src]);
-
-   if (src && !imageFailed) {
+   if (avatarImage.src) {
       return (
          <img
             alt={name || fa.table.user}
             className={cn('block size-6 shrink-0 rounded-full border border-white/10 object-cover', className)}
-            src={src}
+            src={avatarImage.src}
             style={{ backgroundColor: colors.background, borderColor: colors.border }}
-            onError={() => setImageFailed(true)}
+            onError={() => markCachedAvatarImageFailed(avatarImage.originalSrc)}
          />
       );
    }

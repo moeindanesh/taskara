@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useCallback, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { formatJalaliDateTime } from '@/lib/jalali';
+import { dispatchWorkspaceRefresh, useLiveRefresh } from '@/lib/live-refresh';
+import { getNotificationBody, getNotificationTypeLabel } from '@/lib/notification-presenters';
 import { PriorityBadge, StatusBadge } from '@/lib/taskara-presenters';
 import type { NotificationsResponse, TaskaraNotification } from '@/lib/taskara-types';
 import { fa } from '@/lib/fa-copy';
@@ -18,7 +20,7 @@ export function InboxView() {
    const [unreadCount, setUnreadCount] = useState(0);
    const [isPending, startTransition] = useTransition();
 
-   async function load() {
+   const load = useCallback(async () => {
       setError('');
       try {
          const notificationsResult = await taskaraRequest<NotificationsResponse>('/notifications?limit=100');
@@ -32,14 +34,13 @@ export function InboxView() {
       } finally {
          setLoading(false);
       }
-   }
-
-   useEffect(() => {
-      void load();
    }, []);
+
+   useLiveRefresh(load);
 
    async function markRead(notification: TaskaraNotification) {
       await taskaraRequest(`/notifications/${notification.id}/read`, { method: 'PATCH' });
+      dispatchWorkspaceRefresh({ source: 'notifications:read' });
       startTransition(() => {
          void load();
       });
@@ -48,6 +49,7 @@ export function InboxView() {
    async function markAllRead() {
       try {
          await taskaraRequest('/notifications/read-all', { method: 'POST', body: JSON.stringify({}) });
+         dispatchWorkspaceRefresh({ source: 'notifications:read-all' });
          startTransition(() => {
             void load();
          });
@@ -82,25 +84,12 @@ export function InboxView() {
                   ) : (
                      <div className="space-y-2">
                         {notifications.map((notification) => (
-                           <button
+                           <NotificationListItem
                               key={notification.id}
-                              className={`w-full rounded-lg border p-3 text-right transition-colors ${selected?.id === notification.id ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
-                              onClick={() => setSelected(notification)}
-                              type="button"
-                           >
-                              <div className="mb-2 flex items-start justify-between gap-3">
-                                 <div className="space-y-1">
-                                    <div className="font-medium">{notification.title}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                       {formatJalaliDateTime(notification.createdAt)}
-                                    </div>
-                                 </div>
-                                 {!notification.readAt ? <span className="mt-1 size-2 rounded-full bg-blue-500" /> : null}
-                              </div>
-                              <div className="line-clamp-2 text-sm text-muted-foreground">
-                                 {notification.body || fa.inbox.noDescription}
-                              </div>
-                           </button>
+                              notification={notification}
+                              selected={selected?.id === notification.id}
+                              onSelect={() => setSelected(notification)}
+                           />
                         ))}
                      </div>
                   )}
@@ -123,7 +112,7 @@ export function InboxView() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                            <p className="text-sm leading-7 text-muted-foreground">
-                              {selected.body || fa.inbox.noDescription}
+                              {getNotificationBody(selected) || fa.inbox.noDescription}
                            </p>
                            <div className="grid gap-3 md:grid-cols-2">
                               <div className="rounded-lg border px-4 py-3">
@@ -134,7 +123,7 @@ export function InboxView() {
                               </div>
                               <div className="rounded-lg border px-4 py-3">
                                  <div className="text-xs text-muted-foreground">{fa.inbox.type}</div>
-                                 <div className="mt-1 text-sm font-medium">{selected.type}</div>
+                                 <div className="mt-1 text-sm font-medium">{getNotificationTypeLabel(selected.type)}</div>
                               </div>
                            </div>
                            {selected.task ? (
@@ -160,5 +149,36 @@ export function InboxView() {
             </ResizablePanel>
          </ResizablePanelGroup>
       </div>
+   );
+}
+
+function NotificationListItem({
+   notification,
+   selected,
+   onSelect,
+}: {
+   notification: TaskaraNotification;
+   selected: boolean;
+   onSelect: () => void;
+}) {
+   return (
+      <button
+         className={`w-full rounded-lg border p-3 text-right transition-colors ${selected ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
+         onClick={onSelect}
+         type="button"
+      >
+         <div className="mb-2 flex items-start justify-between gap-3">
+            <div className="space-y-1">
+               <div className="font-medium">{notification.title}</div>
+               <div className="text-xs text-muted-foreground">
+                  {formatJalaliDateTime(notification.createdAt)}
+               </div>
+            </div>
+            {!notification.readAt ? <span className="mt-1 size-2 rounded-full bg-blue-500" /> : null}
+         </div>
+         <div className="line-clamp-2 text-sm text-muted-foreground">
+            {getNotificationBody(notification) || fa.inbox.noDescription}
+         </div>
+      </button>
    );
 }

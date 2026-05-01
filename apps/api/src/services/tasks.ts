@@ -5,8 +5,13 @@ import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
-import { TASK_ASSIGNED_NOTIFICATION_TYPE, createTaskMentionNotifications } from './notifications';
+import {
+  TASK_ASSIGNED_NOTIFICATION_TYPE,
+  createTaskMentionNotifications,
+  taskAssignedNotificationBody
+} from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import { sendTaskCreatedSms } from './task-sms';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
@@ -103,6 +108,19 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
     return task;
   });
 
+  if (task.assigneeId && task.assigneeId !== actor.user.id) {
+    await prisma.notification.create({
+      data: {
+        workspaceId: actor.workspace.id,
+        userId: task.assigneeId,
+        taskId: task.id,
+        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
+        title: `${task.key}: ${task.title}`,
+        body: taskAssignedNotificationBody(actor.user.name)
+      }
+    }).catch(() => undefined);
+  }
+
   if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
@@ -116,20 +134,22 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
     source: input.source
   }).catch(() => undefined);
 
-  if (task.assigneeId && task.assigneeId !== actor.user.id) {
-    await prisma.notification.create({
-      data: {
-        workspaceId: actor.workspace.id,
-        userId: task.assigneeId,
-        taskId: task.id,
-        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-        title: `${task.key}: ${task.title}`,
-        body: `${actor.user.name} assigned this task to you.`
-      }
-    }).catch(() => undefined);
-  }
+  queueTaskCreatedSms(actor, task);
 
   return task;
+}
+
+function queueTaskCreatedSms(actor: RequestActor, task: Task & { assignee?: { phone: string | null } | null }): void {
+  if (!task.assignee?.phone) return;
+
+  void sendTaskCreatedSms(actor, task.id).catch((error) => {
+    console.error('Task created SMS failed:', {
+      workspaceId: actor.workspace.id,
+      taskId: task.id,
+      assigneeId: task.assigneeId,
+      error
+    });
+  });
 }
 
 async function reserveTaskKey(
@@ -245,6 +265,19 @@ export async function updateTask(
     return task;
   });
 
+  if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
+    await prisma.notification.create({
+      data: {
+        workspaceId: actor.workspace.id,
+        userId: input.assigneeId,
+        taskId: task.id,
+        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
+        title: `${task.key}: ${task.title}`,
+        body: taskAssignedNotificationBody(actor.user.name)
+      }
+    }).catch(() => undefined);
+  }
+
   if (syncEvent) publishSyncEvent(syncEvent);
 
   await logActivity({
@@ -258,19 +291,6 @@ export async function updateTask(
     after: task,
     source: actor.source
   }).catch(() => undefined);
-
-  if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
-    await prisma.notification.create({
-      data: {
-        workspaceId: actor.workspace.id,
-        userId: input.assigneeId,
-        taskId: task.id,
-        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-        title: `${task.key}: ${task.title}`,
-        body: `${actor.user.name} assigned this task to you.`
-      }
-    }).catch(() => undefined);
-  }
 
   return task;
 }

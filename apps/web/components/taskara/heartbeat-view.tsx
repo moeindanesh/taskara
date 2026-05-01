@@ -295,22 +295,22 @@ function TaskPulseRowContent({
    const relatedDateLabel = relatedDate ? formatRelativeTime(relatedDate, now) : fa.app.noDate;
 
    return (
-      <div className="flex min-w-0 items-center gap-3 [direction:rtl]">
-         <span className="flex size-6 shrink-0 items-center justify-center">
-            {task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-6" /> : null}
-         </span>
-         <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
-            {task.title}
-         </span>
-         <span className="hidden min-w-[96px] max-w-[132px] items-center gap-1.5 text-xs text-zinc-500 sm:flex">
-            <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
-            <span className="truncate">{task.project?.name || fa.app.unset}</span>
-         </span>
+      <div className="grid min-w-0 grid-cols-[82px_minmax(0,1fr)_32px] items-center gap-3 [direction:ltr] sm:grid-cols-[96px_132px_minmax(0,1fr)_32px]">
          <span
-            className={cn('shrink-0 text-xs font-medium', heartbeatTaskDateToneClasses[dateKind])}
+            className={cn('min-w-0 truncate text-right text-xs font-medium', heartbeatTaskDateToneClasses[dateKind])}
             title={relatedDate ? formatJalaliDateTime(relatedDate) : undefined}
          >
             {relatedDateLabel}
+         </span>
+         <span className="hidden min-w-0 items-center gap-1.5 text-xs text-zinc-500 sm:flex">
+            <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
+            <span className="min-w-0 truncate text-right">{task.project?.name || fa.app.unset}</span>
+         </span>
+         <span className="min-w-0 truncate text-right text-sm text-zinc-200">
+            {task.title}
+         </span>
+         <span className="flex size-6 items-center justify-center justify-self-center">
+            {task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-6" /> : null}
          </span>
       </div>
    );

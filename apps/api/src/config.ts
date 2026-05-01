@@ -33,6 +33,7 @@ const envSchema = z.object({
   MATTERMOST_SYNTHETIC_EMAIL_DOMAIN: z.string().min(1),
   MATTERMOST_WORKSPACE_SLUG: optionalString,
   SMS_KAVEH_KEY: optionalString,
+  SMS_KAVEH_SENDER: optionalString,
   SMS_TEMPLATE_NO_PLAN: optionalString,
   SMS_TEMPLATE_TODAY_REMINDER: optionalString,
   SMS_TEMPLATE_TASK_CREATED: optionalString,

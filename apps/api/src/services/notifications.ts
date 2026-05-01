@@ -3,6 +3,14 @@ import type { Prisma } from '@taskara/db';
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 
+export function taskAssignedNotificationBody(actorName: string): string {
+  return `${actorName} این کار را به شما واگذار کرد.`;
+}
+
+export function taskMentionedNotificationBody(actorName: string): string {
+  return `${actorName} شما را در این کار منشن کرد.`;
+}
+
 export function taskInboxNotificationWhere(
   workspaceId: string,
   userId: string,
@@ -77,7 +85,7 @@ export async function createTaskMentionNotifications(
       taskId: input.task.id,
       type: TASK_MENTIONED_NOTIFICATION_TYPE,
       title: `${input.task.key}: ${input.task.title}`,
-      body: `${input.actorName} mentioned you in this task.`
+      body: taskMentionedNotificationBody(input.actorName)
     }))
   });
 }
@@ -103,12 +111,26 @@ function collectMentionUserIds(value: unknown, mentionUserIds: Set<string>): voi
   }
 
   const node = value as Record<string, unknown>;
-  if (node.type === 'mention' && typeof node.mentionUserId === 'string' && node.mentionUserId) {
-    mentionUserIds.add(node.mentionUserId);
-  }
+  const mentionUserId = mentionUserIdFromNode(node);
+  if (mentionUserId) mentionUserIds.add(mentionUserId);
 
-  const children = node.children;
-  if (Array.isArray(children)) {
-    for (const child of children) collectMentionUserIds(child, mentionUserIds);
+  for (const childContainer of [node.root, node.children, node.content]) {
+    if (Array.isArray(childContainer)) {
+      for (const child of childContainer) collectMentionUserIds(child, mentionUserIds);
+    } else if (childContainer && typeof childContainer === 'object') {
+      collectMentionUserIds(childContainer, mentionUserIds);
+    }
   }
+}
+
+function mentionUserIdFromNode(node: Record<string, unknown>): string | null {
+  if (node.type !== 'mention') return null;
+  if (typeof node.mentionUserId === 'string' && node.mentionUserId) return node.mentionUserId;
+
+  const attrs = node.attrs;
+  if (!attrs || typeof attrs !== 'object') return null;
+  const attrRecord = attrs as Record<string, unknown>;
+  if (typeof attrRecord.mentionUserId === 'string' && attrRecord.mentionUserId) return attrRecord.mentionUserId;
+  if (typeof attrRecord.userId === 'string' && attrRecord.userId) return attrRecord.userId;
+  return null;
 }

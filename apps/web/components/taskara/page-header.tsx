@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
-import { Bell, Filter, PanelLeft, SlidersHorizontal, Trophy } from 'lucide-react';
+import { Bell, Filter, SlidersHorizontal, Trophy } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface PageHeaderProps {
@@ -136,20 +136,6 @@ export function PageHeader({ title, description, count, action, compact = false 
                   <TooltipContent>{fa.nav.leaderboard}</TooltipContent>
                </Tooltip>
                <div className="ms-auto flex items-center gap-1.5">
-                  <Tooltip>
-                     <TooltipTrigger asChild>
-                        <Button
-                           aria-label={fa.shortcuts.title}
-                           size="icon"
-                           variant="ghost"
-                           className="size-8 rounded-full text-zinc-500 hover:text-zinc-100"
-                           onClick={() => window.dispatchEvent(new CustomEvent('taskara:keyboard-shortcuts'))}
-                        >
-                           <PanelLeft className="size-4" />
-                        </Button>
-                     </TooltipTrigger>
-                     <TooltipContent>{fa.shortcuts.title}</TooltipContent>
-                  </Tooltip>
                   <Tooltip>
                      <TooltipTrigger asChild>
                         <Button

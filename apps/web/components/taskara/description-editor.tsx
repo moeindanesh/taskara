@@ -74,6 +74,7 @@ import {
    Strikethrough,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { markCachedAvatarImageFailed, useCachedAvatarImage } from '@/lib/avatar-cache';
 import type { TaskaraUser } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 
@@ -820,12 +821,17 @@ function getActiveSelectionRect(ownerWindow: Window): DOMRect | null {
 }
 
 function MentionAvatar({ user }: { user: MentionUser }) {
-   const [failed, setFailed] = useState(false);
+   const avatarImage = useCachedAvatarImage(user.avatarUrl);
 
    return (
       <span className="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/8 text-[11px] !font-medium text-zinc-300">
-         {user.avatarUrl && !failed ? (
-            <img alt="" className="size-full object-cover" src={user.avatarUrl} onError={() => setFailed(true)} />
+         {avatarImage.src ? (
+            <img
+               alt=""
+               className="size-full object-cover"
+               src={avatarImage.src}
+               onError={() => markCachedAvatarImageFailed(avatarImage.originalSrc)}
+            />
          ) : (
             user.name.trim().slice(0, 1)
          )}

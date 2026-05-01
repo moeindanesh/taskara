@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TaskaraClientError, taskaraApiBaseUrl, taskaraRequest, taskaraRequestHeaders } from '@/lib/taskara-client';
+import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
 import { clearAuthSession } from '@/store/auth-store';
 import type { TaskaraProject, TaskaraTask, TaskaraTeam, TaskaraUser, TaskaraView } from '@/lib/taskara-types';
 
@@ -198,6 +199,7 @@ export function useTaskSync(scope: TaskSyncScope) {
                }
                return next;
             });
+            dispatchWorkspaceRefresh({ source: 'task-sync' });
          }
 
          advanceCursor(nextCursor, cursorRef, setCursor);
@@ -407,6 +409,7 @@ export function useTaskSync(scope: TaskSyncScope) {
             await pull();
             throw new Error('Task mutation was acknowledged without an entity.');
          }
+         dispatchWorkspaceRefresh({ source: 'task-sync-mutation' });
          return entity;
       },
       [clientId, pull, scopeKey]

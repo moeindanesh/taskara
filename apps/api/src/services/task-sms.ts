@@ -1,8 +1,9 @@
 import { prisma, type TaskPriority } from '@taskara/db';
+import { config } from '../config';
 import type { RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
-import { sendTemplateSms } from './sms';
+import { sendMessageSimple } from './sms';
 
 const taskPrioritySmsLabels: Record<TaskPriority, string> = {
   NO_PRIORITY: 'بدون اولویت',
@@ -33,15 +34,9 @@ export async function sendTaskCreatedSms(actor: RequestActor, taskId: string): P
   if (!task) throw new HttpError(404, 'Task not found in this workspace');
   if (!task.assignee) throw new HttpError(400, 'Task has no assignee');
   if (!task.assignee.phone) throw new HttpError(400, 'Task assignee has no phone number');
+  if (!config.SMS_KAVEH_SENDER) throw new HttpError(503, 'SMS_KAVEH_SENDER is required to send task-created SMS');
 
-  await sendTemplateSms({
-    receptor: task.assignee.phone,
-    template: 'task-created',
-    token: task.title,
-    token10: task.title,
-    token2: taskPrioritySmsLabels[task.priority],
-    token20: taskPrioritySmsLabels[task.priority]
-  });
+  await sendMessageSimple(task.assignee.phone, buildTaskCreatedSmsMessage(actor, task), config.SMS_KAVEH_SENDER);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -51,7 +46,7 @@ export async function sendTaskCreatedSms(actor: RequestActor, taskId: string): P
     entityId: task.id,
     action: 'sms_task_created_sent',
     after: {
-      template: 'task-created',
+      providerEndpoint: 'sms/send.json',
       taskKey: task.key,
       assigneeId: task.assignee.id,
       receptor: maskPhone(task.assignee.phone)
@@ -60,6 +55,25 @@ export async function sendTaskCreatedSms(actor: RequestActor, taskId: string): P
   }).catch(() => undefined);
 
   return { sent: true, receptor: maskPhone(task.assignee.phone) };
+}
+
+export function buildTaskCreatedSmsMessage(
+  actor: Pick<RequestActor, 'workspace' | 'user'>,
+  task: { key: string; title: string; priority: TaskPriority }
+): string {
+  const taskUrl = taskDetailUrl(actor.workspace.slug, task.key);
+  return [
+    'تسکارا: یک وظیفه جدید به شما واگذار شد.',
+    `عنوان: ${task.title}`,
+    `اولویت: ${taskPrioritySmsLabels[task.priority]}`,
+    `ثبت‌کننده: ${actor.user.name}`,
+    taskUrl
+  ].join('\n');
+}
+
+function taskDetailUrl(workspaceSlug: string, taskKey: string): string {
+  const baseUrl = config.WEB_ORIGIN.replace(/\/$/, '');
+  return `${baseUrl}/${encodeURIComponent(workspaceSlug)}/issue/${encodeURIComponent(taskKey)}`;
 }
 
 function maskPhone(phone: string): string {

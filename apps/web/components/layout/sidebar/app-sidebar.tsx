@@ -35,6 +35,7 @@ import {
    SidebarTeamIcon,
 } from '@/components/taskara/linear-ui';
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
+import { useLiveRefresh } from '@/lib/live-refresh';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { clearAuthSession } from '@/store/auth-store';
@@ -62,6 +63,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const [myIssueCount, setMyIssueCount] = React.useState(0);
    const [loadingTeams, setLoadingTeams] = React.useState(true);
    const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>({});
+   const cancelledRef = React.useRef(false);
+   const initialLoadRef = React.useRef(true);
 
    const pathParts = pathname.split('/').filter(Boolean);
    const activeTeamSlug = pathParts[1] === 'team' ? pathParts[2] : null;
@@ -73,8 +76,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       navigate('/login', { replace: true });
    }, [navigate]);
 
-   const loadSidebarData = React.useCallback(async (isCancelled: () => boolean) => {
-      setLoadingTeams(true);
+   const loadSidebarData = React.useCallback(async (isCancelled: () => boolean, showLoading = false) => {
+      if (showLoading) setLoadingTeams(true);
 
       const [meResult, teamsResult, workspacesResult, notificationsResult, allTasksResult, myTasksResult] = await Promise.allSettled([
          taskaraRequest<TaskaraMe>('/me'),
@@ -98,21 +101,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       setLoadingTeams(false);
    }, []);
 
+   const refreshSidebarData = React.useCallback(() => {
+      const showLoading = initialLoadRef.current;
+      initialLoadRef.current = false;
+      void loadSidebarData(() => cancelledRef.current, showLoading);
+   }, [loadSidebarData]);
+
    React.useEffect(() => {
-      let cancelled = false;
-
-      const refreshSidebarData = () => {
-         void loadSidebarData(() => cancelled);
-      };
-
+      cancelledRef.current = false;
       refreshSidebarData();
       window.addEventListener('taskara:teams-updated', refreshSidebarData);
 
       return () => {
-         cancelled = true;
+         cancelledRef.current = true;
          window.removeEventListener('taskara:teams-updated', refreshSidebarData);
       };
-   }, [loadSidebarData]);
+   }, [refreshSidebarData]);
+
+   useLiveRefresh(refreshSidebarData, { fireOnMount: false });
 
    React.useEffect(() => {
       if (!teams.length) return;
@@ -265,7 +271,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <span>{item.title}</span>
                            </Link>
                         </SidebarMenuButton>
-                        {typeof item.count === 'number' ? (
+                        {typeof item.count === 'number' && item.count > 0 ? (
                            <SidebarMenuBadge className="left-2 right-auto text-zinc-500">
                               {item.count.toLocaleString('fa-IR')}
                            </SidebarMenuBadge>

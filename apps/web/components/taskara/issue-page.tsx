@@ -11,12 +11,10 @@ import {
    ExternalLink,
    FileArchive,
    FileText,
-   GitBranch,
    History,
    ImageIcon,
    Link2,
    Loader2,
-   MoreHorizontal,
    Paperclip,
    Send,
    Tag,
@@ -459,20 +457,27 @@ export function IssuePage() {
       }
    }
 
-   async function sendAssigneeTaskSms() {
+   async function sendTaskSms() {
       if (!task) return;
       if (!task.assignee) {
          toast.error(fa.issue.smsNoAssignee);
          return;
       }
+      if (!task.assignee.phone) {
+         toast.error(fa.issue.smsNoPhone);
+         return;
+      }
 
       setSmsSending(true);
       try {
-         await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}/sms/task-created`, { method: 'POST' });
+         await taskaraRequest<{ sent: true; receptor: string }>(
+            `/tasks/${encodeURIComponent(task.key)}/sms/task-created`,
+            { method: 'POST' }
+         );
+         await loadActivity(task.key);
          toast.success(fa.issue.smsSent);
       } catch (err) {
-         const message = err instanceof Error ? err.message : fa.issue.smsFailed;
-         toast.error(message === 'Task assignee has no phone number' ? fa.issue.smsNoPhone : message);
+         toast.error(err instanceof Error ? err.message : fa.issue.smsFailed);
       } finally {
          setSmsSending(false);
       }
@@ -640,31 +645,20 @@ export function IssuePage() {
 
          <aside className="min-w-0 border-s border-white/6 bg-[#141416] p-3">
             <div className="mb-3 flex items-center justify-end gap-2">
-               <SidebarIconButton
-                  ariaLabel={fa.issue.sendTaskSms}
-                  disabled={smsSending}
-                  onClick={() => void sendAssigneeTaskSms()}
-               >
-                  {smsSending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-               </SidebarIconButton>
                <SidebarIconButton ariaLabel="Copy issue link" onClick={() => void copyIssueUrl()}>
                   <Link2 className="size-4" />
                </SidebarIconButton>
                <SidebarIconButton ariaLabel="Copy issue key" onClick={() => void copyIssueKey()}>
                   <Copy className="size-4" />
                </SidebarIconButton>
-               <SidebarIconButton ariaLabel={fa.issue.dependencies}>
-                  <GitBranch className="size-4" />
+               <SidebarIconButton
+                  ariaLabel={fa.issue.sendTaskSms}
+                  disabled={smsSending}
+                  onClick={() => void sendTaskSms()}
+               >
+                  {smsSending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                </SidebarIconButton>
                <div className="inline-flex h-9 items-center overflow-hidden rounded-full border border-white/8 bg-white/[0.05] text-zinc-400 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]">
-                  <span
-                     aria-hidden="true"
-                     className="inline-flex h-full items-center justify-center px-3 text-zinc-500"
-                     title={fa.app.more}
-                  >
-                     <MoreHorizontal className="size-4" />
-                  </span>
-                  <span className="h-5 w-px bg-white/8" />
                   <button
                      aria-label={fa.app.close}
                      className="inline-flex h-full items-center justify-center px-3 transition hover:bg-white/6 hover:text-zinc-100"
@@ -826,7 +820,7 @@ function ActivityTimeline({
 }) {
    const items = useMemo<TimelineItem[]>(() => {
       const activityItems: TimelineItem[] = activities
-         .filter((activity) => activity.action !== 'commented' && activity.action !== 'comment_attachment_added')
+         .filter(shouldShowTimelineActivity)
          .map((activity) => ({
             id: `activity-${activity.id}`,
             createdAt: activity.createdAt,
@@ -1111,12 +1105,18 @@ function activityTitle(activity: TaskaraActivity): string {
          return 'کار را ایجاد کرد';
       case 'updated':
          return 'کار را به‌روزرسانی کرد';
+      case 'deleted':
+         return 'کار را حذف کرد';
+      case 'commented':
+         return 'دیدگاه ثبت کرد';
       case 'attachment_added':
          return 'پیوست اضافه کرد';
       case 'comment_attachment_added':
          return 'پیوست به دیدگاه اضافه کرد';
+      case 'sms_task_created_sent':
+         return 'پیامک کار را ارسال کرد';
       default:
-         return activity.action;
+         return 'رویداد ثبت کرد';
    }
 }
 
@@ -1128,7 +1128,6 @@ function getActivityChanges(activity: TaskaraActivity): Array<{ label: string; b
 
    const fields = [
       { label: 'عنوان', get: (record: Record<string, unknown>) => formatTextValue(stringValue(record.title)) },
-      { label: 'توضیح', get: (record: Record<string, unknown>) => formatTextValue(stringValue(record.description)) },
       { label: fa.issue.status, get: (record: Record<string, unknown>) => formatStatus(stringValue(record.status)) },
       { label: fa.issue.priority, get: (record: Record<string, unknown>) => formatPriority(stringValue(record.priority)) },
       { label: fa.issue.assignee, get: formatAssignee },
@@ -1141,6 +1140,23 @@ function getActivityChanges(activity: TaskaraActivity): Array<{ label: string; b
       if (beforeValue !== afterValue) changes.push({ label: field.label, before: beforeValue, after: afterValue });
       return changes;
    }, []);
+}
+
+function shouldShowTimelineActivity(activity: TaskaraActivity) {
+   if (activity.action === 'commented' || activity.action === 'comment_attachment_added') return false;
+   if (isDescriptionOnlyUpdate(activity)) return false;
+   return true;
+}
+
+function isDescriptionOnlyUpdate(activity: TaskaraActivity) {
+   if (activity.action !== 'updated') return false;
+
+   const before = asRecord(activity.before);
+   const after = asRecord(activity.after);
+   if (!before || !after) return false;
+
+   const changedFields = new Set([...Object.keys(before), ...Object.keys(after)].filter((key) => before[key] !== after[key]));
+   return changedFields.size === 1 && changedFields.has('description');
 }
 
 function attachmentFromActivity(activity: TaskaraActivity): TaskaraAttachment | null {
