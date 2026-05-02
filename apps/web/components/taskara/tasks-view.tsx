@@ -154,9 +154,20 @@ function getSystemViewKey(viewKey: ActiveViewKey): SystemViewKey | null {
 
 const activeViewQueryParam = 'view';
 const activeViewStoragePrefix = 'taskara:tasks-active-view';
+const taskComposerPreferenceStoragePrefix = 'taskara:task-composer-preferences';
+
+type TaskComposerPreferences = {
+   createMore?: boolean;
+   projectId?: string;
+   assigneeId?: string;
+};
 
 function taskViewSelectionStorageKey(workspaceKey: string, teamKey: string) {
    return `${activeViewStoragePrefix}:${workspaceKey}:${teamKey}`;
+}
+
+function taskComposerPreferenceStorageKey(workspaceKey: string, teamKey: string) {
+   return `${taskComposerPreferenceStoragePrefix}:${workspaceKey}:${teamKey}`;
 }
 
 function getActiveViewKeyFromSearch(search: string): ActiveViewKey | null {
@@ -172,6 +183,27 @@ function readStoredActiveViewKey(workspaceKey: string, teamKey: string): ActiveV
 function writeStoredActiveViewKey(workspaceKey: string, teamKey: string, viewKey: ActiveViewKey) {
    if (typeof window === 'undefined') return;
    window.localStorage.setItem(taskViewSelectionStorageKey(workspaceKey, teamKey), viewKey);
+}
+
+function readStoredTaskComposerPreferences(workspaceKey: string, teamKey: string): TaskComposerPreferences | null {
+   if (typeof window === 'undefined') return null;
+   const raw = window.localStorage.getItem(taskComposerPreferenceStorageKey(workspaceKey, teamKey));
+   if (!raw) return null;
+   try {
+      const parsed = JSON.parse(raw) as TaskComposerPreferences;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+   } catch {
+      return null;
+   }
+}
+
+function writeStoredTaskComposerPreferences(
+   workspaceKey: string,
+   teamKey: string,
+   preferences: TaskComposerPreferences
+) {
+   if (typeof window === 'undefined') return;
+   window.localStorage.setItem(taskComposerPreferenceStorageKey(workspaceKey, teamKey), JSON.stringify(preferences));
 }
 
 function searchWithActiveView(search: string, viewKey: ActiveViewKey, defaultViewKey: ActiveViewKey) {
@@ -508,8 +540,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
    const composerFileInputRef = useRef<HTMLInputElement>(null);
    const restoredViewRequestRef = useRef<string | null>(null);
+   const restoredComposerPreferenceKeyRef = useRef<string | null>(null);
+   const composerPreferencesHydratedRef = useRef(false);
    const defaultActiveViewKey: ActiveViewKey = `system:${defaultSystemView}`;
    const viewRestoreRequestKey = `${workspaceKey}:${viewScopeKey}:${location.search}`;
+   const composerPreferenceKey = `${workspaceKey}:${viewScopeKey}`;
 
    const persistActiveViewSelection = useCallback(
       (viewKey: ActiveViewKey) => {
@@ -608,6 +643,24 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    }, [scopedSyncedViews]);
 
    useEffect(() => {
+      if (restoredComposerPreferenceKeyRef.current === composerPreferenceKey) return;
+      const stored = readStoredTaskComposerPreferences(workspaceKey, viewScopeKey);
+      if (stored) {
+         if (typeof stored.createMore === 'boolean') setCreateMore(stored.createMore);
+         const storedProjectId = stored.projectId;
+         if (typeof storedProjectId === 'string') {
+            setForm((current) => ({ ...current, projectId: storedProjectId }));
+         }
+         const storedAssigneeId = stored.assigneeId;
+         if (typeof storedAssigneeId === 'string') {
+            setForm((current) => ({ ...current, assigneeId: storedAssigneeId }));
+         }
+      }
+      restoredComposerPreferenceKeyRef.current = composerPreferenceKey;
+      composerPreferencesHydratedRef.current = true;
+   }, [composerPreferenceKey, viewScopeKey, workspaceKey]);
+
+   useEffect(() => {
       restoredViewRequestRef.current = null;
    }, [viewRestoreRequestKey]);
 
@@ -672,6 +725,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             : scopedProjects[0]?.id || '',
       }));
    }, [scopedProjects]);
+
+   useEffect(() => {
+      if (!composerPreferencesHydratedRef.current) return;
+      writeStoredTaskComposerPreferences(workspaceKey, viewScopeKey, {
+         createMore,
+         projectId: form.projectId || undefined,
+         assigneeId: form.assigneeId || undefined,
+      });
+   }, [createMore, form.assigneeId, form.projectId, viewScopeKey, workspaceKey]);
 
    const activeTeam = useMemo(
       () => (activeTeamSlug ? teams.find((team) => team.slug === activeTeamSlug) || null : null),
@@ -1035,6 +1097,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          const filesToUpload = [...composerFiles];
          const submittedProjectId = form.projectId;
          const submittedStatus = form.status;
+         const submittedAssigneeId = form.assigneeId;
          const assigneeId = form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
          const createTaskPromise = createSyncedTask({
             projectId: form.projectId,
@@ -1058,6 +1121,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             projectId: submittedProjectId,
             status: submittedStatus,
             priority: 'NO_PRIORITY',
+            assigneeId: submittedAssigneeId,
          });
          if (!createMore) setComposerOpen(false);
          void handleCreatedTaskAttachments(createTaskPromise, filesToUpload);
