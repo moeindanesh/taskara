@@ -10,6 +10,7 @@ import { registerMediaRoutes } from './routes/media';
 import { registerMattermostRoutes } from './routes/mattermost';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProjectRoutes } from './routes/projects';
+import { registerRaycastRoutes } from './routes/raycast';
 import { registerSystemRoutes } from './routes/system';
 import { registerSyncRoutes } from './routes/sync';
 import { registerTaskRoutes } from './routes/tasks';
@@ -62,6 +63,7 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerTeamRoutes);
   await app.register(registerUserRoutes);
   await app.register(registerProjectRoutes);
+  await app.register(registerRaycastRoutes);
   await app.register(registerTaskRoutes);
   await app.register(registerViewRoutes);
   await app.register(registerMattermostRoutes);

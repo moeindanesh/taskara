@@ -43,6 +43,7 @@
       "components/ui/tooltip.tsx",
       "hooks/use-mobile.ts",
       "lib/jalali.ts",
+      "lib/download-file.js",
       "lib/taskara-client.ts",
       "lib/taskara-presenters.tsx",
       "lib/taskara-types.ts",

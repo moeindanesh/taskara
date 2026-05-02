@@ -4,6 +4,8 @@ import { type ChangeEvent, type ComponentType, type FormEvent, type ReactNode, u
 import {
    ArrowRight,
    Building2,
+   Download,
+   ExternalLink,
    FolderKanban,
    ImageOff,
    Loader2,
@@ -22,9 +24,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { taskaraRequest, uploadMedia } from '@/lib/taskara-client';
+import { downloadTaskaraFile } from '@/lib/download-file';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { RoleBadge, workspaceRoles } from '@/lib/taskara-presenters';
-import type { PaginatedResponse, TaskaraMe, TaskaraUser } from '@/lib/taskara-types';
+import type { PaginatedResponse, TaskaraMe, TaskaraProject, TaskaraUser } from '@/lib/taskara-types';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
 import { getAuthSession, setAuthSession } from '@/store/auth-store';
@@ -166,6 +169,9 @@ function ProfileSettingsPage() {
    const [loading, setLoading] = useState(true);
    const [saving, setSaving] = useState(false);
    const [uploading, setUploading] = useState(false);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
+   const [selectedRaycastProjectId, setSelectedRaycastProjectId] = useState('');
+   const [downloadingScript, setDownloadingScript] = useState<'taskara' | 'open' | null>(null);
    const [error, setError] = useState('');
    const [notice, setNotice] = useState('');
 
@@ -175,10 +181,15 @@ function ProfileSettingsPage() {
       void (async () => {
          setError('');
          try {
-            const result = await taskaraRequest<TaskaraMe>('/me');
+            const [result, projectResult] = await Promise.all([
+               taskaraRequest<TaskaraMe>('/me'),
+               taskaraRequest<TaskaraProject[]>('/projects'),
+            ]);
             if (cancelled) return;
 
             setMe(result);
+            setProjects(projectResult);
+            setSelectedRaycastProjectId((current) => current || projectResult[0]?.id || '');
             setForm({
                name: result.user.name || '',
                phone: result.user.phone || '',
@@ -196,6 +207,42 @@ function ProfileSettingsPage() {
          cancelled = true;
       };
    }, []);
+
+   async function handleDownloadTaskaraScript() {
+      if (!selectedRaycastProjectId) {
+         setError('برای دانلود اسکریپت ساخت تسک، یک پروژه انتخاب کنید.');
+         return;
+      }
+
+      setDownloadingScript('taskara');
+      setError('');
+      setNotice('');
+      try {
+         await downloadTaskaraFile(
+            `/raycast/scripts/taskara.bash?projectId=${encodeURIComponent(selectedRaycastProjectId)}`,
+            'taskara.bash'
+         );
+         setNotice('فایل taskara.bash دانلود شد.');
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'دانلود اسکریپت ساخت تسک ناموفق بود.');
+      } finally {
+         setDownloadingScript(null);
+      }
+   }
+
+   async function handleDownloadOpenScript() {
+      setDownloadingScript('open');
+      setError('');
+      setNotice('');
+      try {
+         await downloadTaskaraFile('/raycast/scripts/open-taskara.bash', 'open-taskara.bash');
+         setNotice('فایل open-taskara.bash دانلود شد.');
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'دانلود اسکریپت باز کردن Taskara ناموفق بود.');
+      } finally {
+         setDownloadingScript(null);
+      }
+   }
 
    async function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
       const file = event.target.files?.[0];
@@ -355,6 +402,51 @@ function ProfileSettingsPage() {
                      onChange={(event) => setForm((current) => ({ ...current, mattermostUsername: event.target.value }))}
                   />
                </SettingsField>
+            </SettingsPanel>
+
+            <SettingsPanel title="Raycast">
+               <SettingsField
+                  label="پروژه پیش‌فرض"
+                  description="این پروژه داخل فایل taskara.bash ذخیره می‌شود و تسک‌های ساخته‌شده از Raycast داخل همان پروژه ایجاد می‌شوند."
+               >
+                  <select
+                     className={selectClassName}
+                     disabled={loading || projects.length === 0}
+                     value={selectedRaycastProjectId}
+                     onChange={(event) => setSelectedRaycastProjectId(event.target.value)}
+                  >
+                     {projects.length === 0 ? (
+                        <option value="">پروژه‌ای پیدا نشد</option>
+                     ) : (
+                        projects.map((project) => (
+                           <option key={project.id} value={project.id}>
+                              {project.name} ({project.keyPrefix})
+                           </option>
+                        ))
+                     )}
+                  </select>
+               </SettingsField>
+               <div className="flex flex-wrap items-center gap-2 border-t border-white/7 px-4 py-3">
+                  <Button
+                     className="h-8 border border-white/10 bg-zinc-100 px-3 text-zinc-950 hover:bg-white"
+                     disabled={loading || !selectedRaycastProjectId || downloadingScript !== null}
+                     type="button"
+                     onClick={() => void handleDownloadTaskaraScript()}
+                  >
+                     {downloadingScript === 'taskara' ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                     دانلود taskara.bash
+                  </Button>
+                  <Button
+                     className="h-8 border-white/10 bg-transparent text-zinc-400 hover:bg-white/6 hover:text-zinc-100"
+                     disabled={loading || downloadingScript !== null}
+                     type="button"
+                     variant="outline"
+                     onClick={() => void handleDownloadOpenScript()}
+                  >
+                     {downloadingScript === 'open' ? <Loader2 className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}
+                     دانلود open-taskara.bash
+                  </Button>
+               </div>
             </SettingsPanel>
 
             <div className="flex justify-end">
