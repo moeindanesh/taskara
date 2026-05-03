@@ -10,12 +10,14 @@ import {
    ImageOff,
    Loader2,
    Save,
+   Type,
    Trash2,
    Upload,
    UserRound,
    UsersRound,
 } from 'lucide-react';
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
+import { useAppearance } from '@/components/layout/appearance-provider';
 import { MembersView } from '@/components/taskara/members-view';
 import { ProjectsView } from '@/components/taskara/projects-view';
 import { TeamsView } from '@/components/taskara/teams-view';
@@ -32,7 +34,7 @@ import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
 import { getAuthSession, setAuthSession } from '@/store/auth-store';
 
-const settingsSections = ['profile', 'workspace', 'members', 'teams', 'projects'] as const;
+const settingsSections = ['profile', 'appearance', 'workspace', 'members', 'teams', 'projects'] as const;
 type SettingsSection = (typeof settingsSections)[number];
 type SettingsIcon = ComponentType<{ className?: string }>;
 
@@ -77,6 +79,7 @@ export function SettingsView() {
    return (
       <SettingsChrome activeSection={requestedSection} orgId={orgId}>
          {requestedSection === 'profile' ? <ProfileSettingsPage /> : null}
+         {requestedSection === 'appearance' ? <AppearanceSettingsPage /> : null}
          {requestedSection === 'workspace' ? <WorkspaceAccessSettingsPage /> : null}
          {requestedSection === 'members' ? <EmbeddedExistingRoute><MembersView /></EmbeddedExistingRoute> : null}
          {requestedSection === 'teams' ? <EmbeddedExistingRoute><TeamsView /></EmbeddedExistingRoute> : null}
@@ -99,6 +102,7 @@ function SettingsChrome({
          title: 'تنظیمات فردی',
          items: [
             { title: 'پروفایل', to: `/${orgId}/settings/profile`, icon: UserRound, section: 'profile' },
+            { title: 'فونت و اندازه', to: `/${orgId}/settings/appearance`, icon: Type, section: 'appearance' },
          ],
       },
       {
@@ -712,6 +716,77 @@ function WorkspaceAccessSettingsPage() {
                </div>
             </SettingsPanel>
          </div>
+      </div>
+   );
+}
+
+function AppearanceSettingsPage() {
+   const { settings, setSettings } = useAppearance();
+
+   return (
+      <div className="mx-auto w-full max-w-[900px] px-5 py-6 sm:px-7 lg:py-10">
+         <SettingsPageTitle title="فونت و اندازه متن" />
+
+         <SettingsPanel title="تایپوگرافی">
+            <SettingsField label="فونت برنامه" description="فونت اصلی کل رابط کاربری.">
+               <select
+                  className={selectClassName}
+                  value={settings.fontFamily}
+                  onChange={(event) =>
+                     setSettings({
+                        fontFamily: event.target.value as 'iranyekan' | 'peyda' | 'system' | 'mono',
+                     })
+                  }
+               >
+                  <option value="iranyekan">IRANYekan</option>
+                  <option value="peyda">Peyda</option>
+                  <option value="system">سیستمی</option>
+                  <option value="mono">Monospace</option>
+               </select>
+            </SettingsField>
+
+            <SettingsField label="اندازه متن عادی" description="از ۸۵٪ تا ۱۳۰٪">
+               <div className="flex items-center gap-3">
+                  <input
+                     className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[var(--primary)]"
+                     max={130}
+                     min={85}
+                     step={1}
+                     type="range"
+                     value={Math.round(settings.bodyFontScale * 100)}
+                     onChange={(event) =>
+                        setSettings({
+                           bodyFontScale: Number(event.target.value) / 100,
+                        })
+                     }
+                  />
+                  <span className="min-w-[52px] text-left text-xs text-zinc-400">
+                     {Math.round(settings.bodyFontScale * 100)}%
+                  </span>
+               </div>
+            </SettingsField>
+
+            <SettingsField label="اندازه تیترها" description="از ۸۵٪ تا ۱۴۵٪">
+               <div className="flex items-center gap-3">
+                  <input
+                     className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[var(--primary)]"
+                     max={145}
+                     min={85}
+                     step={1}
+                     type="range"
+                     value={Math.round(settings.titleFontScale * 100)}
+                     onChange={(event) =>
+                        setSettings({
+                           titleFontScale: Number(event.target.value) / 100,
+                        })
+                     }
+                  />
+                  <span className="min-w-[52px] text-left text-xs text-zinc-400">
+                     {Math.round(settings.titleFontScale * 100)}%
+                  </span>
+               </div>
+            </SettingsField>
+         </SettingsPanel>
       </div>
    );
 }

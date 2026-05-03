@@ -27,7 +27,11 @@
 
 :root {
    --font-vazirmatn: "IRANYekanXFaNum", "Vazirmatn", sans-serif;
+   --font-peyda: "PeydaWebFaNum", "IRANYekanXFaNum", "Vazirmatn", sans-serif;
    --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+   --app-font-family: var(--font-vazirmatn);
+   --app-font-scale-body: 1;
+   --app-font-scale-title: 1;
    --card: oklch(1 0 0);
    --card-foreground: oklch(0.141 0.005 285.823);
    --popover: oklch(1 0 0);
@@ -155,16 +159,27 @@
 
    html {
       direction: rtl;
+      font-size: calc(16px * var(--app-font-scale-body));
    }
 
    body {
       @apply bg-background text-foreground;
       direction: rtl;
-      font-family: var(--font-vazirmatn);
+      font-family: var(--app-font-family);
       font-feature-settings: "ss01", "kern";
       font-size: var(--text-sm);
       line-height: var(--text-sm--line-height);
       text-rendering: geometricPrecision;
+   }
+
+   h1,
+   h2,
+   h3,
+   h4,
+   h5,
+   h6 {
+      font-family: var(--app-font-family);
+      font-size: calc(1em * var(--app-font-scale-title));
    }
 
    #root {
@@ -272,7 +287,17 @@ input[type='search'] {
    font-style: normal;
    font-weight: 400;
    font-display: swap;
-   src: url("/fonts/woff2/IRANYekanXFaNum-Regular.woff2") format("woff2");
+   src: url("/fonts/iranYekan/woff2/IRANYekanXFaNum-Regular.woff2") format("woff2"),
+      url("/fonts/iranYekan/woff/IRANYekanXFaNum-Regular.woff") format("woff");
+}
+
+@font-face {
+   font-family: "PeydaWebFaNum";
+   font-style: normal;
+   font-weight: 400;
+   font-display: swap;
+   src: url("/fonts/Peyda/woff2/PeydaWebFaNum-Regular.woff2") format("woff2"),
+      url("/fonts/Peyda/woff/PeydaWebFaNum-Regular.woff") format("woff");
 }
 
 ::selection {
