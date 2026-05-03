@@ -11,6 +11,7 @@ interface ProposedTaskPayload {
   labels: string[];
   priority: 'NO_PRIORITY' | 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   status: 'TODO';
+  weight?: number | null;
   source: 'AGENT';
 }
 
@@ -45,6 +46,7 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
               labels: ['follow-up'],
               priority: inferPriority(title),
               status: 'TODO',
+              weight: null,
               source: 'AGENT'
             } satisfies ProposedTaskPayload
           }))

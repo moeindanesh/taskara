@@ -21,6 +21,7 @@ type TaskCreateInput = {
    description?: string;
    status: string;
    priority: string;
+   weight?: number | null;
    assigneeId?: string;
    dueAt?: string;
    labels: string[];
@@ -621,6 +622,7 @@ function buildOptimisticTask(
       description: input.description || null,
       status: input.status,
       priority: input.priority,
+      weight: input.weight ?? null,
       dueAt: input.dueAt || null,
       createdAt: now,
       updatedAt: now,
@@ -754,6 +756,9 @@ function isTaskCreateInput(value: unknown): value is TaskCreateInput {
       typeof input.title === 'string' &&
       typeof input.status === 'string' &&
       typeof input.priority === 'string' &&
+      (input.weight === undefined ||
+         input.weight === null ||
+         (typeof input.weight === 'number' && Number.isFinite(input.weight) && input.weight >= 0 && input.weight <= 4)) &&
       Array.isArray(input.labels) &&
       input.source === 'WEB'
    );

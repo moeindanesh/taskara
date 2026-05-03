@@ -75,6 +75,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         description: input.description,
         status: input.status,
         priority: input.priority,
+        weight: input.weight ?? undefined,
         assigneeId: input.assigneeId,
         reporterId: actor.user.id,
         dueAt: input.dueAt ? new Date(input.dueAt) : undefined,

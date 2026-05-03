@@ -118,6 +118,7 @@ const initialTaskForm = {
    description: '',
    status: 'TODO',
    priority: 'NO_PRIORITY',
+   weight: '',
    assigneeId: '',
    dueAt: '',
    labels: '',
@@ -1091,12 +1092,18 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          toast.error(fa.issue.titleRequired);
          return;
       }
+      const weight = form.weight === '' ? undefined : Number(form.weight);
+      if (weight !== undefined && (!Number.isFinite(weight) || weight < 1 || weight > 4)) {
+         toast.error(fa.issue.invalidWeight);
+         return;
+      }
 
       try {
          setComposerSubmitting(true);
          const filesToUpload = [...composerFiles];
          const submittedProjectId = form.projectId;
          const submittedStatus = form.status;
+         const submittedWeight = form.weight;
          const submittedAssigneeId = form.assigneeId;
          const assigneeId = form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
          const createTaskPromise = createSyncedTask({
@@ -1105,6 +1112,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             description: form.description.trim() || undefined,
             status: form.status,
             priority: form.priority,
+            weight,
             assigneeId,
             dueAt: form.dueAt || undefined,
             labels: form.labels
@@ -1121,6 +1129,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             projectId: submittedProjectId,
             status: submittedStatus,
             priority: 'NO_PRIORITY',
+            weight: submittedWeight,
             assigneeId: submittedAssigneeId,
          });
          if (!createMore) setComposerOpen(false);
@@ -1744,6 +1753,21 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               </option>
                            ))}
                         </ComposerSelectPill>
+                        <ComposerSelectPill
+                           ariaLabel={fa.issue.weight}
+                           icon={<Box className="size-3.5 text-zinc-500" />}
+                           placeholder={fa.issue.weight}
+                           value={form.weight}
+                           onChange={(weight) => setForm((current) => ({ ...current, weight }))}
+                        >
+                           <option value="">
+                              بدون وزن
+                           </option>
+                           <option value="1">1</option>
+                           <option value="2">2</option>
+                           <option value="3">3</option>
+                           <option value="4">4</option>
+                        </ComposerSelectPill>
                         <ComposerTextPill
                            ariaLabel={fa.issue.labels}
                            icon={<Tag className="size-3.5 text-zinc-500" />}
@@ -2031,6 +2055,7 @@ function ComposerSelectPill({
    className,
    icon,
    onChange,
+   placeholder,
    value,
 }: {
    ariaLabel: string;
@@ -2038,6 +2063,7 @@ function ComposerSelectPill({
    className?: string;
    icon: ReactNode;
    onChange: (value: string) => void;
+   placeholder?: string;
    value: string;
 }) {
    return (
@@ -2046,9 +2072,17 @@ function ComposerSelectPill({
          <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
             {icon}
          </span>
+         {placeholder && value === '' ? (
+            <span className="pointer-events-none absolute start-6 top-1/2 z-10 -translate-y-1/2 text-[12px] font-normal text-zinc-300">
+               {placeholder}
+            </span>
+         ) : null}
          <select
             aria-label={ariaLabel}
-            className="h-6 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
+            className={cn(
+               'h-6 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35',
+               placeholder && value === '' ? 'text-transparent' : null
+            )}
             value={value}
             onChange={(event) => onChange(event.target.value)}
          >
@@ -2063,12 +2097,20 @@ function ComposerTextPill({
    icon,
    onChange,
    placeholder,
+   type = 'text',
+   min,
+   step,
+   inputMode,
    value,
 }: {
    ariaLabel: string;
    icon: ReactNode;
    onChange: (event: ChangeEvent<HTMLInputElement>) => void;
    placeholder: string;
+   type?: 'text' | 'number';
+   min?: number;
+   step?: number | 'any';
+   inputMode?: 'text' | 'decimal' | 'numeric';
    value: string;
 }) {
    return (
@@ -2083,6 +2125,10 @@ function ComposerTextPill({
             value={value}
             onChange={onChange}
             placeholder={placeholder}
+            type={type}
+            min={min}
+            step={step}
+            inputMode={inputMode}
          />
       </label>
    );
@@ -3047,7 +3093,15 @@ function IssueRow({
                   {shows('status') ? <TaskStatusControl status={task.status} iconOnly onChange={onStatusChange} /> : null}
                </span>
                <span className="min-w-0">
-                  <span className="block truncate font-normal text-zinc-200">{task.title}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                     <span className="block min-w-0 truncate font-normal text-zinc-200">{task.title}</span>
+                     {task.weight !== null && task.weight !== undefined ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                           <Box className="size-2.5 shrink-0" />
+                           <span>{task.weight.toLocaleString('fa-IR')}</span>
+                        </span>
+                     ) : null}
+                  </span>
                </span>
                <span className="grid min-w-0 grid-cols-[28px] items-center justify-end gap-2 justify-self-end md:w-[196px] md:grid-cols-[160px_28px] lg:w-[348px] lg:grid-cols-[144px_160px_28px] xl:w-[500px] xl:grid-cols-[144px_144px_160px_28px]">
                   <span className="hidden min-w-0 xl:block">
@@ -3152,7 +3206,15 @@ function IssueCard({
                         ) : null}
                         {shows('status') ? <StatusIcon status={task.status} className="size-3.5" /> : null}
                      </div>
-                     <div className="mt-1 line-clamp-2 text-sm font-normal text-zinc-100">{task.title}</div>
+                     <div className="mt-1 flex items-start gap-1.5">
+                        <span className="line-clamp-2 min-w-0 text-sm font-normal text-zinc-100">{task.title}</span>
+                        {task.weight !== null && task.weight !== undefined ? (
+                           <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                              <Box className="size-2.5 shrink-0" />
+                              <span>{task.weight.toLocaleString('fa-IR')}</span>
+                           </span>
+                        ) : null}
+                     </div>
                   </div>
                   {shows('priority') ? <PriorityIcon priority={task.priority} /> : null}
                </div>

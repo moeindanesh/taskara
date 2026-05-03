@@ -17,6 +17,7 @@ export interface TaskaraTask {
    description?: string | null;
    status: string;
    priority: string;
+   weight?: number | null;
    dueAt?: string | null;
    createdAt?: string;
    updatedAt?: string;

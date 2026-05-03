@@ -176,6 +176,7 @@ export const createTaskSchema = z.object({
   description: z.string().max(15000).optional(),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('NO_PRIORITY'),
+  weight: z.number().finite().min(0).max(4).nullable().optional(),
   assigneeId: z.string().uuid().optional(),
   dueAt: z.string().datetime().optional(),
   labels: z.array(z.string().min(1).max(40)).max(12).default([]),

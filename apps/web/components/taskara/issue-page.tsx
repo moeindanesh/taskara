@@ -772,6 +772,17 @@ export function IssuePage() {
                         ))}
                      </select>
                   </SidebarSelectRow>
+                  <SidebarSelectRow
+                     muted={task.weight === null || task.weight === undefined}
+                     icon={<Box className="size-5 text-zinc-500" />}
+                     label={
+                        task.weight === null || task.weight === undefined
+                           ? 'بدون وزن'
+                           : task.weight.toLocaleString('fa-IR')
+                     }
+                  >
+                     <span className="sr-only">{fa.issue.weight}</span>
+                  </SidebarSelectRow>
                   <TaskDueDateControl
                      className="h-auto min-h-9 w-full gap-3 rounded-lg px-2 py-2 text-sm"
                      dueAt={task.dueAt || null}
@@ -1168,6 +1179,7 @@ function getActivityChanges(activity: TaskaraActivity): Array<{ label: string; b
       { label: 'عنوان', get: (record: Record<string, unknown>) => formatTextValue(stringValue(record.title)) },
       { label: fa.issue.status, get: (record: Record<string, unknown>) => formatStatus(stringValue(record.status)) },
       { label: fa.issue.priority, get: (record: Record<string, unknown>) => formatPriority(stringValue(record.priority)) },
+      { label: fa.issue.weight, get: (record: Record<string, unknown>) => formatWeight(numberValue(record.weight)) },
       { label: fa.issue.assignee, get: formatAssignee },
       { label: fa.issue.dueAt, get: (record: Record<string, unknown>) => formatDateValue(stringValue(record.dueAt)) },
    ];
@@ -1235,6 +1247,10 @@ function formatPriority(value: string | null): string {
 
 function formatDateValue(value: string | null): string {
    return value ? formatJalaliDateTime(value) : fa.app.unset;
+}
+
+function formatWeight(value: number | null): string {
+   return value === null ? 'بدون وزن' : value.toLocaleString('fa-IR');
 }
 
 function formatTextValue(value: string | null): string {
