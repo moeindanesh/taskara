@@ -3,12 +3,35 @@ import type { Prisma } from '@taskara/db';
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 
+export type NotificationCursor = {
+  createdAt: Date;
+  id: string;
+};
+
 export function taskAssignedNotificationBody(actorName: string): string {
   return `${actorName} این کار را به شما واگذار کرد.`;
 }
 
 export function taskMentionedNotificationBody(actorName: string): string {
   return `${actorName} شما را در این کار منشن کرد.`;
+}
+
+export function encodeNotificationCursor(input: { createdAt: Date; id: string }): string {
+  return `${input.createdAt.toISOString()}|${input.id}`;
+}
+
+export function parseNotificationCursor(cursor?: string): NotificationCursor | null {
+  if (!cursor) return null;
+
+  const separatorIndex = cursor.lastIndexOf('|');
+  if (separatorIndex <= 0 || separatorIndex === cursor.length - 1) return null;
+
+  const createdAtRaw = cursor.slice(0, separatorIndex);
+  const id = cursor.slice(separatorIndex + 1).trim();
+  const createdAt = new Date(createdAtRaw);
+  if (Number.isNaN(createdAt.getTime()) || !id) return null;
+
+  return { createdAt, id };
 }
 
 export function taskInboxNotificationWhere(

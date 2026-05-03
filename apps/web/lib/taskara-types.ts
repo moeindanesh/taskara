@@ -186,6 +186,7 @@ export interface TaskaraNotification {
    type: string;
    title: string;
    body?: string | null;
+   deliveredAt?: string | null;
    readAt?: string | null;
    createdAt: string;
    task?: {
@@ -281,4 +282,10 @@ export interface PaginatedResponse<T> {
 
 export interface NotificationsResponse extends PaginatedResponse<TaskaraNotification> {
    unreadCount: number;
+}
+
+export interface NotificationSyncResponse {
+   items: TaskaraNotification[];
+   unreadCount: number;
+   nextCursor?: string | null;
 }

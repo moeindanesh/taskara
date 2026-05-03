@@ -412,6 +412,7 @@ model Notification {
   type        String
   title       String
   body        String?
+  deliveredAt DateTime?
   readAt      DateTime?
   createdAt   DateTime @default(now())
 
@@ -420,6 +421,8 @@ model Notification {
   task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt])
+  @@index([userId, deliveredAt])
+  @@index([userId, createdAt, id])
 }
 
 model SmsDailyReminderRun {
