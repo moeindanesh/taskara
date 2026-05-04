@@ -57,6 +57,7 @@ type TaskUpdatePatch = {
    description?: string | null;
    status?: string;
    priority?: string;
+   weight?: number | null;
    assigneeId?: string | null;
    projectId?: string | null;
    dueAt?: string | null;
@@ -781,7 +782,20 @@ export function IssuePage() {
                            : task.weight.toLocaleString('fa-IR')
                      }
                   >
-                     <span className="sr-only">{fa.issue.weight}</span>
+                     <select
+                        aria-label={fa.issue.weight}
+                        className="absolute inset-0 cursor-pointer opacity-0"
+                        value={task.weight === null || task.weight === undefined ? '' : String(task.weight)}
+                        onChange={(event) =>
+                           void updateTask({ weight: event.target.value === '' ? null : Number(event.target.value) })
+                        }
+                     >
+                        <option value="">بدون وزن</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                     </select>
                   </SidebarSelectRow>
                   <TaskDueDateControl
                      className="h-auto min-h-9 w-full gap-3 rounded-lg px-2 py-2 text-sm"

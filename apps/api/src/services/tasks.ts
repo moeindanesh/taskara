@@ -208,6 +208,7 @@ export async function updateTask(
         description: input.description === undefined ? undefined : input.description,
         status: input.status,
         priority: input.priority,
+        weight: input.weight === undefined ? undefined : input.weight,
         assigneeId: input.assigneeId === undefined ? undefined : input.assigneeId,
         parentId: input.parentId === undefined ? undefined : input.parentId,
         cycleId: input.cycleId === undefined ? undefined : input.cycleId,
