@@ -40,10 +40,16 @@ export const taskViewDisplayProperties = [
 
 export const projectStatuses = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
+export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
+export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
+export const meetingParticipantRoles = ['OWNER', 'PARTICIPANT'] as const;
 
 export type TaskStatusValue = (typeof taskStatuses)[number];
 export type TaskPriorityValue = (typeof taskPriorities)[number];
 export type WorkspaceRoleValue = (typeof workspaceRoles)[number];
+export type AnnouncementStatusValue = (typeof announcementStatuses)[number];
+export type MeetingStatusValue = (typeof meetingStatuses)[number];
+export type MeetingParticipantRoleValue = (typeof meetingParticipantRoles)[number];
 export type TaskViewLayoutValue = (typeof taskViewLayouts)[number];
 export type TaskViewGroupingValue = (typeof taskViewGroupings)[number];
 export type TaskViewOrderingValue = (typeof taskViewOrderings)[number];
@@ -55,6 +61,9 @@ export const taskStatusSchema = z.enum(taskStatuses);
 export const taskPrioritySchema = z.enum(taskPriorities);
 export const projectStatusSchema = z.enum(projectStatuses);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
+export const announcementStatusSchema = z.enum(announcementStatuses);
+export const meetingStatusSchema = z.enum(meetingStatuses);
+export const meetingParticipantRoleSchema = z.enum(meetingParticipantRoles);
 export const taskViewLayoutSchema = z.enum(taskViewLayouts);
 export const taskViewGroupingSchema = z.enum(taskViewGroupings);
 export const taskViewOrderingSchema = z.enum(taskViewOrderings);
@@ -213,6 +222,82 @@ export const taskListQuerySchema = z.object({
   mine: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const createAnnouncementSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  body: z.string().trim().max(15000).optional(),
+  recipientIds: z.array(z.string().uuid()).max(500).default([]),
+  publish: z.boolean().default(false)
+}).superRefine((value, ctx) => {
+  if (value.publish && value.recipientIds.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['recipientIds'],
+      message: 'Published announcements require at least one recipient'
+    });
+  }
+});
+
+export const updateAnnouncementSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  body: z.string().trim().max(15000).nullable().optional(),
+  recipientIds: z.array(z.string().uuid()).max(500).optional(),
+  status: announcementStatusSchema.optional()
+});
+
+export const announcementListQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  status: announcementStatusSchema.optional(),
+  unread: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const createMeetingSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(30000).optional(),
+  teamId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
+  ownerId: z.string().uuid().optional(),
+  participantIds: z.array(z.string().uuid()).max(500).default([]),
+  status: meetingStatusSchema.default('PLANNED'),
+  scheduledAt: z.string().datetime().optional(),
+  heldAt: z.string().datetime().optional()
+});
+
+export const updateMeetingSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  description: z.string().trim().max(30000).nullable().optional(),
+  teamId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  participantIds: z.array(z.string().uuid()).max(500).optional(),
+  status: meetingStatusSchema.optional(),
+  scheduledAt: z.string().datetime().nullable().optional(),
+  heldAt: z.string().datetime().nullable().optional()
+});
+
+export const meetingListQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  status: meetingStatusSchema.optional(),
+  teamId: z.string().min(1).default('all'),
+  mine: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const createMeetingTasksSchema = z.object({
+  projectId: z.string().uuid(),
+  tasks: z.array(z.object({
+    title: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(15000).optional(),
+    assigneeId: z.string().uuid().optional(),
+    status: taskStatusSchema.default('TODO'),
+    priority: taskPrioritySchema.default('NO_PRIORITY'),
+    dueAt: z.string().datetime().optional(),
+    labels: z.array(z.string().min(1).max(40)).max(12).default([])
+  })).min(1).max(50)
 });
 
 export const taskViewStateSchema = z.object({

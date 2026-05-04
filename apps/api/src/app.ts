@@ -5,8 +5,10 @@ import type { FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import { config } from './config';
 import { registerAgentRoutes } from './routes/agent';
+import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerAuthRoutes } from './routes/auth';
 import { registerMediaRoutes } from './routes/media';
+import { registerMeetingRoutes } from './routes/meetings';
 import { registerMattermostRoutes } from './routes/mattermost';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProjectRoutes } from './routes/projects';
@@ -57,6 +59,8 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
 
   await app.register(registerAuthRoutes);
   await app.register(registerSystemRoutes);
+  await app.register(registerAnnouncementRoutes);
+  await app.register(registerMeetingRoutes);
   await app.register(registerNotificationRoutes);
   await app.register(registerMediaRoutes);
   await app.register(registerSyncRoutes);

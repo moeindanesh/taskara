@@ -5,6 +5,7 @@ import DatePicker from 'react-multi-date-picker';
 import type { DateObject } from 'react-multi-date-picker';
 import persian from 'react-date-object/calendars/persian';
 import persianFa from 'react-date-object/locales/persian_fa';
+import TimePicker from 'react-multi-date-picker/plugins/time_picker';
 import { CalendarClock, X } from 'lucide-react';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
@@ -13,10 +14,12 @@ export function JalaliDatePicker({
    ariaLabel,
    value,
    onChange,
+   showTime = false,
 }: {
    ariaLabel: string;
    value?: string | null;
    onChange: (value: string | null) => void;
+   showTime?: boolean;
 }) {
    const pickerValue = useMemo(() => {
       if (!value) return null;
@@ -30,13 +33,14 @@ export function JalaliDatePicker({
             calendar={persian}
             locale={persianFa}
             value={pickerValue}
-            format="YYYY/MM/DD"
+            format={showTime ? 'YYYY/MM/DD HH:mm' : 'YYYY/MM/DD'}
             editable={false}
+            plugins={showTime ? [<TimePicker key="time-picker" position="bottom" hideSeconds />] : undefined}
             calendarPosition="bottom-right"
             className="taskara-jalali-calendar"
             containerClassName="w-full"
-            zIndex={80}
-            onChange={(date) => onChange(dateObjectToIso(date))}
+            zIndex={90}
+            onChange={(date) => onChange(dateObjectToIso(date, showTime))}
             render={(displayValue, openCalendar) => (
                <button
                   aria-label={ariaLabel}
@@ -67,10 +71,11 @@ export function JalaliDatePicker({
    );
 }
 
-function dateObjectToIso(date: DateObject | null): string | null {
+function dateObjectToIso(date: DateObject | null, showTime: boolean): string | null {
    if (!date?.isValid) return null;
    const jsDate = date.toDate();
    if (Number.isNaN(jsDate.getTime())) return null;
-   jsDate.setHours(0, 0, 0, 0);
+   if (!showTime) jsDate.setHours(0, 0, 0, 0);
+   else jsDate.setSeconds(0, 0);
    return jsDate.toISOString();
 }

@@ -15,6 +15,8 @@ const notificationTypeLabels: Record<string, string> = {
    task_overdue: 'دیرکرد کار',
    task_blocked: 'مسدود شدن کار',
    project_mentioned: 'منشن در پروژه',
+   announcement_published: 'اطلاعیه',
+   meeting_assigned: 'جلسه',
 };
 
 export function getNotificationTypeLabel(type: string): string {
@@ -38,5 +40,7 @@ export function getNotificationBody(notification: Pick<TaskaraNotification, 'typ
    if (notification.type === 'task_status_changed') return 'وضعیت این کار تغییر کرد.';
    if (notification.type === 'task_description_changed') return 'توضیحات این کار به‌روزرسانی شد.';
    if (notification.type === 'task_commented') return 'دیدگاه تازه‌ای روی این کار ثبت شد.';
+   if (notification.type === 'announcement_published') return 'اطلاعیه جدیدی برای شما منتشر شد.';
+   if (notification.type === 'meeting_assigned') return 'شما به یک جلسه اضافه شدید.';
    return '';
 }

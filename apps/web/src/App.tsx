@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import MainLayout from '@/components/layout/main-layout';
+import { AnnouncementsView } from '@/components/taskara/announcements-view';
 import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage } from '@/components/taskara/auth-pages';
 import { HeartbeatView } from '@/components/taskara/heartbeat-view';
 import { InboxView } from '@/components/taskara/inbox-view';
 import { IssuePage } from '@/components/taskara/issue-page';
 import { LeaderboardView } from '@/components/taskara/leaderboard-view';
 import { MembersView } from '@/components/taskara/members-view';
+import { MeetingsView } from '@/components/taskara/meetings-view';
 import { PageHeader } from '@/components/taskara/page-header';
 import { ProjectsView } from '@/components/taskara/projects-view';
 import { SettingsView } from '@/components/taskara/settings-view';
@@ -20,6 +22,14 @@ const pageMetaByRoute = {
   inbox: {
     title: fa.nav.inbox,
     description: fa.pages.inboxDescription,
+  },
+  announcements: {
+    title: fa.nav.announcements,
+    description: fa.pages.announcementsDescription,
+  },
+  meetings: {
+    title: fa.nav.meetings,
+    description: fa.pages.meetingsDescription,
   },
   tasks: {
     title: fa.nav.allTasks,
@@ -65,7 +75,7 @@ function WorkspaceShell() {
       ? pageMetaByRoute.projects
       : pageMetaByRoute[routeKey as keyof typeof pageMetaByRoute] || pageMetaByRoute.team;
   const header =
-    routeKey === 'issue' || routeKey === 'inbox' || isSettingsRoute ? null : (
+    routeKey === 'issue' || routeKey === 'inbox' || routeKey === 'announcements' || routeKey === 'meetings' || isSettingsRoute ? null : (
       <PageHeader title={pageMeta.title} description={pageMeta.description} compact />
     );
 
@@ -119,6 +129,10 @@ export function App() {
       <Route path="/:orgId" element={<AuthenticatedWorkspaceShell />}>
         <Route index element={<WorkspaceRedirect />} />
         <Route path="inbox" element={<WorkspacePage><InboxView /></WorkspacePage>} />
+        <Route path="announcements" element={<WorkspacePage><AnnouncementsView /></WorkspacePage>} />
+        <Route path="announcements/:announcementId" element={<WorkspacePage><AnnouncementsView /></WorkspacePage>} />
+        <Route path="meetings" element={<WorkspacePage><MeetingsView /></WorkspacePage>} />
+        <Route path="meetings/:meetingId" element={<WorkspacePage><MeetingsView /></WorkspacePage>} />
         <Route path="leaderboard" element={<WorkspacePage><LeaderboardView /></WorkspacePage>} />
         <Route path="heartbeat" element={<WorkspacePage><HeartbeatView /></WorkspacePage>} />
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />

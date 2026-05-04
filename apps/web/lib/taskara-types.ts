@@ -43,6 +43,55 @@ export interface TaskaraTask {
    _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
 }
 
+export interface TaskaraAnnouncement {
+   id: string;
+   title: string;
+   body?: string | null;
+   status: string;
+   publishedAt?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   creator?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   recipients?: Array<{
+      id: string;
+      userId: string;
+      deliveredAt?: string | null;
+      readAt?: string | null;
+      createdAt: string;
+      user: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null };
+   }>;
+   _count?: { recipients?: number };
+}
+
+export interface TaskaraMeeting {
+   id: string;
+   title: string;
+   description?: string | null;
+   status: string;
+   scheduledAt?: string | null;
+   heldAt?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   team?: { id: string; name: string; slug: string } | null;
+   project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+   owner?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   createdBy?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   participants?: Array<{
+      id: string;
+      userId: string;
+      role: string;
+      createdAt: string;
+      user: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null };
+   }>;
+   tasks?: Array<{
+      meetingId: string;
+      taskId: string;
+      createdAt: string;
+      task: TaskaraTask;
+   }>;
+   _count?: { participants?: number; tasks?: number };
+}
+
 export type TaskViewLayout = 'list' | 'board';
 export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'priority';
 export type TaskViewSubGrouping = 'none' | TaskViewGrouping;
@@ -197,6 +246,19 @@ export interface TaskaraNotification {
       status: string;
       priority: string;
    } | null;
+   announcement?: {
+      id: string;
+      title: string;
+      status: string;
+      publishedAt?: string | null;
+   } | null;
+   meeting?: {
+      id: string;
+      title: string;
+      status: string;
+      scheduledAt?: string | null;
+      heldAt?: string | null;
+   } | null;
 }
 
 export interface TaskaraActivity {
@@ -283,6 +345,16 @@ export interface PaginatedResponse<T> {
 
 export interface NotificationsResponse extends PaginatedResponse<TaskaraNotification> {
    unreadCount: number;
+}
+
+export interface AnnouncementsResponse extends PaginatedResponse<TaskaraAnnouncement> {
+   unreadCount: number;
+}
+
+export interface SmsSendSummary {
+   sent: number;
+   skippedNoPhone: number;
+   failed: number;
 }
 
 export interface NotificationSyncResponse {

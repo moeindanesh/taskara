@@ -40,11 +40,13 @@ import { taskaraRequest } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { clearAuthSession } from '@/store/auth-store';
 import type { NotificationsResponse, PaginatedResponse, TaskaraMe, TaskaraTask, TaskaraTeam } from '@/lib/taskara-types';
-import type { TaskaraWorkspaceMembership } from '@/lib/taskara-types';
+import type { AnnouncementsResponse, TaskaraMeeting, TaskaraWorkspaceMembership } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import {
    Activity,
+   CalendarDays,
    ChevronDown,
+   Megaphone,
    Plus,
    Search,
 } from 'lucide-react';
@@ -59,8 +61,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const [teams, setTeams] = React.useState<TaskaraTeam[]>([]);
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
    const [unreadCount, setUnreadCount] = React.useState(0);
+   const [announcementUnreadCount, setAnnouncementUnreadCount] = React.useState(0);
    const [allIssueCount, setAllIssueCount] = React.useState(0);
    const [myIssueCount, setMyIssueCount] = React.useState(0);
+   const [meetingCount, setMeetingCount] = React.useState(0);
    const [loadingTeams, setLoadingTeams] = React.useState(true);
    const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>({});
    const cancelledRef = React.useRef(false);
@@ -79,13 +83,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const loadSidebarData = React.useCallback(async (isCancelled: () => boolean, showLoading = false) => {
       if (showLoading) setLoadingTeams(true);
 
-      const [meResult, teamsResult, workspacesResult, notificationsResult, allTasksResult, myTasksResult] = await Promise.allSettled([
+      const [meResult, teamsResult, workspacesResult, notificationsResult, announcementsResult, allTasksResult, myTasksResult, meetingsResult] = await Promise.allSettled([
          taskaraRequest<TaskaraMe>('/me'),
          taskaraRequest<TaskaraTeam[]>('/teams'),
          taskaraRequest<{ items: TaskaraWorkspaceMembership[]; total: number }>('/workspaces'),
          taskaraRequest<NotificationsResponse>('/notifications?limit=1'),
+         taskaraRequest<AnnouncementsResponse>('/announcements?limit=1'),
          taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?limit=1'),
          taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?mine=true&limit=1'),
+         taskaraRequest<PaginatedResponse<TaskaraMeeting>>('/meetings?mine=true&limit=1'),
       ]);
 
       if (isCancelled()) return;
@@ -96,8 +102,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       const notificationData =
          notificationsResult.status === 'fulfilled' ? (notificationsResult.value as NotificationsResponse) : null;
       setUnreadCount(notificationData?.unreadCount ?? 0);
+      setAnnouncementUnreadCount(announcementsResult.status === 'fulfilled' ? announcementsResult.value.unreadCount : 0);
       setAllIssueCount(allTasksResult.status === 'fulfilled' ? allTasksResult.value.total : 0);
       setMyIssueCount(myTasksResult.status === 'fulfilled' ? myTasksResult.value.total : 0);
+      setMeetingCount(meetingsResult.status === 'fulfilled' ? meetingsResult.value.total : 0);
       setLoadingTeams(false);
    }, []);
 
@@ -158,6 +166,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
    const primaryItems = [
       { title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
+      { title: fa.nav.announcements, href: `/${orgId}/announcements`, icon: Megaphone, count: announcementUnreadCount },
+      { title: fa.nav.meetings, href: `/${orgId}/meetings`, icon: CalendarDays, count: meetingCount },
       { title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
       { title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
       { title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },

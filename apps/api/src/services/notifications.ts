@@ -6,6 +6,8 @@ export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 export const TASK_STATUS_CHANGED_NOTIFICATION_TYPE = 'task_status_changed';
 export const TASK_COMMENTED_NOTIFICATION_TYPE = 'task_commented';
 export const TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE = 'task_description_changed';
+export const ANNOUNCEMENT_PUBLISHED_NOTIFICATION_TYPE = 'announcement_published';
+export const MEETING_ASSIGNED_NOTIFICATION_TYPE = 'meeting_assigned';
 
 export type NotificationCursor = {
   createdAt: Date;
@@ -36,6 +38,14 @@ export function taskDescriptionChangedNotificationBody(actorName: string): strin
   return `${actorName} توضیحات این کار را به‌روزرسانی کرد.`;
 }
 
+export function announcementPublishedNotificationBody(actorName: string): string {
+  return `${actorName} اطلاعیه‌ای برای شما منتشر کرد.`;
+}
+
+export function meetingAssignedNotificationBody(actorName: string): string {
+  return `${actorName} شما را به یک جلسه اضافه کرد.`;
+}
+
 export function encodeNotificationCursor(input: { createdAt: Date; id: string }): string {
   return `${input.createdAt.toISOString()}|${input.id}`;
 }
@@ -62,7 +72,12 @@ export function taskInboxNotificationWhere(
   return {
     workspaceId,
     userId,
-    OR: [{ taskId: null }, { task: { is: { workspaceId } } }],
+    OR: [
+      { taskId: null, announcementId: null, meetingId: null },
+      { task: { is: { workspaceId } } },
+      { announcement: { is: { workspaceId } } },
+      { meeting: { is: { workspaceId } } }
+    ],
     ...(options.unreadOnly ? { readAt: null } : {})
   };
 }

@@ -48,6 +48,23 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
               status: true,
               priority: true
             }
+          },
+          announcement: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              publishedAt: true
+            }
+          },
+          meeting: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              scheduledAt: true,
+              heldAt: true
+            }
           }
         }
       }),
@@ -94,6 +111,23 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
               status: true,
               priority: true
             }
+          },
+          announcement: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              publishedAt: true
+            }
+          },
+          meeting: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              scheduledAt: true,
+              heldAt: true
+            }
           }
         }
       }),
@@ -123,18 +157,57 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
     if (!existing) return reply.code(404).send({ message: 'Notification not found' });
 
-    return prisma.notification.update({
+    const readAt = existing.readAt ?? new Date();
+    const updated = await prisma.notification.update({
       where: { id },
-      data: { readAt: existing.readAt ?? new Date() }
+      data: { readAt }
     });
+
+    if (existing.announcementId) {
+      await prisma.announcementRecipient.updateMany({
+        where: {
+          workspaceId: actor.workspace.id,
+          announcementId: existing.announcementId,
+          userId: actor.user.id,
+          readAt: null
+        },
+        data: { readAt }
+      });
+    }
+
+    return updated;
   });
 
   app.post('/notifications/read-all', async (request) => {
     const actor = await getRequestActor(request);
-    const result = await prisma.notification.updateMany({
-      where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true }),
-      data: { readAt: new Date() }
+    const where = taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true });
+    const readAt = new Date();
+    const [unreadAnnouncements, result] = await prisma.$transaction(async (tx) => {
+      const unreadAnnouncements = await tx.notification.findMany({
+        where: { ...where, announcementId: { not: null } },
+        select: { announcementId: true }
+      });
+      const result = await tx.notification.updateMany({
+        where,
+        data: { readAt }
+      });
+      return [unreadAnnouncements, result] as const;
     });
+
+    const announcementIds = [
+      ...new Set(unreadAnnouncements.map((item) => item.announcementId).filter((id): id is string => Boolean(id)))
+    ];
+    if (announcementIds.length) {
+      await prisma.announcementRecipient.updateMany({
+        where: {
+          workspaceId: actor.workspace.id,
+          userId: actor.user.id,
+          announcementId: { in: announcementIds },
+          readAt: null
+        },
+        data: { readAt }
+      });
+    }
 
     return { updated: result.count };
   });
