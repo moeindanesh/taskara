@@ -15,6 +15,7 @@
     "dev:mattermost": "bun run --filter @taskara/mattermost-bot dev",
     "db:generate": "PRISMA_GENERATE_SKIP_AUTOINSTALL=1 bun prisma generate --schema packages/db/prisma/schema.prisma",
     "db:migrate": "bun prisma migrate dev --schema packages/db/prisma/schema.prisma",
+    "db:push": "bun prisma db push --schema packages/db/prisma/schema.prisma",
     "db:studio": "bun prisma studio --schema packages/db/prisma/schema.prisma",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint"

@@ -1,7 +1,11 @@
-import type { Prisma } from '@taskara/db';
+import type { Prisma, TaskStatus } from '@taskara/db';
+import { statusLabel } from '@taskara/shared';
 
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
+export const TASK_STATUS_CHANGED_NOTIFICATION_TYPE = 'task_status_changed';
+export const TASK_COMMENTED_NOTIFICATION_TYPE = 'task_commented';
+export const TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE = 'task_description_changed';
 
 export type NotificationCursor = {
   createdAt: Date;
@@ -14,6 +18,22 @@ export function taskAssignedNotificationBody(actorName: string): string {
 
 export function taskMentionedNotificationBody(actorName: string): string {
   return `${actorName} شما را در این کار منشن کرد.`;
+}
+
+export function taskStatusChangedNotificationBody(
+  actorName: string,
+  beforeStatus: TaskStatus,
+  afterStatus: TaskStatus
+): string {
+  return `${actorName} وضعیت کار را از ${statusLabel(beforeStatus)} به ${statusLabel(afterStatus)} تغییر داد.`;
+}
+
+export function taskCommentedNotificationBody(actorName: string): string {
+  return `${actorName} دیدگاهی روی این کار گذاشت.`;
+}
+
+export function taskDescriptionChangedNotificationBody(actorName: string): string {
+  return `${actorName} توضیحات این کار را به‌روزرسانی کرد.`;
 }
 
 export function encodeNotificationCursor(input: { createdAt: Date; id: string }): string {
@@ -42,25 +62,7 @@ export function taskInboxNotificationWhere(
   return {
     workspaceId,
     userId,
-    OR: [
-      {
-        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-        task: {
-          is: {
-            workspaceId,
-            assigneeId: userId
-          }
-        }
-      },
-      {
-        type: TASK_MENTIONED_NOTIFICATION_TYPE,
-        task: {
-          is: {
-            workspaceId
-          }
-        }
-      }
-    ],
+    OR: [{ taskId: null }, { task: { is: { workspaceId } } }],
     ...(options.unreadOnly ? { readAt: null } : {})
   };
 }
@@ -72,6 +74,102 @@ type MentionNotificationTask = {
   description?: string | null;
 };
 
+type SubscriberNotificationTask = {
+  id: string;
+  key: string;
+  title: string;
+};
+
+export async function subscribeUsersToTask(
+  tx: Prisma.TransactionClient,
+  input: {
+    workspaceId: string;
+    taskId: string;
+    userIds: Array<string | null | undefined>;
+  }
+): Promise<string[]> {
+  const requestedUserIds = [...new Set(input.userIds.filter((userId): userId is string => Boolean(userId)))];
+  if (!requestedUserIds.length) return [];
+
+  const workspaceMembers = await tx.workspaceMember.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      userId: { in: requestedUserIds }
+    },
+    select: { userId: true }
+  });
+  const validUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  if (!validUserIds.length) return [];
+
+  await tx.taskSubscription.createMany({
+    data: validUserIds.map((userId) => ({
+      workspaceId: input.workspaceId,
+      taskId: input.taskId,
+      userId
+    })),
+    skipDuplicates: true
+  });
+
+  return validUserIds;
+}
+
+export async function subscribeTaskParticipants(
+  tx: Prisma.TransactionClient,
+  input: {
+    workspaceId: string;
+    task: MentionNotificationTask & { assigneeId?: string | null; reporterId?: string | null };
+    userIds?: Array<string | null | undefined>;
+  }
+): Promise<string[]> {
+  return subscribeUsersToTask(tx, {
+    workspaceId: input.workspaceId,
+    taskId: input.task.id,
+    userIds: [
+      input.task.reporterId,
+      input.task.assigneeId,
+      ...extractTaskMentionUserIds(input.task.description),
+      ...(input.userIds || [])
+    ]
+  });
+}
+
+export async function createTaskSubscriberNotifications(
+  tx: Prisma.TransactionClient,
+  input: {
+    workspaceId: string;
+    actorUserId: string;
+    task: SubscriberNotificationTask;
+    type: string;
+    body: string;
+    excludeUserIds?: string[];
+  }
+): Promise<string[]> {
+  const excludedUserIds = [...new Set([input.actorUserId, ...(input.excludeUserIds || [])])];
+  const subscriptions = await tx.taskSubscription.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      taskId: input.task.id,
+      userId: { notIn: excludedUserIds }
+    },
+    select: { userId: true }
+  });
+  const recipientIds = [...new Set(subscriptions.map((subscription) => subscription.userId))];
+  if (!recipientIds.length) return [];
+
+  await tx.notification.createMany({
+    data: recipientIds.map((userId) => ({
+      workspaceId: input.workspaceId,
+      userId,
+      taskId: input.task.id,
+      type: input.type,
+      title: `${input.task.key}: ${input.task.title}`,
+      body: input.body
+    }))
+  });
+
+  return recipientIds;
+}
+
 export async function createTaskMentionNotifications(
   tx: Prisma.TransactionClient,
   input: {
@@ -81,15 +179,15 @@ export async function createTaskMentionNotifications(
     task: MentionNotificationTask;
     previousDescription?: string | null;
   }
-): Promise<void> {
-  const currentMentions = extractMentionUserIds(input.task.description);
-  if (!currentMentions.length) return;
+): Promise<string[]> {
+  const currentMentions = extractTaskMentionUserIds(input.task.description);
+  if (!currentMentions.length) return [];
 
-  const previousMentions = new Set(extractMentionUserIds(input.previousDescription));
+  const previousMentions = new Set(extractTaskMentionUserIds(input.previousDescription));
   const mentionedUserIds = currentMentions.filter(
     (userId) => userId !== input.actorUserId && !previousMentions.has(userId)
   );
-  if (!mentionedUserIds.length) return;
+  if (!mentionedUserIds.length) return [];
 
   const workspaceMembers = await tx.workspaceMember.findMany({
     where: {
@@ -99,7 +197,7 @@ export async function createTaskMentionNotifications(
     select: { userId: true }
   });
   const validUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
-  if (!validUserIds.length) return;
+  if (!validUserIds.length) return [];
 
   await tx.notification.createMany({
     data: validUserIds.map((userId) => ({
@@ -111,9 +209,11 @@ export async function createTaskMentionNotifications(
       body: taskMentionedNotificationBody(input.actorName)
     }))
   });
+
+  return validUserIds;
 }
 
-function extractMentionUserIds(description?: string | null): string[] {
+export function extractTaskMentionUserIds(description?: string | null): string[] {
   if (!description?.trim().startsWith('{')) return [];
 
   try {
