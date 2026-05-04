@@ -292,6 +292,7 @@ model Task {
   description String?
   status      TaskStatus   @default(TODO)
   priority    TaskPriority @default(NO_PRIORITY)
+  weight      Float?
   assigneeId  String?      @db.Uuid
   reporterId  String?      @db.Uuid
   dueAt       DateTime?

@@ -10,6 +10,7 @@ export type TaskUpdatePatch = {
    projectId?: string;
    status?: string;
    priority?: string;
+   weight?: number | null;
    assigneeId?: string | null;
    dueAt?: string | null;
    labels?: string[];
@@ -21,6 +22,7 @@ type TaskCreateInput = {
    description?: string;
    status: string;
    priority: string;
+   weight?: number | null;
    assigneeId?: string;
    dueAt?: string;
    labels: string[];
@@ -621,6 +623,7 @@ function buildOptimisticTask(
       description: input.description || null,
       status: input.status,
       priority: input.priority,
+      weight: input.weight ?? null,
       dueAt: input.dueAt || null,
       createdAt: now,
       updatedAt: now,
@@ -725,6 +728,7 @@ function mergeTaskCreateInput(input: TaskCreateInput, patch: TaskUpdatePatch): T
    if (patch.title !== undefined) next.title = patch.title;
    if (patch.status !== undefined) next.status = patch.status;
    if (patch.priority !== undefined) next.priority = patch.priority;
+   if (patch.weight !== undefined) next.weight = patch.weight;
    if (patch.projectId !== undefined) next.projectId = patch.projectId;
    if (patch.labels !== undefined) next.labels = patch.labels;
 
@@ -754,6 +758,13 @@ function isTaskCreateInput(value: unknown): value is TaskCreateInput {
       typeof input.title === 'string' &&
       typeof input.status === 'string' &&
       typeof input.priority === 'string' &&
+      (input.weight === undefined ||
+         input.weight === null ||
+         (typeof input.weight === 'number' &&
+            Number.isInteger(input.weight) &&
+            Number.isFinite(input.weight) &&
+            input.weight >= 1 &&
+            input.weight <= 4)) &&
       Array.isArray(input.labels) &&
       input.source === 'WEB'
    );

@@ -79,7 +79,11 @@ import {
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
-import { TaskDueDateControl, makeDueDate, makeEndOfIranWorkWeek } from '@/components/taskara/task-due-date-control';
+import {
+   TaskDueDateControl,
+   makeDueDate,
+   makeEndOfIranWorkWeek,
+} from '@/components/taskara/task-due-date-control';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTimeInput } from '@/lib/jalali';
@@ -108,7 +112,8 @@ import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colo
 const activeStatuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'];
 const currentTeamFallback = 'all';
 const createIssueShortcutKeys = new Set(['c', 'ز']);
-const hasSystemShortcutModifier = (event: KeyboardEvent) => event.metaKey || event.ctrlKey || event.altKey;
+const hasSystemShortcutModifier = (event: KeyboardEvent) =>
+   event.metaKey || event.ctrlKey || event.altKey;
 const assigneeSearchPlaceholder = 'جستجو بین کارمندان...';
 const noAssigneeSearchResult = 'کارمندی پیدا نشد';
 
@@ -118,6 +123,7 @@ const initialTaskForm = {
    description: '',
    status: 'TODO',
    priority: 'NO_PRIORITY',
+   weight: '',
    assigneeId: '',
    dueAt: '',
    labels: '',
@@ -125,7 +131,14 @@ const initialTaskForm = {
 
 type SystemViewKey = 'all' | 'active';
 type ActiveViewKey = `system:${SystemViewKey}` | string;
-type MenuAnchor = { bottom: number; left: number; right: number; top: number; width: number; height: number };
+type MenuAnchor = {
+   bottom: number;
+   left: number;
+   right: number;
+   top: number;
+   width: number;
+   height: number;
+};
 
 type FilterSection = 'status' | 'assignee' | 'priority' | 'project' | 'labels';
 type FilterMenuSection = FilterSection | 'content';
@@ -177,7 +190,9 @@ function getActiveViewKeyFromSearch(search: string): ActiveViewKey | null {
 
 function readStoredActiveViewKey(workspaceKey: string, teamKey: string): ActiveViewKey | null {
    if (typeof window === 'undefined') return null;
-   return window.localStorage.getItem(taskViewSelectionStorageKey(workspaceKey, teamKey)) as ActiveViewKey | null;
+   return window.localStorage.getItem(
+      taskViewSelectionStorageKey(workspaceKey, teamKey)
+   ) as ActiveViewKey | null;
 }
 
 function writeStoredActiveViewKey(workspaceKey: string, teamKey: string, viewKey: ActiveViewKey) {
@@ -185,7 +200,10 @@ function writeStoredActiveViewKey(workspaceKey: string, teamKey: string, viewKey
    window.localStorage.setItem(taskViewSelectionStorageKey(workspaceKey, teamKey), viewKey);
 }
 
-function readStoredTaskComposerPreferences(workspaceKey: string, teamKey: string): TaskComposerPreferences | null {
+function readStoredTaskComposerPreferences(
+   workspaceKey: string,
+   teamKey: string
+): TaskComposerPreferences | null {
    if (typeof window === 'undefined') return null;
    const raw = window.localStorage.getItem(taskComposerPreferenceStorageKey(workspaceKey, teamKey));
    if (!raw) return null;
@@ -203,10 +221,17 @@ function writeStoredTaskComposerPreferences(
    preferences: TaskComposerPreferences
 ) {
    if (typeof window === 'undefined') return;
-   window.localStorage.setItem(taskComposerPreferenceStorageKey(workspaceKey, teamKey), JSON.stringify(preferences));
+   window.localStorage.setItem(
+      taskComposerPreferenceStorageKey(workspaceKey, teamKey),
+      JSON.stringify(preferences)
+   );
 }
 
-function searchWithActiveView(search: string, viewKey: ActiveViewKey, defaultViewKey: ActiveViewKey) {
+function searchWithActiveView(
+   search: string,
+   viewKey: ActiveViewKey,
+   defaultViewKey: ActiveViewKey
+) {
    const params = new URLSearchParams(search);
    if (viewKey === defaultViewKey) {
       params.delete(activeViewQueryParam);
@@ -362,7 +387,10 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
    };
 }
 
-function normalizeViewState(state: Partial<TaskaraTaskViewState> | undefined, teamId: string): TaskaraTaskViewState {
+function normalizeViewState(
+   state: Partial<TaskaraTaskViewState> | undefined,
+   teamId: string
+): TaskaraTaskViewState {
    return {
       ...buildSystemViewState('all', teamId),
       ...state,
@@ -422,8 +450,14 @@ function compareTasks(a: TaskaraTask, b: TaskaraTask, orderBy: TaskViewOrdering)
    if (orderBy === 'updatedAt') return compareDateString(a.updatedAt, b.updatedAt);
    if (orderBy === 'dueAt') return compareDateString(a.dueAt, b.dueAt);
 
-   const priorityIndexA = Math.max(taskPriorities.indexOf(a.priority as (typeof taskPriorities)[number]), 0);
-   const priorityIndexB = Math.max(taskPriorities.indexOf(b.priority as (typeof taskPriorities)[number]), 0);
+   const priorityIndexA = Math.max(
+      taskPriorities.indexOf(a.priority as (typeof taskPriorities)[number]),
+      0
+   );
+   const priorityIndexB = Math.max(
+      taskPriorities.indexOf(b.priority as (typeof taskPriorities)[number]),
+      0
+   );
    if (priorityIndexA !== priorityIndexB) return priorityIndexB - priorityIndexA;
    return compareDateString(a.updatedAt, b.updatedAt, 0);
 }
@@ -465,7 +499,11 @@ function matchesViewState(task: TaskaraTask, state: TaskaraTaskViewState) {
    }
    if (state.priority.length && !state.priority.includes(task.priority)) return false;
    if (state.projectIds.length && !state.projectIds.includes(task.project?.id || '')) return false;
-   if (state.labels.length && !(task.labels || []).some((item) => state.labels.includes(item.label.id))) return false;
+   if (
+      state.labels.length &&
+      !(task.labels || []).some((item) => state.labels.includes(item.label.id))
+   )
+      return false;
    if (!matchesCompletedIssueSetting(task, state.completedIssues)) return false;
    return taskMatchesQuery(task, state.query);
 }
@@ -562,7 +600,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             );
          }
       },
-      [defaultActiveViewKey, location.hash, location.pathname, location.search, navigate, viewScopeKey, workspaceKey]
+      [
+         defaultActiveViewKey,
+         location.hash,
+         location.pathname,
+         location.search,
+         navigate,
+         viewScopeKey,
+         workspaceKey,
+      ]
    );
 
    const getDefaultMenuAnchor = useCallback((): MenuAnchor => {
@@ -713,7 +759,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    ]);
 
    const scopedProjects = useMemo(
-      () => (activeTeamSlug ? projects.filter((project) => project.team?.slug === activeTeamSlug) : projects),
+      () =>
+         activeTeamSlug
+            ? projects.filter((project) => project.team?.slug === activeTeamSlug)
+            : projects,
       [activeTeamSlug, projects]
    );
 
@@ -745,18 +794,19 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       [projects]
    );
 
-   const scopedTasks = useMemo(
-      () => {
-         const teamTasks = activeTeamSlug ? tasks.filter((task) => task.project?.team?.slug === activeTeamSlug) : tasks;
-         return isMyIssuesView && currentUserId
-            ? teamTasks.filter((task) => task.assignee?.id === currentUserId)
-            : teamTasks;
-      },
-      [activeTeamSlug, currentUserId, isMyIssuesView, tasks]
-   );
+   const scopedTasks = useMemo(() => {
+      const teamTasks = activeTeamSlug
+         ? tasks.filter((task) => task.project?.team?.slug === activeTeamSlug)
+         : tasks;
+      return isMyIssuesView && currentUserId
+         ? teamTasks.filter((task) => task.assignee?.id === currentUserId)
+         : teamTasks;
+   }, [activeTeamSlug, currentUserId, isMyIssuesView, tasks]);
 
    useEffect(() => {
-      setSelectedTaskId((current) => (current && scopedTasks.some((task) => task.id === current) ? current : null));
+      setSelectedTaskId((current) =>
+         current && scopedTasks.some((task) => task.id === current) ? current : null
+      );
    }, [scopedTasks]);
 
    const labelOptions = useMemo(() => {
@@ -766,7 +816,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             map.set(item.label.id, item.label.name);
          }
       }
-      return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+      return [...map.entries()]
+         .map(([id, name]) => ({ id, name }))
+         .sort((a, b) => a.name.localeCompare(b.name, 'fa'));
    }, [scopedTasks]);
 
    const activeSavedView = useMemo(
@@ -788,7 +840,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
 
    const filteredTasks = useMemo(() => {
       return scopedTasks
-         .filter((task) => (draftView.status.length ? draftView.status.includes(task.status) : true))
+         .filter((task) =>
+            draftView.status.length ? draftView.status.includes(task.status) : true
+         )
          .filter((task) =>
             draftView.assigneeIds.length
                ? draftView.assigneeIds.some((value) => {
@@ -797,8 +851,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                  })
                : true
          )
-         .filter((task) => (draftView.priority.length ? draftView.priority.includes(task.priority) : true))
-         .filter((task) => (draftView.projectIds.length ? draftView.projectIds.includes(task.project?.id || '') : true))
+         .filter((task) =>
+            draftView.priority.length ? draftView.priority.includes(task.priority) : true
+         )
+         .filter((task) =>
+            draftView.projectIds.length
+               ? draftView.projectIds.includes(task.project?.id || '')
+               : true
+         )
          .filter((task) =>
             draftView.labels.length
                ? (task.labels || []).some((item) => draftView.labels.includes(item.label.id))
@@ -810,9 +870,12 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    }, [draftView, scopedTasks]);
 
    const groupedTasks = useMemo<GroupDescriptor[]>(() => {
-      const groups: Array<Omit<GroupDescriptor, 'tasks' | 'offset'> & { tasks: TaskaraTask[] }> = [];
+      const groups: Array<Omit<GroupDescriptor, 'tasks' | 'offset'> & { tasks: TaskaraTask[] }> =
+         [];
 
-      const pushGroup = (group: Omit<GroupDescriptor, 'tasks' | 'offset'> & { tasks: TaskaraTask[] }) => {
+      const pushGroup = (
+         group: Omit<GroupDescriptor, 'tasks' | 'offset'> & { tasks: TaskaraTask[] }
+      ) => {
          if (!draftView.showEmptyGroups && group.tasks.length === 0) return;
          groups.push(group);
       };
@@ -847,7 +910,13 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                return {
                   key: project.id,
                   label: project.name,
-                  icon: <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />,
+                  icon: (
+                     <ProjectGlyph
+                        name={project.name}
+                        className="size-4 rounded-sm"
+                        iconClassName="size-3"
+                     />
+                  ),
                   toneClassName: '',
                   toneStyle: { backgroundColor: colors.groupBackground },
                   tasks: filteredTasks.filter((task) => task.project?.id === project.id),
@@ -872,7 +941,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                   return {
                      key: user.id,
                      label: user.name,
-                     icon: <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />,
+                     icon: (
+                        <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />
+                     ),
                      toneClassName: '',
                      toneStyle: { backgroundColor: colors.groupBackground },
                      tasks: filteredTasks.filter((task) => task.assignee?.id === user.id),
@@ -913,7 +984,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             toast.message(fa.issue.pendingSync);
             return;
          }
-         const returnSearch = searchWithActiveView(location.search, activeViewKey, defaultActiveViewKey);
+         const returnSearch = searchWithActiveView(
+            location.search,
+            activeViewKey,
+            defaultActiveViewKey
+         );
          navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`, {
             state: {
                from: {
@@ -924,7 +999,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             },
          });
       },
-      [activeViewKey, defaultActiveViewKey, location.hash, location.pathname, location.search, navigate, orgId]
+      [
+         activeViewKey,
+         defaultActiveViewKey,
+         location.hash,
+         location.pathname,
+         location.search,
+         navigate,
+         orgId,
+      ]
    );
 
    useEffect(() => {
@@ -1007,7 +1090,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-   }, [highlightedIndex, isEditableTarget, openComposer, openDisplayMenu, openFilterMenu, visibleTasks]);
+   }, [
+      highlightedIndex,
+      isEditableTarget,
+      openComposer,
+      openDisplayMenu,
+      openFilterMenu,
+      visibleTasks,
+   ]);
 
    useEffect(() => {
       if (visibleTasks.length === 0) {
@@ -1091,20 +1181,28 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          toast.error(fa.issue.titleRequired);
          return;
       }
+      const weight = form.weight === '' ? undefined : Number(form.weight);
+      if (weight !== undefined && (!Number.isFinite(weight) || weight < 1 || weight > 4)) {
+         toast.error(fa.issue.invalidWeight);
+         return;
+      }
 
       try {
          setComposerSubmitting(true);
          const filesToUpload = [...composerFiles];
          const submittedProjectId = form.projectId;
          const submittedStatus = form.status;
+         const submittedWeight = form.weight;
          const submittedAssigneeId = form.assigneeId;
-         const assigneeId = form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
+         const assigneeId =
+            form.assigneeId || (isMyIssuesView ? currentUserId || undefined : undefined);
          const createTaskPromise = createSyncedTask({
             projectId: form.projectId,
             title: form.title.trim(),
             description: form.description.trim() || undefined,
             status: form.status,
             priority: form.priority,
+            weight,
             assigneeId,
             dueAt: form.dueAt || undefined,
             labels: form.labels
@@ -1121,6 +1219,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             projectId: submittedProjectId,
             status: submittedStatus,
             priority: 'NO_PRIORITY',
+            weight: submittedWeight,
             assigneeId: submittedAssigneeId,
          });
          if (!createMore) setComposerOpen(false);
@@ -1132,7 +1231,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       }
    }
 
-   async function handleCreatedTaskAttachments(createTaskPromise: Promise<TaskaraTask>, filesToUpload: File[]) {
+   async function handleCreatedTaskAttachments(
+      createTaskPromise: Promise<TaskaraTask>,
+      filesToUpload: File[]
+   ) {
       let createdTask: TaskaraTask;
       try {
          createdTask = await createTaskPromise;
@@ -1160,7 +1262,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          toast.success(
             successfulUploads === 1
                ? fa.issue.attachmentUploaded
-               : fa.issue.attachmentsUploaded.replace('{count}', successfulUploads.toLocaleString('fa-IR'))
+               : fa.issue.attachmentsUploaded.replace(
+                    '{count}',
+                    successfulUploads.toLocaleString('fa-IR')
+                 )
          );
       }
       if (failedUploads > 0) {
@@ -1343,8 +1448,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
 
    const selectedSavedViewCount = useMemo(() => {
       return activeSavedView
-         ? scopedTasks.filter((task) => matchesViewState(task, normalizeViewState(activeSavedView.state, currentTeamKey)))
-              .length
+         ? scopedTasks.filter((task) =>
+              matchesViewState(task, normalizeViewState(activeSavedView.state, currentTeamKey))
+           ).length
          : 0;
    }, [activeSavedView, currentTeamKey, scopedTasks]);
 
@@ -1362,7 +1468,8 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       draftView.projectIds.length +
       draftView.labels.length +
       (draftView.query.trim() ? 1 : 0);
-   const composerProject = scopedProjects.find((project) => project.id === form.projectId) || scopedProjects[0] || null;
+   const composerProject =
+      scopedProjects.find((project) => project.id === form.projectId) || scopedProjects[0] || null;
    const composerAssignee = users.find((user) => user.id === form.assigneeId) || null;
 
    return (
@@ -1426,7 +1533,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         >
                            <Save className="size-4" />
                         </Button>
-
                      </div>
                   </div>
                </div>
@@ -1459,11 +1565,17 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onAdd={() => openComposerForGroup(group)}
                               onDelete={(task) => void deleteTask(task)}
                               onOpen={openIssuePage}
-                              onAssigneeChange={(task, assigneeId) => void updateTask(task, { assigneeId })}
+                              onAssigneeChange={(task, assigneeId) =>
+                                 void updateTask(task, { assigneeId })
+                              }
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
-                              onPriorityChange={(task, priority) => void updateTask(task, { priority })}
-                              onProjectChange={(task, projectId) => void updateTask(task, { projectId })}
+                              onPriorityChange={(task, priority) =>
+                                 void updateTask(task, { priority })
+                              }
+                              onProjectChange={(task, projectId) =>
+                                 void updateTask(task, { projectId })
+                              }
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
                                  setHighlightedIndex(absoluteIndex);
@@ -1489,14 +1601,20 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onAdd={() => openComposerForGroup(group)}
                               onDelete={(task) => void deleteTask(task)}
                               onOpen={openIssuePage}
-                              onPriorityChange={(task, priority) => void updateTask(task, { priority })}
-                              onProjectChange={(task, projectId) => void updateTask(task, { projectId })}
+                              onPriorityChange={(task, priority) =>
+                                 void updateTask(task, { priority })
+                              }
+                              onProjectChange={(task, projectId) =>
+                                 void updateTask(task, { projectId })
+                              }
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
                                  setHighlightedIndex(absoluteIndex);
                               }}
                               onStatusChange={(task, status) => void updateTask(task, { status })}
-                              onAssigneeChange={(task, assigneeId) => void updateTask(task, { assigneeId })}
+                              onAssigneeChange={(task, assigneeId) =>
+                                 void updateTask(task, { assigneeId })
+                              }
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onToggleCollapse={() => toggleGroup(group.key)}
@@ -1507,13 +1625,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                   )}
                </div>
             </main>
-
          </div>
 
          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
             <DialogContent className="border-white/10 bg-[#1d1d20] text-zinc-100">
                <DialogHeader>
-                  <DialogTitle>{saveMode === 'create' ? fa.issue.saveAsNewView : fa.issue.updateView}</DialogTitle>
+                  <DialogTitle>
+                     {saveMode === 'create' ? fa.issue.saveAsNewView : fa.issue.updateView}
+                  </DialogTitle>
                   <DialogDescription className="text-zinc-500">
                      {fa.issue.saveView}
                   </DialogDescription>
@@ -1556,7 +1675,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          </Dialog>
 
          {filterOpen && menuAnchor ? (
-            <LinearFloatingPanel anchor={menuAnchor} width={280} onClose={() => setFilterOpen(false)}>
+            <LinearFloatingPanel
+               anchor={menuAnchor}
+               width={280}
+               onClose={() => setFilterOpen(false)}
+            >
                <TaskFilterPopover
                   activeSection={activeFilterSection}
                   activeFilterCount={activeFilterCount}
@@ -1576,7 +1699,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          ) : null}
 
          {displayOpen && menuAnchor ? (
-            <LinearFloatingPanel anchor={menuAnchor} width={320} onClose={() => setDisplayOpen(false)}>
+            <LinearFloatingPanel
+               anchor={menuAnchor}
+               width={320}
+               onClose={() => setDisplayOpen(false)}
+            >
                <TaskDisplayPopover draftView={draftView} onChange={setDraftView} />
             </LinearFloatingPanel>
          ) : null}
@@ -1620,7 +1747,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         type="button"
                         onClick={() => setComposerFullscreen((current) => !current)}
                      >
-                        {composerFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                        {composerFullscreen ? (
+                           <Minimize2 className="size-4" />
+                        ) : (
+                           <Maximize2 className="size-4" />
+                        )}
                      </button>
                      <DialogClose asChild>
                         <button
@@ -1640,7 +1771,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            className="size-4 rounded"
                            iconClassName="size-3"
                         />
-                        <span className="truncate">{composerProject?.name || fa.project.newProject}</span>
+                        <span className="truncate">
+                           {composerProject?.name || fa.project.newProject}
+                        </span>
                      </LinearPill>
                      <ChevronLeft className="size-4 shrink-0 text-zinc-600" />
                      <span>{fa.issue.newIssue}</span>
@@ -1664,7 +1797,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         autoFocus
                         className="h-auto border-none bg-transparent px-0 text-xl leading-7 font-semibold text-zinc-100 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
                         value={form.title}
-                        onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                        onChange={(event) =>
+                           setForm((current) => ({ ...current, title: event.target.value }))
+                        }
                         placeholder={fa.issue.titlePlaceholder}
                      />
                      <DescriptionEditor
@@ -1674,10 +1809,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         value={form.description}
                         variant="plain"
                         users={users}
-                        onChange={(description) => setForm((current) => ({ ...current, description }))}
+                        onChange={(description) =>
+                           setForm((current) => ({ ...current, description }))
+                        }
                         placeholder={fa.issue.descriptionPlaceholder}
                      />
-                     <ComposerAttachmentPreviewList files={composerFiles} onRemove={removeComposerFile} />
+                     <ComposerAttachmentPreviewList
+                        files={composerFiles}
+                        onRemove={removeComposerFile}
+                     />
                      <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
                         <ComposerSelectPill
                            ariaLabel={fa.issue.status}
@@ -1717,7 +1857,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               )
                            }
                            value={form.assigneeId}
-                           onChange={(assigneeId) => setForm((current) => ({ ...current, assigneeId }))}
+                           onChange={(assigneeId) =>
+                              setForm((current) => ({ ...current, assigneeId }))
+                           }
                         >
                            <option value="">{fa.app.unset}</option>
                            {usersForAssignee.map((user) => (
@@ -1736,7 +1878,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               />
                            }
                            value={form.projectId}
-                           onChange={(projectId) => setForm((current) => ({ ...current, projectId }))}
+                           onChange={(projectId) =>
+                              setForm((current) => ({ ...current, projectId }))
+                           }
                         >
                            {scopedProjects.map((project) => (
                               <option key={project.id} value={project.id}>
@@ -1744,11 +1888,26 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               </option>
                            ))}
                         </ComposerSelectPill>
+                        <ComposerSelectPill
+                           ariaLabel={fa.issue.weight}
+                           icon={<Box className="size-3.5 text-zinc-500" />}
+                           placeholder={fa.issue.weight}
+                           value={form.weight}
+                           onChange={(weight) => setForm((current) => ({ ...current, weight }))}
+                        >
+                           <option value="">بدون وزن</option>
+                           <option value="1">1</option>
+                           <option value="2">2</option>
+                           <option value="3">3</option>
+                           <option value="4">4</option>
+                        </ComposerSelectPill>
                         <ComposerTextPill
                            ariaLabel={fa.issue.labels}
                            icon={<Tag className="size-3.5 text-zinc-500" />}
                            value={form.labels}
-                           onChange={(event) => setForm((current) => ({ ...current, labels: event.target.value }))}
+                           onChange={(event) =>
+                              setForm((current) => ({ ...current, labels: event.target.value }))
+                           }
                            placeholder={fa.issue.labels}
                         />
                         <Popover>
@@ -1767,11 +1926,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               sideOffset={8}
                            >
                               <div className="space-y-3">
-                                 <div className="text-xs font-medium text-zinc-500">{fa.issue.dueAt}</div>
+                                 <div className="text-xs font-medium text-zinc-500">
+                                    {fa.issue.dueAt}
+                                 </div>
                                  <LazyJalaliDatePicker
                                     ariaLabel={fa.issue.dueAt}
                                     value={form.dueAt}
-                                    onChange={(dueAt) => setForm((current) => ({ ...current, dueAt: dueAt || '' }))}
+                                    onChange={(dueAt) =>
+                                       setForm((current) => ({ ...current, dueAt: dueAt || '' }))
+                                    }
                                  />
                                  <div className="text-xs text-zinc-600">
                                     {form.dueAt
@@ -1802,7 +1965,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         <Paperclip className="size-4" />
                      </button>
                      <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-[13px] text-zinc-500" htmlFor="composer-create-more">
+                        <label
+                           className="flex items-center gap-2 text-[13px] text-zinc-500"
+                           htmlFor="composer-create-more"
+                        >
                            <Switch
                               checked={createMore}
                               className="border-0 data-[state=unchecked]:bg-white/14 data-[state=checked]:bg-indigo-500 [&_[data-slot=switch-thumb]]:bg-zinc-100 [&_[data-slot=switch-thumb]]:shadow-[0_1px_2px_rgb(0_0_0/0.35)] [&_[data-slot=switch-thumb][data-state=checked]]:-translate-x-4"
@@ -1908,14 +2074,18 @@ function ComposerAttachmentPreview({
          ) : (
             <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-white/[0.025] px-3 pb-7 pt-3 text-zinc-500">
                <Paperclip className="size-5" />
-               <span className="max-w-full truncate text-[11px] uppercase text-zinc-600">{extension}</span>
+               <span className="max-w-full truncate text-[11px] uppercase text-zinc-600">
+                  {extension}
+               </span>
             </div>
          )}
          <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5">
             <span className="block truncate text-[11px] font-medium text-zinc-100" dir="auto">
                {file.name}
             </span>
-            <span className="block truncate text-[10px] text-zinc-400">{formatFileSize(file.size)}</span>
+            <span className="block truncate text-[10px] text-zinc-400">
+               {formatFileSize(file.size)}
+            </span>
          </div>
          <button
             aria-label={fa.issue.removeAttachment}
@@ -1934,7 +2104,9 @@ function clipboardImageFiles(clipboardData: DataTransfer): File[] {
       .filter((item) => item.kind === 'file' && item.type.toLowerCase().startsWith('image/'))
       .map((item) => item.getAsFile())
       .filter(isFile);
-   const files = itemFiles.length ? itemFiles : Array.from(clipboardData.files).filter(isPreviewableImageFile);
+   const files = itemFiles.length
+      ? itemFiles
+      : Array.from(clipboardData.files).filter(isPreviewableImageFile);
    const timestamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
 
    return files
@@ -2031,6 +2203,7 @@ function ComposerSelectPill({
    className,
    icon,
    onChange,
+   placeholder,
    value,
 }: {
    ariaLabel: string;
@@ -2038,6 +2211,7 @@ function ComposerSelectPill({
    className?: string;
    icon: ReactNode;
    onChange: (value: string) => void;
+   placeholder?: string;
    value: string;
 }) {
    return (
@@ -2046,9 +2220,17 @@ function ComposerSelectPill({
          <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
             {icon}
          </span>
+         {placeholder && value === '' ? (
+            <span className="pointer-events-none absolute start-6 top-1/2 z-10 -translate-y-1/2 text-[12px] font-normal text-zinc-300">
+               {placeholder}
+            </span>
+         ) : null}
          <select
             aria-label={ariaLabel}
-            className="h-6 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
+            className={cn(
+               'h-6 min-w-0 cursor-pointer appearance-none rounded-full border border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35',
+               placeholder && value === '' ? 'text-transparent' : null
+            )}
             value={value}
             onChange={(event) => onChange(event.target.value)}
          >
@@ -2063,12 +2245,20 @@ function ComposerTextPill({
    icon,
    onChange,
    placeholder,
+   type = 'text',
+   min,
+   step,
+   inputMode,
    value,
 }: {
    ariaLabel: string;
    icon: ReactNode;
    onChange: (event: ChangeEvent<HTMLInputElement>) => void;
    placeholder: string;
+   type?: 'text' | 'number';
+   min?: number;
+   step?: number | 'any';
+   inputMode?: 'text' | 'decimal' | 'numeric';
    value: string;
 }) {
    return (
@@ -2083,6 +2273,10 @@ function ComposerTextPill({
             value={value}
             onChange={onChange}
             placeholder={placeholder}
+            type={type}
+            min={min}
+            step={step}
+            inputMode={inputMode}
          />
       </label>
    );
@@ -2103,7 +2297,10 @@ function LinearFloatingPanel({
    const viewportWidth = typeof window === 'undefined' ? width + 24 : window.innerWidth;
    const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
    const panelWidth = Math.min(width, viewportWidth - 24);
-   const right = Math.min(Math.max(viewportWidth - anchor.right, 12), Math.max(viewportWidth - panelWidth - 12, 12));
+   const right = Math.min(
+      Math.max(viewportWidth - anchor.right, 12),
+      Math.max(viewportWidth - panelWidth - 12, 12)
+   );
    const top = Math.min(anchor.bottom + 8, Math.max(viewportHeight - 80, 12));
 
    useEffect(() => {
@@ -2303,9 +2500,7 @@ function FilterRootRow({
          <button
             className={cn(
                'mx-1.5 flex h-9 w-[calc(100%-12px)] items-center gap-2.5 rounded-lg px-2.5 text-sm leading-none outline-none transition hover:bg-white/[0.04] hover:text-zinc-100 focus-visible:bg-white/[0.04] focus-visible:text-zinc-100',
-               active
-                  ? 'bg-white/[0.06] text-zinc-50'
-                  : 'text-zinc-300'
+               active ? 'bg-white/[0.06] text-zinc-50' : 'text-zinc-300'
             )}
             type="button"
             onClick={onSelect}
@@ -2314,7 +2509,9 @@ function FilterRootRow({
          >
             <span className="flex size-5 shrink-0 items-center justify-center">{icon}</span>
             <span className="min-w-0 flex-1 truncate text-start">{label}</span>
-            {count ? <span className="text-xs text-zinc-500">{count.toLocaleString('fa-IR')}</span> : null}
+            {count ? (
+               <span className="text-xs text-zinc-500">{count.toLocaleString('fa-IR')}</span>
+            ) : null}
             <ChevronLeft className="size-3.5 shrink-0 text-zinc-500" />
          </button>
       </>
@@ -2345,7 +2542,9 @@ function FilterSubmenu({
    onToggle: (section: FilterSection, value: string) => void;
 }) {
    const [query, setQuery] = useState('');
-   const currentUser = currentUserId ? users.find((user) => user.id === currentUserId) || null : null;
+   const currentUser = currentUserId
+      ? users.find((user) => user.id === currentUserId) || null
+      : null;
    const priorityOrder = ['NO_PRIORITY', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
    const topBySection: Record<FilterMenuSection, number> = {
       status: 48,
@@ -2376,7 +2575,7 @@ function FilterSubmenu({
               icon: <StatusIcon status={status} />,
               onClick: () => onToggle('status', status),
            }))
-           : activeSection === 'assignee'
+         : activeSection === 'assignee'
            ? [
                 {
                    id: 'unassigned',
@@ -2392,8 +2591,15 @@ function FilterSubmenu({
                            id: 'current-user',
                            label: fa.issue.currentUser,
                            active: draftView.assigneeIds.includes(currentUser.id),
-                           count: tasks.filter((task) => task.assignee?.id === currentUser.id).length,
-                           icon: <LinearAvatar name={currentUser.name} src={currentUser.avatarUrl} className="size-4" />,
+                           count: tasks.filter((task) => task.assignee?.id === currentUser.id)
+                              .length,
+                           icon: (
+                              <LinearAvatar
+                                 name={currentUser.name}
+                                 src={currentUser.avatarUrl}
+                                 className="size-4"
+                              />
+                           ),
                            onClick: () => onToggle('assignee', currentUser.id),
                         },
                      ]
@@ -2405,7 +2611,9 @@ function FilterSubmenu({
                       label: user.name,
                       active: draftView.assigneeIds.includes(user.id),
                       count: tasks.filter((task) => task.assignee?.id === user.id).length,
-                      icon: <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />,
+                      icon: (
+                         <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />
+                      ),
                       onClick: () => onToggle('assignee', user.id),
                    })),
              ]
@@ -2424,7 +2632,13 @@ function FilterSubmenu({
                     label: project.name,
                     active: draftView.projectIds.includes(project.id),
                     count: tasks.filter((task) => task.project?.id === project.id).length,
-                    icon: <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />,
+                    icon: (
+                       <ProjectGlyph
+                          name={project.name}
+                          className="size-4 rounded-sm"
+                          iconClassName="size-3"
+                       />
+                    ),
                     onClick: () => onToggle('project', project.id),
                  }))
                : activeSection === 'labels'
@@ -2432,7 +2646,9 @@ function FilterSubmenu({
                       id: label.id,
                       label: label.name,
                       active: draftView.labels.includes(label.id),
-                      count: tasks.filter((task) => (task.labels || []).some((item) => item.label.id === label.id)).length,
+                      count: tasks.filter((task) =>
+                         (task.labels || []).some((item) => item.label.id === label.id)
+                      ).length,
                       icon: <Tag className="size-4 text-zinc-400" />,
                       onClick: () => onToggle('labels', label.id),
                    }))
@@ -2500,9 +2716,7 @@ function FilterOptionRow({
       <button
          className={cn(
             'group flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm leading-none outline-none transition hover:bg-white/[0.04] hover:text-zinc-100 focus-visible:bg-white/[0.04] focus-visible:text-zinc-100',
-            active
-               ? 'text-zinc-50'
-               : 'text-zinc-300'
+            active ? 'text-zinc-50' : 'text-zinc-300'
          )}
          type="button"
          onClick={onClick}
@@ -2570,7 +2784,9 @@ function TaskDisplayPopover({
                <LinearSelectControl
                   value={draftView.groupBy}
                   options={linearGroupingOptions}
-                  onChange={(value) => onChange((current) => ({ ...current, groupBy: value as TaskViewGrouping }))}
+                  onChange={(value) =>
+                     onChange((current) => ({ ...current, groupBy: value as TaskViewGrouping }))
+                  }
                />
             </DisplaySettingRow>
             <DisplaySettingRow label={fa.issue.ordering}>
@@ -2579,7 +2795,9 @@ function TaskDisplayPopover({
                   <LinearSelectControl
                      value={draftView.orderBy}
                      options={linearOrderingOptions}
-                     onChange={(value) => onChange((current) => ({ ...current, orderBy: value as TaskViewOrdering }))}
+                     onChange={(value) =>
+                        onChange((current) => ({ ...current, orderBy: value as TaskViewOrdering }))
+                     }
                   />
                </div>
             </DisplaySettingRow>
@@ -2593,7 +2811,10 @@ function TaskDisplayPopover({
                   value={draftView.completedIssues}
                   options={completedIssueOptions}
                   onChange={(value) =>
-                     onChange((current) => ({ ...current, completedIssues: value as TaskViewCompletedIssues }))
+                     onChange((current) => ({
+                        ...current,
+                        completedIssues: value as TaskViewCompletedIssues,
+                     }))
                   }
                />
             </DisplaySettingRow>
@@ -2602,12 +2823,16 @@ function TaskDisplayPopover({
          <div className="my-3 h-px bg-white/7" />
 
          <div>
-            <div className="text-[15px] font-semibold text-zinc-100">{displayMenuCopy.listOptions}</div>
+            <div className="text-[15px] font-semibold text-zinc-100">
+               {displayMenuCopy.listOptions}
+            </div>
             <div className="mt-2 space-y-2">
                <DisplaySwitchRow
                   checked={draftView.showEmptyGroups}
                   label={fa.issue.showEmptyGroups}
-                  onCheckedChange={(checked) => onChange((current) => ({ ...current, showEmptyGroups: checked }))}
+                  onCheckedChange={(checked) =>
+                     onChange((current) => ({ ...current, showEmptyGroups: checked }))
+                  }
                />
             </div>
          </div>
@@ -2731,16 +2956,23 @@ function TeamProjectAttachEmpty({
                      key={project.id}
                      className="grid min-h-14 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2"
                   >
-                     <ProjectGlyph name={project.name} className="size-6 rounded-md" iconClassName="size-3.5" />
+                     <ProjectGlyph
+                        name={project.name}
+                        className="size-6 rounded-md"
+                        iconClassName="size-3.5"
+                     />
                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                           <span className="truncate text-sm font-semibold text-zinc-200">{project.name}</span>
+                           <span className="truncate text-sm font-semibold text-zinc-200">
+                              {project.name}
+                           </span>
                            <span className="ltr rounded bg-white/6 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500">
                               {project.keyPrefix}
                            </span>
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">
-                           {(project._count?.tasks || 0).toLocaleString('fa-IR')} {fa.project.issueCount}
+                           {(project._count?.tasks || 0).toLocaleString('fa-IR')}{' '}
+                           {fa.project.issueCount}
                         </div>
                      </div>
                      <Button
@@ -2805,7 +3037,11 @@ function ListGroup({
       <section className="pb-1">
          <div className="sticky top-0 z-20 bg-[#101011] px-3 pt-2 pb-1">
             <div className="relative h-11 overflow-hidden rounded-lg bg-[#171719]">
-               <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
+               <div
+                  aria-hidden="true"
+                  className={cn('absolute inset-0', group.toneClassName)}
+                  style={group.toneStyle}
+               />
                <div className="relative flex h-full items-center justify-between px-4">
                   <button
                      aria-expanded={!collapsed}
@@ -2814,10 +3050,17 @@ function ListGroup({
                      type="button"
                      onClick={onToggleCollapse}
                   >
-                     <ChevronRight className={cn('size-3.5 text-zinc-600 transition group-hover:text-zinc-300', !collapsed && 'rotate-90')} />
+                     <ChevronRight
+                        className={cn(
+                           'size-3.5 text-zinc-600 transition group-hover:text-zinc-300',
+                           !collapsed && 'rotate-90'
+                        )}
+                     />
                      {group.icon}
                      <span className="truncate">{group.label}</span>
-                     <span className="text-zinc-500">{group.tasks.length.toLocaleString('fa-IR')}</span>
+                     <span className="text-zinc-500">
+                        {group.tasks.length.toLocaleString('fa-IR')}
+                     </span>
                   </button>
                   <button
                      aria-label={fa.issue.newIssue}
@@ -2908,9 +3151,18 @@ function BoardGroup({
    users: TaskaraUser[];
 }) {
    return (
-      <section className={cn('flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-white/8 bg-[#171719]', collapsed ? 'w-[48px]' : 'w-[320px]')}>
+      <section
+         className={cn(
+            'flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-white/8 bg-[#171719]',
+            collapsed ? 'w-[48px]' : 'w-[320px]'
+         )}
+      >
          <div className="relative h-10 bg-[#171719]">
-            <div aria-hidden="true" className={cn('absolute inset-0', group.toneClassName)} style={group.toneStyle} />
+            <div
+               aria-hidden="true"
+               className={cn('absolute inset-0', group.toneClassName)}
+               style={group.toneStyle}
+            />
             <div className="relative flex h-full items-center justify-between px-4">
                <button
                   aria-expanded={!collapsed}
@@ -2918,56 +3170,65 @@ function BoardGroup({
                   type="button"
                   onClick={onToggleCollapse}
                >
-                  <ChevronRight className={cn('size-3.5 text-zinc-600 transition group-hover:text-zinc-300', !collapsed && 'rotate-90')} />
+                  <ChevronRight
+                     className={cn(
+                        'size-3.5 text-zinc-600 transition group-hover:text-zinc-300',
+                        !collapsed && 'rotate-90'
+                     )}
+                  />
                   {group.icon}
                   {!collapsed ? (
                      <>
                         <span className="truncate">{group.label}</span>
-                        <span className="text-zinc-500">{group.tasks.length.toLocaleString('fa-IR')}</span>
+                        <span className="text-zinc-500">
+                           {group.tasks.length.toLocaleString('fa-IR')}
+                        </span>
                      </>
                   ) : null}
                </button>
                {!collapsed ? (
-               <button
-                  aria-label={fa.issue.newIssue}
-                  className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
-                  type="button"
-                  onClick={onAdd}
-               >
-                  <Plus className="size-4" />
-               </button>
+                  <button
+                     aria-label={fa.issue.newIssue}
+                     className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+                     type="button"
+                     onClick={onAdd}
+                  >
+                     <Plus className="size-4" />
+                  </button>
                ) : null}
             </div>
          </div>
-         {collapsed ? null : <div className="flex-1 space-y-2 overflow-y-auto p-2">
-            {group.tasks.length === 0 ? (
-               <LinearEmptyState className="py-6">{fa.issue.noIssuesInGroup}</LinearEmptyState>
-            ) : (
-               group.tasks.map((task, index) => (
-                  <IssueCard
-                     key={task.id}
-                     highlighted={group.offset + index === highlightedIndex}
-                     displayProperties={displayProperties}
-                     selected={selectedTaskId === task.id}
-                     task={task}
-                     onClick={() => {
-                        onSelect(task, group.offset + index);
-                        onOpen(task);
-                     }}
-                     onPriorityChange={(priority) => onPriorityChange(task, priority)}
-                     onProjectChange={(projectId) => onProjectChange(task, projectId)}
-                     onStatusChange={(status) => onStatusChange(task, status)}
-                     onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
-                     onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
-                     onLabelsChange={(labels) => onLabelsChange(task, labels)}
-                     onDelete={() => onDelete(task)}
-                     labelOptions={labelOptions}
-                     projects={projects}
-                     users={users}
-                  />
-               ))
-            )}
-         </div>}
+         {collapsed ? null : (
+            <div className="flex-1 space-y-2 overflow-y-auto p-2">
+               {group.tasks.length === 0 ? (
+                  <LinearEmptyState className="py-6">{fa.issue.noIssuesInGroup}</LinearEmptyState>
+               ) : (
+                  group.tasks.map((task, index) => (
+                     <IssueCard
+                        key={task.id}
+                        highlighted={group.offset + index === highlightedIndex}
+                        displayProperties={displayProperties}
+                        selected={selectedTaskId === task.id}
+                        task={task}
+                        onClick={() => {
+                           onSelect(task, group.offset + index);
+                           onOpen(task);
+                        }}
+                        onPriorityChange={(priority) => onPriorityChange(task, priority)}
+                        onProjectChange={(projectId) => onProjectChange(task, projectId)}
+                        onStatusChange={(status) => onStatusChange(task, status)}
+                        onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
+                        onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
+                        onLabelsChange={(labels) => onLabelsChange(task, labels)}
+                        onDelete={() => onDelete(task)}
+                        labelOptions={labelOptions}
+                        projects={projects}
+                        users={users}
+                     />
+                  ))
+               )}
+            </div>
+         )}
       </section>
    );
 }
@@ -3028,9 +3289,19 @@ function IssueRow({
                   onClick();
                }}
             >
-               <span className="flex justify-center" onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
-                  {selected ? <Check className="size-4 text-indigo-300" /> : shows('priority') ? (
-                     <TaskPriorityControl priority={task.priority} iconOnly onChange={onPriorityChange} />
+               <span
+                  className="flex justify-center"
+                  onClick={stopRowPropagation}
+                  onDoubleClick={stopRowPropagation}
+               >
+                  {selected ? (
+                     <Check className="size-4 text-indigo-300" />
+                  ) : shows('priority') ? (
+                     <TaskPriorityControl
+                        priority={task.priority}
+                        iconOnly
+                        onChange={onPriorityChange}
+                     />
                   ) : null}
                </span>
                <span className="ltr truncate text-xs font-medium text-zinc-500">
@@ -3038,16 +3309,31 @@ function IssueRow({
                      <span className="inline-flex max-w-full items-center gap-1">
                         <span className="truncate">{task.key}</span>
                         {task.syncState === 'pending' ? (
-                           <Repeat2 className="size-3 shrink-0 text-amber-300/80" aria-label={fa.issue.pendingSync} />
+                           <Repeat2
+                              className="size-3 shrink-0 text-amber-300/80"
+                              aria-label={fa.issue.pendingSync}
+                           />
                         ) : null}
                      </span>
                   ) : null}
                </span>
                <span onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
-                  {shows('status') ? <TaskStatusControl status={task.status} iconOnly onChange={onStatusChange} /> : null}
+                  {shows('status') ? (
+                     <TaskStatusControl status={task.status} iconOnly onChange={onStatusChange} />
+                  ) : null}
                </span>
                <span className="min-w-0">
-                  <span className="block truncate font-normal text-zinc-200">{task.title}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                     <span className="block min-w-0 truncate font-normal text-zinc-200">
+                        {task.title}
+                     </span>
+                     {task.weight !== null && task.weight !== undefined ? (
+                        <span className="inline-flex h-5 w-11 shrink-0 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                           <Box className="size-2.5 shrink-0" />
+                           <span>{task.weight.toLocaleString('fa-IR')}</span>
+                        </span>
+                     ) : null}
+                  </span>
                </span>
                <span className="grid min-w-0 grid-cols-[28px] items-center justify-end gap-2 justify-self-end md:w-[196px] md:grid-cols-[160px_28px] lg:w-[348px] lg:grid-cols-[144px_160px_28px] xl:w-[500px] xl:grid-cols-[144px_144px_160px_28px]">
                   <span className="hidden min-w-0 xl:block">
@@ -3056,12 +3342,26 @@ function IssueRow({
                   <span className="hidden w-36 truncate text-xs text-zinc-500 lg:block">
                      {shows('project') ? task.project?.name || fa.app.unknown : null}
                   </span>
-                  <span className="hidden md:block" onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
-                     {shows('dueAt') ? <TaskDueDateControl dueAt={task.dueAt} onChange={onDueAtChange} /> : null}
+                  <span
+                     className="hidden md:block"
+                     onClick={stopRowPropagation}
+                     onDoubleClick={stopRowPropagation}
+                  >
+                     {shows('dueAt') ? (
+                        <TaskDueDateControl dueAt={task.dueAt} onChange={onDueAtChange} />
+                     ) : null}
                   </span>
-                  <span className="flex items-center justify-center" onClick={stopRowPropagation} onDoubleClick={stopRowPropagation}>
+                  <span
+                     className="flex items-center justify-center"
+                     onClick={stopRowPropagation}
+                     onDoubleClick={stopRowPropagation}
+                  >
                      {shows('assignee') ? (
-                        <TaskAssigneeControl assignee={task.assignee} users={users} onChange={onAssigneeChange} />
+                        <TaskAssigneeControl
+                           assignee={task.assignee}
+                           users={users}
+                           onChange={onAssigneeChange}
+                        />
                      ) : null}
                   </span>
                </span>
@@ -3146,13 +3446,28 @@ function IssueCard({
                            <span className="ltr inline-flex min-w-0 items-center gap-1 text-xs text-zinc-500">
                               <span className="truncate">{task.key}</span>
                               {task.syncState === 'pending' ? (
-                                 <Repeat2 className="size-3 shrink-0 text-amber-300/80" aria-label={fa.issue.pendingSync} />
+                                 <Repeat2
+                                    className="size-3 shrink-0 text-amber-300/80"
+                                    aria-label={fa.issue.pendingSync}
+                                 />
                               ) : null}
                            </span>
                         ) : null}
-                        {shows('status') ? <StatusIcon status={task.status} className="size-3.5" /> : null}
+                        {shows('status') ? (
+                           <StatusIcon status={task.status} className="size-3.5" />
+                        ) : null}
                      </div>
-                     <div className="mt-1 line-clamp-2 text-sm font-normal text-zinc-100">{task.title}</div>
+                     <div className="mt-1 flex items-start gap-1.5">
+                        <span className="line-clamp-2 min-w-0 text-sm font-normal text-zinc-100">
+                           {task.title}
+                        </span>
+                        {task.weight !== null && task.weight !== undefined ? (
+                           <span className="mt-0.5 inline-flex h-5 w-11 shrink-0 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                              <Box className="size-2.5 shrink-0" />
+                              <span>{task.weight.toLocaleString('fa-IR')}</span>
+                           </span>
+                        ) : null}
+                     </div>
                   </div>
                   {shows('priority') ? <PriorityIcon priority={task.priority} /> : null}
                </div>
@@ -3162,15 +3477,23 @@ function IssueCard({
                   </span>
                   {shows('assignee') ? (
                      task.assignee ? (
-                        <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-5" />
+                        <LinearAvatar
+                           name={task.assignee.name}
+                           src={task.assignee.avatarUrl}
+                           className="size-5"
+                        />
                      ) : (
                         <NoAssigneeIcon className="size-5 text-zinc-500" />
                      )
                   ) : null}
                </div>
                <div className="mt-3 flex items-center gap-2">
-                  {shows('priority') ? <TaskPriorityControl priority={task.priority} onChange={onPriorityChange} /> : null}
-                  {shows('status') ? <TaskStatusControl status={task.status} onChange={onStatusChange} /> : null}
+                  {shows('priority') ? (
+                     <TaskPriorityControl priority={task.priority} onChange={onPriorityChange} />
+                  ) : null}
+                  {shows('status') ? (
+                     <TaskStatusControl status={task.status} onChange={onStatusChange} />
+                  ) : null}
                </div>
             </div>
          </ContextMenuTrigger>
@@ -3218,7 +3541,10 @@ function TaskStatusControl({
                {!iconOnly ? <span>{linearStatusMeta[status]?.label || status}</span> : null}
             </button>
          </PopoverTrigger>
-         <PopoverContent align="start" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
+         <PopoverContent
+            align="start"
+            className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl"
+         >
             {taskStatuses.map((item) => (
                <LinearMenuOption
                   key={item}
@@ -3259,7 +3585,10 @@ function TaskPriorityControl({
                {!iconOnly ? <span>{linearPriorityMeta[priority]?.label || priority}</span> : null}
             </button>
          </PopoverTrigger>
-         <PopoverContent align="start" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
+         <PopoverContent
+            align="start"
+            className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl"
+         >
             <LinearMenuSearch title={fa.issue.priority} shortcut="P" />
             {taskPriorities.map((item, index) => (
                <LinearMenuOption
@@ -3307,7 +3636,10 @@ function TaskAssigneeControl({
                )}
             </button>
          </PopoverTrigger>
-         <PopoverContent align="start" className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
+         <PopoverContent
+            align="start"
+            className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl"
+         >
             <AssigneeSearchField value={query} onChange={setQuery} />
             <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
                <LinearMenuOption
@@ -3327,7 +3659,9 @@ function TaskAssigneeControl({
                               ? 'rounded-none border-b-2 border-indigo-400/70'
                               : undefined
                         }
-                        icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
+                        icon={
+                           <LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />
+                        }
                         label={assigneeLabel(user, currentUserId)}
                         shortcut={String(index + 1)}
                         onClick={() => onChange(user.id)}
@@ -3353,7 +3687,9 @@ function TaskLabelSummary({ labels }: { labels: NonNullable<TaskaraTask['labels'
             style={{ backgroundColor: first?.color || '#a78bfa' }}
          />
          <span className="truncate">{first?.name}</span>
-         {labels.length > 1 ? <span className="text-zinc-600">+{(labels.length - 1).toLocaleString('fa-IR')}</span> : null}
+         {labels.length > 1 ? (
+            <span className="text-zinc-600">+{(labels.length - 1).toLocaleString('fa-IR')}</span>
+         ) : null}
       </span>
    );
 }
@@ -3388,7 +3724,10 @@ function TaskIssueContextMenu({
    const { session } = useAuthSession();
    const currentUserId = session?.user.id || null;
    const [assigneeQuery, setAssigneeQuery] = useState('');
-   const filteredUsers = useMemo(() => filterAssigneeUsers(users, assigneeQuery), [users, assigneeQuery]);
+   const filteredUsers = useMemo(
+      () => filterAssigneeUsers(users, assigneeQuery),
+      [users, assigneeQuery]
+   );
    const taskLabelNames = labelNames(task);
    const allLabelOptions = [
       ...labelOptions,
@@ -3414,10 +3753,20 @@ function TaskIssueContextMenu({
    }, [task.id]);
 
    return (
-      <ContextMenuContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl">
+      <ContextMenuContent
+         dir="rtl"
+         className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-200 shadow-2xl"
+      >
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<StatusIcon status={task.status} />} label={fa.issue.status} shortcut="S" />
-            <ContextMenuSubContent dir="rtl" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <LinearContextSubTrigger
+               icon={<StatusIcon status={task.status} />}
+               label={fa.issue.status}
+               shortcut="S"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
                {taskStatuses.map((item) => (
                   <LinearContextItem
                      key={item}
@@ -3431,8 +3780,15 @@ function TaskIssueContextMenu({
          </ContextMenuSub>
 
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<PriorityIcon priority={task.priority} />} label={fa.issue.priority} shortcut="P" />
-            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <LinearContextSubTrigger
+               icon={<PriorityIcon priority={task.priority} />}
+               label={fa.issue.priority}
+               shortcut="P"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
                {taskPriorities.map((item, index) => (
                   <LinearContextItem
                      key={item}
@@ -3448,11 +3804,24 @@ function TaskIssueContextMenu({
 
          <ContextMenuSub>
             <LinearContextSubTrigger
-               icon={task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-4" /> : <NoAssigneeIcon className="size-4 text-zinc-500" />}
+               icon={
+                  task.assignee ? (
+                     <LinearAvatar
+                        name={task.assignee.name}
+                        src={task.assignee.avatarUrl}
+                        className="size-4"
+                     />
+                  ) : (
+                     <NoAssigneeIcon className="size-4 text-zinc-500" />
+                  )
+               }
                label={fa.issue.assignee}
                shortcut="A"
             />
-            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
                <AssigneeSearchField value={assigneeQuery} onChange={setAssigneeQuery} />
                <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
                   <LinearContextItem
@@ -3472,7 +3841,13 @@ function TaskIssueContextMenu({
                                  ? 'rounded-none border-b-2 border-indigo-400/70'
                                  : undefined
                            }
-                           icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
+                           icon={
+                              <LinearAvatar
+                                 name={user.name}
+                                 src={user.avatarUrl}
+                                 className="size-5"
+                              />
+                           }
                            label={assigneeLabel(user, currentUserId)}
                            shortcut={String(index + 1)}
                            onSelect={() => onAssigneeChange(user.id)}
@@ -3486,19 +3861,59 @@ function TaskIssueContextMenu({
          </ContextMenuSub>
 
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<CalendarClock className="size-4 text-zinc-400" />} label={fa.issue.dueAt} shortcut="⇧D" />
-            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="امروز" shortcut="۱" onSelect={() => onDueAtChange(makeDueDate(0))} />
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="فردا" shortcut="۲" onSelect={() => onDueAtChange(makeDueDate(1))} />
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="پایان این هفته" shortcut="۳" onSelect={() => onDueAtChange(makeEndOfIranWorkWeek())} />
-               <LinearContextItem icon={<CalendarClock className="size-4 text-zinc-400" />} label="یک هفته دیگر" shortcut="۴" onSelect={() => onDueAtChange(makeDueDate(7))} />
-               {task.dueAt ? <LinearContextItem icon={<XCircle className="size-4 text-zinc-500" />} label={fa.issue.clearDueAt} onSelect={() => onDueAtChange(null)} /> : null}
+            <LinearContextSubTrigger
+               icon={<CalendarClock className="size-4 text-zinc-400" />}
+               label={fa.issue.dueAt}
+               shortcut="⇧D"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
+               <LinearContextItem
+                  icon={<CalendarClock className="size-4 text-zinc-400" />}
+                  label="امروز"
+                  shortcut="۱"
+                  onSelect={() => onDueAtChange(makeDueDate(0))}
+               />
+               <LinearContextItem
+                  icon={<CalendarClock className="size-4 text-zinc-400" />}
+                  label="فردا"
+                  shortcut="۲"
+                  onSelect={() => onDueAtChange(makeDueDate(1))}
+               />
+               <LinearContextItem
+                  icon={<CalendarClock className="size-4 text-zinc-400" />}
+                  label="پایان این هفته"
+                  shortcut="۳"
+                  onSelect={() => onDueAtChange(makeEndOfIranWorkWeek())}
+               />
+               <LinearContextItem
+                  icon={<CalendarClock className="size-4 text-zinc-400" />}
+                  label="یک هفته دیگر"
+                  shortcut="۴"
+                  onSelect={() => onDueAtChange(makeDueDate(7))}
+               />
+               {task.dueAt ? (
+                  <LinearContextItem
+                     icon={<XCircle className="size-4 text-zinc-500" />}
+                     label={fa.issue.clearDueAt}
+                     onSelect={() => onDueAtChange(null)}
+                  />
+               ) : null}
             </ContextMenuSubContent>
          </ContextMenuSub>
 
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<Tag className="size-4 text-zinc-400" />} label={fa.issue.labels} shortcut="L" />
-            <ContextMenuSubContent dir="rtl" className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <LinearContextSubTrigger
+               icon={<Tag className="size-4 text-zinc-400" />}
+               label={fa.issue.labels}
+               shortcut="L"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
                {allLabelOptions.length ? (
                   allLabelOptions.map((label) => (
                      <LinearContextItem
@@ -3529,14 +3944,23 @@ function TaskIssueContextMenu({
                label={fa.issue.project}
                shortcut="⇧P"
             />
-            <ContextMenuSubContent dir="rtl" className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-64 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
                <LinearMenuSearch title={fa.issue.project} />
                {projects.length ? (
                   projects.map((project) => (
                      <LinearContextItem
                         key={project.id}
                         active={task.project?.id === project.id}
-                        icon={<ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />}
+                        icon={
+                           <ProjectGlyph
+                              name={project.name}
+                              className="size-4 rounded-sm"
+                              iconClassName="size-3"
+                           />
+                        }
                         label={project.name}
                         onSelect={() => onProjectChange(project.id)}
                      />
@@ -3550,22 +3974,66 @@ function TaskIssueContextMenu({
          </ContextMenuSub>
 
          <ContextMenuSeparator className="bg-white/8" />
-         <LinearContextItem icon={<PanelRight className="size-4 text-zinc-400" />} label={fa.issue.details} onSelect={onOpen} />
-         <LinearContextItem icon={<LinkIcon className="size-4 text-zinc-400" />} label="کپی لینک کار" onSelect={() => copyValue(task.key, 'لینک کار کپی شد.')} />
-         <LinearContextItem icon={<Repeat2 className="size-4 text-zinc-400" />} label="ایجاد کار مرتبط" />
+         <LinearContextItem
+            icon={<PanelRight className="size-4 text-zinc-400" />}
+            label={fa.issue.details}
+            onSelect={onOpen}
+         />
+         <LinearContextItem
+            icon={<LinkIcon className="size-4 text-zinc-400" />}
+            label="کپی لینک کار"
+            onSelect={() => copyValue(task.key, 'لینک کار کپی شد.')}
+         />
+         <LinearContextItem
+            icon={<Repeat2 className="size-4 text-zinc-400" />}
+            label="ایجاد کار مرتبط"
+         />
          <ContextMenuSub>
-            <LinearContextSubTrigger icon={<Check className="size-4 text-zinc-400" />} label="علامت‌گذاری" />
-            <ContextMenuSubContent dir="rtl" className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100">
-               <LinearContextItem icon={<Check className="size-4 text-indigo-300" />} label={fa.status.DONE} onSelect={() => onStatusChange('DONE')} />
-               <LinearContextItem icon={<XCircle className="size-4 text-zinc-500" />} label={fa.status.CANCELED} onSelect={() => onStatusChange('CANCELED')} />
+            <LinearContextSubTrigger
+               icon={<Check className="size-4 text-zinc-400" />}
+               label="علامت‌گذاری"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
+               <LinearContextItem
+                  icon={<Check className="size-4 text-indigo-300" />}
+                  label={fa.status.DONE}
+                  onSelect={() => onStatusChange('DONE')}
+               />
+               <LinearContextItem
+                  icon={<XCircle className="size-4 text-zinc-500" />}
+                  label={fa.status.CANCELED}
+                  onSelect={() => onStatusChange('CANCELED')}
+               />
             </ContextMenuSubContent>
          </ContextMenuSub>
          <ContextMenuSeparator className="bg-white/8" />
-         <LinearContextItem icon={<Copy className="size-4 text-zinc-400" />} label="کپی شناسه" onSelect={() => copyValue(task.key, 'شناسه کپی شد.')} />
-         <LinearContextItem icon={<Copy className="size-4 text-zinc-400" />} label="کپی عنوان" onSelect={() => copyValue(task.title, 'عنوان کپی شد.')} />
-         <LinearContextItem icon={<Star className="size-4 text-zinc-400" />} label="علاقه‌مندی" shortcut="F" onSelect={() => toast.success('به علاقه‌مندی‌ها اضافه شد.')} />
+         <LinearContextItem
+            icon={<Copy className="size-4 text-zinc-400" />}
+            label="کپی شناسه"
+            onSelect={() => copyValue(task.key, 'شناسه کپی شد.')}
+         />
+         <LinearContextItem
+            icon={<Copy className="size-4 text-zinc-400" />}
+            label="کپی عنوان"
+            onSelect={() => copyValue(task.title, 'عنوان کپی شد.')}
+         />
+         <LinearContextItem
+            icon={<Star className="size-4 text-zinc-400" />}
+            label="علاقه‌مندی"
+            shortcut="F"
+            onSelect={() => toast.success('به علاقه‌مندی‌ها اضافه شد.')}
+         />
          <ContextMenuSeparator className="bg-white/8" />
-         <LinearContextItem destructive icon={<Trash2 className="size-4" />} label="حذف..." shortcut="⌘⌫" onSelect={onDelete} />
+         <LinearContextItem
+            destructive
+            icon={<Trash2 className="size-4" />}
+            label="حذف..."
+            shortcut="⌘⌫"
+            onSelect={onDelete}
+         />
       </ContextMenuContent>
    );
 }
@@ -3633,12 +4101,23 @@ function LinearMenuOption({
          <span className="flex size-5 shrink-0 items-center justify-center">{icon}</span>
          <span className="min-w-0 flex-1 truncate text-start">{label}</span>
          {meta ? <span className="shrink-0 text-xs text-zinc-500">{meta}</span> : null}
-         {active ? <Check className="size-4 shrink-0 text-zinc-400" /> : shortcut ? <span className="shrink-0 text-xs text-zinc-500">{shortcut}</span> : null}
+         {active ? (
+            <Check className="size-4 shrink-0 text-zinc-400" />
+         ) : shortcut ? (
+            <span className="shrink-0 text-xs text-zinc-500">{shortcut}</span>
+         ) : null}
       </button>
    );
 }
 
-function LinearContextSubTrigger({ icon, label }: { icon: ReactNode; label: string; shortcut?: string }) {
+function LinearContextSubTrigger({
+   icon,
+   label,
+}: {
+   icon: ReactNode;
+   label: string;
+   shortcut?: string;
+}) {
    return (
       <ContextMenuSubTrigger className="h-9 rounded-lg px-3 text-zinc-300 focus:bg-white/[0.07] data-[state=open]:bg-white/[0.07]">
          <span className="flex size-5 items-center justify-center">{icon}</span>
