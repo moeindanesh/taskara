@@ -18,7 +18,6 @@ const fallbackTrayIconDataUrl =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACTSURBVHgBpZKBCYAgEEV/TeAIjuIIbdQIuUGt0CS1gW1iZ2jIVaTnhw+Cvs8/OYDJA4Y8kR3ZR2/kmazxJbpUEfQ/Dm/UG7wVwHkjlQdMFfDdJMFaACebnjJGyDWgcnZu1/lrCrl6NCoEHJBrDwEr5NrT6ko/UV8xdLAC2N49mlc5CylpYh8wCwqrvbBGLoKGvz8Bfq0QPWEUo/EAAAAASUVORK5CYII=';
 
 const statusOrder = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE', 'CANCELED'];
-const openStatuses = new Set(['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED']);
 
 let tray = null;
 let panelWindow = null;
@@ -34,8 +33,8 @@ let isRefreshing = false;
 function authHeaders() {
   return {
     'content-type': 'application/json',
-    'x-user-email': userEmail,
-    'x-workspace-slug': workspaceSlug,
+    ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    ...(workspaceSlug ? { 'x-workspace-slug': workspaceSlug } : {}),
     'x-actor-type': 'CODEX'
   };
 }
@@ -48,7 +47,12 @@ async function request(pathname, options = {}) {
   });
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { message: text || 'Invalid API response' };
+  }
   if (!response.ok) throw new Error(data?.message || `${response.status} ${response.statusText}`);
   return data;
 }
@@ -59,18 +63,37 @@ function normalizeTasks(items) {
       key: item.key,
       title: item.title,
       status: item.status,
+      priority: item.priority,
+      projectId: item.project?.id || null,
+      projectName: item.project?.name || null,
       dueAt: item.dueAt
     }))
     .sort((a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status));
 }
 
+async function patchTask(taskKey, patch) {
+  if (!taskKey) throw new Error('Task key is required');
+  return request(`/tasks/${encodeURIComponent(taskKey)}`, {
+    method: 'PATCH',
+    body: patch
+  });
+}
+
 async function refreshTasks(force = false) {
+  if (!workspaceSlug || !userEmail) {
+    lastSnapshot = {
+      ...lastSnapshot,
+      lastError: 'TASKARA_WORKSPACE_SLUG یا TASKARA_USER_EMAIL در فایل .env تنظیم نشده است'
+    };
+    updateTrayView();
+    return lastSnapshot;
+  }
+
   if (isRefreshing && !force) return lastSnapshot;
   isRefreshing = true;
   try {
     const data = await request('/tasks?mine=true&limit=200');
-    const allItems = normalizeTasks(Array.isArray(data?.items) ? data.items : []);
-    const items = allItems.filter((item) => openStatuses.has(item.status));
+    const items = normalizeTasks(Array.isArray(data?.items) ? data.items : []);
     lastSnapshot = {
       items,
       total: items.length,
@@ -100,7 +123,7 @@ function trayIcon() {
 function updateTrayView() {
   if (!tray) return;
   tray.setTitle('');
-  tray.setToolTip(`Taskara - Open tasks: ${lastSnapshot.total}`);
+  tray.setToolTip(`Taskara - Tasks: ${lastSnapshot.total}`);
 }
 
 function togglePanelWindow() {
@@ -150,7 +173,7 @@ function createPanelWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.mjs')
+      preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
@@ -182,10 +205,33 @@ ipcMain.handle('taskara:refresh', async () => {
   return lastSnapshot;
 });
 
+ipcMain.handle('taskara:sync', async () => {
+  await refreshTasks(true);
+  return lastSnapshot;
+});
+
+ipcMain.handle('taskara:update-task', async (_event, taskKey, patch) => {
+  const input = patch && typeof patch === 'object' ? patch : {};
+  const payload = {};
+
+  if (typeof input.status === 'string' && input.status) payload.status = input.status;
+  if (typeof input.priority === 'string' && input.priority) payload.priority = input.priority;
+  if (Object.keys(payload).length === 0) throw new Error('No valid update fields provided');
+
+  const updated = await patchTask(taskKey, payload);
+  await refreshTasks(true);
+  return { updatedTask: updated, snapshot: lastSnapshot };
+});
+
 ipcMain.handle('taskara:open-task', async (_event, taskKey) => {
   const key = encodeURIComponent(String(taskKey || '').trim());
   if (!key) return;
   await shell.openExternal(`${webUrl}/${workspaceSlug}/team/all/all?task=${key}`);
+});
+
+ipcMain.handle('taskara:open-web', async () => {
+  const basePath = workspaceSlug ? `/${workspaceSlug}/team/all/all` : '';
+  await shell.openExternal(`${webUrl}${basePath}`);
 });
 
 app.whenReady().then(async () => {
