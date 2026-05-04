@@ -106,6 +106,7 @@ model Workspace {
   cycles             Cycle[]
   views              View[]
   notifications      Notification[]
+  taskSubscriptions  TaskSubscription[]
   activityLogs       ActivityLog[]
   integrations       IntegrationAccount[]
   mattermostBindings MattermostBinding[]
@@ -133,6 +134,7 @@ model User {
   ledProjects        Project[] @relation("ProjectLead")
   assignedTasks      Task[]    @relation("AssignedTasks")
   reportedTasks      Task[]    @relation("ReportedTasks")
+  taskSubscriptions  TaskSubscription[]
   comments           TaskComment[]
   notifications      Notification[]
   activityLogs       ActivityLog[]
@@ -309,6 +311,7 @@ model Task {
   comments  TaskComment[]
   attachments TaskAttachment[]
   labels    TaskLabel[]
+  subscriptions TaskSubscription[]
   blockingDependencies TaskDependency[] @relation("TaskBlockedBy")
   blockedTasks TaskDependency[] @relation("TaskBlocks")
   notifications Notification[]
@@ -389,6 +392,22 @@ model TaskLabel {
   label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([taskId, labelId])
+}
+
+model TaskSubscription {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  taskId      String  @db.Uuid
+  userId      String  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId, createdAt])
+  @@index([taskId])
 }
 
 model View {

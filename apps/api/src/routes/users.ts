@@ -413,6 +413,9 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       const notifications = await tx.notification.deleteMany({
         where: { workspaceId: actor.workspace.id, userId: id }
       });
+      const taskSubscriptions = await tx.taskSubscription.deleteMany({
+        where: { workspaceId: actor.workspace.id, userId: id }
+      });
       await tx.workspaceMember.delete({ where: { id: membership.id } });
 
       return {
@@ -420,7 +423,8 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         projectMemberships: projectMemberships.count,
         ledProjects: ledProjects.count,
         assignedTasks: assignedTasks.count,
-        notifications: notifications.count
+        notifications: notifications.count,
+        taskSubscriptions: taskSubscriptions.count
       };
     });
 

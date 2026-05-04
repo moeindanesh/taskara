@@ -382,6 +382,34 @@ export function IssuePage() {
       }
    }
 
+   const uploadDescriptionInlineImages = useCallback(
+      async (files: File[]) => {
+         if (!task || files.length === 0) return [];
+
+         setDescriptionUploading(true);
+         try {
+            const uploaded = await Promise.all(files.map((file) => uploadTaskAttachment(task.key, file)));
+            setTask((current) => {
+               if (!current) return current;
+               const currentCount = current._count?.attachments ?? current.attachments?.length ?? 0;
+               return {
+                  ...current,
+                  attachments: [...(current.attachments || []), ...uploaded],
+                  _count: { ...current._count, attachments: currentCount + uploaded.length },
+               };
+            });
+            await loadActivity(task.key);
+            return uploaded.map((attachment) => ({
+               altText: attachment.name,
+               src: attachment.url,
+            }));
+         } finally {
+            setDescriptionUploading(false);
+         }
+      },
+      [loadActivity, task]
+   );
+
    function selectCommentFiles(event: ChangeEvent<HTMLInputElement>) {
       const files = Array.from(event.target.files || []);
       if (files.length) setCommentFiles((current) => [...current, ...files]);
@@ -563,6 +591,10 @@ export function IssuePage() {
                      onChange={setDescriptionDraft}
                      onFocus={() => {
                         descriptionFocusedRef.current = true;
+                     }}
+                     uploadInlineImages={uploadDescriptionInlineImages}
+                     onInlineImageUploadError={(err) => {
+                        toast.error(err instanceof Error ? err.message : fa.issue.attachmentUploadFailed);
                      }}
                      placeholder={fa.issue.descriptionPlaceholder}
                      contentClassName="min-h-24 text-right text-sm leading-6 text-zinc-300"

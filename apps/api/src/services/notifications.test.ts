@@ -1,9 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import type { Prisma } from '@taskara/db';
-import { TASK_MENTIONED_NOTIFICATION_TYPE, createTaskMentionNotifications } from './notifications';
+import {
+  TASK_COMMENTED_NOTIFICATION_TYPE,
+  TASK_MENTIONED_NOTIFICATION_TYPE,
+  createTaskMentionNotifications,
+  createTaskSubscriberNotifications,
+  subscribeUsersToTask
+} from './notifications';
 
 type WorkspaceMemberFindManyArgs = Parameters<Prisma.TransactionClient['workspaceMember']['findMany']>[0];
 type NotificationCreateManyArgs = Parameters<Prisma.TransactionClient['notification']['createMany']>[0];
+type TaskSubscriptionCreateManyArgs = Parameters<Prisma.TransactionClient['taskSubscription']['createMany']>[0];
+type TaskSubscriptionFindManyArgs = Parameters<Prisma.TransactionClient['taskSubscription']['findMany']>[0];
 
 type CreatedNotification = {
   workspaceId: string;
@@ -12,6 +20,12 @@ type CreatedNotification = {
   type: string;
   title: string;
   body?: string | null;
+};
+
+type CreatedSubscription = {
+  workspaceId: string;
+  taskId: string;
+  userId: string;
 };
 
 function serializedDescription(
@@ -38,9 +52,11 @@ function serializedDescription(
   });
 }
 
-function mockMentionTransaction(validWorkspaceUserIds: string[]) {
+function mockMentionTransaction(validWorkspaceUserIds: string[], subscribedUserIds: string[] = []) {
   let createdNotifications: CreatedNotification[] = [];
+  let createdSubscriptions: CreatedSubscription[] = [];
   let createManyCalls = 0;
+  let subscriptionCreateManyCalls = 0;
 
   const tx = {
     workspaceMember: {
@@ -57,8 +73,22 @@ function mockMentionTransaction(validWorkspaceUserIds: string[]) {
         if (!args) throw new Error('createMany args are required');
         createManyCalls += 1;
         const data = Array.isArray(args.data) ? args.data : [args.data];
-        createdNotifications = data as CreatedNotification[];
+        createdNotifications = [...createdNotifications, ...(data as CreatedNotification[])];
         return { count: data.length };
+      }
+    },
+    taskSubscription: {
+      createMany: async (args: TaskSubscriptionCreateManyArgs) => {
+        if (!args) throw new Error('task subscription createMany args are required');
+        subscriptionCreateManyCalls += 1;
+        const data = Array.isArray(args.data) ? args.data : [args.data];
+        createdSubscriptions = [...createdSubscriptions, ...(data as CreatedSubscription[])];
+        return { count: data.length };
+      },
+      findMany: async (args: TaskSubscriptionFindManyArgs) => {
+        const where = args?.where as { userId?: { notIn?: string[] } } | undefined;
+        const excludedUserIds = new Set(where?.userId?.notIn || []);
+        return subscribedUserIds.filter((userId) => !excludedUserIds.has(userId)).map((userId) => ({ userId }));
       }
     }
   } as unknown as Prisma.TransactionClient;
@@ -70,6 +100,12 @@ function mockMentionTransaction(validWorkspaceUserIds: string[]) {
     },
     get createdNotifications() {
       return createdNotifications;
+    },
+    get subscriptionCreateManyCalls() {
+      return subscriptionCreateManyCalls;
+    },
+    get createdSubscriptions() {
+      return createdSubscriptions;
     }
   };
 }
@@ -153,5 +189,49 @@ describe('task mention notifications', () => {
 
     expect(mock.createManyCalls).toBe(0);
     expect(mock.createdNotifications).toEqual([]);
+  });
+
+  test('subscribes only workspace members to a task', async () => {
+    const workspaceId = 'workspace-1';
+    const mock = mockMentionTransaction(['user-actor', 'user-assignee']);
+
+    const subscribedUserIds = await subscribeUsersToTask(mock.tx, {
+      workspaceId,
+      taskId: 'task-1',
+      userIds: ['user-actor', 'user-assignee', 'user-assignee', 'user-outside-workspace', null]
+    });
+
+    expect(subscribedUserIds).toEqual(['user-actor', 'user-assignee']);
+    expect(mock.subscriptionCreateManyCalls).toBe(1);
+    expect(mock.createdSubscriptions).toEqual([
+      { workspaceId, taskId: 'task-1', userId: 'user-actor' },
+      { workspaceId, taskId: 'task-1', userId: 'user-assignee' }
+    ]);
+  });
+
+  test('creates subscriber notifications except for the actor and excluded users', async () => {
+    const workspaceId = 'workspace-1';
+    const mock = mockMentionTransaction([], ['user-actor', 'user-subscriber', 'user-mentioned']);
+
+    const recipientIds = await createTaskSubscriberNotifications(mock.tx, {
+      workspaceId,
+      actorUserId: 'user-actor',
+      task: { id: 'task-1', key: 'CORE-12', title: 'Subscriber update' },
+      type: TASK_COMMENTED_NOTIFICATION_TYPE,
+      body: 'Raha دیدگاهی روی این کار گذاشت.',
+      excludeUserIds: ['user-mentioned']
+    });
+
+    expect(recipientIds).toEqual(['user-subscriber']);
+    expect(mock.createdNotifications).toEqual([
+      {
+        workspaceId,
+        userId: 'user-subscriber',
+        taskId: 'task-1',
+        type: TASK_COMMENTED_NOTIFICATION_TYPE,
+        title: 'CORE-12: Subscriber update',
+        body: 'Raha دیدگاهی روی این کار گذاشت.'
+      }
+    ]);
   });
 });

@@ -7,8 +7,17 @@ import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
 import {
   TASK_ASSIGNED_NOTIFICATION_TYPE,
+  TASK_COMMENTED_NOTIFICATION_TYPE,
+  TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE,
+  TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
+  createTaskSubscriberNotifications,
   createTaskMentionNotifications,
-  taskAssignedNotificationBody
+  subscribeTaskParticipants,
+  subscribeUsersToTask,
+  taskAssignedNotificationBody,
+  taskCommentedNotificationBody,
+  taskDescriptionChangedNotificationBody,
+  taskStatusChangedNotificationBody
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 
@@ -78,12 +87,29 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
 
     await syncTaskLabels(tx, actor.workspace.id, created.id, input.labels);
     const task = await tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
+    await subscribeTaskParticipants(tx, {
+      workspaceId: actor.workspace.id,
+      task,
+      userIds: [actor.user.id]
+    });
     await createTaskMentionNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
       task
     });
+    if (task.assigneeId && task.assigneeId !== actor.user.id) {
+      await tx.notification.create({
+        data: {
+          workspaceId: actor.workspace.id,
+          userId: task.assigneeId,
+          taskId: task.id,
+          type: TASK_ASSIGNED_NOTIFICATION_TYPE,
+          title: `${task.key}: ${task.title}`,
+          body: taskAssignedNotificationBody(actor.user.name)
+        }
+      });
+    }
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
@@ -99,19 +125,6 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
     });
     return task;
   });
-
-  if (task.assigneeId && task.assigneeId !== actor.user.id) {
-    await prisma.notification.create({
-      data: {
-        workspaceId: actor.workspace.id,
-        userId: task.assigneeId,
-        taskId: task.id,
-        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-        title: `${task.key}: ${task.title}`,
-        body: taskAssignedNotificationBody(actor.user.name)
-      }
-    }).catch(() => undefined);
-  }
 
   if (syncEvent) publishSyncEvent(syncEvent);
 
@@ -212,8 +225,24 @@ export async function updateTask(
     }
 
     const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
+    if (input.assigneeId) {
+      await subscribeUsersToTask(tx, {
+        workspaceId: actor.workspace.id,
+        taskId: task.id,
+        userIds: [input.assigneeId]
+      });
+    }
+
     if (input.description !== undefined) {
-      await createTaskMentionNotifications(tx, {
+      await subscribeTaskParticipants(tx, {
+        workspaceId: actor.workspace.id,
+        task
+      });
+    }
+
+    let mentionedUserIds: string[] = [];
+    if (input.description !== undefined) {
+      mentionedUserIds = await createTaskMentionNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
         actorName: actor.user.name,
@@ -221,6 +250,41 @@ export async function updateTask(
         previousDescription: existing.description
       });
     }
+
+    if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
+      await tx.notification.create({
+        data: {
+          workspaceId: actor.workspace.id,
+          userId: input.assigneeId,
+          taskId: task.id,
+          type: TASK_ASSIGNED_NOTIFICATION_TYPE,
+          title: `${task.key}: ${task.title}`,
+          body: taskAssignedNotificationBody(actor.user.name)
+        }
+      });
+    }
+
+    if (input.status && input.status !== existing.status) {
+      await createTaskSubscriberNotifications(tx, {
+        workspaceId: actor.workspace.id,
+        actorUserId: actor.user.id,
+        task,
+        type: TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
+        body: taskStatusChangedNotificationBody(actor.user.name, existing.status, input.status)
+      });
+    }
+
+    if (input.description !== undefined && (task.description ?? null) !== (existing.description ?? null)) {
+      await createTaskSubscriberNotifications(tx, {
+        workspaceId: actor.workspace.id,
+        actorUserId: actor.user.id,
+        task,
+        type: TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE,
+        body: taskDescriptionChangedNotificationBody(actor.user.name),
+        excludeUserIds: mentionedUserIds
+      });
+    }
+
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
@@ -237,19 +301,6 @@ export async function updateTask(
     });
     return task;
   });
-
-  if (input.assigneeId && input.assigneeId !== existing.assigneeId && input.assigneeId !== actor.user.id) {
-    await prisma.notification.create({
-      data: {
-        workspaceId: actor.workspace.id,
-        userId: input.assigneeId,
-        taskId: task.id,
-        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-        title: `${task.key}: ${task.title}`,
-        body: taskAssignedNotificationBody(actor.user.name)
-      }
-    }).catch(() => undefined);
-  }
 
   if (syncEvent) publishSyncEvent(syncEvent);
 
@@ -337,6 +388,13 @@ export async function addTaskComment(
       }
     });
     const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    await createTaskSubscriberNotifications(tx, {
+      workspaceId: actor.workspace.id,
+      actorUserId: actor.user.id,
+      task: updatedTask,
+      type: TASK_COMMENTED_NOTIFICATION_TYPE,
+      body: taskCommentedNotificationBody(actor.user.name)
+    });
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',

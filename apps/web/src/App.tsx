@@ -65,7 +65,7 @@ function WorkspaceShell() {
       ? pageMetaByRoute.projects
       : pageMetaByRoute[routeKey as keyof typeof pageMetaByRoute] || pageMetaByRoute.team;
   const header =
-    routeKey === 'issue' || isSettingsRoute ? null : (
+    routeKey === 'issue' || routeKey === 'inbox' || isSettingsRoute ? null : (
       <PageHeader title={pageMeta.title} description={pageMeta.description} compact />
     );
 

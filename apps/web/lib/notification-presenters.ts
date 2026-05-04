@@ -5,6 +5,8 @@ const notificationTypeLabels: Record<string, string> = {
    task_mentioned: 'منشن در کار',
    task_created: 'ایجاد کار',
    task_updated: 'به‌روزرسانی کار',
+   task_status_changed: 'تغییر وضعیت کار',
+   task_description_changed: 'تغییر توضیحات کار',
    task_deleted: 'حذف کار',
    task_commented: 'دیدگاه کار',
    task_comment_mentioned: 'منشن در دیدگاه',
@@ -33,5 +35,8 @@ export function getNotificationBody(notification: Pick<TaskaraNotification, 'typ
 
    if (notification.type === 'task_mentioned') return 'شما در این کار منشن شدید.';
    if (notification.type === 'task_assigned') return 'این کار به شما واگذار شد.';
+   if (notification.type === 'task_status_changed') return 'وضعیت این کار تغییر کرد.';
+   if (notification.type === 'task_description_changed') return 'توضیحات این کار به‌روزرسانی شد.';
+   if (notification.type === 'task_commented') return 'دیدگاه تازه‌ای روی این کار ثبت شد.';
    return '';
 }
