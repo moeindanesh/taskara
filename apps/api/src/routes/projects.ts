@@ -5,6 +5,7 @@ import { getRequestActor } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
 import { appendSyncEvent, publishSyncEvent } from '../services/sync';
+import { assertActorCanAccessTeamId, listAccessibleTeamIds } from '../services/team-access';
 
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
@@ -13,8 +14,12 @@ function isUniqueConstraintError(error: unknown): boolean {
 export async function registerProjectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/projects', async (request) => {
     const actor = await getRequestActor(request);
+    const teamIds = await listAccessibleTeamIds(actor);
     return prisma.project.findMany({
-      where: { workspaceId: actor.workspace.id },
+      where: {
+        workspaceId: actor.workspace.id,
+        ...(teamIds ? { OR: [{ teamId: null }, { teamId: { in: teamIds } }] } : {})
+      },
       orderBy: [{ parentId: 'asc' }, { updatedAt: 'desc' }],
       include: {
         team: { select: { id: true, name: true, slug: true } },
@@ -28,6 +33,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
   app.post('/projects', async (request, reply) => {
     const actor = await getRequestActor(request);
     const input = createProjectSchema.parse(request.body);
+    if (input.teamId) await assertActorCanAccessTeamId(actor, input.teamId);
     await assertProjectRelations(actor.workspace.id, input);
 
     let syncEvent: SyncEvent | null = null;
@@ -79,9 +85,14 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
 
   app.get('/projects/:id', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const teamIds = await listAccessibleTeamIds(actor);
     const { id } = request.params as { id: string };
     const project = await prisma.project.findFirst({
-      where: { id, workspaceId: actor.workspace.id },
+      where: {
+        id,
+        workspaceId: actor.workspace.id,
+        ...(teamIds ? { OR: [{ teamId: null }, { teamId: { in: teamIds } }] } : {})
+      },
       include: {
         subprojects: { orderBy: { updatedAt: 'desc' }, include: { _count: { select: { tasks: true } } } },
         tasks: { take: 50, orderBy: { updatedAt: 'desc' } },
@@ -94,10 +105,18 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
 
   app.patch('/projects/:id', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const teamIds = await listAccessibleTeamIds(actor);
     const { id } = request.params as { id: string };
     const input = updateProjectSchema.parse(request.body);
-    const existing = await prisma.project.findFirst({ where: { id, workspaceId: actor.workspace.id } });
+    const existing = await prisma.project.findFirst({
+      where: {
+        id,
+        workspaceId: actor.workspace.id,
+        ...(teamIds ? { OR: [{ teamId: null }, { teamId: { in: teamIds } }] } : {})
+      }
+    });
     if (!existing) return reply.code(404).send({ message: 'Project not found' });
+    if (input.teamId) await assertActorCanAccessTeamId(actor, input.teamId);
     await assertProjectRelations(actor.workspace.id, input, id);
 
     let syncEvent: SyncEvent | null = null;

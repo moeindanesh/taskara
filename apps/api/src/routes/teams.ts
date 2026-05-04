@@ -4,6 +4,7 @@ import { addTeamMemberSchema, createTeamSchema, setTeamMemberRoleSchema } from '
 import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
+import { assertActorCanAccessTeamId, listAccessibleTeamIds } from '../services/team-access';
 
 const teamMemberUserSelect = {
   id: true,
@@ -33,8 +34,12 @@ function isUniqueConstraintError(error: unknown): boolean {
 export async function registerTeamRoutes(app: FastifyInstance): Promise<void> {
   app.get('/teams', async (request) => {
     const actor = await getRequestActor(request);
+    const teamIds = await listAccessibleTeamIds(actor);
     return prisma.team.findMany({
-      where: { workspaceId: actor.workspace.id },
+      where: {
+        workspaceId: actor.workspace.id,
+        ...(teamIds ? { id: { in: teamIds } } : {})
+      },
       orderBy: { name: 'asc' },
       include: { _count: { select: { members: true, projects: true } } }
     });
@@ -81,6 +86,7 @@ export async function registerTeamRoutes(app: FastifyInstance): Promise<void> {
     const { idOrSlug } = request.params as { idOrSlug: string };
     const team = await findTeamInWorkspace(actor.workspace.id, idOrSlug);
     if (!team) return reply.code(404).send({ message: 'Team not found in this workspace' });
+    await assertActorCanAccessTeamId(actor, team.id);
 
     const members = await prisma.teamMember.findMany({
       where: { teamId: team.id },

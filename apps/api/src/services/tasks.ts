@@ -51,14 +51,7 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
 export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
   let syncEvent: SyncEvent | null = null;
   const task = await prisma.$transaction(async (tx) => {
-    const project = await tx.project.findFirst({
-      where: { id: input.projectId, workspaceId: actor.workspace.id },
-      select: { id: true, workspaceId: true }
-    });
-
-    if (!project) {
-      throw new Error('Project not found in this workspace');
-    }
+    await assertActorCanAccessProject(tx, actor, input.projectId);
     await assertTaskRelations(tx, actor.workspace.id, input, input.projectId);
 
     const { key, sequence } = await reserveTaskKey(tx, input.projectId);
@@ -187,11 +180,7 @@ export async function updateTask(
     const isProjectChange = targetProjectId !== existing.projectId;
 
     if (isProjectChange) {
-      const targetProject = await tx.project.findFirst({
-        where: { id: targetProjectId, workspaceId: actor.workspace.id },
-        select: { id: true }
-      });
-      if (!targetProject) throw new HttpError(400, 'Project not found in this workspace');
+      await assertActorCanAccessProject(tx, actor, targetProjectId);
     }
 
     await assertTaskRelations(tx, actor.workspace.id, input, targetProjectId, taskId);
@@ -381,13 +370,18 @@ export async function addTaskComment(
   return comment;
 }
 
-export async function findTaskByIdOrKey(workspaceId: string, idOrKey: string): Promise<Task | null> {
+export async function findTaskByIdOrKey(
+  workspaceId: string,
+  idOrKey: string,
+  accessibleTeamIds: string[] | null = null
+): Promise<Task | null> {
   const normalized = idOrKey.trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
 
   return prisma.task.findFirst({
     where: {
       workspaceId,
+      ...(accessibleTeamIds ? { project: { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } } : {}),
       OR: [
         ...(isUuid ? [{ id: normalized }] : []),
         { key: normalized.toUpperCase() }
@@ -449,6 +443,33 @@ async function assertTaskRelations(
   if (input.assigneeId && !assignee) throw new HttpError(400, 'Assignee must belong to this workspace');
   if (input.parentId && !parent) throw new HttpError(400, 'Parent task not found in this project');
   if (input.cycleId && !cycle) throw new HttpError(400, 'Cycle not found for this project');
+}
+
+async function assertActorCanAccessProject(
+  tx: Prisma.TransactionClient,
+  actor: RequestActor,
+  projectId: string
+): Promise<{ id: string; teamId: string | null }> {
+  const project = await tx.project.findFirst({
+    where: { id: projectId, workspaceId: actor.workspace.id },
+    select: { id: true, teamId: true }
+  });
+  if (!project) throw new HttpError(400, 'Project not found in this workspace');
+
+  if (!project.teamId) return project;
+
+  const membership = await tx.teamMember.findUnique({
+    where: {
+      teamId_userId: {
+        teamId: project.teamId,
+        userId: actor.user.id
+      }
+    },
+    select: { id: true }
+  });
+
+  if (!membership) throw new HttpError(403, 'Project access denied');
+  return project;
 }
 
 async function assertNoConflictingTaskUpdate(

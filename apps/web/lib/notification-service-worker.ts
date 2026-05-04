@@ -3,6 +3,8 @@ import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
 const SERVICE_WORKER_URL = '/service-worker.js';
 const AUTH_STORAGE_KEY = 'taskara.auth.session.v1';
 const AUTH_CHANGED_EVENT = 'taskara:auth-changed';
+const NOTIFICATIONS_ENABLED_STORAGE_KEY = 'taskara.notifications.enabled.v1';
+const NOTIFICATIONS_CHANGED_EVENT = 'taskara:notifications-changed';
 
 type ServiceWorkerConfigMessage = {
    type: 'TASKARA_SW_CONFIG';
@@ -10,11 +12,19 @@ type ServiceWorkerConfigMessage = {
       token: string;
       workspaceSlug: string;
       apiBaseUrl: string;
+      notificationsEnabled: boolean;
    };
 };
 
 type ServiceWorkerSyncMessage = {
    type: 'TASKARA_SW_SYNC';
+};
+
+type ServiceWorkerSetEnabledMessage = {
+   type: 'TASKARA_SW_SET_ENABLED';
+   payload: {
+      enabled: boolean;
+   };
 };
 
 const publicRouteRoots = new Set(['login', 'signup', 'onboarding', 'accept-invite']);
@@ -42,6 +52,8 @@ export async function setupNotificationServiceWorker(): Promise<void> {
       };
 
       const requestSync = () => {
+         if (!areDesktopNotificationsEnabled()) return;
+         if ('Notification' in window && window.Notification.permission !== 'granted') return;
          pushConfig();
          const syncMessage: ServiceWorkerSyncMessage = { type: 'TASKARA_SW_SYNC' };
          navigator.serviceWorker.controller?.postMessage(syncMessage);
@@ -62,8 +74,14 @@ export async function setupNotificationServiceWorker(): Promise<void> {
       });
 
       window.addEventListener(AUTH_CHANGED_EVENT, pushConfig);
+      window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, () => {
+         pushConfig();
+         requestSync();
+      });
       window.addEventListener('storage', (event) => {
-         if (!event.key || event.key === AUTH_STORAGE_KEY) pushConfig();
+         if (!event.key || event.key === AUTH_STORAGE_KEY || event.key === NOTIFICATIONS_ENABLED_STORAGE_KEY) {
+            pushConfig();
+         }
       });
       window.addEventListener('online', requestSync);
       window.addEventListener('focus', requestSync);
@@ -78,14 +96,19 @@ export async function setupNotificationServiceWorker(): Promise<void> {
    }
 }
 
-function readServiceWorkerConfig(): { token: string; workspaceSlug: string; apiBaseUrl: string } | null {
+function readServiceWorkerConfig(): { token: string; workspaceSlug: string; apiBaseUrl: string; notificationsEnabled: boolean } | null {
    const token = readAuthToken();
    const workspaceSlug = readWorkspaceSlug();
    const apiBaseUrl = readApiBaseUrl();
 
    if (!token || !workspaceSlug || !apiBaseUrl) return null;
 
-   return { token, workspaceSlug, apiBaseUrl };
+   return {
+      token,
+      workspaceSlug,
+      apiBaseUrl,
+      notificationsEnabled: areDesktopNotificationsEnabled(),
+   };
 }
 
 function readAuthToken(): string | null {
@@ -115,4 +138,40 @@ function readApiBaseUrl(): string | null {
    if (typeof viteValue === 'string' && viteValue.trim()) return viteValue.trim().replace(/\/$/, '');
 
    return null;
+}
+
+export function areDesktopNotificationsEnabled(): boolean {
+   if (typeof window === 'undefined') return true;
+
+   try {
+      const raw = window.localStorage.getItem(NOTIFICATIONS_ENABLED_STORAGE_KEY);
+      if (raw === null) return true;
+      return raw === '1';
+   } catch {
+      return true;
+   }
+}
+
+export function setDesktopNotificationsEnabled(enabled: boolean): void {
+   if (typeof window === 'undefined') return;
+
+   try {
+      window.localStorage.setItem(NOTIFICATIONS_ENABLED_STORAGE_KEY, enabled ? '1' : '0');
+   } catch {
+      // Ignore localStorage failures and still try runtime update.
+   }
+
+   const message: ServiceWorkerSetEnabledMessage = {
+      type: 'TASKARA_SW_SET_ENABLED',
+      payload: { enabled },
+   };
+
+   navigator.serviceWorker?.controller?.postMessage(message);
+   void navigator.serviceWorker?.ready
+      .then((registration) => {
+         registration.active?.postMessage(message);
+      })
+      .catch(() => undefined);
+
+   window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT, { detail: { enabled } }));
 }

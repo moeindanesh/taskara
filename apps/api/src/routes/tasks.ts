@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
+import { assertActorCanAccessTeamSlug, listAccessibleTeamIds } from '../services/team-access';
 import { sendTaskCreatedSms, sendTaskFollowUpSms } from '../services/task-sms';
 import {
   addTaskComment,
@@ -28,6 +29,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
   app.get('/leaderboard', async (request) => {
     const actor = await getRequestActor(request);
     const query = leaderboardQuerySchema.parse(request.query);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const startsAt = new Date(query.startsAt);
     const endsAt = new Date(query.endsAt);
 
@@ -45,12 +47,15 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     };
 
     if (query.teamId !== 'all') {
+      await assertActorCanAccessTeamSlug(actor, query.teamId);
       where.project = {
         team: {
           workspaceId: actor.workspace.id,
           slug: query.teamId
         }
       };
+    } else if (accessibleTeamIds) {
+      where.project = { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] };
     }
 
     const [assignedCounts, doneCounts, members] = await Promise.all([
@@ -123,6 +128,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tasks', async (request) => {
     const actor = await getRequestActor(request);
     const query = taskListQuerySchema.parse(request.query);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const where: Prisma.TaskWhereInput = {
       workspaceId: actor.workspace.id,
       projectId: query.projectId,
@@ -132,12 +138,15 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     };
 
     if (query.teamId !== 'all') {
+      await assertActorCanAccessTeamSlug(actor, query.teamId);
       where.project = {
         team: {
           workspaceId: actor.workspace.id,
           slug: query.teamId
         }
       };
+    } else if (accessibleTeamIds) {
+      where.project = { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] };
     }
 
     if (query.q) {
@@ -177,8 +186,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!task) return reply.code(404).send({ message: 'Task not found' });
 
     const fullTask = await prisma.task.findUnique({
@@ -204,8 +214,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const input = updateTaskSchema.parse(request.body);
@@ -216,8 +227,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     await deleteTask(actor, existing.id);
@@ -226,8 +238,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/tasks/:idOrKey/activity', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     return prisma.activityLog.findMany({
@@ -244,8 +257,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/tasks/:idOrKey/attachments', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     return listTaskAttachments(actor, existing.id);
@@ -253,8 +267,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/attachments', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const upload = await readMultipartMediaUpload(request);
@@ -264,8 +279,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/comments', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const input = createCommentSchema.parse(request.body);
@@ -275,8 +291,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/sms/task-created', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const result = await sendTaskCreatedSms(actor, existing.id);
@@ -285,8 +302,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/sms/follow-up', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const result = await sendTaskFollowUpSms(actor, existing.id);
@@ -295,8 +313,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/comments/:commentId/attachments', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey, commentId } = request.params as { idOrKey: string; commentId: string };
-    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     const upload = await readMultipartMediaUpload(request);
@@ -306,10 +325,11 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/tasks/:idOrKey/dependencies', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const { idOrKey } = request.params as { idOrKey: string };
     const body = request.body as { blockedBy: string };
-    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey);
-    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, body.blockedBy);
+    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, accessibleTeamIds);
+    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, body.blockedBy, accessibleTeamIds);
     if (!task || !blockedBy) return reply.code(404).send({ message: 'Task or dependency not found' });
     if (task.id === blockedBy.id) return reply.code(400).send({ message: 'Task cannot block itself' });
 

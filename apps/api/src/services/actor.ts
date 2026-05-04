@@ -10,8 +10,13 @@ export type ActorType = 'USER' | 'SYSTEM' | 'AGENT' | 'MATTERMOST' | 'CODEX';
 export interface RequestActor {
   workspace: Workspace;
   user: User;
+  role: WorkspaceRole;
   actorType: ActorType;
   source: ActorSource;
+}
+
+export function isWorkspaceAdminRole(role: WorkspaceRole): boolean {
+  return role === 'OWNER' || role === 'ADMIN';
 }
 
 function headerValue(request: FastifyRequest, name: string): string | undefined {
@@ -103,7 +108,7 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
       where: { workspaceId_userId: { workspaceId: workspace.id, userId: sessionUser.id } }
     });
     if (!membership) throw new HttpError(403, 'User is not a member of this workspace');
-    return { workspace, user: sessionUser, actorType: 'USER', source: 'WEB' };
+    return { workspace, user: sessionUser, role: membership.role, actorType: 'USER', source: 'WEB' };
   }
 
   const email = headerValue(request, 'x-user-email');
@@ -119,7 +124,7 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
 
   const actorType = headerValue(request, 'x-actor-type') === 'CODEX' ? 'CODEX' : 'USER';
   const source = actorType === 'CODEX' ? 'CODEX' : 'API';
-  return { workspace, user, actorType, source };
+  return { workspace, user, role: membership.role, actorType, source };
 }
 
 export async function getWorkspaceRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
@@ -132,11 +137,10 @@ export async function getWorkspaceRole(workspaceId: string, userId: string): Pro
 
 export async function requireWorkspaceAdmin(request: FastifyRequest): Promise<RequestActor & { role: WorkspaceRole }> {
   const actor = await getRequestActor(request);
-  const role = await getWorkspaceRole(actor.workspace.id, actor.user.id);
-  if (role !== 'OWNER' && role !== 'ADMIN') {
+  if (!isWorkspaceAdminRole(actor.role)) {
     throw new HttpError(403, 'Workspace admin access required');
   }
-  return { ...actor, role };
+  return actor;
 }
 
 export interface MattermostActorPayload {
@@ -180,7 +184,12 @@ export async function getMattermostActor(payload: MattermostActorPayload): Promi
       });
 
   await ensureWorkspaceMember(workspace.id, user.id);
-  return { workspace, user, actorType: 'MATTERMOST', source: 'MATTERMOST' };
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: workspace.id, userId: user.id } },
+    select: { role: true }
+  });
+  if (!membership) throw new HttpError(403, 'User is not a member of this workspace');
+  return { workspace, user, role: membership.role, actorType: 'MATTERMOST', source: 'MATTERMOST' };
 }
 
 function mattermostWorkspaceSlug(payload: MattermostActorPayload): string {

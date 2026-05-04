@@ -1,0 +1,175 @@
+@font-face {
+  font-family: "IRANYekanXFaNum";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    url("../../web/public/fonts/iranYekan/woff2/IRANYekanXFaNum-Regular.woff2") format("woff2"),
+    url("../../web/public/fonts/iranYekan/woff/IRANYekanXFaNum-Regular.woff") format("woff");
+}
+
+:root {
+  --app-font-family: "IRANYekanXFaNum", "Vazirmatn", sans-serif;
+  --radius: 0.625rem;
+  --background: #050506;
+  --foreground: #f4f4f5;
+  --card: #19191b;
+  --popover: #202023;
+  --muted-foreground: #8e8e93;
+  --accent: #2b2b2f;
+  --border: #28282b;
+  --input: #313136;
+  --ring: #6f72e8;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  font-family: var(--app-font-family) !important;
+  font-weight: 400 !important;
+  outline: none;
+  box-shadow: none;
+}
+
+html,
+body {
+  margin: 0;
+  direction: rtl;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  font-size: 0.8125rem;
+  line-height: 1.15rem;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 12px;
+  background:
+    radial-gradient(650px 260px at top right, rgb(111 114 232 / 0.1), transparent),
+    linear-gradient(180deg, #070708, var(--background));
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.title-wrap h1 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.title-wrap p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 6px 10px;
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--ring);
+}
+
+.error {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgb(255 99 99 / 0.35);
+  background: rgb(185 28 28 / 0.15);
+  color: #fca5a5;
+  font-size: 0.75rem;
+}
+
+.hidden {
+  display: none;
+}
+
+.tasks-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.task {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 10px;
+  cursor: pointer;
+}
+
+.task:hover {
+  border-color: var(--ring);
+}
+
+.task-key {
+  margin: 0;
+  color: #a5b4fc;
+  font-size: 0.6875rem;
+}
+
+.task-title {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.3rem;
+}
+
+.task-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.task-meta-badge {
+  border: 1px solid var(--border);
+  background: var(--popover);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.task-status-blocked {
+  color: #f87171;
+}
+
+.task-status-progress {
+  color: #a5b4fc;
+}
+
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px 10px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}

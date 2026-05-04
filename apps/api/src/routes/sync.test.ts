@@ -6,7 +6,8 @@ import type { RequestActor } from '../services/actor';
 
 const actor = {
   workspace: { id: 'workspace-1' },
-  user: { id: 'user-1' }
+  user: { id: 'user-1' },
+  role: 'MEMBER'
 } as RequestActor;
 
 const baseEvent = {
@@ -30,7 +31,7 @@ describe('sync event scope mapping', () => {
       after: task({ assignee: { id: 'user-1' } })
     });
 
-    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor);
+    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor, null);
 
     expect((mapped as { type?: string } | null)?.type).toBe('upsert');
     expect(mapped && 'task' in mapped ? mapped.task?.id : null).toBe('task-1');
@@ -42,7 +43,7 @@ describe('sync event scope mapping', () => {
       after: task({ assignee: { id: 'user-2' } })
     });
 
-    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor);
+    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor, null);
 
     expect((mapped as { type?: string } | null)?.type).toBe('removeFromScope');
     expect(mapped && 'taskId' in mapped ? mapped.taskId : null).toBe('task-1');
@@ -51,7 +52,7 @@ describe('sync event scope mapping', () => {
   test('deletes visible tasks when delete tombstone arrives', () => {
     const event = syncEvent({ before: task({ assignee: { id: 'user-1' } }) }, 'deleted');
 
-    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor);
+    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'all', mine: true, cursor: '0', limit: 200 }, actor, null);
 
     expect((mapped as { type?: string } | null)?.type).toBe('delete');
     expect(mapped && 'taskKey' in mapped ? mapped.taskKey : null).toBe('CORE-1');
@@ -60,7 +61,7 @@ describe('sync event scope mapping', () => {
   test('filters events that are outside the requested team scope', () => {
     const event = syncEvent({ after: task({ project: { team: { slug: 'eng' } } }) });
 
-    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'ops', cursor: '0', limit: 200 }, actor);
+    const mapped = mapSyncEventForScope(event, { scope: 'tasks', teamId: 'ops', cursor: '0', limit: 200 }, actor, null);
 
     expect(mapped).toBeNull();
   });

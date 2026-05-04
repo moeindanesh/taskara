@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fa" dir="rtl" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Taskara Mini</title>
+    <link rel="stylesheet" href="./mini.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="title-wrap">
+          <h1>کارهای من</h1>
+          <p id="last-sync">در حال بروزرسانی...</p>
+        </div>
+        <button id="refresh-btn" class="btn">بروزرسانی</button>
+      </header>
+      <section id="error-box" class="error hidden"></section>
+      <section id="tasks-list" class="tasks-list"></section>
+    </main>
+    <script type="module" src="./mini.js"></script>
+  </body>
+</html>

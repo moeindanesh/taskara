@@ -1,0 +1,15 @@
+{
+  "name": "@taskara/menubar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "electron": "^30.5.1"
+  }
+}

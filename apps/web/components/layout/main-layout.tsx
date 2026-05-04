@@ -51,8 +51,8 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
    const pageOwnsScroll = ['heartbeat', 'inbox', 'issue', 'projects', 'settings', 'tasks', 'team'].includes(routeKey);
    const height = {
-      1: 'h-[calc(100svh-40px)] lg:h-[calc(100svh-48px)]',
-      2: 'h-[calc(100svh-80px)] lg:h-[calc(100svh-88px)]',
+      1: 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]',
+      2: 'h-[calc(100dvh-80px)] lg:h-[calc(100dvh-88px)]',
    };
 
    const isEditableTarget = React.useCallback((target: EventTarget | null) => {
@@ -185,7 +185,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    return (
       <SidebarProvider>
          {showSidebar ? <AppSidebar /> : null}
-         <div className="h-svh w-full overflow-hidden bg-[#050506] lg:p-2">
+         <div className="h-dvh w-full overflow-hidden bg-[#050506] lg:p-2">
             <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden bg-container lg:rounded-xl lg:border lg:border-white/8">
                {header}
                <div

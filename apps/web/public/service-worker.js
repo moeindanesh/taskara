@@ -22,6 +22,11 @@ self.addEventListener('message', (event) => {
     return;
   }
 
+  if (data.type === 'TASKARA_SW_SET_ENABLED') {
+    event.waitUntil(patchState({ notificationsEnabled: data.payload?.enabled !== false }));
+    return;
+  }
+
   if (data.type === 'TASKARA_SW_SYNC') {
     event.waitUntil(syncNotifications('message'));
   }
@@ -60,6 +65,7 @@ self.addEventListener('notificationclick', (event) => {
 async function syncNotifications(source) {
   const state = await getState();
   if (!state?.token || !state?.workspaceSlug || !state?.apiBaseUrl) return;
+  if (state.notificationsEnabled === false) return;
 
   await flushDeliveredQueue(state);
 
@@ -152,6 +158,7 @@ async function saveConfig(config) {
     token: config.token,
     workspaceSlug: config.workspaceSlug,
     apiBaseUrl: config.apiBaseUrl.replace(/\/$/, ''),
+    notificationsEnabled: config.notificationsEnabled !== false,
   });
 }
 

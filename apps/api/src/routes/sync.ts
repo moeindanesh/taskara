@@ -4,6 +4,7 @@ import { createCommentSchema, createTaskSchema, updateTaskSchema } from '@taskar
 import { z, ZodError } from 'zod';
 import { getRequestActor, type RequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
+import { assertActorCanAccessTeamSlug, listAccessibleTeamIds } from '../services/team-access';
 import {
   addTaskComment,
   addTaskProgressStartedAt,
@@ -68,12 +69,14 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sync/bootstrap', async (request) => {
     const actor = await getRequestActor(request);
     const query = syncScopeQuerySchema.parse(request.query);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    if (query.teamId !== 'all') await assertActorCanAccessTeamSlug(actor, query.teamId);
     const [tasksResult, projects, teams, usersResult, views, cursor] = await Promise.all([
-      listTasksForScope(actor, query),
-      listProjects(actor.workspace.id),
-      listTeams(actor.workspace.id),
+      listTasksForScope(actor, query, accessibleTeamIds),
+      listProjects(actor.workspace.id, accessibleTeamIds),
+      listTeams(actor.workspace.id, accessibleTeamIds),
       listUsers(actor.workspace.id),
-      listViews(actor, query.teamId),
+      listViews(actor, query.teamId, accessibleTeamIds),
       latestCursor(actor.workspace.id)
     ]);
 
@@ -91,6 +94,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sync/pull', async (request) => {
     const actor = await getRequestActor(request);
     const query = syncScopeQuerySchema.parse(request.query);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    if (query.teamId !== 'all') await assertActorCanAccessTeamSlug(actor, query.teamId);
     const cursor = BigInt(query.cursor);
     const events = await prisma.syncEvent.findMany({
       where: {
@@ -115,7 +120,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const mappedEvents = events
-      .map((event) => mapSyncEventForScope(event, query, actor))
+      .map((event) => mapSyncEventForScope(event, query, actor, accessibleTeamIds))
       .filter((event): event is NonNullable<typeof event> => event !== null);
     const nextCursor = events.length ? events[events.length - 1].workspaceSeq.toString() : query.cursor;
 
@@ -129,6 +134,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.post('/sync/push', async (request) => {
     const actor = await getRequestActor(request);
     const input = pushRequestSchema.parse(request.body);
+    const accessibleTeamIds = await listAccessibleTeamIds(actor);
     const results = [];
 
     for (const mutation of input.mutations) {
@@ -216,7 +222,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const entity = await applyMutation(actor, mutation.name, mutation.args, meta, mutation.baseVersion);
+        const entity = await applyMutation(actor, mutation.name, mutation.args, meta, accessibleTeamIds, mutation.baseVersion);
         const ack = await prisma.clientMutation.findUnique({
           where: {
             workspaceId_clientId_mutationId: {
@@ -268,6 +274,7 @@ async function applyMutation(
   name: string,
   args: unknown,
   meta: SyncMutationMeta,
+  accessibleTeamIds: string[] | null,
   baseVersion?: number
 ): Promise<unknown> {
   if (name === 'task.create') {
@@ -279,7 +286,7 @@ async function applyMutation(
 
   if (name === 'task.update') {
     const input = updateTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
     if (!task) throw new HttpError(404, 'Task not found');
     const updated = serializeTaskForResponse(await updateTask(actor, task.id, input.patch, meta, input.baseVersion ?? baseVersion));
     const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [updated]);
@@ -288,14 +295,14 @@ async function applyMutation(
 
   if (name === 'task.delete') {
     const input = deleteTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
     if (!task) throw new HttpError(404, 'Task not found');
     return serializeTaskForResponse(await deleteTask(actor, task.id, meta));
   }
 
   if (name === 'task.comment.create') {
     const input = commentTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
     if (!task) throw new HttpError(404, 'Task not found');
     return addTaskComment(actor, task.id, input.body, input.source, input.mattermostPostId, meta);
   }
@@ -303,8 +310,8 @@ async function applyMutation(
   throw new HttpError(400, `Unsupported sync mutation: ${name}`);
 }
 
-async function listTasksForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>) {
-  const where = taskWhereForScope(actor, query);
+async function listTasksForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>, accessibleTeamIds: string[] | null) {
+  const where = taskWhereForScope(actor, query, accessibleTeamIds);
   const [items, total] = await Promise.all([
     prisma.task.findMany({
       where,
@@ -318,7 +325,11 @@ async function listTasksForScope(actor: RequestActor, query: z.infer<typeof sync
   return { items: await addTaskProgressStartedAt(actor.workspace.id, items.map(serializeTaskForResponse)), total };
 }
 
-function taskWhereForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>): Prisma.TaskWhereInput {
+function taskWhereForScope(
+  actor: RequestActor,
+  query: z.infer<typeof syncScopeQuerySchema>,
+  accessibleTeamIds: string[] | null
+): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = {
     workspaceId: actor.workspace.id,
     assigneeId: query.mine ? actor.user.id : undefined
@@ -331,14 +342,19 @@ function taskWhereForScope(actor: RequestActor, query: z.infer<typeof syncScopeQ
         slug: query.teamId
       }
     };
+  } else if (accessibleTeamIds) {
+    where.project = { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] };
   }
 
   return where;
 }
 
-async function listProjects(workspaceId: string) {
+async function listProjects(workspaceId: string, accessibleTeamIds: string[] | null) {
   return prisma.project.findMany({
-    where: { workspaceId },
+    where: {
+      workspaceId,
+      ...(accessibleTeamIds ? { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } : {})
+    },
     orderBy: [{ parentId: 'asc' }, { updatedAt: 'desc' }],
     include: {
       team: { select: { id: true, name: true, slug: true } },
@@ -349,9 +365,12 @@ async function listProjects(workspaceId: string) {
   });
 }
 
-async function listTeams(workspaceId: string) {
+async function listTeams(workspaceId: string, accessibleTeamIds: string[] | null) {
   return prisma.team.findMany({
-    where: { workspaceId },
+    where: {
+      workspaceId,
+      ...(accessibleTeamIds ? { id: { in: accessibleTeamIds } } : {})
+    },
     orderBy: { name: 'asc' },
     include: { _count: { select: { members: true, projects: true } } }
   });
@@ -393,7 +412,18 @@ async function listUsers(workspaceId: string) {
   };
 }
 
-async function listViews(actor: RequestActor, teamId: string) {
+async function listViews(actor: RequestActor, teamId: string, accessibleTeamIds: string[] | null) {
+  const accessibleTeamSlugs = accessibleTeamIds
+    ? new Set(
+        (
+          await prisma.team.findMany({
+            where: { workspaceId: actor.workspace.id, id: { in: accessibleTeamIds } },
+            select: { slug: true }
+          })
+        ).map((team) => team.slug)
+      )
+    : null;
+
   const views = await prisma.view.findMany({
     where: {
       workspaceId: actor.workspace.id,
@@ -416,6 +446,10 @@ async function listViews(actor: RequestActor, teamId: string) {
     .filter((view) => {
       const state = view.state as { scope?: string; teamId?: string };
       if (state.scope !== 'tasks') return false;
+      if (state.teamId && state.teamId !== 'all' && accessibleTeamSlugs) {
+        const isAllowed = accessibleTeamSlugs.has(state.teamId);
+        if (!isAllowed) return false;
+      }
       return teamId === 'all' || state.teamId === teamId;
     });
 }
@@ -432,7 +466,8 @@ async function latestCursor(workspaceId: string): Promise<string> {
 export function mapSyncEventForScope(
   event: SyncEvent,
   query: z.infer<typeof syncScopeQuerySchema>,
-  actor: RequestActor
+  actor: RequestActor,
+  accessibleTeamIds: string[] | null
 ) {
   const serialized = serializeSyncEvent(event);
   if (event.entityType !== 'task') return serialized;
@@ -440,8 +475,8 @@ export function mapSyncEventForScope(
   const payload = event.payload as Record<string, unknown>;
   const before = taskPayloadRecord(payload.before);
   const after = taskPayloadRecord(payload.after);
-  const beforeVisible = before ? taskVisibleInScope(before, query, actor) : false;
-  const afterVisible = after ? taskVisibleInScope(after, query, actor) : false;
+  const beforeVisible = before ? taskVisibleInScope(before, query, actor, accessibleTeamIds) : false;
+  const afterVisible = after ? taskVisibleInScope(after, query, actor, accessibleTeamIds) : false;
 
   if (afterVisible && after) {
     return {
@@ -471,7 +506,8 @@ function taskPayloadRecord(value: unknown): Record<string, unknown> | null {
 function taskVisibleInScope(
   task: Record<string, unknown>,
   query: z.infer<typeof syncScopeQuerySchema>,
-  actor: RequestActor
+  actor: RequestActor,
+  accessibleTeamIds: string[] | null
 ): boolean {
   if (query.mine) {
     const assignee = task.assignee as { id?: string } | null | undefined;
@@ -481,6 +517,10 @@ function taskVisibleInScope(
   if (query.teamId !== 'all') {
     const project = task.project as { team?: { slug?: string } | null } | null | undefined;
     if (project?.team?.slug !== query.teamId) return false;
+  } else if (accessibleTeamIds) {
+    const project = task.project as { team?: { id?: string } | null } | null | undefined;
+    const teamId = project?.team?.id ?? null;
+    if (teamId && !accessibleTeamIds.includes(teamId)) return false;
   }
 
   return true;
