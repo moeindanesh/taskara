@@ -81,6 +81,7 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
         labels: [],
         status: 'TODO',
         priority: 'NO_PRIORITY',
+        weight: null,
         source: 'MATTERMOST'
       });
       return mm(`Created **${task.key}**: ${task.title}`, 'in_channel');

@@ -13,7 +13,7 @@ import { ShortcutKey } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { areDesktopNotificationsEnabled, setDesktopNotificationsEnabled as persistDesktopNotificationsEnabled } from '@/lib/notification-service-worker';
 import { cn } from '@/lib/utils';
-import { Bell, FolderKanban, ListTodo, Plus, Search, Settings, Trophy, Users, UsersRound , Activity } from 'lucide-react';
+import { Bell, CalendarDays, FolderKanban, ListTodo, Megaphone, Plus, Search, Settings, Trophy, Users, UsersRound , Activity } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -120,11 +120,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
-   const pageOwnsScroll = ['heartbeat', 'inbox', 'issue', 'projects', 'settings', 'tasks', 'team'].includes(routeKey);
+
+   const pageOwnsScroll = ['announcements', 'heartbeat', 'inbox', 'issue', 'meetings', 'projects', 'settings', 'tasks', 'team'].includes(routeKey);
    const browserNotificationHelp = React.useMemo(() => {
       if (typeof navigator === 'undefined') return getBrowserNotificationHelp('other');
       return getBrowserNotificationHelp(detectBrowserForNotificationHelp(navigator.userAgent));
    }, []);
+
    const height = {
       1: 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]',
       2: 'h-[calc(100dvh-80px)] lg:h-[calc(100dvh-88px)]',
@@ -310,6 +312,20 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
          icon: Bell,
          shortcut: 'G N',
          run: () => navigate(`/${orgId}/inbox`),
+      },
+      {
+         label: fa.nav.announcements,
+         description: fa.pages.announcementsDescription,
+         icon: Megaphone,
+         shortcut: 'G B',
+         run: () => navigate(`/${orgId}/announcements`),
+      },
+      {
+         label: fa.nav.meetings,
+         description: fa.pages.meetingsDescription,
+         icon: CalendarDays,
+         shortcut: 'G E',
+         run: () => navigate(`/${orgId}/meetings`),
       },
       {
          label: fa.command.goProjects,

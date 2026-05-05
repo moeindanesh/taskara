@@ -5,7 +5,8 @@ import {
   TASK_MENTIONED_NOTIFICATION_TYPE,
   createTaskMentionNotifications,
   createTaskSubscriberNotifications,
-  subscribeUsersToTask
+  subscribeUsersToTask,
+  taskInboxNotificationWhere
 } from './notifications';
 
 type WorkspaceMemberFindManyArgs = Parameters<Prisma.TransactionClient['workspaceMember']['findMany']>[0];
@@ -111,6 +112,14 @@ function mockMentionTransaction(validWorkspaceUserIds: string[], subscribedUserI
 }
 
 describe('task mention notifications', () => {
+  test('keeps task, announcement, and meeting notifications in the inbox scope', () => {
+    const where = taskInboxNotificationWhere('workspace-1', 'user-1');
+
+    expect(where.OR).toContainEqual({ task: { is: { workspaceId: 'workspace-1' } } });
+    expect(where.OR).toContainEqual({ announcement: { is: { workspaceId: 'workspace-1' } } });
+    expect(where.OR).toContainEqual({ meeting: { is: { workspaceId: 'workspace-1' } } });
+  });
+
   test('creates inbox notifications for mentioned workspace members', async () => {
     const workspaceId = 'workspace-1';
     const actorUserId = 'user-actor';

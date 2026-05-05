@@ -10,6 +10,7 @@ export type JalaliDatePickerProps = {
    ariaLabel: string;
    value?: string | null;
    onChange: (value: string | null) => void;
+   showTime?: boolean;
 };
 
 const JalaliDatePickerImpl = lazy(() =>

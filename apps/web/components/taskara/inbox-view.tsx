@@ -5,14 +5,17 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
    AtSign,
    Bell,
+   CalendarDays,
    Check,
    CheckCircle2,
    Circle,
    ExternalLink,
    Inbox,
    Loader2,
+   Megaphone,
    MessageSquare,
    PencilLine,
+   Users,
    UserPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -33,6 +36,8 @@ import { getPriorityLabel, getStatusLabel } from '@/lib/taskara-presenters';
 import type {
    NotificationsResponse,
    TaskaraActivity,
+   TaskaraAnnouncement,
+   TaskaraMeeting,
    TaskaraNotification,
    TaskaraTask,
    TaskaraTaskComment,
@@ -51,6 +56,8 @@ export function InboxView() {
    const [notifications, setNotifications] = useState<TaskaraNotification[]>([]);
    const [selected, setSelected] = useState<TaskaraNotification | null>(null);
    const [selectedTask, setSelectedTask] = useState<TaskaraTask | null>(null);
+   const [selectedAnnouncement, setSelectedAnnouncement] = useState<TaskaraAnnouncement | null>(null);
+   const [selectedMeeting, setSelectedMeeting] = useState<TaskaraMeeting | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
    const [error, setError] = useState('');
    const [loading, setLoading] = useState(true);
@@ -80,8 +87,10 @@ export function InboxView() {
       let canceled = false;
 
       async function loadDetails(notification: TaskaraNotification | null) {
-         if (!notification?.task) {
+         if (!notification?.task && !notification?.announcement && !notification?.meeting) {
             setSelectedTask(null);
+            setSelectedAnnouncement(null);
+            setSelectedMeeting(null);
             setActivities([]);
             setDetailsLoading(false);
             return;
@@ -89,6 +98,31 @@ export function InboxView() {
 
          setDetailsLoading(true);
          try {
+            if (notification.announcement) {
+               const announcementResult = await taskaraRequest<TaskaraAnnouncement>(
+                  `/announcements/${encodeURIComponent(notification.announcement.id)}`
+               );
+               if (canceled) return;
+               setSelectedTask(null);
+               setSelectedMeeting(null);
+               setSelectedAnnouncement(announcementResult);
+               setActivities([]);
+               return;
+            }
+
+            if (notification.meeting) {
+               const meetingResult = await taskaraRequest<TaskaraMeeting>(
+                  `/meetings/${encodeURIComponent(notification.meeting.id)}`
+               );
+               if (canceled) return;
+               setSelectedTask(null);
+               setSelectedAnnouncement(null);
+               setSelectedMeeting(meetingResult);
+               setActivities([]);
+               return;
+            }
+
+            if (!notification.task) return;
             const key = encodeURIComponent(notification.task.key || notification.task.id);
             const [taskResult, activityResult] = await Promise.all([
                taskaraRequest<TaskaraTask>(`/tasks/${key}`),
@@ -97,10 +131,14 @@ export function InboxView() {
 
             if (canceled) return;
             setSelectedTask(taskResult);
+            setSelectedAnnouncement(null);
+            setSelectedMeeting(null);
             setActivities(activityResult);
          } catch (err) {
             if (canceled) return;
             setSelectedTask(null);
+            setSelectedAnnouncement(null);
+            setSelectedMeeting(null);
             setActivities([]);
             setError(err instanceof Error ? err.message : fa.issue.loadFailed);
          } finally {
@@ -113,7 +151,7 @@ export function InboxView() {
       return () => {
          canceled = true;
       };
-   }, [selected?.id, selected?.task?.id, selected?.task?.key]);
+   }, [selected?.id, selected?.task?.id, selected?.task?.key, selected?.announcement?.id, selected?.meeting?.id]);
 
    async function markRead(notification: TaskaraNotification) {
       if (notification.readAt) return;
@@ -168,6 +206,18 @@ export function InboxView() {
             },
          },
       });
+   }
+
+   function openFullAnnouncement() {
+      const id = selectedAnnouncement?.id || selected?.announcement?.id;
+      if (!id) return;
+      navigate(`/${orgId || 'taskara'}/announcements/${encodeURIComponent(id)}`);
+   }
+
+   function openFullMeeting() {
+      const id = selectedMeeting?.id || selected?.meeting?.id;
+      if (!id) return;
+      navigate(`/${orgId || 'taskara'}/meetings/${encodeURIComponent(id)}`);
    }
 
    const timeline = useMemo<TimelineItem[]>(() => {
@@ -244,13 +294,29 @@ export function InboxView() {
 
          <main className="min-h-0 overflow-y-auto">
             {selected ? (
-               <IssueDetailPane
-                  detailsLoading={detailsLoading}
-                  notification={selected}
-                  task={selectedTask}
-                  timeline={timeline}
-                  onOpenIssue={openFullIssue}
-               />
+               selected.announcement ? (
+                  <AnnouncementDetailPane
+                     announcement={selectedAnnouncement}
+                     detailsLoading={detailsLoading}
+                     notification={selected}
+                     onOpenAnnouncement={openFullAnnouncement}
+                  />
+               ) : selected.meeting ? (
+                  <MeetingDetailPane
+                     detailsLoading={detailsLoading}
+                     meeting={selectedMeeting}
+                     notification={selected}
+                     onOpenMeeting={openFullMeeting}
+                  />
+               ) : (
+                  <IssueDetailPane
+                     detailsLoading={detailsLoading}
+                     notification={selected}
+                     task={selectedTask}
+                     timeline={timeline}
+                     onOpenIssue={openFullIssue}
+                  />
+               )
             ) : (
                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-500">
                   {fa.inbox.selectNotification}
@@ -259,7 +325,11 @@ export function InboxView() {
          </main>
 
          <aside className="hidden min-h-0 overflow-y-auto border-s border-white/8 p-3 xl:block">
-            <IssueProperties notification={selected} task={selectedTask} />
+            {selected?.task ? (
+               <IssueProperties notification={selected} task={selectedTask} />
+            ) : (
+               <EntityProperties announcement={selectedAnnouncement} meeting={selectedMeeting} notification={selected} />
+            )}
          </aside>
       </div>
    );
@@ -429,6 +499,136 @@ function IssueDetailPane({
    );
 }
 
+function AnnouncementDetailPane({
+   announcement,
+   detailsLoading,
+   notification,
+   onOpenAnnouncement,
+}: {
+   announcement: TaskaraAnnouncement | null;
+   detailsLoading: boolean;
+   notification: TaskaraNotification;
+   onOpenAnnouncement: () => void;
+}) {
+   const visibleAnnouncement = announcement || notification.announcement;
+
+   return (
+      <div className="mx-auto flex min-h-full w-full max-w-[880px] flex-col px-5 py-5 lg:px-8">
+         <div className="mb-8 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-zinc-500">
+               <span>{getNotificationTypeLabel(notification.type)}</span>
+               <span className="h-1 w-1 rounded-full bg-zinc-700" />
+               <span>{formatJalaliDateTime(notification.createdAt)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+               {detailsLoading ? <Loader2 className="size-4 animate-spin text-zinc-500" /> : null}
+               <Button
+                  aria-label={fa.nav.announcements}
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"
+                  onClick={onOpenAnnouncement}
+               >
+                  <ExternalLink className="size-4" />
+               </Button>
+            </div>
+         </div>
+         <div className="mb-7 flex items-start gap-3">
+            <span className="mt-1 inline-flex size-7 items-center justify-center rounded-full bg-white/[0.055] text-zinc-400">
+               <Megaphone className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+               <h2 className="break-words text-2xl font-semibold leading-9 text-zinc-50">
+                  {visibleAnnouncement?.title || notification.title}
+               </h2>
+               <p className="mt-3 text-sm leading-6 text-zinc-500">
+                  {getNotificationBody(notification) || fa.announcement.published}
+               </p>
+            </div>
+         </div>
+         <section className="min-h-[140px] border-b border-white/8 pb-8">
+            {announcement?.body ? (
+               <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-300">{announcement.body}</p>
+            ) : (
+               <p className="text-sm text-zinc-600">{fa.inbox.noDescription}</p>
+            )}
+         </section>
+      </div>
+   );
+}
+
+function MeetingDetailPane({
+   detailsLoading,
+   meeting,
+   notification,
+   onOpenMeeting,
+}: {
+   detailsLoading: boolean;
+   meeting: TaskaraMeeting | null;
+   notification: TaskaraNotification;
+   onOpenMeeting: () => void;
+}) {
+   const visibleMeeting = meeting || notification.meeting;
+   const description = getTaskDescriptionText(meeting?.description);
+
+   return (
+      <div className="mx-auto flex min-h-full w-full max-w-[880px] flex-col px-5 py-5 lg:px-8">
+         <div className="mb-8 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-zinc-500">
+               <span>{getNotificationTypeLabel(notification.type)}</span>
+               <span className="h-1 w-1 rounded-full bg-zinc-700" />
+               <span>{formatJalaliDateTime(notification.createdAt)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+               {detailsLoading ? <Loader2 className="size-4 animate-spin text-zinc-500" /> : null}
+               <Button
+                  aria-label={fa.nav.meetings}
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"
+                  onClick={onOpenMeeting}
+               >
+                  <ExternalLink className="size-4" />
+               </Button>
+            </div>
+         </div>
+         <div className="mb-7 flex items-start gap-3">
+            <span className="mt-1 inline-flex size-7 items-center justify-center rounded-full bg-white/[0.055] text-zinc-400">
+               <CalendarDays className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+               <h2 className="break-words text-2xl font-semibold leading-9 text-zinc-50">
+                  {visibleMeeting?.title || notification.title}
+               </h2>
+               <p className="mt-3 text-sm leading-6 text-zinc-500">
+                  {getNotificationBody(notification) || fa.meeting.planned}
+               </p>
+            </div>
+         </div>
+         <section className="mb-8 min-h-[140px] border-b border-white/8 pb-8">
+            {description ? (
+               <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-300">{description}</p>
+            ) : (
+               <p className="text-sm text-zinc-600">{fa.meeting.descriptionPlaceholder}</p>
+            )}
+         </section>
+         {(meeting?.tasks || []).length ? (
+            <section>
+               <h3 className="mb-3 text-base font-semibold text-zinc-100">{fa.meeting.actionItems}</h3>
+               <div className="space-y-2">
+                  {(meeting?.tasks || []).slice(0, 8).map((link) => (
+                     <div key={`${link.meetingId}-${link.taskId}`} className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
+                        <span className="ltr me-2 text-xs text-zinc-500">{link.task.key}</span>
+                        {link.task.title}
+                     </div>
+                  ))}
+               </div>
+            </section>
+         ) : null}
+      </div>
+   );
+}
+
 function IssueProperties({
    notification,
    task,
@@ -472,6 +672,44 @@ function IssueProperties({
          <PropertyPanel title={fa.inbox.type}>
             <PropertyRow icon={<Bell className="size-4 text-zinc-500" />} label={notification ? getNotificationTypeLabel(notification.type) : '—'} />
          </PropertyPanel>
+      </div>
+   );
+}
+
+function EntityProperties({
+   announcement,
+   meeting,
+   notification,
+}: {
+   announcement: TaskaraAnnouncement | null;
+   meeting: TaskaraMeeting | null;
+   notification: TaskaraNotification | null;
+}) {
+   return (
+      <div className="space-y-3">
+         <PropertyPanel title={fa.inbox.type}>
+            <PropertyRow icon={<Bell className="size-4 text-zinc-500" />} label={notification ? getNotificationTypeLabel(notification.type) : '—'} />
+         </PropertyPanel>
+
+         {announcement ? (
+            <PropertyPanel title={fa.announcement.recipients}>
+               <PropertyRow icon={<Users className="size-4 text-zinc-500" />} label={`${(announcement._count?.recipients || announcement.recipients?.length || 0).toLocaleString('fa-IR')} نفر`} />
+            </PropertyPanel>
+         ) : null}
+
+         {meeting ? (
+            <>
+               <PropertyPanel title={fa.meeting.participants}>
+                  <PropertyRow icon={<Users className="size-4 text-zinc-500" />} label={`${(meeting._count?.participants || meeting.participants?.length || 0).toLocaleString('fa-IR')} نفر`} />
+               </PropertyPanel>
+               <PropertyPanel title={fa.meeting.project}>
+                  <PropertyRow
+                     icon={<ProjectGlyph name={meeting.project?.name} className="size-5 rounded" iconClassName="size-3.5" />}
+                     label={meeting.project?.name || fa.app.unset}
+                  />
+               </PropertyPanel>
+            </>
+         ) : null}
       </div>
    );
 }
@@ -532,6 +770,8 @@ function LinearInboxEmpty({ children }: { children: React.ReactNode }) {
 }
 
 function notificationIcon(notification: TaskaraNotification) {
+   if (notification.type === 'announcement_published') return Megaphone;
+   if (notification.type === 'meeting_assigned') return CalendarDays;
    if (notification.type === 'task_assigned') return UserPlus;
    if (notification.type === 'task_mentioned' || notification.type === 'task_comment_mentioned') return AtSign;
    if (notification.type === 'task_commented') return MessageSquare;
@@ -542,6 +782,8 @@ function notificationIcon(notification: TaskaraNotification) {
 }
 
 function notificationTitle(notification: TaskaraNotification): string {
+   if (notification.announcement) return notification.announcement.title || notification.title;
+   if (notification.meeting) return notification.meeting.title || notification.title;
    if (!notification.task) return notification.title;
    return notification.task.title || notification.title.replace(`${notification.task.key}: `, '');
 }

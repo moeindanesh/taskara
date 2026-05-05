@@ -10,11 +10,12 @@ COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/mattermost-bot/package.json apps/mattermost-bot/package.json
+COPY apps/menubar/package.json apps/menubar/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY plugins/taskara-agent/package.json plugins/taskara-agent/package.json
 
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --filter @taskara/api
 
 FROM deps AS runtime
 
