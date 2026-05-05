@@ -65,6 +65,7 @@ export const taskStatuses: Array<keyof typeof statusMeta> = [
    'CANCELED',
 ];
 export const taskPriorities = Object.keys(priorityMeta) as Array<keyof typeof priorityMeta>;
+export const taskWeights = [1, 2, 3, 4, 8] as const;
 export const workspaceRoles = Object.keys(roleMeta) as Array<keyof typeof roleMeta>;
 
 export function StatusBadge({ status }: { status: string }) {

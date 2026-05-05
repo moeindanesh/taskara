@@ -42,6 +42,7 @@ import { users } from '@/mock-data/users';
 import { labels } from '@/mock-data/labels';
 import { projects } from '@/mock-data/projects';
 import { toast } from 'sonner';
+import { taskWeights } from '@/lib/taskara-presenters';
 
 interface IssueContextMenuProps {
    issueId?: string;
@@ -237,9 +238,9 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                   <ContextMenuItem onClick={() => handleWeightChange(null)}>
                      <Box className="size-4" /> No weight
                   </ContextMenuItem>
-                  {[1, 2, 3, 4].map((item) => (
+                  {taskWeights.map((item) => (
                      <ContextMenuItem key={item} onClick={() => handleWeightChange(item)}>
-                        <Box className="size-4" /> {item}
+                        <Box className="size-4" /> {item.toLocaleString('fa-IR')}
                      </ContextMenuItem>
                   ))}
                </ContextMenuSubContent>

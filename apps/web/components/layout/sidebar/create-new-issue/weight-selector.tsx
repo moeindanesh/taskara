@@ -12,13 +12,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Box, CheckIcon, XCircle } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
+import { taskWeights } from '@/lib/taskara-presenters';
 
 interface WeightSelectorProps {
    weight?: number | null;
    onChange: (weight: number | null) => void;
 }
-
-const weightOptions = [1, 2, 3, 4];
 
 export function WeightSelector({ weight, onChange }: WeightSelectorProps) {
    const id = useId();
@@ -48,7 +47,7 @@ export function WeightSelector({ weight, onChange }: WeightSelectorProps) {
                   aria-expanded={open}
                >
                   <Box className="text-muted-foreground size-4" />
-                  <span>{value ? `Weight ${value}` : 'No weight'}</span>
+                  <span>{value ? `Weight ${Number(value).toLocaleString('fa-IR')}` : 'No weight'}</span>
                </Button>
             </PopoverTrigger>
             <PopoverContent
@@ -71,7 +70,7 @@ export function WeightSelector({ weight, onChange }: WeightSelectorProps) {
                            </div>
                            {value === '' ? <CheckIcon size={16} className="ml-auto" /> : null}
                         </CommandItem>
-                        {weightOptions.map((item) => (
+                        {taskWeights.map((item) => (
                            <CommandItem
                               key={item}
                               value={`weight-${item}`}
@@ -80,7 +79,7 @@ export function WeightSelector({ weight, onChange }: WeightSelectorProps) {
                            >
                               <div className="flex items-center gap-2">
                                  <Box className="text-muted-foreground size-4" />
-                                 {item}
+                                 {item.toLocaleString('fa-IR')}
                               </div>
                               {value === String(item) ? (
                                  <CheckIcon size={16} className="ml-auto" />

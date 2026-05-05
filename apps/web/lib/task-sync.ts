@@ -763,8 +763,7 @@ function isTaskCreateInput(value: unknown): value is TaskCreateInput {
          (typeof input.weight === 'number' &&
             Number.isInteger(input.weight) &&
             Number.isFinite(input.weight) &&
-            input.weight >= 1 &&
-            input.weight <= 4)) &&
+            [1, 2, 3, 4, 8].includes(input.weight))) &&
       Array.isArray(input.labels) &&
       input.source === 'WEB'
    );

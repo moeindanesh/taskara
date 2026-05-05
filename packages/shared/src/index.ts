@@ -17,6 +17,7 @@ export const taskPriorities = [
   'HIGH',
   'URGENT'
 ] as const;
+export const taskWeights = [1, 2, 3, 4, 8] as const;
 
 export const taskViewLayouts = ['list', 'board'] as const;
 export const taskViewGroupings = ['status', 'assignee', 'project', 'priority'] as const;
@@ -53,6 +54,13 @@ export type TaskViewDisplayPropertyValue = (typeof taskViewDisplayProperties)[nu
 
 export const taskStatusSchema = z.enum(taskStatuses);
 export const taskPrioritySchema = z.enum(taskPriorities);
+export const taskWeightSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+  z.literal(8)
+]);
 export const projectStatusSchema = z.enum(projectStatuses);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
 export const taskViewLayoutSchema = z.enum(taskViewLayouts);
@@ -176,7 +184,7 @@ export const createTaskSchema = z.object({
   description: z.string().max(15000).optional(),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('NO_PRIORITY'),
-  weight: z.number().int().min(1).max(4).nullable().optional(),
+  weight: taskWeightSchema.nullable().optional(),
   assigneeId: z.string().uuid().optional(),
   dueAt: z.string().datetime().optional(),
   labels: z.array(z.string().min(1).max(40)).max(12).default([]),
@@ -189,7 +197,7 @@ export const updateTaskSchema = z.object({
   projectId: z.string().uuid().optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
-  weight: z.number().int().min(1).max(4).nullable().optional(),
+  weight: taskWeightSchema.nullable().optional(),
   assigneeId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   cycleId: z.string().uuid().nullable().optional(),

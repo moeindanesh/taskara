@@ -105,7 +105,7 @@ import type {
    TaskaraUser,
    TaskaraView,
 } from '@/lib/taskara-types';
-import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
+import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
 import { cn } from '@/lib/utils';
 import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
 
@@ -1182,7 +1182,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          return;
       }
       const weight = form.weight === '' ? undefined : Number(form.weight);
-      if (weight !== undefined && (!Number.isFinite(weight) || weight < 1 || weight > 4)) {
+      if (weight !== undefined && (!Number.isFinite(weight) || !taskWeights.includes(weight as (typeof taskWeights)[number]))) {
          toast.error(fa.issue.invalidWeight);
          return;
       }
@@ -1898,10 +1898,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            onChange={(weight) => setForm((current) => ({ ...current, weight }))}
                         >
                            <option value="">بدون وزن</option>
-                           <option value="1">1</option>
-                           <option value="2">2</option>
-                           <option value="3">3</option>
-                           <option value="4">4</option>
+                           {taskWeights.map((item) => (
+                              <option key={item} value={String(item)}>
+                                 {item.toLocaleString('fa-IR')}
+                              </option>
+                           ))}
                         </ComposerSelectPill>
                         <ComposerTextPill
                            ariaLabel={fa.issue.labels}
@@ -3834,7 +3835,7 @@ function TaskIssueContextMenu({
                   label="بدون وزن"
                   onSelect={() => onWeightChange(null)}
                />
-               {[1, 2, 3, 4].map((item) => (
+               {taskWeights.map((item) => (
                   <LinearContextItem
                      key={item}
                      active={task.weight === item}
