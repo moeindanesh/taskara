@@ -13,6 +13,7 @@ import {
    CircleCheck,
    User,
    BarChart3,
+   Box,
    Tag,
    Folder,
    CalendarClock,
@@ -84,6 +85,12 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
       const newAssignee = userId ? users.find((u) => u.id === userId) || null : null;
       updateIssueAssignee(issueId, newAssignee);
       toast.success(newAssignee ? `Assigned to ${newAssignee.name}` : 'Unassigned');
+   };
+
+   const handleWeightChange = (weight: number | null) => {
+      if (!issueId) return;
+      updateIssue(issueId, { weight });
+      toast.success(weight === null ? 'Weight removed' : `Weight set to ${weight}`);
    };
 
    const handleLabelToggle = (labelId: string) => {
@@ -217,6 +224,22 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                         onClick={() => handlePriorityChange(priority.id)}
                      >
                         <priority.icon className="size-4" /> {priority.name}
+                     </ContextMenuItem>
+                  ))}
+               </ContextMenuSubContent>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+               <ContextMenuSubTrigger>
+                  <Box className="mr-2 size-4" /> Weight
+               </ContextMenuSubTrigger>
+               <ContextMenuSubContent className="w-48">
+                  <ContextMenuItem onClick={() => handleWeightChange(null)}>
+                     <Box className="size-4" /> No weight
+                  </ContextMenuItem>
+                  {[1, 2, 3, 4].map((item) => (
+                     <ContextMenuItem key={item} onClick={() => handleWeightChange(item)}>
+                        <Box className="size-4" /> {item}
                      </ContextMenuItem>
                   ))}
                </ContextMenuSubContent>
