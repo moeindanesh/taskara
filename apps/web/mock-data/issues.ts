@@ -13,6 +13,7 @@ export interface Issue {
    status: Status;
    assignee: User | null;
    priority: Priority;
+   weight?: number | null;
    labels: LabelInterface[];
    createdAt: string;
    cycleId: string;

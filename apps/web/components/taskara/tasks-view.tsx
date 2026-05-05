@@ -105,7 +105,7 @@ import type {
    TaskaraUser,
    TaskaraView,
 } from '@/lib/taskara-types';
-import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
+import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
 import { cn } from '@/lib/utils';
 import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
 
@@ -1182,7 +1182,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          return;
       }
       const weight = form.weight === '' ? undefined : Number(form.weight);
-      if (weight !== undefined && (!Number.isFinite(weight) || weight < 1 || weight > 4)) {
+      if (weight !== undefined && (!Number.isFinite(weight) || !taskWeights.includes(weight as (typeof taskWeights)[number]))) {
          toast.error(fa.issue.invalidWeight);
          return;
       }
@@ -1568,6 +1568,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onAssigneeChange={(task, assigneeId) =>
                                  void updateTask(task, { assigneeId })
                               }
+                              onWeightChange={(task, weight) => void updateTask(task, { weight })}
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onPriorityChange={(task, priority) =>
@@ -1615,6 +1616,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onAssigneeChange={(task, assigneeId) =>
                                  void updateTask(task, { assigneeId })
                               }
+                              onWeightChange={(task, weight) => void updateTask(task, { weight })}
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
                               onToggleCollapse={() => toggleGroup(group.key)}
@@ -1896,10 +1898,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            onChange={(weight) => setForm((current) => ({ ...current, weight }))}
                         >
                            <option value="">بدون وزن</option>
-                           <option value="1">1</option>
-                           <option value="2">2</option>
-                           <option value="3">3</option>
-                           <option value="4">4</option>
+                           {taskWeights.map((item) => (
+                              <option key={item} value={String(item)}>
+                                 {item.toLocaleString('fa-IR')}
+                              </option>
+                           ))}
                         </ComposerSelectPill>
                         <ComposerTextPill
                            ariaLabel={fa.issue.labels}
@@ -3008,6 +3011,7 @@ function ListGroup({
    onPriorityChange,
    onProjectChange,
    onAssigneeChange,
+   onWeightChange,
    onDueAtChange,
    onLabelsChange,
    onToggleCollapse,
@@ -3028,6 +3032,7 @@ function ListGroup({
    onPriorityChange: (task: TaskaraTask, priority: string) => void;
    onProjectChange: (task: TaskaraTask, projectId: string) => void;
    onAssigneeChange: (task: TaskaraTask, assigneeId: string | null) => void;
+   onWeightChange: (task: TaskaraTask, weight: number | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
    onToggleCollapse: () => void;
@@ -3095,6 +3100,7 @@ function ListGroup({
                      onProjectChange={(projectId) => onProjectChange(task, projectId)}
                      onStatusChange={(status) => onStatusChange(task, status)}
                      onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
+                     onWeightChange={(weight) => onWeightChange(task, weight)}
                      onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
                      onLabelsChange={(labels) => onLabelsChange(task, labels)}
                      onDelete={() => onDelete(task)}
@@ -3125,6 +3131,7 @@ function BoardGroup({
    onPriorityChange,
    onProjectChange,
    onAssigneeChange,
+   onWeightChange,
    onDueAtChange,
    onLabelsChange,
    onToggleCollapse,
@@ -3145,6 +3152,7 @@ function BoardGroup({
    onPriorityChange: (task: TaskaraTask, priority: string) => void;
    onProjectChange: (task: TaskaraTask, projectId: string) => void;
    onAssigneeChange: (task: TaskaraTask, assigneeId: string | null) => void;
+   onWeightChange: (task: TaskaraTask, weight: number | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
    onToggleCollapse: () => void;
@@ -3218,6 +3226,7 @@ function BoardGroup({
                         onProjectChange={(projectId) => onProjectChange(task, projectId)}
                         onStatusChange={(status) => onStatusChange(task, status)}
                         onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
+                        onWeightChange={(weight) => onWeightChange(task, weight)}
                         onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
                         onLabelsChange={(labels) => onLabelsChange(task, labels)}
                         onDelete={() => onDelete(task)}
@@ -3243,6 +3252,7 @@ function IssueRow({
    onPriorityChange,
    onProjectChange,
    onAssigneeChange,
+   onWeightChange,
    onDueAtChange,
    onLabelsChange,
    onDelete,
@@ -3259,6 +3269,7 @@ function IssueRow({
    onPriorityChange: (priority: string) => void;
    onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
+   onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
    onDelete: () => void;
@@ -3376,6 +3387,7 @@ function IssueRow({
             onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
+            onWeightChange={onWeightChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
             onProjectChange={onProjectChange}
@@ -3395,6 +3407,7 @@ function IssueCard({
    onPriorityChange,
    onProjectChange,
    onAssigneeChange,
+   onWeightChange,
    onDueAtChange,
    onLabelsChange,
    onDelete,
@@ -3411,6 +3424,7 @@ function IssueCard({
    onPriorityChange: (priority: string) => void;
    onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
+   onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
    onDelete: () => void;
@@ -3506,6 +3520,7 @@ function IssueCard({
             onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
+            onWeightChange={onWeightChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
             onProjectChange={onProjectChange}
@@ -3704,6 +3719,7 @@ function TaskIssueContextMenu({
    onPriorityChange,
    onProjectChange,
    onAssigneeChange,
+   onWeightChange,
    onDueAtChange,
    onLabelsChange,
    onDelete,
@@ -3717,6 +3733,7 @@ function TaskIssueContextMenu({
    onPriorityChange: (priority: string) => void;
    onProjectChange: (projectId: string) => void;
    onAssigneeChange: (assigneeId: string | null) => void;
+   onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
    onDelete: () => void;
@@ -3797,6 +3814,34 @@ function TaskIssueContextMenu({
                      label={linearPriorityMeta[item]?.label || item}
                      shortcut={String(index)}
                      onSelect={() => onPriorityChange(item)}
+                  />
+               ))}
+            </ContextMenuSubContent>
+         </ContextMenuSub>
+
+         <ContextMenuSub>
+            <LinearContextSubTrigger
+               icon={<Box className="size-4 text-zinc-400" />}
+               label={fa.issue.weight}
+               shortcut="W"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
+               <LinearContextItem
+                  active={task.weight === null || task.weight === undefined}
+                  icon={<XCircle className="size-4 text-zinc-500" />}
+                  label="بدون وزن"
+                  onSelect={() => onWeightChange(null)}
+               />
+               {taskWeights.map((item) => (
+                  <LinearContextItem
+                     key={item}
+                     active={task.weight === item}
+                     icon={<Box className="size-4 text-zinc-400" />}
+                     label={`${fa.issue.weight} ${item.toLocaleString('fa-IR')}`}
+                     onSelect={() => onWeightChange(item)}
                   />
                ))}
             </ContextMenuSubContent>

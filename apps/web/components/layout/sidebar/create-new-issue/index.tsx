@@ -19,6 +19,7 @@ import { PrioritySelector } from './priority-selector';
 import { AssigneeSelector } from './assignee-selector';
 import { ProjectSelector } from './project-selector';
 import { LabelSelector } from './label-selector';
+import { WeightSelector } from './weight-selector';
 import { ranks } from '@/mock-data/issues';
 import { DialogTitle } from '@radix-ui/react-dialog';
 
@@ -50,6 +51,7 @@ export function CreateNewIssue() {
          status: defaultStatus || status.find((s) => s.id === 'to-do')!,
          assignee: null,
          priority: priorities.find((p) => p.id === 'no-priority')!,
+         weight: null,
          labels: [],
          createdAt: new Date().toISOString(),
          cycleId: '',
@@ -126,6 +128,10 @@ export function CreateNewIssue() {
                      onChange={(newPriority) =>
                         setAddIssueForm({ ...addIssueForm, priority: newPriority })
                      }
+                  />
+                  <WeightSelector
+                     weight={addIssueForm.weight}
+                     onChange={(newWeight) => setAddIssueForm({ ...addIssueForm, weight: newWeight })}
                   />
                   <AssigneeSelector
                      assignee={addIssueForm.assignee}

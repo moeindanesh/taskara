@@ -40,7 +40,7 @@ import { formatJalaliDateTime } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment, uploadTaskCommentAttachment } from '@/lib/taskara-client';
 import { sendTaskSyncMutation, useTaskSyncPulse } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
-import { taskPriorities, taskStatuses } from '@/lib/taskara-presenters';
+import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
 import type {
    PaginatedResponse,
    TaskaraActivity,
@@ -823,10 +823,11 @@ export function IssuePage() {
                         }
                      >
                         <option value="">بدون وزن</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
+                        {taskWeights.map((item) => (
+                           <option key={item} value={String(item)}>
+                              {item.toLocaleString('fa-IR')}
+                           </option>
+                        ))}
                      </select>
                   </SidebarSelectRow>
                   <TaskDueDateControl

@@ -11,7 +11,7 @@ interface ProposedTaskPayload {
   labels: string[];
   priority: 'NO_PRIORITY' | 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   status: 'TODO';
-  weight?: number | null;
+  weight?: 1 | 2 | 3 | 4 | 8 | null;
   source: 'AGENT';
 }
 
