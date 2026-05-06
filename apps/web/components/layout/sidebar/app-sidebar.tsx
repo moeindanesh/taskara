@@ -44,6 +44,7 @@ import type { AnnouncementsResponse, TaskaraMeeting, TaskaraWorkspaceMembership 
 import { cn } from '@/lib/utils';
 import {
    Activity,
+   BarChart3,
    CalendarDays,
    ChevronDown,
    Megaphone,
@@ -170,6 +171,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       { title: fa.nav.meetings, href: `/${orgId}/meetings`, icon: CalendarDays, count: meetingCount },
       { title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
       { title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
+      { title: fa.nav.reports, href: `/${orgId}/reports`, icon: BarChart3 },
       { title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
    ];
    const teamItems = (team: TaskaraTeam) => [

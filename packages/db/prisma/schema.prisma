@@ -147,6 +147,7 @@ model User {
   id                 String   @id @default(uuid()) @db.Uuid
   email              String   @unique
   name               String
+  aiModel            String?
   phone              String?  @unique
   passwordHash       String?
   mattermostUserId   String?  @unique

@@ -28,7 +28,8 @@ const envSchema = z.object({
   MATTERMOST_SYNTHETIC_EMAIL_DOMAIN: z.string().min(1),
   MATTERMOST_WORKSPACE_SLUG: optionalString,
   SMS_KAVEH_KEY: optionalString,
-  SMS_KAVEH_SENDER: optionalString
+  SMS_KAVEH_SENDER: optionalString,
+  TASKARA_AI_CREDENTIAL_SECRET: optionalString
 });
 
 export const config = envSchema.parse(process.env);

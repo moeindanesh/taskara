@@ -3,6 +3,7 @@
 import { type ChangeEvent, type ComponentType, type FormEvent, type ReactNode, useEffect, useState, useTransition } from 'react';
 import {
    ArrowRight,
+   Bot,
    Building2,
    Download,
    ExternalLink,
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { taskaraRequest, uploadMedia } from '@/lib/taskara-client';
 import { downloadTaskaraFile } from '@/lib/download-file';
 import { formatJalaliDateTime } from '@/lib/jalali';
@@ -36,7 +38,7 @@ import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
 import { getAuthSession, setAuthSession } from '@/store/auth-store';
 
-const settingsSections = ['profile', 'appearance', 'workspace', 'members', 'teams', 'projects'] as const;
+const settingsSections = ['profile', 'appearance', 'workspace', 'ai', 'members', 'teams', 'projects'] as const;
 type SettingsSection = (typeof settingsSections)[number];
 type SettingsIcon = ComponentType<{ className?: string }>;
 
@@ -53,6 +55,30 @@ const initialProfileForm = {
    phone: '',
    avatarUrl: '',
    mattermostUsername: '',
+};
+
+type AiSettingsResponse = {
+   hasApiKey: boolean;
+   maskedKey: string | null;
+   updatedAt: string | null;
+   defaultContext: string | null;
+   usage: {
+      totalRequests: number;
+      totalPromptTokens: number;
+      totalCompletionTokens: number;
+      totalTokens: number;
+      totalCostUsd: number;
+      costedRequests: number;
+      lastRequestAt: string | null;
+   };
+};
+
+type AiSettingsTestResponse = {
+   ok: boolean;
+   provider: 'OPENROUTER';
+   model: string;
+   latencyMs: number;
+   responsePreview: string;
 };
 
 const inputClassName =
@@ -83,6 +109,7 @@ export function SettingsView() {
          {requestedSection === 'profile' ? <ProfileSettingsPage /> : null}
          {requestedSection === 'appearance' ? <AppearanceSettingsPage /> : null}
          {requestedSection === 'workspace' ? <WorkspaceAccessSettingsPage /> : null}
+         {requestedSection === 'ai' ? <AiSettingsPage /> : null}
          {requestedSection === 'members' ? <EmbeddedExistingRoute><MembersView /></EmbeddedExistingRoute> : null}
          {requestedSection === 'teams' ? <EmbeddedExistingRoute><TeamsView /></EmbeddedExistingRoute> : null}
          {requestedSection === 'projects' ? <EmbeddedExistingRoute><ProjectsView /></EmbeddedExistingRoute> : null}
@@ -111,6 +138,7 @@ function SettingsChrome({
          title: 'مدیریت',
          items: [
             { title: 'فضای کاری', to: `/${orgId}/settings/workspace`, icon: Building2, section: 'workspace' },
+            { title: 'هوش مصنوعی', to: `/${orgId}/settings/ai`, icon: Bot, section: 'ai' },
             { title: 'اعضا', to: `/${orgId}/settings/members`, icon: UsersRound, section: 'members' },
             { title: 'تیم‌ها', to: `/${orgId}/settings/teams`, icon: UsersRound, section: 'teams' },
             { title: 'پروژه‌ها', to: `/${orgId}/settings/projects`, icon: FolderKanban, section: 'projects' },
@@ -516,19 +544,20 @@ function ProfileSettingsPage() {
 
             <SettingsPanel title="نوتیفیکیشن‌ها">
                <SettingsField
+                  className="sm:grid-cols-[minmax(0,1fr)_auto]"
                   label="اعلان دسکتاپ"
                   description="برای نمایش اعلان جدید خارج از تب برنامه. خاموش کردن این گزینه نمایش اعلان سیستمی را متوقف می‌کند."
                >
-                  <div className="flex items-center justify-between gap-3">
-                     <div className="text-xs text-zinc-500">
-                        {notificationPermission === 'unsupported'
-                           ? 'پشتیبانی نمی‌شود'
-                           : notificationPermission === 'granted'
-                              ? 'مجوز داده شده'
+                  <div className="flex items-center gap-3">
+                     {notificationPermission !== 'granted' ? (
+                        <div className="text-xs text-zinc-500">
+                           {notificationPermission === 'unsupported'
+                              ? 'پشتیبانی نمی‌شود'
                               : notificationPermission === 'denied'
                                  ? 'مجوز مسدود است'
                                  : 'نیازمند مجوز'}
-                     </div>
+                        </div>
+                     ) : null}
                      <Switch checked={desktopNotificationsEnabled} onCheckedChange={(checked) => void handleDesktopNotificationsToggle(checked)} />
                   </div>
                </SettingsField>
@@ -885,6 +914,243 @@ function AppearanceSettingsPage() {
    );
 }
 
+function AiSettingsPage() {
+   const [me, setMe] = useState<TaskaraMe | null>(null);
+   const [settings, setSettings] = useState<AiSettingsResponse | null>(null);
+   const [apiKeyInput, setApiKeyInput] = useState('');
+   const [defaultContextInput, setDefaultContextInput] = useState('');
+   const [loading, setLoading] = useState(true);
+   const [saving, setSaving] = useState(false);
+   const [testing, setTesting] = useState(false);
+   const [error, setError] = useState('');
+   const [notice, setNotice] = useState('');
+   const isWorkspaceAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+
+   useEffect(() => {
+      let cancelled = false;
+
+      void (async () => {
+         setLoading(true);
+         setError('');
+         try {
+            const [meResult, settingsResult] = await Promise.all([
+               taskaraRequest<TaskaraMe>('/me'),
+               taskaraRequest<AiSettingsResponse>('/ai/settings'),
+            ]);
+            if (cancelled) return;
+
+            setMe(meResult);
+            setSettings(settingsResult);
+            setApiKeyInput('');
+            setDefaultContextInput(settingsResult.defaultContext || '');
+         } catch (err) {
+            if (!cancelled) setError(err instanceof Error ? err.message : 'بارگذاری تنظیمات هوش مصنوعی ناموفق بود.');
+         } finally {
+            if (!cancelled) setLoading(false);
+         }
+      })();
+
+      return () => {
+         cancelled = true;
+      };
+   }, []);
+
+   async function handleSaveSettings() {
+      if (!isWorkspaceAdmin) return;
+
+      setSaving(true);
+      setError('');
+      setNotice('');
+      try {
+         const payload = {
+            apiKey: apiKeyInput.trim() || null,
+            defaultContext: defaultContextInput.trim() || null,
+         };
+
+         const result = await taskaraRequest<AiSettingsResponse>('/ai/settings', {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+         });
+
+         setSettings(result);
+         setApiKeyInput('');
+         setDefaultContextInput(result.defaultContext || '');
+         setNotice('تنظیمات هوش مصنوعی ذخیره شد.');
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'ذخیره تنظیمات هوش مصنوعی ناموفق بود.');
+      } finally {
+         setSaving(false);
+      }
+   }
+
+   async function handleTestSettings() {
+      if (!isWorkspaceAdmin) return;
+
+      setTesting(true);
+      setError('');
+      setNotice('');
+      try {
+         const payload = {
+            apiKey: apiKeyInput.trim() || undefined,
+         };
+
+         const result = await taskaraRequest<AiSettingsTestResponse>('/ai/settings/test', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+         });
+
+         setNotice(`اتصال موفق بود. OpenRouter / ${result.model} • ${result.latencyMs}ms`);
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'تست اتصال ناموفق بود.');
+      } finally {
+         setTesting(false);
+      }
+   }
+
+   return (
+      <div className="mx-auto w-full max-w-[900px] px-5 py-6 sm:px-7 lg:py-10">
+         <SettingsPageTitle title="هوش مصنوعی" />
+
+         {error ? <SettingsMessage tone="error">{error}</SettingsMessage> : null}
+         {notice ? <SettingsMessage tone="success">{notice}</SettingsMessage> : null}
+
+         <SettingsPanel title="اتصال سرویس AI">
+            <SettingsField
+               className="sm:grid-cols-[minmax(0,1fr)_auto]"
+               label="وضعیت اتصال"
+               description="کلید API برای گزارش‌گیری ذخیره می‌شود. انتخاب مدل از نوار ابزار بالای صفحه انجام می‌شود."
+            >
+               <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">وضعیت</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {settings?.hasApiKey ? 'کلید API ثبت شده است.' : 'کلید API ثبت نشده است.'}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">کلید فعلی</div>
+                     <div className="mt-1 font-medium text-zinc-200 ltr">
+                        {settings?.hasApiKey ? (settings.maskedKey || '******') : '---'}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2 sm:col-span-2">
+                     <div className="text-xs text-zinc-500">آخرین تغییر</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {settings?.updatedAt ? formatJalaliDateTime(settings.updatedAt) : 'هنوز تنظیمی ذخیره نشده است.'}
+                     </div>
+                  </div>
+               </div>
+            </SettingsField>
+
+            <SettingsField
+               className="sm:grid-cols-[minmax(0,1fr)_auto]"
+               label="مصرف AI"
+               description="تجمیع مصرف درخواست‌های AI در این فضای کاری."
+            >
+               <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">کل درخواست‌ها</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {(settings?.usage.totalRequests || 0).toLocaleString('fa-IR')}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">کل توکن</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {(settings?.usage.totalTokens || 0).toLocaleString('fa-IR')}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">توکن ورودی</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {(settings?.usage.totalPromptTokens || 0).toLocaleString('fa-IR')}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2">
+                     <div className="text-xs text-zinc-500">توکن خروجی</div>
+                     <div className="mt-1 font-medium text-zinc-200">
+                        {(settings?.usage.totalCompletionTokens || 0).toLocaleString('fa-IR')}
+                     </div>
+                  </div>
+                  <div className="rounded-md border border-white/8 bg-black/20 px-3 py-2 sm:col-span-2">
+                     <div className="text-xs text-zinc-500">هزینه تجمعی (USD)</div>
+                     <div className="mt-1 font-medium text-zinc-200 ltr">
+                        ${(settings?.usage.totalCostUsd || 0).toFixed(6)}
+                     </div>
+                     <div className="mt-1 text-xs text-zinc-500">
+                        {`دارای هزینه ثبت‌شده: ${(settings?.usage.costedRequests || 0).toLocaleString('fa-IR')} از ${(settings?.usage.totalRequests || 0).toLocaleString('fa-IR')} درخواست`}
+                     </div>
+                     <div className="mt-1 text-xs text-zinc-500">
+                        {settings?.usage.lastRequestAt ? `آخرین مصرف: ${formatJalaliDateTime(settings.usage.lastRequestAt)}` : 'هنوز مصرفی ثبت نشده است.'}
+                     </div>
+                  </div>
+               </div>
+            </SettingsField>
+
+            <SettingsField label="API Key" description="اگر خالی ذخیره شود، کلید قبلی حذف خواهد شد.">
+               <div className="space-y-2">
+                  <Input
+                     className={cn(inputClassName, 'ltr')}
+                     disabled={loading || !isWorkspaceAdmin}
+                     placeholder={settings?.hasApiKey ? 'کلید جدید وارد کنید (اختیاری)' : 'api key'}
+                     type="password"
+                     value={apiKeyInput}
+                     onChange={(event) => setApiKeyInput(event.target.value)}
+                  />
+               </div>
+            </SettingsField>
+
+            <SettingsField
+               label="پارامترهای پیش‌فرض AI"
+               description="این متن به‌صورت خودکار به همه درخواست‌های AI اضافه می‌شود (مثل قوانین ثابت، فرمت خروجی، یا محدودیت‌ها)."
+            >
+               <div className="space-y-2">
+                  <Textarea
+                     className={cn(inputClassName, 'min-h-28')}
+                     disabled={loading || !isWorkspaceAdmin}
+                     maxLength={8000}
+                     placeholder="مثال: همیشه پاسخ را خلاصه بده، اولویت را روی ریسک‌ها بگذار، و خروجی را با بولت‌پوینت ارائه کن."
+                     value={defaultContextInput}
+                     onChange={(event) => setDefaultContextInput(event.target.value)}
+                  />
+                  <div className="text-left text-xs text-zinc-500">{defaultContextInput.length.toLocaleString('fa-IR')} / ۸,۰۰۰</div>
+               </div>
+            </SettingsField>
+
+            {!isWorkspaceAdmin ? (
+               <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-300">
+                  فقط مالک یا مدیر فضای کاری می‌تواند تنظیمات AI را تغییر دهد.
+               </div>
+            ) : null}
+
+            <div className="border-t border-white/7 px-4 py-3">
+               <div className="flex justify-end gap-2">
+                  <Button
+                     className="h-9 border-white/10 bg-transparent text-zinc-300 hover:bg-white/6 hover:text-zinc-100"
+                     disabled={loading || saving || testing || !isWorkspaceAdmin}
+                     type="button"
+                     variant="outline"
+                     onClick={() => void handleTestSettings()}
+                  >
+                     {testing ? <Loader2 className="size-4 animate-spin" /> : <Bot className="size-4" />}
+                     تست اتصال
+                  </Button>
+                  <Button
+                     className="h-9 border border-white/10 bg-zinc-100 px-4 text-zinc-950 hover:bg-white"
+                     disabled={loading || saving || testing || !isWorkspaceAdmin}
+                     type="button"
+                     onClick={() => void handleSaveSettings()}
+                  >
+                     {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                     ذخیره API Key
+                  </Button>
+               </div>
+            </div>
+         </SettingsPanel>
+      </div>
+   );
+}
+
 function SettingsPageTitle({ title }: { title: string }) {
    return (
       <div className="mb-5 flex items-center gap-3">
@@ -910,15 +1176,17 @@ function SettingsPanel({
 
 function SettingsField({
    children,
+   className,
    description,
    label,
 }: {
    children: ReactNode;
+   className?: string;
    description?: ReactNode;
    label: ReactNode;
 }) {
    return (
-      <div className="grid gap-3 border-t border-white/7 px-4 py-3 first:border-t-0 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center">
+      <div className={cn('grid gap-3 border-t border-white/7 px-4 py-3 first:border-t-0 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center', className)}>
          <div className="min-w-0">
             <div className="text-sm font-medium text-zinc-300">{label}</div>
             {description ? <div className="mt-1 text-sm text-zinc-500">{description}</div> : null}

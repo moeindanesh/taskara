@@ -13,6 +13,7 @@ import { PageHeader } from '@/components/taskara/page-header';
 import { ProjectsView } from '@/components/taskara/projects-view';
 import { SettingsView } from '@/components/taskara/settings-view';
 import { TasksView } from '@/components/taskara/tasks-view';
+import { TaskReportsView } from '@/components/taskara/task-reports-view';
 import { TeamsView } from '@/components/taskara/teams-view';
 import { fa } from '@/lib/fa-copy';
 import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
@@ -54,6 +55,10 @@ const pageMetaByRoute = {
   settings: {
     title: fa.nav.settings,
     description: fa.pages.settingsDescription,
+  },
+  reports: {
+    title: fa.nav.reports,
+    description: fa.pages.reportsDescription,
   },
   team: {
     title: fa.nav.issues,
@@ -138,6 +143,7 @@ export function App() {
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />
         <Route path="projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
         <Route path="settings/*" element={<WorkspacePage><SettingsView /></WorkspacePage>} />
+        <Route path="reports" element={<WorkspacePage><TaskReportsView /></WorkspacePage>} />
         <Route path="tasks" element={<WorkspacePage><TasksView defaultSystemView="all" personalOnly={false} /></WorkspacePage>} />
         <Route path="team/:teamId/all" element={<WorkspacePage><TasksView /></WorkspacePage>} />
         <Route path="team/:teamId/projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />

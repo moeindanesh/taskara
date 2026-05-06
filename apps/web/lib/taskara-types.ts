@@ -290,6 +290,7 @@ export interface TaskaraMe {
       id: string;
       name: string;
       email: string;
+      aiModel?: string | null;
       phone?: string | null;
       mattermostUsername?: string | null;
       avatarUrl?: string | null;

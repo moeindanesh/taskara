@@ -4,10 +4,14 @@ import { useEffect, useState, type MouseEvent } from 'react';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { fa } from '@/lib/fa-copy';
+import type { TaskaraMe } from '@/lib/taskara-types';
+import { taskaraRequest } from '@/lib/taskara-client';
 import { cn } from '@/lib/utils';
-import { Bell, Filter, SlidersHorizontal, Trophy } from 'lucide-react';
+import { Bell, Bot, Check, Filter, Loader2, SlidersHorizontal, Trophy } from 'lucide-react';
+import { useAuthSession } from '@/store/auth-store';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface PageHeaderProps {
@@ -21,10 +25,14 @@ interface PageHeaderProps {
 export function PageHeader({ title, description, count, action, compact = false }: PageHeaderProps) {
    const navigate = useNavigate();
    const location = useLocation();
+   const { session, setSession } = useAuthSession();
    const [openMenu, setOpenMenu] = useState<'display' | 'filters' | null>(null);
+   const [updatingModel, setUpdatingModel] = useState(false);
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
    const isLeaderboardRoute = pathParts[1] === 'leaderboard';
+   const modelOptions = ['x-ai/grok-4.1-fast', 'deepseek/deepseek-v4-flash'] as const;
+   const selectedModel = session?.user.aiModel || modelOptions[0];
 
    useEffect(() => {
       const handleMenuState = (event: Event) => {
@@ -57,6 +65,28 @@ export function PageHeader({ title, description, count, action, compact = false 
       setOpenMenu('display');
       window.dispatchEvent(new CustomEvent('taskara:open-display', { detail: { anchor: getAnchor(event) } }));
    };
+
+   async function selectAiModel(model: (typeof modelOptions)[number]) {
+      if (!session || updatingModel || selectedModel === model) return;
+
+      setUpdatingModel(true);
+      try {
+         const result = await taskaraRequest<TaskaraMe>('/me', {
+            method: 'PATCH',
+            body: JSON.stringify({ aiModel: model }),
+         });
+         setSession({
+            ...session,
+            role: result.role,
+            user: result.user,
+            workspace: result.workspace,
+         });
+      } catch {
+         // keep silent in header controls
+      } finally {
+         setUpdatingModel(false);
+      }
+   }
 
    return (
       <div
@@ -136,6 +166,27 @@ export function PageHeader({ title, description, count, action, compact = false 
                   <TooltipContent>{fa.nav.leaderboard}</TooltipContent>
                </Tooltip>
                <div className="ms-auto flex items-center gap-1.5">
+                  <DropdownMenu>
+                     <DropdownMenuTrigger asChild>
+                        <Button
+                           aria-label="مدل هوش مصنوعی"
+                           size="icon"
+                           title="مدل هوش مصنوعی"
+                           variant="ghost"
+                           className="size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"
+                        >
+                           {updatingModel ? <Loader2 className="size-4 animate-spin" /> : <Bot className="size-4" />}
+                        </Button>
+                     </DropdownMenuTrigger>
+                     <DropdownMenuContent align="end" className="w-[260px] border-white/10 bg-[#1f1f22] text-zinc-100">
+                        {modelOptions.map((model) => (
+                           <DropdownMenuItem key={model} className="justify-between" onClick={() => void selectAiModel(model)}>
+                              <span className="ltr text-xs">{model}</span>
+                              {selectedModel === model ? <Check className="size-4 text-emerald-300" /> : null}
+                           </DropdownMenuItem>
+                        ))}
+                     </DropdownMenuContent>
+                  </DropdownMenu>
                   <Tooltip>
                      <TooltipTrigger asChild>
                         <Button

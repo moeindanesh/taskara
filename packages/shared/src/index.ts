@@ -96,6 +96,7 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   name: z.string().trim().min(1).max(160).optional(),
+  aiModel: z.string().trim().min(1).max(120).nullable().optional(),
   phone: nullablePhoneNumberSchema,
   mattermostUsername: z.string().trim().toLowerCase().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).nullable().optional(),
   avatarUrl: z.string().trim().url().nullable().optional()

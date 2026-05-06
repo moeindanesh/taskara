@@ -12,6 +12,7 @@ const meUserSelect = {
   id: true,
   email: true,
   name: true,
+  aiModel: true,
   phone: true,
   mattermostUserId: true,
   mattermostUsername: true,
