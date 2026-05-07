@@ -470,6 +470,21 @@ function ProfileSettingsPage() {
                </SettingsField>
             </SettingsPanel>
 
+            <SettingsPanel title="اپ منوبار">
+               <div className="space-y-3 px-4 py-4 text-sm text-zinc-300">
+                  <p className="text-zinc-400">
+                     نسخه macOS اپ منوبار را از صفحه ریلیز دانلود کنید.
+                  </p>
+                  <Button asChild className="w-full border border-white/10 bg-zinc-100 text-zinc-950 hover:bg-white">
+                     <a href={menubarReleasesUrl} target="_blank" rel="noreferrer">
+                        <Download className="size-4" />
+                        دانلود اپ منوبار
+                        <ExternalLink className="size-4" />
+                     </a>
+                  </Button>
+               </div>
+            </SettingsPanel>
+
             <SettingsPanel title="Raycast">
                <SettingsField
                   label="پروژه پیش‌فرض"
@@ -667,23 +682,6 @@ function WorkspaceAccessSettingsPage() {
                      )}
                   </InfoRows>
                </SettingsPanel>
-
-               {isWorkspaceAdmin ? (
-                  <SettingsPanel title="اپ منوبار">
-                     <div className="space-y-3 px-4 py-4 text-sm text-zinc-300">
-                        <p className="text-zinc-400">
-                           نسخه macOS اپ منوبار را از صفحه ریلیز دانلود کنید.
-                        </p>
-                        <Button asChild className="w-full border border-white/10 bg-zinc-100 text-zinc-950 hover:bg-white">
-                           <a href={menubarReleasesUrl} target="_blank" rel="noreferrer">
-                              <Download className="size-4" />
-                              دانلود اپ منوبار
-                              <ExternalLink className="size-4" />
-                           </a>
-                        </Button>
-                     </div>
-                  </SettingsPanel>
-               ) : null}
 
                {isWorkspaceAdmin ? (
                   <SettingsPanel title={fa.settings.createUser}>
