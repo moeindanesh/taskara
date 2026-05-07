@@ -190,7 +190,6 @@ type StableTaskOrderSnapshot = {
 type TaskComposerPreferences = {
    createMore?: boolean;
    projectId?: string;
-   assigneeId?: string;
 };
 
 function taskViewSelectionStorageKey(workspaceKey: string, teamKey: string) {
@@ -903,10 +902,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (typeof storedProjectId === 'string') {
             setForm((current) => ({ ...current, projectId: storedProjectId }));
          }
-         const storedAssigneeId = stored.assigneeId;
-         if (typeof storedAssigneeId === 'string') {
-            setForm((current) => ({ ...current, assigneeId: storedAssigneeId }));
-         }
       }
       restoredComposerPreferenceKeyRef.current = composerPreferenceKey;
       composerPreferencesHydratedRef.current = true;
@@ -986,9 +981,8 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       writeStoredTaskComposerPreferences(workspaceKey, viewScopeKey, {
          createMore,
          projectId: form.projectId || undefined,
-         assigneeId: form.assigneeId || undefined,
       });
-   }, [createMore, form.assigneeId, form.projectId, viewScopeKey, workspaceKey]);
+   }, [createMore, form.projectId, viewScopeKey, workspaceKey]);
 
    const activeTeam = useMemo(
       () => (activeTeamSlug ? teams.find((team) => team.slug === activeTeamSlug) || null : null),
@@ -1267,8 +1261,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       visibleTasks.length,
    ]);
 
-   const openComposer = useCallback((fullscreen = false) => {
+   const openComposer = useCallback((fullscreen = false, preserveAssignee = false) => {
       setComposerFullscreen(fullscreen);
+      if (!preserveAssignee) {
+         setForm((current) => ({ ...current, assigneeId: '' }));
+      }
       setComposerOpen(true);
    }, []);
 
@@ -1510,7 +1507,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             status: submittedStatus,
             priority: 'NO_PRIORITY',
             weight: submittedWeight,
-            assigneeId: submittedAssigneeId,
+            assigneeId: createMore ? submittedAssigneeId : '',
          });
          if (!createMore) setComposerOpen(false);
          void handleCreatedTaskAttachments(createTaskPromise, filesToUpload);
@@ -1654,7 +1651,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (draftView.groupBy === 'project') return { ...current, projectId: group.key };
          return current;
       });
-      openComposer(false);
+      openComposer(false, true);
    }
 
    function openCreateViewDialog() {
