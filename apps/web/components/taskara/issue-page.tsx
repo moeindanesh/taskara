@@ -17,7 +17,9 @@ import {
    Loader2,
    MoreHorizontal,
    Paperclip,
+   Plus,
    Send,
+   Sparkles,
    Tag,
    X,
 } from 'lucide-react';
@@ -37,6 +39,7 @@ import {
 } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
+import { editorValueToPlainText, suggestTaskText, type TaskTextSuggestionResult } from '@/lib/task-text-ai';
 import { taskaraRequest, uploadTaskAttachment, uploadTaskCommentAttachment } from '@/lib/taskara-client';
 import { sendTaskSyncMutation, useTaskSyncPulse } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
@@ -151,6 +154,9 @@ export function IssuePage() {
    const [error, setError] = useState('');
    const [savingField, setSavingField] = useState<SavingField>(null);
    const [descriptionUploading, setDescriptionUploading] = useState(false);
+   const [aiSuggestionLoading, setAiSuggestionLoading] = useState(false);
+   const [aiSuggestion, setAiSuggestion] = useState<TaskTextSuggestionResult | null>(null);
+   const [aiApplying, setAiApplying] = useState(false);
    const [commentSubmitting, setCommentSubmitting] = useState(false);
    const [smsSending, setSmsSending] = useState<SmsSendingKind | null>(null);
    const titleFocusedRef = useRef(false);
@@ -198,6 +204,8 @@ export function IssuePage() {
       setTask(cachedTask);
       if (!titleFocusedRef.current) setTitleDraft(cachedTask.title);
       if (!descriptionFocusedRef.current) setDescriptionDraft(cachedTask.description || '');
+      setAiSuggestion(null);
+      setAiSuggestionLoading(false);
       setLoading(false);
    }, [cachedTask]);
 
@@ -350,6 +358,61 @@ export function IssuePage() {
          if (updated) setDescriptionDraft(updated.description || '');
       } finally {
          setSavingField(null);
+      }
+   }
+
+   async function requestAiSuggestion() {
+      if (aiSuggestionLoading) return;
+      const title = titleDraft.trim();
+      const description = editorValueToPlainText(descriptionDraft);
+      if (!title && !description) {
+         toast.error('ابتدا عنوان یا توضیحی برای بهبود وارد کنید.');
+         return;
+      }
+
+      setAiSuggestionLoading(true);
+      try {
+         const suggestion = await suggestTaskText({ title, description });
+         if (!suggestion.titleSuggestion && !suggestion.descriptionSuggestion && !suggestion.summarySuggestion) {
+            toast.message('پیشنهاد جدیدی برای این متن پیدا نشد.');
+         }
+         setAiSuggestion(suggestion);
+      } catch (err) {
+         toast.error(err instanceof Error ? err.message : 'دریافت پیشنهاد AI ناموفق بود.');
+      } finally {
+         setAiSuggestionLoading(false);
+      }
+   }
+
+   async function applyAiSuggestion(
+      next: Pick<TaskTextSuggestionResult, 'titleSuggestion' | 'descriptionSuggestion'>
+   ) {
+      if (!task || aiApplying) return;
+      const patch: TaskUpdatePatch = {};
+      const nextTitle = (next.titleSuggestion ?? titleDraft).trim();
+      const nextDescription = (next.descriptionSuggestion ?? descriptionDraft).trim();
+      const currentTitle = task.title.trim();
+      const currentDescription = task.description?.trim() || '';
+
+      if (nextTitle && nextTitle !== currentTitle) patch.title = nextTitle;
+      if (nextDescription !== currentDescription) patch.description = nextDescription || null;
+      if (!Object.keys(patch).length) {
+         toast.message('تغییری برای اعمال وجود ندارد.');
+         return;
+      }
+
+      setAiApplying(true);
+      try {
+         setTitleDraft(nextTitle);
+         setDescriptionDraft(nextDescription);
+         const updated = await updateTask(patch);
+         if (updated) {
+            setTitleDraft(updated.title);
+            setDescriptionDraft(updated.description || '');
+            toast.success('پیشنهاد AI اعمال شد.');
+         }
+      } finally {
+         setAiApplying(false);
       }
    }
 
@@ -628,7 +691,94 @@ export function IssuePage() {
                      )}
                      <span className="sr-only">{fa.issue.uploadAttachment}</span>
                   </button>
+                  <button
+                     className="inline-flex h-8 items-center gap-1.5 rounded-full border border-cyan-300/35 bg-[linear-gradient(135deg,rgba(56,189,248,0.22),rgba(99,102,241,0.2))] px-3 text-xs font-medium text-cyan-50 shadow-[0_8px_24px_rgba(56,189,248,0.18),inset_0_1px_0_rgba(255,255,255,0.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                     disabled={aiSuggestionLoading || aiApplying}
+                     type="button"
+                     onClick={() => void requestAiSuggestion()}
+                  >
+                     {aiSuggestionLoading ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                     ) : (
+                        <span className="relative inline-flex size-4 items-center justify-center">
+                           <Sparkles className="size-3.5" />
+                        </span>
+                     )}
+                     <span>بازنویسی هوشمند</span>
+                  </button>
                </div>
+
+               {aiSuggestion ? (
+                  <div className="mt-3 rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-sm">
+                     <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-indigo-100">
+                           <Sparkles className="size-4" />
+                           <span className="font-medium">پیشنهاد هوشمند AI</span>
+                        </div>
+                        <button
+                           className="text-xs text-zinc-400 transition hover:text-zinc-200"
+                           type="button"
+                           onClick={() => setAiSuggestion(null)}
+                        >
+                           بستن
+                        </button>
+                     </div>
+                     {aiSuggestion.titleSuggestion ? (
+                        <div className="mb-2 rounded-lg border border-white/10 bg-black/15 p-2">
+                           <div className="mb-1 text-xs text-zinc-500">عنوان پیشنهادی</div>
+                           <p className="whitespace-pre-wrap text-zinc-100">
+                              {aiSuggestion.titleSuggestion}
+                           </p>
+                        </div>
+                     ) : null}
+                     {aiSuggestion.descriptionSuggestion ? (
+                        <div className="mb-2 rounded-lg border border-white/10 bg-black/15 p-2">
+                           <div className="mb-1 text-xs text-zinc-500">متن پخته‌تر پیشنهادی</div>
+                           <p className="max-h-36 overflow-auto whitespace-pre-wrap text-zinc-200">
+                              {aiSuggestion.descriptionSuggestion}
+                           </p>
+                        </div>
+                     ) : null}
+                     {aiSuggestion.summarySuggestion ? (
+                        <div className="mb-2 rounded-lg border border-white/10 bg-black/15 p-2">
+                           <div className="mb-1 text-xs text-zinc-500">خلاصه پیشنهادی</div>
+                           <p className="max-h-24 overflow-auto whitespace-pre-wrap text-zinc-200">
+                              {aiSuggestion.summarySuggestion}
+                           </p>
+                        </div>
+                     ) : null}
+                     <div className="flex flex-wrap items-center gap-2">
+                        <button
+                           className="inline-flex h-7 items-center rounded-full border border-white/12 bg-white/6 px-3 text-xs text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                           disabled={aiApplying}
+                           type="button"
+                           onClick={() =>
+                              void applyAiSuggestion({
+                                 titleSuggestion: aiSuggestion.titleSuggestion,
+                                 descriptionSuggestion: aiSuggestion.descriptionSuggestion,
+                              })
+                           }
+                        >
+                           اعمال نسخه بهبودیافته
+                        </button>
+                        {aiSuggestion.summarySuggestion ? (
+                           <button
+                              className="inline-flex h-7 items-center rounded-full border border-white/12 bg-white/6 px-3 text-xs text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={aiApplying}
+                              type="button"
+                              onClick={() =>
+                                 void applyAiSuggestion({
+                                    titleSuggestion: null,
+                                    descriptionSuggestion: aiSuggestion.summarySuggestion,
+                                 })
+                              }
+                           >
+                              جایگزینی با خلاصه
+                           </button>
+                        ) : null}
+                     </div>
+                  </div>
+               ) : null}
 
                <AttachmentList attachments={attachments} className="mt-3" />
             </section>

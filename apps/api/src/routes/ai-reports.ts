@@ -76,6 +76,17 @@ const reportAnalyzeInputSchema = z.object({
   request: z.string().trim().min(3).max(4000)
 });
 
+const taskTextRefineInputSchema = z.object({
+  title: z.string().max(300).optional().default(''),
+  description: z.string().max(20000).optional().default(''),
+});
+
+const taskTextRefineOutputSchema = z.object({
+  titleSuggestion: z.string().trim().min(1).max(300).nullable().optional(),
+  descriptionSuggestion: z.string().trim().min(1).max(20000).nullable().optional(),
+  summarySuggestion: z.string().trim().min(1).max(4000).nullable().optional(),
+});
+
 const TASK_STATUS_VALUES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE', 'CANCELED'] as const;
 const TASK_PRIORITY_VALUES = ['NO_PRIORITY', 'LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 const assistantActionValues = ['create_task', 'update_task', 'query_tasks', 'bulk_update_tasks', 'clarify', 'unsupported'] as const;
@@ -734,6 +745,20 @@ function extractFirstJsonObject(text: string): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+function sanitizeSuggestionText(
+  value: string | null | undefined,
+  maxLength: number,
+  originalValue: string
+): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/\r\n/g, '\n').trim();
+  if (!cleaned) return null;
+  const cropped = cleaned.slice(0, maxLength).trim();
+  if (!cropped) return null;
+  if (normalizeSearchText(cropped) === normalizeSearchText(originalValue.trim())) return null;
+  return cropped;
 }
 
 function resolveDateRangeFromPlan(plan: ReportQueryPlan): ReportDateRange {
@@ -1998,6 +2023,91 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
         model: effectiveModel,
         credentialId: selectedCredential.id
       }
+    };
+  });
+
+  app.post('/ai/tasks/refine', async (request) => {
+    const actor = await getRequestActor(request);
+    const input = taskTextRefineInputSchema.parse(request.body);
+    const title = input.title.trim();
+    const description = input.description.trim();
+
+    if (!title && !description) {
+      throw new HttpError(400, 'Task title or description is required for AI refinement.');
+    }
+
+    const accounts = await loadAiCredentialAccounts(actor.workspace.id);
+    const selectedCredential = resolveActiveCredential(accounts);
+    if (!selectedCredential) {
+      throw new HttpError(400, 'AI API key is not configured. Set it in settings first.');
+    }
+
+    const storedApiKey = resolveStoredApiKey(selectedCredential);
+    if (!storedApiKey) {
+      throw new HttpError(400, 'AI API key is not configured. Set it in settings first.');
+    }
+
+    const aiConfig = normalizeAiConfig(selectedCredential.config);
+    const effectiveModel = actor.user.aiModel
+      ? normalizeOpenRouterModel(actor.user.aiModel)
+      : aiConfig.model;
+
+    const prompt = [
+      'تو یک دستیار نگارشی برای متن تسک هستی. فقط JSON معتبر برگردان.',
+      'وظیفه: متن را پخته‌تر، دقیق‌تر و حرفه‌ای‌تر کن، بدون حذف اطلاعات مهم.',
+      'اگر توضیح طولانی است، علاوه بر نسخه بهبودیافته یک خلاصه کوتاه هم پیشنهاد بده.',
+      '',
+      'قواعد:',
+      '1) لحن پاسخ رسمی، کوتاه و شفاف باشد.',
+      '2) اطلاعات کلیدی را حذف نکن و معنی متن را عوض نکن.',
+      '3) اگر عنوان خالی بود titleSuggestion را null بگذار.',
+      '4) اگر توضیح خالی بود descriptionSuggestion و summarySuggestion را null بگذار.',
+      '5) summarySuggestion فقط وقتی متن واقعاً طولانی است مقدار داشته باشد؛ در غیر این صورت null.',
+      '6) خروجی فقط JSON باشد و هیچ متن اضافه نده.',
+      '',
+      'فرمت خروجی:',
+      JSON.stringify({
+        titleSuggestion: 'string | null',
+        descriptionSuggestion: 'string | null',
+        summarySuggestion: 'string | null',
+      }, null, 2),
+      '',
+      `عنوان فعلی:\n${title || '(خالی)'}`,
+      '',
+      `توضیح فعلی:\n${description || '(خالی)'}`,
+    ].join('\n');
+
+    const result = await generateAnalysis(
+      aiConfig.provider,
+      storedApiKey,
+      effectiveModel,
+      prompt,
+      aiConfig.defaultContext
+    );
+    await recordUsageStats(selectedCredential.id, result.usage);
+
+    const parsedJson = extractFirstJsonObject(result.content);
+    const parsed = parsedJson ? taskTextRefineOutputSchema.safeParse(parsedJson) : null;
+    const payload = parsed?.success ? parsed.data : {};
+    const fallbackDescription = description ? result.content.trim().slice(0, 20000) : null;
+
+    const titleSuggestion = sanitizeSuggestionText(payload.titleSuggestion, 300, title);
+    const descriptionSuggestion = sanitizeSuggestionText(
+      payload.descriptionSuggestion ?? fallbackDescription,
+      20000,
+      description
+    );
+    const summarySuggestion = sanitizeSuggestionText(payload.summarySuggestion, 4000, description);
+
+    return {
+      titleSuggestion,
+      descriptionSuggestion,
+      summarySuggestion,
+      ai: {
+        provider: aiConfig.provider,
+        model: effectiveModel,
+        credentialId: selectedCredential.id,
+      },
     };
   });
 
