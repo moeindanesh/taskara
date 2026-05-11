@@ -58,6 +58,113 @@ import {
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
+const primarySidebarVisibleCount = 4;
+const primarySidebarOrderStorageKey = 'taskara.sidebar.primaryOrder.v1';
+const expandedTeamsStoragePrefix = 'taskara.sidebar.expandedTeams.v1.';
+const sidebarItemDragMimeType = 'application/x-taskara-sidebar-item-id';
+const sidebarItemClassName =
+   'h-8 rounded-lg text-[13px] data-[active=true]:bg-zinc-200 data-[active=true]:text-zinc-950 data-[active=true]:hover:bg-zinc-200 data-[active=true]:hover:text-zinc-950 dark:data-[active=true]:bg-white/8 dark:data-[active=true]:text-zinc-100 dark:data-[active=true]:hover:bg-white/10 dark:data-[active=true]:hover:text-zinc-100';
+
+type PrimarySidebarItemId =
+   | 'inbox'
+   | 'announcements'
+   | 'meetings'
+   | 'wiki'
+   | 'all-tasks'
+   | 'my-issues'
+   | 'reports'
+   | 'heartbeat';
+
+type PrimarySidebarItem = {
+   id: PrimarySidebarItemId;
+   title: string;
+   href: string;
+   icon: React.ComponentType<{ className?: string }>;
+   count?: number;
+};
+
+function readStoredPrimaryOrder() {
+   if (typeof window === 'undefined') return [];
+
+   try {
+      const raw = window.localStorage.getItem(primarySidebarOrderStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+         ? parsed.filter((item): item is PrimarySidebarItemId => typeof item === 'string')
+         : [];
+   } catch {
+      return [];
+   }
+}
+
+function writeStoredPrimaryOrder(order: PrimarySidebarItemId[]) {
+   try {
+      window.localStorage.setItem(primarySidebarOrderStorageKey, JSON.stringify(order));
+   } catch {
+      // Local storage is a preference cache; failures should not block navigation.
+   }
+}
+
+function expandedTeamsStorageKey(orgId: string) {
+   return `${expandedTeamsStoragePrefix}${orgId}`;
+}
+
+function readStoredExpandedTeams(orgId: string) {
+   if (typeof window === 'undefined') return {};
+
+   try {
+      const raw = window.localStorage.getItem(expandedTeamsStorageKey(orgId));
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+      return Object.fromEntries(
+         Object.entries(parsed).filter(
+            (entry): entry is [string, boolean] => typeof entry[1] === 'boolean'
+         )
+      );
+   } catch {
+      return {};
+   }
+}
+
+function writeStoredExpandedTeams(orgId: string, expandedTeams: Record<string, boolean>) {
+   try {
+      window.localStorage.setItem(expandedTeamsStorageKey(orgId), JSON.stringify(expandedTeams));
+   } catch {
+      // Local storage is best effort.
+   }
+}
+
+function orderPrimarySidebarItems(items: PrimarySidebarItem[], storedOrder: PrimarySidebarItemId[]) {
+   const itemById = new Map(items.map((item) => [item.id, item]));
+   const orderedIds = [
+      ...storedOrder.filter((id, index) => itemById.has(id) && storedOrder.indexOf(id) === index),
+      ...items.map((item) => item.id).filter((id) => !storedOrder.includes(id)),
+   ];
+
+   return orderedIds.map((id) => itemById.get(id)).filter((item): item is PrimarySidebarItem => Boolean(item));
+}
+
+function movePrimarySidebarItem(
+   items: PrimarySidebarItem[],
+   storedOrder: PrimarySidebarItemId[],
+   draggedId: PrimarySidebarItemId,
+   targetId: PrimarySidebarItemId
+) {
+   if (draggedId === targetId) return storedOrder;
+
+   const nextOrder = orderPrimarySidebarItems(items, storedOrder).map((item) => item.id);
+   const fromIndex = nextOrder.indexOf(draggedId);
+   const toIndex = nextOrder.indexOf(targetId);
+   if (fromIndex < 0 || toIndex < 0) return nextOrder;
+
+   const [draggedItem] = nextOrder.splice(fromIndex, 1);
+   if (!draggedItem) return nextOrder;
+
+   nextOrder.splice(toIndex, 0, draggedItem);
+   return nextOrder;
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const location = useLocation();
    const navigate = useNavigate();
@@ -73,13 +180,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const [myIssueCount, setMyIssueCount] = React.useState(0);
    const [meetingCount, setMeetingCount] = React.useState(0);
    const [loadingTeams, setLoadingTeams] = React.useState(true);
-   const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>({});
+   const [expandedTeams, setExpandedTeams] = React.useState<Record<string, boolean>>(() => readStoredExpandedTeams(orgId));
+   const [primaryItemOrder, setPrimaryItemOrder] = React.useState<PrimarySidebarItemId[]>(readStoredPrimaryOrder);
+   const [showAllPrimaryItems, setShowAllPrimaryItems] = React.useState(false);
+   const [draggingPrimaryItemId, setDraggingPrimaryItemId] = React.useState<PrimarySidebarItemId | null>(null);
+   const [primaryDropTargetId, setPrimaryDropTargetId] = React.useState<PrimarySidebarItemId | null>(null);
    const cancelledRef = React.useRef(false);
    const initialLoadRef = React.useRef(true);
 
    const pathParts = pathname.split('/').filter(Boolean);
    const activeTeamSlug = pathParts[1] === 'team' ? pathParts[2] : null;
    const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
+   const isPrimaryItemActive = (item: PrimarySidebarItem) =>
+      item.id === 'wiki' || item.id === 'announcements' || item.id === 'meetings'
+         ? pathParts[1] === item.id
+         : pathname === item.href;
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -136,6 +251,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    useLiveRefresh(refreshSidebarData, { fireOnMount: false });
 
    React.useEffect(() => {
+      setExpandedTeams(readStoredExpandedTeams(orgId));
+   }, [orgId]);
+
+   React.useEffect(() => {
       if (!teams.length) return;
 
       setExpandedTeams((current) => {
@@ -143,12 +262,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
          for (const team of teams) {
             next[team.id] = next[team.id] ?? true;
-            if (team.slug === activeTeamSlug) next[team.id] = true;
          }
 
+         writeStoredExpandedTeams(orgId, next);
          return next;
       });
-   }, [activeTeamSlug, teams]);
+   }, [orgId, teams]);
 
    const workspaceName = me?.workspace.name || fa.app.fallbackWorkspace;
    const workspaceItems = workspaces.length
@@ -171,20 +290,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       window.setTimeout(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')), 0);
    };
 
-   const primaryItems = [
-      { title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
-      { title: fa.nav.announcements, href: `/${orgId}/announcements`, icon: Megaphone, count: announcementUnreadCount },
-      { title: fa.nav.meetings, href: `/${orgId}/meetings`, icon: CalendarDays, count: meetingCount },
-      { title: fa.nav.wiki, href: `/${orgId}/wiki`, icon: BookOpen },
-      { title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
-      { title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
-      { title: fa.nav.reports, href: `/${orgId}/reports`, icon: BarChart3 },
-      { title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
-   ];
+   const primaryItems = React.useMemo<PrimarySidebarItem[]>(
+      () => [
+         { id: 'inbox', title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
+         { id: 'announcements', title: fa.nav.announcements, href: `/${orgId}/announcements`, icon: Megaphone, count: announcementUnreadCount },
+         { id: 'meetings', title: fa.nav.meetings, href: `/${orgId}/meetings`, icon: CalendarDays, count: meetingCount },
+         { id: 'wiki', title: fa.nav.wiki, href: `/${orgId}/wiki`, icon: BookOpen },
+         { id: 'all-tasks', title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
+         { id: 'my-issues', title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
+         { id: 'reports', title: fa.nav.reports, href: `/${orgId}/reports`, icon: BarChart3 },
+         { id: 'heartbeat', title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
+      ],
+      [allIssueCount, announcementUnreadCount, meetingCount, myIssueCount, orgId, unreadCount]
+   );
+   const orderedPrimaryItems = React.useMemo(
+      () => orderPrimarySidebarItems(primaryItems, primaryItemOrder),
+      [primaryItemOrder, primaryItems]
+   );
+   const visiblePrimaryItems = showAllPrimaryItems
+      ? orderedPrimaryItems
+      : orderedPrimaryItems.slice(0, primarySidebarVisibleCount);
+   const hiddenPrimaryItemCount = Math.max(orderedPrimaryItems.length - primarySidebarVisibleCount, 0);
    const teamItems = (team: TaskaraTeam) => [
       { title: fa.nav.issues, href: `/${orgId}/team/${team.slug}/all`, icon: SidebarIssueIcon },
       { title: fa.nav.projects, href: `/${orgId}/team/${team.slug}/projects`, icon: SidebarProjectIcon },
-      { title: fa.nav.wiki, href: `/${orgId}/wiki/team-${team.slug}`, icon: BookOpen },
    ];
    const currentTheme = theme || 'system';
    const themeOptions = [
@@ -194,6 +323,39 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    ];
    const currentThemeLabel =
       themeOptions.find((item) => item.value === currentTheme)?.label || 'سیستم';
+
+   const handlePrimaryItemDrop = React.useCallback(
+      (event: React.DragEvent<HTMLElement>, targetId: PrimarySidebarItemId) => {
+         event.preventDefault();
+         const draggedId =
+            (event.dataTransfer.getData(sidebarItemDragMimeType) ||
+               event.dataTransfer.getData('text/plain')) as PrimarySidebarItemId;
+         setDraggingPrimaryItemId(null);
+         setPrimaryDropTargetId(null);
+         if (!draggedId) return;
+
+         setPrimaryItemOrder((current) => {
+            const next = movePrimarySidebarItem(primaryItems, current, draggedId, targetId);
+            writeStoredPrimaryOrder(next);
+            return next;
+         });
+      },
+      [primaryItems]
+   );
+
+   const toggleTeamOpen = React.useCallback(
+      (teamId: string) => {
+         setExpandedTeams((current) => {
+            const next = {
+               ...current,
+               [teamId]: !(current[teamId] ?? true),
+            };
+            writeStoredExpandedTeams(orgId, next);
+            return next;
+         });
+      },
+      [orgId]
+   );
 
    return (
       <Sidebar side="right" collapsible="offcanvas" className="border-l border-white/6 bg-[#070708]" {...props}>
@@ -312,14 +474,45 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
          <SidebarContent className="gap-4 px-2">
             <SidebarGroup className="p-0">
                <SidebarMenu>
-                  {primaryItems.map((item) => (
-                        <SidebarMenuItem key={item.href}>
-                           <SidebarMenuButton
-                              asChild
-                              isActive={pathname === item.href}
-                              className="h-8 rounded-lg text-[13px]"
-                           >
-                           <Link to={item.href}>
+                  {visiblePrimaryItems.map((item) => (
+                     <SidebarMenuItem
+                        key={item.id}
+                        className={cn(
+                           'cursor-grab active:cursor-grabbing',
+                           draggingPrimaryItemId === item.id && 'opacity-50'
+                        )}
+                        draggable
+                        onDragStart={(event) => {
+                           event.dataTransfer.effectAllowed = 'move';
+                           event.dataTransfer.setData(sidebarItemDragMimeType, item.id);
+                           event.dataTransfer.setData('text/plain', item.id);
+                           setDraggingPrimaryItemId(item.id);
+                        }}
+                        onDragEnd={() => {
+                           setDraggingPrimaryItemId(null);
+                           setPrimaryDropTargetId(null);
+                        }}
+                        onDragOver={(event) => {
+                           event.preventDefault();
+                           event.dataTransfer.dropEffect = 'move';
+                           setPrimaryDropTargetId(item.id);
+                        }}
+                        onDragLeave={() =>
+                           setPrimaryDropTargetId((current) => (current === item.id ? null : current))
+                        }
+                        onDrop={(event) => handlePrimaryItemDrop(event, item.id)}
+                     >
+                        <SidebarMenuButton
+                           asChild
+                           isActive={isPrimaryItemActive(item)}
+                           className={cn(
+                              sidebarItemClassName,
+                              primaryDropTargetId === item.id &&
+                                 draggingPrimaryItemId !== item.id &&
+                                 'bg-white/7 ring-1 ring-indigo-400/35'
+                           )}
+                        >
+                           <Link to={item.href} draggable={false}>
                               <item.icon />
                               <span>{item.title}</span>
                            </Link>
@@ -331,6 +524,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         ) : null}
                      </SidebarMenuItem>
                   ))}
+                  {hiddenPrimaryItemCount > 0 ? (
+                     <SidebarMenuItem>
+                        <SidebarMenuButton
+                           aria-expanded={showAllPrimaryItems}
+                           className="h-8 rounded-lg text-[13px] text-zinc-500"
+                           type="button"
+                           onClick={() => setShowAllPrimaryItems((current) => !current)}
+                        >
+                           <ChevronDown
+                              className={cn(
+                                 'size-4 transition-transform',
+                                 showAllPrimaryItems && 'rotate-180'
+                              )}
+                           />
+                           <span>{showAllPrimaryItems ? 'نمایش کمتر' : 'نمایش بیشتر'}</span>
+                        </SidebarMenuButton>
+                     </SidebarMenuItem>
+                  ) : null}
                </SidebarMenu>
             </SidebarGroup>
             <SidebarGroup className="p-0">
@@ -359,12 +570,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                  <SidebarMenuButton
                                     className="h-8 min-w-0 flex-1 rounded-lg text-[13px] hover:bg-transparent hover:text-sidebar-foreground active:bg-transparent active:text-sidebar-foreground"
                                     type="button"
-                                    onClick={() =>
-                                       setExpandedTeams((current) => ({
-                                          ...current,
-                                          [team.id]: !isOpen,
-                                       }))
-                                    }
+                                    onClick={() => toggleTeamOpen(team.id)}
                                  >
                                     <SidebarTeamIcon className="size-4 shrink-0 text-pink-500" />
                                     <span className="min-w-0 truncate text-right">{team.name}</span>
@@ -383,7 +589,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                           <SidebarMenuButton
                                              asChild
                                              isActive={pathname === item.href}
-                                             className="h-8 rounded-lg text-[13px]"
+                                             className={sidebarItemClassName}
                                           >
                                              <Link to={item.href}>
                                                 <item.icon />

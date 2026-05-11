@@ -80,7 +80,7 @@ export function LinearStatusDoneIcon({ className }: { className?: string }) {
          <circle cx="8" cy="8" fill="currentColor" r="6.4" />
          <path
             d="m4.8 8.1 2 2 4.4-4.6"
-            stroke="#17171a"
+            stroke="#fff"
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="1.9"
@@ -95,7 +95,7 @@ export function LinearStatusCanceledIcon({ className }: { className?: string }) 
          <circle cx="8" cy="8" fill="currentColor" r="6.4" />
          <path
             d="m5.65 5.65 4.7 4.7m0-4.7-4.7 4.7"
-            stroke="#17171a"
+            stroke="#fff"
             strokeLinecap="round"
             strokeWidth="1.9"
          />

@@ -88,9 +88,7 @@ import {
    makeDueDate,
    makeEndOfIranWorkWeek,
 } from '@/components/taskara/task-due-date-control';
-import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
 import { fa } from '@/lib/fa-copy';
-import { formatJalaliDateTimeInput } from '@/lib/jalali';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
 import {
    editorValueToPlainText,
@@ -117,7 +115,6 @@ import type {
 import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
 import { cn } from '@/lib/utils';
 import { getProjectColorsFromName, getUserColorsFromName } from '@/lib/name-colors';
-import { fromSelectValue, toSelectValue } from '@/lib/select-utils';
 
 const activeStatuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'];
 const currentTeamFallback = 'all';
@@ -739,7 +736,7 @@ function filterAssigneeUsers(users: TaskaraUser[], query: string) {
    );
 }
 
-function assigneeLabel(user: TaskaraUser, currentUserId: string | null) {
+function assigneeLabel(user: Pick<TaskaraUser, 'id' | 'name'>, currentUserId: string | null) {
    return user.id === currentUserId ? `${user.name} (شما)` : user.name;
 }
 
@@ -2322,7 +2319,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                   'flex max-h-[calc(100svh-32px)] flex-col gap-0 overflow-hidden rounded-[18px] border-white/10 bg-[#1d1d20] p-0 text-zinc-100 shadow-[0_18px_70px_rgb(0_0_0/0.55)]',
                   composerFullscreen
                      ? 'h-[calc(100svh-48px)] max-w-[calc(100vw-48px)] sm:max-w-[calc(100vw-48px)]'
-                     : 'top-[35%] max-w-[760px] sm:max-w-[760px]'
+                     : 'top-[35%] max-w-[920px] sm:max-w-[920px]'
                )}
                onDragEnter={handleComposerDragEnter}
                onDragLeave={handleComposerDragLeave}
@@ -2539,82 +2536,32 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            </div>
                         </div>
                      ) : null}
-                     <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
-                        <ComposerSelectPill
-                           ariaLabel={fa.issue.status}
-                           icon={<StatusIcon status={form.status} className="size-3.5" />}
-                           options={taskStatuses.map((status) => ({
-                              value: status,
-                              label: linearStatusMeta[status]?.label || status,
-                           }))}
-                           value={form.status}
+                     <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4 lg:flex-nowrap">
+                        <ComposerStatusPill
+                           status={form.status}
                            onChange={(status) => setForm((current) => ({ ...current, status }))}
                         />
-                        <ComposerSelectPill
-                           ariaLabel={fa.issue.priority}
-                           icon={<PriorityIcon priority={form.priority} className="size-3.5" />}
-                           options={taskPriorities.map((priority) => ({
-                              value: priority,
-                              label: linearPriorityMeta[priority]?.label || priority,
-                           }))}
-                           value={form.priority}
+                        <ComposerPriorityPill
+                           priority={form.priority}
                            onChange={(priority) => setForm((current) => ({ ...current, priority }))}
                         />
-                        <ComposerSelectPill
-                           ariaLabel={fa.issue.assignee}
-                           icon={
-                              composerAssignee ? (
-                                 <LinearAvatar
-                                    name={composerAssignee.name}
-                                    src={composerAssignee.avatarUrl}
-                                    className="size-4"
-                                 />
-                              ) : (
-                                 <NoAssigneeIcon className="size-3.5 text-zinc-500" />
-                              )
-                           }
-                           options={[
-                              { value: '', label: fa.app.unset },
-                              ...usersForAssignee.map((user) => ({
-                                 value: user.id,
-                                 label: assigneeLabel(user, currentUserId),
-                              })),
-                           ]}
-                           value={form.assigneeId}
+                        <ComposerAssigneePill
+                           assignee={composerAssignee}
+                           currentUserId={currentUserId}
+                           users={usersForAssignee}
                            onChange={(assigneeId) =>
                               setForm((current) => ({ ...current, assigneeId }))
                            }
                         />
-                        <ComposerSelectPill
-                           ariaLabel={fa.issue.project}
-                           icon={
-                              <ProjectGlyph
-                                 name={composerProject?.name || fa.issue.project}
-                                 className="size-4 rounded"
-                                 iconClassName="size-3"
-                              />
-                           }
-                           options={scopedProjects.map((project) => ({
-                              value: project.id,
-                              label: project.name,
-                           })).concat({ value: '', label: fa.app.unset })}
-                           value={form.projectId}
+                        <ComposerProjectPill
+                           project={scopedProjects.find((project) => project.id === form.projectId) || null}
+                           projects={scopedProjects}
                            onChange={(projectId) =>
                               setForm((current) => ({ ...current, projectId }))
                            }
                         />
-                        <ComposerSelectPill
-                           ariaLabel={fa.issue.weight}
-                           icon={<Box className="size-3.5 text-zinc-500" />}
-                           options={[
-                              { value: '', label: 'بدون وزن' },
-                              ...taskWeights.map((item) => ({
-                                 value: String(item),
-                                 label: item.toLocaleString('fa-IR'),
-                              })),
-                           ]}
-                           placeholder={fa.issue.weight}
-                           value={form.weight}
+                        <ComposerWeightPill
+                           weight={form.weight}
                            onChange={(weight) => setForm((current) => ({ ...current, weight }))}
                         />
                         <ComposerTextPill
@@ -2626,40 +2573,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            }
                            placeholder={fa.issue.labels}
                         />
-                        <Popover>
-                           <PopoverTrigger asChild>
-                              <button
-                                 aria-label={fa.app.more}
-                                 className="inline-flex h-6 items-center justify-center rounded-full border border-white/8 bg-[#2a2a2d] px-2 text-zinc-500 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-indigo-400/35 focus-visible:outline-none"
-                                 type="button"
-                              >
-                                 <MoreHorizontal className="size-3.5" />
-                              </button>
-                           </PopoverTrigger>
-                           <PopoverContent
-                              align="start"
-                              className="w-80 rounded-xl border-white/10 bg-[#202023] p-3 text-zinc-100 shadow-2xl"
-                              sideOffset={8}
-                           >
-                              <div className="space-y-3">
-                                 <div className="text-xs font-medium text-zinc-500">
-                                    {fa.issue.dueAt}
-                                 </div>
-                                 <LazyJalaliDatePicker
-                                    ariaLabel={fa.issue.dueAt}
-                                    value={form.dueAt}
-                                    onChange={(dueAt) =>
-                                       setForm((current) => ({ ...current, dueAt: dueAt || '' }))
-                                    }
-                                 />
-                                 <div className="text-xs text-zinc-600">
-                                    {form.dueAt
-                                       ? formatJalaliDateTimeInput(form.dueAt)
-                                       : formatJalaliDateTimeInput(new Date().toISOString())}
-                                 </div>
-                              </div>
-                           </PopoverContent>
-                        </Popover>
+                        <TaskDueDateControl
+                           dueAt={form.dueAt || null}
+                           className="h-6 w-[116px] shrink-0 rounded-full border-white/8 bg-[#2a2a2d] px-2.5 text-[12px] text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] hover:border-white/8 hover:bg-[#303033] hover:text-zinc-300"
+                           iconClassName="size-3.5 text-zinc-500"
+                           onChange={(dueAt) =>
+                              setForm((current) => ({ ...current, dueAt: dueAt || '' }))
+                           }
+                        />
                      </div>
                   </div>
                   <div className="flex items-center justify-between border-t border-white/7 px-5 py-3">
@@ -2913,53 +2834,288 @@ function ViewChip({
    );
 }
 
-function ComposerSelectPill({
+function ComposerMenuPill({
    ariaLabel,
    className,
+   contentClassName,
+   children,
    icon,
-   onChange,
-   options,
-   placeholder,
-   value,
+   label,
+   open,
+   onOpenChange,
 }: {
    ariaLabel: string;
    className?: string;
+   contentClassName?: string;
+   children: ReactNode;
    icon: ReactNode;
-   onChange: (value: string) => void;
-   options: Array<{ value: string; label: ReactNode }>;
-   placeholder?: string;
-   value: string;
+   label: ReactNode;
+   open: boolean;
+   onOpenChange: (open: boolean) => void;
 }) {
    return (
-      <div className={cn('relative inline-flex h-6 max-w-[168px] shrink-0', className)}>
-         <span className="sr-only">{ariaLabel}</span>
-         <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
-            {icon}
-         </span>
-         {placeholder && value === '' ? (
-            <span className="pointer-events-none absolute start-6 top-1/2 z-10 -translate-y-1/2 text-[12px] font-normal text-zinc-300">
-               {placeholder}
-            </span>
-         ) : null}
-         <Select value={toSelectValue(value)} onValueChange={(nextValue) => onChange(fromSelectValue(nextValue))}>
-            <SelectTrigger
+      <Popover open={open} onOpenChange={onOpenChange}>
+         <PopoverTrigger asChild>
+            <button
                aria-label={ariaLabel}
                className={cn(
-                  'h-6 min-w-0 rounded-full border-white/8 bg-[#2a2a2d] py-0 ps-6 pe-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] hover:bg-[#303033]',
-                  placeholder && value === '' ? '[&_[data-slot=select-value]]:text-transparent' : null
+                  'inline-flex h-6 max-w-[168px] shrink-0 items-center gap-1.5 rounded-full border border-white/8 bg-[#2a2a2d] py-0 pr-2.5 pl-2 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-indigo-400/35 focus-visible:outline-none',
+                  className
                )}
+               type="button"
+               onClick={(event) => event.stopPropagation()}
+               onDoubleClick={(event) => event.stopPropagation()}
             >
-               <SelectValue placeholder={placeholder || ariaLabel} />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border-white/10 bg-[#202023] text-zinc-100">
-               {options.map((option) => (
-                  <SelectItem key={toSelectValue(option.value)} value={toSelectValue(option.value)}>
-                     {option.label}
-                  </SelectItem>
+               <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+               <span className="min-w-0 flex-1 truncate text-start">{label}</span>
+            </button>
+         </PopoverTrigger>
+         <PopoverContent
+            align="start"
+            className={cn('rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl', contentClassName)}
+            sideOffset={8}
+         >
+            {children}
+         </PopoverContent>
+      </Popover>
+   );
+}
+
+function ComposerStatusPill({
+   status,
+   onChange,
+}: {
+   status: string;
+   onChange: (status: string) => void;
+}) {
+   const [open, setOpen] = useState(false);
+   const handleChange = (nextStatus: string) => {
+      onChange(nextStatus);
+      setOpen(false);
+   };
+
+   return (
+      <ComposerMenuPill
+         ariaLabel={fa.issue.status}
+         contentClassName="w-72"
+         icon={<StatusIcon status={status} className="size-3.5" />}
+         label={linearStatusMeta[status]?.label || status}
+         open={open}
+         onOpenChange={setOpen}
+      >
+         {taskStatuses.map((item) => (
+            <LinearMenuOption
+               key={item}
+               active={status === item}
+               icon={<StatusIcon status={item} />}
+               label={linearStatusMeta[item]?.label || item}
+               onClick={() => handleChange(item)}
+            />
+         ))}
+      </ComposerMenuPill>
+   );
+}
+
+function ComposerPriorityPill({
+   priority,
+   onChange,
+}: {
+   priority: string;
+   onChange: (priority: string) => void;
+}) {
+   const [open, setOpen] = useState(false);
+   const handleChange = (nextPriority: string) => {
+      onChange(nextPriority);
+      setOpen(false);
+   };
+
+   return (
+      <ComposerMenuPill
+         ariaLabel={fa.issue.priority}
+         contentClassName="w-72"
+         icon={<PriorityIcon priority={priority} className="size-3.5" />}
+         label={linearPriorityMeta[priority]?.label || priority}
+         open={open}
+         onOpenChange={setOpen}
+      >
+         {taskPriorities.map((item, index) => (
+            <LinearMenuOption
+               key={item}
+               active={priority === item}
+               icon={<PriorityIcon priority={item} />}
+               label={linearPriorityMeta[item]?.label || item}
+               shortcut={String(index)}
+               onClick={() => handleChange(item)}
+            />
+         ))}
+      </ComposerMenuPill>
+   );
+}
+
+function ComposerAssigneePill({
+   assignee,
+   currentUserId,
+   users,
+   onChange,
+}: {
+   assignee: TaskaraTask['assignee'];
+   currentUserId: string | null;
+   users: TaskaraUser[];
+   onChange: (assigneeId: string) => void;
+}) {
+   const [open, setOpen] = useState(false);
+   const [query, setQuery] = useState('');
+   const filteredUsers = useMemo(() => filterAssigneeUsers(users, query), [users, query]);
+   const handleChange = (nextAssigneeId: string) => {
+      onChange(nextAssigneeId);
+      setOpen(false);
+   };
+
+   return (
+      <ComposerMenuPill
+         ariaLabel={fa.issue.assignee}
+         contentClassName="w-80"
+         icon={
+            assignee ? (
+               <LinearAvatar name={assignee.name} src={assignee.avatarUrl} className="size-4" />
+            ) : (
+               <NoAssigneeIcon className="size-3.5 text-zinc-500" />
+            )
+         }
+         label={assignee ? assigneeLabel(assignee, currentUserId) : fa.issue.assignee}
+         open={open}
+         onOpenChange={setOpen}
+      >
+         <AssigneeSearchField value={query} onChange={setQuery} />
+         <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
+            <LinearMenuOption
+               active={!assignee?.id}
+               icon={<NoAssigneeIcon className="size-4 text-zinc-500" />}
+               label={fa.issue.noAssignee}
+               shortcut="0"
+               onClick={() => handleChange('')}
+            />
+            {filteredUsers.length ? (
+               filteredUsers.map((user, index) => (
+                  <LinearMenuOption
+                     key={user.id}
+                     active={assignee?.id === user.id}
+                     icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
+                     label={assigneeLabel(user, currentUserId)}
+                     shortcut={String(index + 1)}
+                     onClick={() => handleChange(user.id)}
+                  />
+               ))
+            ) : (
+               <div className="px-3 py-2 text-xs text-zinc-500">{noAssigneeSearchResult}</div>
+            )}
+         </div>
+      </ComposerMenuPill>
+   );
+}
+
+function ComposerProjectPill({
+   project,
+   projects,
+   onChange,
+}: {
+   project?: TaskaraProject | null;
+   projects: TaskaraProject[];
+   onChange: (projectId: string) => void;
+}) {
+   const [open, setOpen] = useState(false);
+   const handleChange = (nextProjectId: string) => {
+      onChange(nextProjectId);
+      setOpen(false);
+   };
+   const projectName = project?.name || fa.issue.project;
+
+   return (
+      <ComposerMenuPill
+         ariaLabel={fa.issue.project}
+         contentClassName="w-72"
+         icon={<ProjectGlyph name={projectName} className="size-4 rounded" iconClassName="size-3" />}
+         label={projectName}
+         open={open}
+         onOpenChange={setOpen}
+      >
+         <LinearMenuSearch title={fa.issue.project} />
+         {projects.length ? (
+            <>
+               {projects.map((item) => (
+                  <LinearMenuOption
+                     key={item.id}
+                     active={project?.id === item.id}
+                     icon={
+                        <ProjectGlyph
+                           name={item.name}
+                           className="size-4 rounded-sm"
+                           iconClassName="size-3"
+                        />
+                     }
+                     label={item.name}
+                     onClick={() => handleChange(item.id)}
+                  />
                ))}
-            </SelectContent>
-         </Select>
-      </div>
+               <LinearMenuOption
+                  active={!project?.id}
+                  icon={<XCircle className="size-4 text-zinc-500" />}
+                  label={fa.app.unset}
+                  onClick={() => handleChange('')}
+               />
+            </>
+         ) : (
+            <div className="px-3 py-2 text-xs text-zinc-500">{fa.issue.projectRequired}</div>
+         )}
+      </ComposerMenuPill>
+   );
+}
+
+function ComposerWeightPill({
+   weight,
+   onChange,
+}: {
+   weight: string;
+   onChange: (weight: string) => void;
+}) {
+   const [open, setOpen] = useState(false);
+   const handleChange = (nextWeight: string) => {
+      onChange(nextWeight);
+      setOpen(false);
+   };
+   const weightLabel = weight ? `${fa.issue.weight} ${Number(weight).toLocaleString('fa-IR')}` : fa.issue.weight;
+
+   return (
+      <ComposerMenuPill
+         ariaLabel={fa.issue.weight}
+         contentClassName="w-56"
+         icon={
+            weight ? (
+               <Box className="size-3.5 text-zinc-500" />
+            ) : (
+               <XCircle className="size-3.5 text-zinc-500" />
+            )
+         }
+         label={weightLabel}
+         open={open}
+         onOpenChange={setOpen}
+      >
+         <LinearMenuOption
+            active={!weight}
+            icon={<XCircle className="size-4 text-zinc-500" />}
+            label="بدون وزن"
+            onClick={() => handleChange('')}
+         />
+         {taskWeights.map((item) => (
+            <LinearMenuOption
+               key={item}
+               active={Number(weight) === item}
+               icon={<Box className="size-4 text-zinc-400" />}
+               label={`${fa.issue.weight} ${item.toLocaleString('fa-IR')}`}
+               onClick={() => handleChange(String(item))}
+            />
+         ))}
+      </ComposerMenuPill>
    );
 }
 

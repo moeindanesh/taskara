@@ -53,6 +53,7 @@ export function InboxView() {
    const navigate = useNavigate();
    const location = useLocation();
    const { orgId } = useParams();
+   const now = useNow();
    const [notifications, setNotifications] = useState<TaskaraNotification[]>([]);
    const [selected, setSelected] = useState<TaskaraNotification | null>(null);
    const [selectedTask, setSelectedTask] = useState<TaskaraTask | null>(null);
@@ -284,6 +285,7 @@ export function InboxView() {
                            key={notification.id}
                            notification={notification}
                            selected={selected?.id === notification.id}
+                           now={now}
                            onSelect={() => openNotification(notification)}
                         />
                      ))}
@@ -338,41 +340,64 @@ export function InboxView() {
 function NotificationListItem({
    notification,
    selected,
+   now,
    onSelect,
 }: {
    notification: TaskaraNotification;
    selected: boolean;
+   now: number;
    onSelect: () => void;
 }) {
    const Icon = notificationIcon(notification);
    const body = getNotificationBody(notification) || fa.inbox.noDescription;
+   const isRead = Boolean(notification.readAt);
 
    return (
       <button
          className={cn(
-            'group grid w-full grid-cols-[28px_minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2.5 text-start transition',
+            'group grid w-full grid-cols-[28px_minmax(0,1fr)_36px] gap-3 rounded-md px-3 py-2.5 text-start transition-colors',
             selected ? 'bg-white/[0.075]' : 'hover:bg-white/[0.045]'
          )}
+         dir="rtl"
          onClick={onSelect}
          type="button"
       >
-         <span className="relative mt-0.5 inline-flex size-7 items-center justify-center rounded-full bg-white/[0.055] text-zinc-400">
+         <span
+            className={cn(
+               'mt-0.5 inline-flex size-7 items-center justify-center rounded-full transition-colors',
+               isRead ? 'bg-white/[0.035] text-zinc-600' : 'bg-white/[0.055] text-zinc-400'
+            )}
+         >
             <Icon className="size-4" />
-            {!notification.readAt ? (
-               <span className="absolute -top-0.5 -start-0.5 size-2 rounded-full bg-indigo-400 ring-2 ring-[#101011]" />
-            ) : null}
          </span>
          <span className="min-w-0">
             <span className="mb-1 flex min-w-0 items-center gap-1.5">
-               {notification.task ? (
-                  <span className="ltr shrink-0 text-xs text-zinc-500">{notification.task.key}</span>
-               ) : null}
-               <span className="truncate text-sm font-medium text-zinc-200">{notificationTitle(notification)}</span>
+               {!isRead ? <span className="size-1.5 shrink-0 rounded-full bg-[#5e6ad2]" /> : null}
+               <span
+                  className={cn(
+                     'block min-w-0 flex-1 truncate text-start text-sm font-medium',
+                     isRead ? 'text-zinc-500' : 'text-zinc-200'
+                  )}
+                  dir="auto"
+               >
+                  {notificationTitle(notification)}
+               </span>
             </span>
-            <span className="line-clamp-1 text-xs leading-5 text-zinc-500">{body}</span>
+            <span
+               className={cn('line-clamp-1 text-start text-xs leading-5', isRead ? 'text-zinc-600' : 'text-zinc-500')}
+               dir="auto"
+            >
+               {body}
+            </span>
          </span>
-         <span className="shrink-0 whitespace-nowrap pt-0.5 text-[11px] text-zinc-500">
-            {formatJalaliDateTime(notification.createdAt)}
+         <span
+            className={cn(
+               'ltr shrink-0 whitespace-nowrap pt-0.5 text-start text-[11px] font-medium tabular-nums',
+               isRead ? 'text-zinc-600' : 'text-zinc-500'
+            )}
+            title={formatJalaliDateTime(notification.createdAt)}
+         >
+            {formatInboxRelativeDate(notification.createdAt, now)}
          </span>
       </button>
    );
@@ -767,6 +792,41 @@ function LinearInboxEmpty({ children }: { children: React.ReactNode }) {
          {children}
       </div>
    );
+}
+
+function useNow(intervalMs = 60_000) {
+   const [now, setNow] = useState(() => Date.now());
+
+   useEffect(() => {
+      const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+      return () => window.clearInterval(timer);
+   }, [intervalMs]);
+
+   return now;
+}
+
+function formatInboxRelativeDate(value: string, now: number): string {
+   const time = new Date(value).getTime();
+   if (!Number.isFinite(time)) return '';
+
+   const diffSeconds = Math.max(0, Math.floor((now - time) / 1000));
+   if (diffSeconds < 60) return 'now';
+
+   const diffMinutes = Math.floor(diffSeconds / 60);
+   if (diffMinutes < 60) return `${diffMinutes}m`;
+
+   const diffHours = Math.floor(diffMinutes / 60);
+   if (diffHours < 24) return `${diffHours}h`;
+
+   const diffDays = Math.floor(diffHours / 24);
+   if (diffDays < 28) return `${diffDays}d`;
+
+   const diffWeeks = Math.floor(diffDays / 7);
+   if (diffWeeks < 12) return `${diffWeeks}w`;
+
+   if (diffDays < 365) return `${Math.max(1, Math.floor(diffDays / 30))}mo`;
+
+   return `${Math.max(1, Math.floor(diffDays / 365))}y`;
 }
 
 function notificationIcon(notification: TaskaraNotification) {

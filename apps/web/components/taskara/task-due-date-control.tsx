@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { CalendarClock, XCircle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
@@ -35,8 +36,14 @@ export function TaskDueDateControl({
    iconClassName?: string;
    onChange: (dueAt: string | null) => void;
 }) {
+   const [open, setOpen] = useState(false);
+   const handleChange = (nextDueAt: string | null) => {
+      onChange(nextDueAt);
+      setOpen(false);
+   };
+
    return (
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
          <PopoverTrigger asChild>
             <button
                aria-label={fa.issue.dueAt}
@@ -57,33 +64,33 @@ export function TaskDueDateControl({
             <DueDateMenuOption
                icon={<CalendarClock className="size-4 text-zinc-400" />}
                label="امروز"
-               onClick={() => onChange(makeDueDate(0))}
+               onClick={() => handleChange(makeDueDate(0))}
             />
             <DueDateMenuOption
                icon={<CalendarClock className="size-4 text-zinc-400" />}
                label="فردا"
-               onClick={() => onChange(makeDueDate(1))}
+               onClick={() => handleChange(makeDueDate(1))}
             />
             <DueDateMenuOption
                icon={<CalendarClock className="size-4 text-zinc-400" />}
                label="پایان این هفته"
-               onClick={() => onChange(makeEndOfIranWorkWeek())}
+               onClick={() => handleChange(makeEndOfIranWorkWeek())}
             />
             <DueDateMenuOption
                icon={<CalendarClock className="size-4 text-zinc-400" />}
                label="یک هفته دیگر"
-               onClick={() => onChange(makeDueDate(7))}
+               onClick={() => handleChange(makeDueDate(7))}
             />
             {dueAt ? (
                <DueDateMenuOption
                   icon={<XCircle className="size-4 text-zinc-500" />}
                   label={fa.issue.clearDueAt}
-                  onClick={() => onChange(null)}
+                  onClick={() => handleChange(null)}
                />
             ) : null}
             <div className="border-t border-white/8 p-3">
                <div className="mb-2 text-xs font-medium text-zinc-500">{fa.issue.dueAt}</div>
-               <LazyJalaliDatePicker ariaLabel={fa.issue.dueAt} value={dueAt || null} onChange={onChange} />
+               <LazyJalaliDatePicker ariaLabel={fa.issue.dueAt} value={dueAt || null} onChange={handleChange} />
             </div>
          </PopoverContent>
       </Popover>

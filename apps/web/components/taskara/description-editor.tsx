@@ -267,9 +267,9 @@ const editorTheme: EditorThemeClasses = {
       checklist: 'm-0 p-0',
       listitem: 'mx-4 my-0 marker:text-zinc-500',
       listitemChecked:
-         "relative mx-1 my-0 block min-h-6 list-none py-0 pl-1 pr-6 text-zinc-500 line-through before:absolute before:right-0 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded before:border before:border-indigo-400/60 before:bg-indigo-500/45 before:content-[''] after:absolute after:right-[0.28rem] after:top-1/2 after:h-1.5 after:w-2 after:-translate-y-1/2 after:-rotate-45 after:border-b-2 after:border-l-2 after:border-white after:content-['']",
+         "relative mx-1 my-0 block min-h-6 list-none py-0 pl-1 pr-6 text-zinc-500 line-through before:absolute before:right-0 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded before:border before:border-indigo-500/70 before:bg-indigo-600 before:content-[''] after:absolute after:right-[0.28rem] after:top-1/2 after:h-1.5 after:w-2 after:-translate-y-1/2 after:-rotate-45 after:border-b-2 after:border-l-2 after:border-white after:content-[''] dark:before:border-indigo-400/60 dark:before:bg-indigo-500/45",
       listitemUnchecked:
-         "relative mx-1 my-0 block min-h-6 list-none py-0 pl-1 pr-6 before:absolute before:right-0 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded before:border before:border-white/20 before:bg-white/5 before:content-['']",
+         "relative mx-1 my-0 block min-h-6 list-none py-0 pl-1 pr-6 before:absolute before:right-0 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded before:border before:border-zinc-300 before:bg-white before:content-[''] dark:before:border-white/20 dark:before:bg-white/5",
       nested: {
          listitem: 'list-none before:hidden after:hidden',
       },
@@ -2125,7 +2125,7 @@ function DescriptionDraggableBlockPlugin({ anchorElem }: { anchorElem: HTMLEleme
                )}
                aria-hidden
             >
-               <span className="pointer-events-auto absolute -right-4 top-0 flex size-6 cursor-grab items-center justify-center rounded-md border border-white/10 bg-zinc-950/95 text-zinc-500 shadow-lg shadow-black/30 transition-colors hover:border-white/20 hover:text-zinc-200 active:cursor-grabbing">
+               <span className="pointer-events-auto absolute -right-4 top-0 flex size-6 cursor-grab items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-400 shadow-sm transition-colors hover:border-zinc-300 hover:text-zinc-700 active:cursor-grabbing dark:border-white/10 dark:bg-zinc-950/95 dark:text-zinc-500 dark:shadow-lg dark:shadow-black/30 dark:hover:border-white/20 dark:hover:text-zinc-200">
                   <GripVertical className="size-4" strokeWidth={2} />
                </span>
             </div>
