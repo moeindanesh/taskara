@@ -1,10 +1,13 @@
+# syntax=docker/dockerfile:1.7
+
 FROM oven/bun:1.3.0-alpine AS deps
 
 WORKDIR /app
 
 ENV PRISMA_GENERATE_SKIP_AUTOINSTALL=1
 
-RUN apk add --no-cache openssl
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+  apk add --update-cache openssl
 
 COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -15,7 +18,9 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY plugins/taskara-agent/package.json plugins/taskara-agent/package.json
 
-RUN bun install --frozen-lockfile --force --no-cache --filter @taskara/api
+RUN --mount=type=cache,id=taskara-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --filter @taskara/api \
+  || (rm -rf /root/.bun/install/cache/* && bun install --frozen-lockfile --filter @taskara/api)
 
 FROM deps AS runtime
 

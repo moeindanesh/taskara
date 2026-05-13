@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM oven/bun:1.3.0-alpine AS deps
 
 WORKDIR /app
@@ -11,7 +13,9 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY plugins/taskara-agent/package.json plugins/taskara-agent/package.json
 
-RUN bun install --frozen-lockfile --force --no-cache --filter @taskara/web
+RUN --mount=type=cache,id=taskara-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --filter @taskara/web \
+  || (rm -rf /root/.bun/install/cache/* && bun install --frozen-lockfile --filter @taskara/web)
 
 FROM deps AS build
 
