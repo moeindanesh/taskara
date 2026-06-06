@@ -3,8 +3,9 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Loader2, LogIn, Plus, UserPlus } from 'lucide-react';
+import { ArrowLeft, Building2, KeyRound, Loader2, LogIn, MessageSquare, Plus, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type {
@@ -19,6 +20,7 @@ import { TaskaraLogo } from '@/components/taskara/brand-logo';
 
 const inputClassName =
    'h-9 border-white/10 bg-[#111113] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/25';
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function nextFromSearch(search: string) {
    const next = new URLSearchParams(search).get('next');
@@ -51,6 +53,7 @@ export function LoginPage() {
    const [form, setForm] = useState({ email: '', password: '' });
    const [error, setError] = useState('');
    const [submitting, setSubmitting] = useState(false);
+   const [resetOpen, setResetOpen] = useState(false);
 
    useEffect(() => {
       if (session) navigate(`/onboarding${next ? `?next=${encodeURIComponent(next)}` : ''}`, { replace: true });
@@ -106,12 +109,255 @@ export function LoginPage() {
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                />
             </AuthField>
+            <div className="flex justify-end">
+               <button
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-500 transition hover:text-zinc-200"
+                  type="button"
+                  onClick={() => setResetOpen(true)}
+               >
+                  <KeyRound className="size-3.5" />
+                  فراموشی رمز عبور
+               </button>
+            </div>
             <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={submitting}>
                {submitting ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
                ورود
             </Button>
          </form>
+         <PasswordResetSmsDialog
+            email={form.email}
+            next={next}
+            open={resetOpen}
+            onOpenChange={setResetOpen}
+         />
       </AuthShell>
+   );
+}
+
+type PasswordResetStep = 'request' | 'complete';
+
+type PasswordResetSmsOptions = {
+   smsAvailable: boolean;
+   phone?: string | null;
+};
+
+function PasswordResetSmsDialog({
+   email,
+   next,
+   open,
+   onOpenChange,
+}: {
+   email: string;
+   next?: string;
+   open: boolean;
+   onOpenChange: (open: boolean) => void;
+}) {
+   const navigate = useNavigate();
+   const [form, setForm] = useState({ email: '', code: '', password: '' });
+   const [step, setStep] = useState<PasswordResetStep>('request');
+   const [options, setOptions] = useState<PasswordResetSmsOptions | null>(null);
+   const [checking, setChecking] = useState(false);
+   const [sending, setSending] = useState(false);
+   const [completing, setCompleting] = useState(false);
+   const [error, setError] = useState('');
+   const [message, setMessage] = useState('');
+
+   useEffect(() => {
+      if (!open) return;
+      setForm({ email: email.trim(), code: '', password: '' });
+      setStep('request');
+      setOptions(null);
+      setError('');
+      setMessage('');
+   }, [email, open]);
+
+   useEffect(() => {
+      if (!open) return;
+
+      const resetEmail = form.email.trim();
+      if (!emailPattern.test(resetEmail)) {
+         setOptions(null);
+         setChecking(false);
+         return;
+      }
+
+      let cancelled = false;
+      const timeout = window.setTimeout(() => {
+         setChecking(true);
+         setError('');
+         void taskaraRequest<PasswordResetSmsOptions>('/auth/password-reset/sms/options', {
+            method: 'POST',
+            body: JSON.stringify({ email: resetEmail }),
+         })
+            .then((result) => {
+               if (cancelled) return;
+               setOptions(result);
+            })
+            .catch((err) => {
+               if (cancelled) return;
+               setOptions(null);
+               setError(err instanceof Error ? err.message : 'بررسی شماره موبایل ناموفق بود.');
+            })
+            .finally(() => {
+               if (!cancelled) setChecking(false);
+            });
+      }, 350);
+
+      return () => {
+         cancelled = true;
+         window.clearTimeout(timeout);
+      };
+   }, [form.email, open]);
+
+   function updateEmail(value: string) {
+      setForm({ email: value, code: '', password: '' });
+      setStep('request');
+      setOptions(null);
+      setError('');
+      setMessage('');
+   }
+
+   async function handleSendCode(event?: FormEvent<HTMLFormElement>) {
+      event?.preventDefault();
+      if (!options?.smsAvailable || sending) return;
+
+      setSending(true);
+      setError('');
+      setMessage('');
+
+      try {
+         const result = await taskaraRequest<{ sent: boolean; phone: string; expiresAt: string }>('/auth/password-reset/sms/send', {
+            method: 'POST',
+            body: JSON.stringify({ email: form.email.trim() }),
+         });
+         setStep('complete');
+         setMessage(`کد بازیابی به ${result.phone} ارسال شد.`);
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'ارسال پیامک بازیابی ناموفق بود.');
+      } finally {
+         setSending(false);
+      }
+   }
+
+   async function handleCompleteReset(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (completing) return;
+
+      setCompleting(true);
+      setError('');
+      setMessage('');
+
+      try {
+         const result = await taskaraRequest<TaskaraAuthSession>('/auth/password-reset/sms/complete', {
+            method: 'POST',
+            body: JSON.stringify({
+               email: form.email.trim(),
+               code: form.code.trim(),
+               password: form.password,
+            }),
+         });
+         setAuthSession(result);
+         onOpenChange(false);
+         navigate(`/onboarding${next ? `?next=${encodeURIComponent(next)}` : ''}`, { replace: true });
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'ثبت رمز جدید ناموفق بود.');
+      } finally {
+         setCompleting(false);
+      }
+   }
+
+   const canSendSms = Boolean(options?.smsAvailable) && !checking && !sending;
+   const isBusy = checking || sending || completing;
+
+   return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+         <DialogContent className="border-white/10 bg-[#19191b] text-zinc-100 sm:max-w-[430px]">
+            <DialogHeader>
+               <DialogTitle>بازیابی رمز با پیامک</DialogTitle>
+               <DialogDescription>ایمیل حساب را وارد کنید و کد پیامکی را ثبت کنید.</DialogDescription>
+            </DialogHeader>
+            <form className="space-y-4" onSubmit={step === 'complete' ? handleCompleteReset : handleSendCode}>
+               {error ? <AuthMessage>{error}</AuthMessage> : null}
+               {message ? <AuthSuccessMessage>{message}</AuthSuccessMessage> : null}
+               <AuthField label="ایمیل">
+                  <Input
+                     autoComplete="email"
+                     className={cn(inputClassName, 'ltr')}
+                     disabled={isBusy}
+                     type="email"
+                     value={form.email}
+                     onChange={(event) => updateEmail(event.target.value)}
+                  />
+               </AuthField>
+               <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-xs text-zinc-400">
+                  {checking ? (
+                     <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-3.5 animate-spin" />
+                        در حال بررسی شماره موبایل...
+                     </span>
+                  ) : options?.smsAvailable ? (
+                     <span>ارسال پیامک فعال است: <span className="ltr inline-block text-zinc-200">{options.phone}</span></span>
+                  ) : emailPattern.test(form.email.trim()) ? (
+                     <span>برای این حساب شماره موبایل ثبت نشده است.</span>
+                  ) : (
+                     <span>ابتدا ایمیل معتبر وارد کنید.</span>
+                  )}
+               </div>
+               {step === 'complete' ? (
+                  <>
+                     <AuthField label="کد پیامک">
+                        <Input
+                           autoComplete="one-time-code"
+                           className={cn(inputClassName, 'ltr')}
+                           disabled={completing}
+                           inputMode="numeric"
+                           maxLength={6}
+                           value={form.code}
+                           onChange={(event) => setForm((current) => ({ ...current, code: event.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                        />
+                     </AuthField>
+                     <AuthField label="رمز عبور جدید">
+                        <Input
+                           autoComplete="new-password"
+                           className={cn(inputClassName, 'ltr')}
+                           disabled={completing}
+                           type="password"
+                           value={form.password}
+                           onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                        />
+                     </AuthField>
+                  </>
+               ) : null}
+               <div className="grid gap-2">
+                  <Button
+                     className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white"
+                     disabled={step === 'request' ? !canSendSms : completing || form.code.length !== 6 || form.password.length < 8}
+                  >
+                     {sending || completing ? (
+                        <Loader2 className="size-4 animate-spin" />
+                     ) : step === 'complete' ? (
+                        <KeyRound className="size-4" />
+                     ) : (
+                        <MessageSquare className="size-4" />
+                     )}
+                     {step === 'complete' ? 'ثبت رمز جدید' : 'ارسال کد پیامکی'}
+                  </Button>
+                  {step === 'complete' ? (
+                     <Button
+                        className="h-9 border-white/10 text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
+                        disabled={!canSendSms}
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleSendCode()}
+                     >
+                        {sending ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
+                        ارسال مجدد کد
+                     </Button>
+                  ) : null}
+               </div>
+            </form>
+         </DialogContent>
+      </Dialog>
    );
 }
 
@@ -479,6 +725,14 @@ function AuthField({ children, label }: { children: ReactNode; label: ReactNode 
 function AuthMessage({ children }: { children: ReactNode }) {
    return (
       <div className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+         {children}
+      </div>
+   );
+}
+
+function AuthSuccessMessage({ children }: { children: ReactNode }) {
+   return (
+      <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
          {children}
       </div>
    );

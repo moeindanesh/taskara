@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
+import { randomInt } from 'node:crypto';
 import { prisma, type User, type Workspace, type WorkspaceRole } from '@taskara/db';
 import {
   acceptWorkspaceInviteSchema,
   authLoginSchema,
+  authPasswordResetSmsCompleteSchema,
+  authPasswordResetSmsLookupSchema,
+  authPasswordResetSmsRequestSchema,
   authRegisterSchema,
   createAuthWorkspaceSchema
 } from '@taskara/shared';
@@ -18,6 +22,11 @@ import {
   verifyPassword
 } from '../services/auth';
 import { HttpError } from '../services/http';
+import { sendOTPSms } from '../services/sms';
+
+const passwordResetCodeTtlMs = 10 * 60 * 1000;
+const passwordResetCodeCooldownMs = 60 * 1000;
+const passwordResetMaxAttempts = 5;
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/onboarding', async (request) => {
@@ -79,6 +88,133 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await createUserSession(user.id);
     return reply.send(await authResponse({ user, membership }, session));
+  });
+
+  app.post('/auth/password-reset/sms/options', async (request) => {
+    const input = authPasswordResetSmsLookupSchema.parse(request.body);
+    const user = await prisma.user.findUnique({
+      where: { email: normalizeEmail(input.email) },
+      select: { phone: true }
+    });
+
+    return {
+      smsAvailable: Boolean(user?.phone),
+      phone: user?.phone ? maskPhone(user.phone) : null
+    };
+  });
+
+  app.post('/auth/password-reset/sms/send', async (request, reply) => {
+    const input = authPasswordResetSmsRequestSchema.parse(request.body);
+    const user = await prisma.user.findUnique({
+      where: { email: normalizeEmail(input.email) },
+      select: { id: true, phone: true }
+    });
+
+    if (!user) throw new HttpError(404, 'Account not found');
+    if (!user.phone) throw new HttpError(400, 'SMS password reset is disabled because this account has no phone number');
+
+    const latestCode = await prisma.passwordResetCode.findFirst({
+      where: { userId: user.id, usedAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true }
+    });
+    if (latestCode && latestCode.createdAt.getTime() > Date.now() - passwordResetCodeCooldownMs) {
+      throw new HttpError(429, 'Please wait before requesting another reset SMS');
+    }
+
+    const code = createResetCode();
+    const expiresAt = new Date(Date.now() + passwordResetCodeTtlMs);
+    const codeHash = await hashPassword(code);
+
+    await prisma.passwordResetCode.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() }
+    });
+    const resetCode = await prisma.passwordResetCode.create({
+      data: {
+        userId: user.id,
+        codeHash,
+        sentTo: user.phone,
+        expiresAt
+      }
+    });
+
+    try {
+      await sendOTPSms(user.phone, Number(code));
+    } catch (error) {
+      await prisma.passwordResetCode.update({
+        where: { id: resetCode.id },
+        data: { usedAt: new Date() }
+      }).catch(() => undefined);
+      throw error;
+    }
+
+    return reply.code(201).send({
+      sent: true,
+      phone: maskPhone(user.phone),
+      expiresAt
+    });
+  });
+
+  app.post('/auth/password-reset/sms/complete', async (request, reply) => {
+    const input = authPasswordResetSmsCompleteSchema.parse(request.body);
+    const user = await prisma.user.findUnique({ where: { email: normalizeEmail(input.email) } });
+    if (!user) throw new HttpError(404, 'Account not found');
+
+    const resetCode = await prisma.passwordResetCode.findFirst({
+      where: {
+        userId: user.id,
+        usedAt: null,
+        expiresAt: { gt: new Date() }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (!resetCode) throw new HttpError(400, 'Reset code is invalid or expired');
+    if (resetCode.attempts >= passwordResetMaxAttempts) {
+      await prisma.passwordResetCode.update({
+        where: { id: resetCode.id },
+        data: { usedAt: new Date() }
+      });
+      throw new HttpError(429, 'Reset code attempt limit reached');
+    }
+
+    const codeMatches = await verifyPassword(input.code, resetCode.codeHash);
+    if (!codeMatches) {
+      await prisma.passwordResetCode.update({
+        where: { id: resetCode.id },
+        data: { attempts: { increment: 1 } }
+      });
+      throw new HttpError(400, 'Reset code is invalid or expired');
+    }
+
+    const passwordHash = await hashPassword(input.password);
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          onboardingCompletedAt: user.onboardingCompletedAt ?? new Date()
+        }
+      });
+      await tx.passwordResetCode.update({
+        where: { id: resetCode.id },
+        data: { usedAt: new Date() }
+      });
+      await tx.passwordResetCode.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() }
+      });
+      await tx.authSession.deleteMany({ where: { userId: user.id } });
+      const membership = await tx.workspaceMember.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'asc' },
+        include: { workspace: true }
+      });
+      return { user: updatedUser, membership };
+    });
+
+    const session = await createUserSession(result.user.id);
+    return reply.send(await authResponse(result, session));
   });
 
   app.post('/auth/logout', async (request, reply) => {
@@ -243,6 +379,15 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const session = await createUserSession(result.user.id);
     return reply.send(await authResponse(result, session));
   });
+}
+
+function createResetCode(): string {
+  return String(randomInt(100000, 1000000));
+}
+
+function maskPhone(phone: string): string {
+  if (phone.length <= 4) return phone;
+  return `${phone.slice(0, 4)}${'*'.repeat(Math.max(0, phone.length - 7))}${phone.slice(-3)}`;
 }
 
 async function firstUserWorkspaceMembership(userId: string) {
