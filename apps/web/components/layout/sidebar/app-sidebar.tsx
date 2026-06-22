@@ -47,6 +47,7 @@ import {
    Activity,
    BookOpen,
    BarChart3,
+   CalendarCheck2,
    CalendarDays,
    ChevronDown,
    Laptop,
@@ -73,7 +74,8 @@ type PrimarySidebarItemId =
    | 'all-tasks'
    | 'my-issues'
    | 'reports'
-   | 'heartbeat';
+   | 'heartbeat'
+   | 'today-plan';
 
 type PrimarySidebarItem = {
    id: PrimarySidebarItemId;
@@ -202,8 +204,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const initialLoadRef = React.useRef(true);
 
    const pathParts = pathname.split('/').filter(Boolean);
-   const activeTeamSlug = pathParts[1] === 'team' ? pathParts[2] : null;
-   const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
    const isPrimaryItemActive = (item: PrimarySidebarItem) =>
       item.id === 'wiki' || item.id === 'announcements' || item.id === 'meetings'
          ? pathParts[1] === item.id
@@ -313,9 +313,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
          : [];
 
    const openCreateIssue = () => {
-      if (!isIssueListRoute) {
-         navigate(`/${orgId}/team/${activeTeamSlug || 'all'}/all`);
-      }
       window.setTimeout(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')), 0);
    };
 
@@ -329,6 +326,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
          { id: 'my-issues', title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
          { id: 'reports', title: fa.nav.reports, href: `/${orgId}/reports`, icon: BarChart3 },
          { id: 'heartbeat', title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
+         { id: 'today-plan', title: fa.nav.todayPlan, href: `/${orgId}/today`, icon: CalendarCheck2 },
       ],
       [allIssueCount, announcementUnreadCount, meetingCount, myIssueCount, orgId, unreadCount]
    );

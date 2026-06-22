@@ -142,7 +142,6 @@ const emptyTaskArchiveState: TaskArchiveState = {
    complete: false,
 };
 const currentTeamFallback = 'all';
-const createIssueShortcutKeys = new Set(['c', 'ز']);
 const hasSystemShortcutModifier = (event: KeyboardEvent) =>
    event.metaKey || event.ctrlKey || event.altKey;
 const assigneeSearchPlaceholder = 'جستجو بین کارمندان...';
@@ -1756,12 +1755,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    );
 
    useEffect(() => {
-      const handleCreateIssue = () => openComposer(false);
-      window.addEventListener('taskara:create-issue', handleCreateIssue);
-      return () => window.removeEventListener('taskara:create-issue', handleCreateIssue);
-   }, [openComposer]);
-
-   useEffect(() => {
       if (composerOpen) return;
       setComposerFiles([]);
       setComposerDraggingFiles(false);
@@ -1783,12 +1776,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (!hasSystemModifier && key === 'f') {
             event.preventDefault();
             openFilterMenu();
-            return;
-         }
-
-         if (!hasSystemModifier && createIssueShortcutKeys.has(key)) {
-            event.preventDefault();
-            openComposer(false);
             return;
          }
 
