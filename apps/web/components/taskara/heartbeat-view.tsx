@@ -24,6 +24,10 @@ import { cn } from '@/lib/utils';
 type HeartbeatIdleUser = Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl'> & {
    activeAssignedCount: number;
 };
+type HeartbeatWorkloadUser = Pick<TaskaraUser, 'id' | 'name' | 'avatarUrl'> & {
+   email?: string | null;
+   tasks: TaskaraTask[];
+};
 type HeartbeatTaskDateKind = 'done' | 'overdue' | 'progress';
 
 const activeStatuses = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED']);
@@ -60,6 +64,10 @@ export function HeartbeatView() {
             .sort((a, b) => taskTimestamp(b, 'completedAt') - taskTimestamp(a, 'completedAt')),
       [tasks, now]
    );
+   const workloadUsers = useMemo(
+      () => buildTodayWorkloadUsers(users, doneTasks),
+      [doneTasks, users]
+   );
    const noInProgressUsers = useMemo(
       () => buildNoInProgressUsers(users, tasks),
       [tasks, users]
@@ -80,7 +88,14 @@ export function HeartbeatView() {
                <LinearEmptyState>{fa.heartbeat.empty}</LinearEmptyState>
             ) : (
                <div className="mx-auto max-w-[1440px]">
-                  <section className="grid gap-4 xl:grid-cols-2">
+                  <WorkloadPanel
+                     orgId={orgId || 'taskara'}
+                     todayDoneCount={doneTasks.length}
+                     users={workloadUsers}
+                     now={now}
+                  />
+
+                  <section className="mt-4 grid gap-4 xl:grid-cols-2">
                      <TaskListPanel
                         dateKind="overdue"
                         empty={fa.heartbeat.noOverdue}
@@ -132,6 +147,105 @@ export function HeartbeatView() {
             )}
          </div>
       </div>
+   );
+}
+
+function WorkloadPanel({
+   now,
+   orgId,
+   todayDoneCount,
+   users,
+}: {
+   now: number;
+   orgId: string;
+   todayDoneCount: number;
+   users: HeartbeatWorkloadUser[];
+}) {
+   return (
+      <LinearPanel
+         title={
+            <HeartbeatCardTitle
+               count={todayDoneCount}
+               icon={UserRound}
+               label={fa.heartbeat.workload}
+               tone="emerald"
+            />
+         }
+         className="overflow-hidden"
+      >
+         <div className="max-h-[520px] divide-y divide-zinc-100 overflow-y-auto dark:divide-white/6">
+            {users.length === 0 ? (
+               <div className="p-4">
+                  <LinearEmptyState>{fa.heartbeat.noWorkload}</LinearEmptyState>
+               </div>
+            ) : (
+               users.map((user) => (
+                  <div key={user.id} className="px-4 py-4">
+                     <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                           <LinearAvatar name={user.name} src={user.avatarUrl} className="size-8" />
+                           <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-200">{user.name}</div>
+                              {user.email ? (
+                                 <div className="ltr mt-1 truncate text-xs text-zinc-500">{user.email}</div>
+                              ) : null}
+                           </div>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-400">
+                           {fa.heartbeat.doneTodayCount(user.tasks.length)}
+                        </span>
+                     </div>
+
+                     {user.tasks.length === 0 ? (
+                        <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-white/7 dark:bg-white/[0.018]">
+                           {fa.heartbeat.noUserDoneToday}
+                        </div>
+                     ) : (
+                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                           {user.tasks.map((task) => (
+                              <WorkloadTaskItem key={task.id} now={now} orgId={orgId} task={task} />
+                           ))}
+                        </div>
+                     )}
+                  </div>
+               ))
+            )}
+         </div>
+      </LinearPanel>
+   );
+}
+
+function WorkloadTaskItem({ now, orgId, task }: { now: number; orgId: string; task: TaskaraTask }) {
+   const completedAt = task.completedAt || task.updatedAt || null;
+   const completedLabel = completedAt ? formatRelativeTime(completedAt, now) : fa.app.noDate;
+   const content = (
+      <div className="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 transition hover:border-zinc-300 hover:bg-zinc-100 dark:border-white/7 dark:bg-white/[0.018] dark:hover:border-white/12 dark:hover:bg-white/[0.035]">
+         <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-right text-sm text-zinc-900 [direction:rtl] [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
+               {task.title}
+            </span>
+            <span
+               className="shrink-0 text-[11px] font-medium text-emerald-700 dark:text-emerald-200/70"
+               title={completedAt ? formatJalaliDateTime(completedAt) : undefined}
+            >
+               {completedLabel}
+            </span>
+         </div>
+         <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-500">
+            <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
+            <span className="min-w-0 truncate text-right">{task.project?.name || fa.app.unset}</span>
+         </div>
+      </div>
+   );
+
+   if (task.syncState === 'pending') {
+      return <div title={fa.issue.pendingSync}>{content}</div>;
+   }
+
+   return (
+      <Link to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}>
+         {content}
+      </Link>
    );
 }
 
@@ -356,6 +470,50 @@ function buildNoInProgressUsers(users: TaskaraUser[], tasks: TaskaraTask[]): Hea
          if (b.activeAssignedCount !== a.activeAssignedCount) return b.activeAssignedCount - a.activeAssignedCount;
          return a.name.localeCompare(b.name, 'fa');
       });
+}
+
+function buildTodayWorkloadUsers(users: TaskaraUser[], doneTasks: TaskaraTask[]): HeartbeatWorkloadUser[] {
+   const people = users.length > 0 ? users : uniqueTaskAssignees(doneTasks);
+   const tasksByAssignee = new Map<string, TaskaraTask[]>();
+   const unassignedTasks: TaskaraTask[] = [];
+
+   for (const task of doneTasks) {
+      if (!task.assignee) {
+         unassignedTasks.push(task);
+         continue;
+      }
+
+      const current = tasksByAssignee.get(task.assignee.id) || [];
+      current.push(task);
+      tasksByAssignee.set(task.assignee.id, current);
+   }
+
+   const workloadUsers: HeartbeatWorkloadUser[] = people.flatMap((user) => {
+      const userTasks = tasksByAssignee.get(user.id) || [];
+      if (userTasks.length === 0) return [];
+      return [{
+         id: user.id,
+         name: user.name,
+         email: user.email,
+         avatarUrl: user.avatarUrl,
+         tasks: userTasks,
+      }];
+   });
+
+   if (unassignedTasks.length > 0) {
+      workloadUsers.push({
+         id: 'unassigned',
+         name: fa.heartbeat.unassignedDoneTasks,
+         email: null,
+         avatarUrl: null,
+         tasks: unassignedTasks,
+      });
+   }
+
+   return workloadUsers.sort((a, b) => {
+      if (b.tasks.length !== a.tasks.length) return b.tasks.length - a.tasks.length;
+      return a.name.localeCompare(b.name, 'fa');
+   });
 }
 
 function uniqueTaskAssignees(tasks: TaskaraTask[]): Array<Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl'>> {

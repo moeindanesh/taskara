@@ -31,14 +31,14 @@ export function TodayPlanView() {
    const { tasks, users, loading, error } = useWorkspaceTaskSync();
 
    const todayEnd = useMemo(() => endOfTodayTimestamp(), []);
-   const dueTasks = useMemo(
+   const todayTasks = useMemo(
       () =>
          tasks
-            .filter((task) => isDueTodayOrBefore(task, todayEnd))
-            .sort((a, b) => compareDueTasks(a, b)),
+            .filter((task) => isTodayPlanTask(task, todayEnd))
+            .sort((a, b) => compareTodayPlanTasks(a, b)),
       [tasks, todayEnd]
    );
-   const userPlans = useMemo(() => buildUserPlans(users, dueTasks), [dueTasks, users]);
+   const userPlans = useMemo(() => buildUserPlans(users, todayTasks), [todayTasks, users]);
 
    return (
       <div className="flex h-full flex-col bg-[#101011]" data-testid="today-plan-screen">
@@ -86,10 +86,10 @@ export function TodayPlanView() {
                      )}
                   </LinearPanel>
 
-                  {dueTasks.some((task) => !task.assignee) ? (
+                  {todayTasks.some((task) => !task.assignee) ? (
                      <UnassignedTasksPanel
                         orgId={orgId || 'taskara'}
-                        tasks={dueTasks.filter((task) => !task.assignee)}
+                        tasks={todayTasks.filter((task) => !task.assignee)}
                      />
                   ) : null}
                </div>
@@ -276,7 +276,7 @@ function uniqueTaskAssignees(tasks: TaskaraTask[]): Array<Pick<TaskaraUser, 'id'
    return Array.from(assignees.values());
 }
 
-function isDueTodayOrBefore(task: TaskaraTask, todayEnd: number) {
+function isTodayPlanTask(task: TaskaraTask, todayEnd: number) {
    if (!task.dueAt || excludedStatuses.has(task.status)) return false;
    const dueAt = new Date(task.dueAt).getTime();
    return Number.isFinite(dueAt) && dueAt <= todayEnd;
@@ -288,14 +288,22 @@ function endOfTodayTimestamp() {
    return end.getTime();
 }
 
-function compareDueTasks(left: TaskaraTask, right: TaskaraTask) {
-   const leftDue = left.dueAt ? new Date(left.dueAt).getTime() || 0 : 0;
-   const rightDue = right.dueAt ? new Date(right.dueAt).getTime() || 0 : 0;
+function compareTodayPlanTasks(left: TaskaraTask, right: TaskaraTask) {
+   const leftDue = taskTimestamp(left.dueAt);
+   const rightDue = taskTimestamp(right.dueAt);
    if (leftDue !== rightDue) return leftDue - rightDue;
+
    return (right.weight || 0) - (left.weight || 0);
 }
 
+function taskTimestamp(value: string | null | undefined) {
+   if (!value) return 0;
+   const timestamp = new Date(value).getTime();
+   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function taskWeight(task: TaskaraTask) {
+   if (!task.dueAt) return 0;
    return typeof task.weight === 'number' && Number.isFinite(task.weight) ? task.weight : 0;
 }
 
