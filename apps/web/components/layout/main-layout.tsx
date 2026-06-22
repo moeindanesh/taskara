@@ -20,12 +20,13 @@ import {
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AiAssistantDock } from '@/components/taskara/ai-assistant-dock';
 import { LinearAvatar, ProjectGlyph, ShortcutKey, StatusIcon } from '@/components/taskara/linear-ui';
+import { WorkspaceTaskComposer } from '@/components/taskara/workspace-task-composer';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
-import { Activity, Bell, BookOpen, CalendarDays, FileText, FolderKanban, LayoutTemplate, ListTodo, Megaphone, Plus, Search, Settings, Trophy, Users, UsersRound } from 'lucide-react';
+import { Activity, Bell, BookOpen, CalendarCheck2, CalendarDays, FileText, FolderKanban, LayoutTemplate, ListTodo, Megaphone, Plus, Search, Settings, Trophy, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -117,11 +118,10 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const orgId = pathParts[0] || 'taskara';
    const routeKey = pathParts[1] || 'team';
    const activeTeamSlug = pathParts[1] === 'team' && pathParts[2] !== 'all' ? pathParts[2] : null;
-   const isIssueListRoute = pathParts[1] === 'tasks' || (pathParts[1] === 'team' && pathParts[3] === 'all');
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
 
-   const pageOwnsScroll = ['announcements', 'heartbeat', 'inbox', 'issue', 'meetings', 'projects', 'settings', 'tasks', 'team', 'wiki'].includes(routeKey);
+   const pageOwnsScroll = ['announcements', 'heartbeat', 'inbox', 'issue', 'meetings', 'projects', 'settings', 'tasks', 'team', 'today', 'wiki'].includes(routeKey);
    const height = {
       1: 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]',
       2: 'h-[calc(100dvh-80px)] lg:h-[calc(100dvh-88px)]',
@@ -133,11 +133,8 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    }, []);
 
    const openCreateIssue = React.useCallback(() => {
-      if (!isIssueListRoute) {
-         navigate(`/${orgId}/team/${activeTeamSlug || 'all'}/all`);
-      }
       window.setTimeout(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')), 0);
-   }, [activeTeamSlug, isIssueListRoute, navigate, orgId]);
+   }, []);
 
    const openCreateProject = React.useCallback(() => {
       if (!isProjectsRoute) {
@@ -148,9 +145,19 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
 
    React.useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
+         if (event.defaultPrevented) return;
+
          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
             event.preventDefault();
             setCommandOpen(true);
+            return;
+         }
+
+         const key = event.key.toLocaleLowerCase('fa');
+         const hasSystemModifier = event.metaKey || event.ctrlKey || event.altKey;
+         if (!hasSystemModifier && !event.shiftKey && !isEditableTarget(event.target) && (key === 'c' || key === 'ز')) {
+            event.preventDefault();
+            openCreateIssue();
             return;
          }
 
@@ -172,7 +179,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
          window.removeEventListener('taskara:command-menu', openCommands);
          window.removeEventListener('taskara:keyboard-shortcuts', openShortcuts);
       };
-   }, [isEditableTarget]);
+   }, [isEditableTarget, openCreateIssue]);
 
    React.useEffect(() => {
       if (!commandOpen) {
@@ -265,6 +272,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             description: fa.pages.heartbeatDescription,
             icon: Activity,
             run: () => navigate(`/${orgId}/heartbeat`),
+         },
+         {
+            id: 'go-today-plan',
+            label: fa.command.goTodayPlan,
+            description: fa.pages.todayPlanDescription,
+            icon: CalendarCheck2,
+            run: () => navigate(`/${orgId}/today`),
          },
          {
             id: 'go-members',
@@ -451,6 +465,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             </div>
          </div>
          <AiAssistantDock />
+         <WorkspaceTaskComposer />
          <CommandDialog
             description={fa.command.description}
             contentClassName="max-w-[760px] sm:max-w-[760px]"

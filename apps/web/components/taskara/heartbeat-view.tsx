@@ -66,10 +66,10 @@ export function HeartbeatView() {
    );
 
    return (
-      <div className="flex h-full flex-col bg-[#101011]" data-testid="heartbeat-screen">
+      <div className="flex h-full flex-col bg-background dark:bg-[#101011]" data-testid="heartbeat-screen">
          <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
             {error ? (
-               <p className="mb-4 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+               <p className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
                   {error}
                </p>
             ) : null}
@@ -154,7 +154,7 @@ function HeartbeatCardTitle({
             </span>
             <span className="truncate">{label}</span>
          </span>
-         <span className="shrink-0 rounded-full border border-white/8 bg-white/[0.035] px-2 py-0.5 text-[11px] text-zinc-400">
+         <span className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-400">
             {count.toLocaleString('fa-IR')}
          </span>
       </div>
@@ -162,10 +162,10 @@ function HeartbeatCardTitle({
 }
 
 const heartbeatCardToneClasses = {
-   amber: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
-   emerald: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
-   indigo: 'border-indigo-400/20 bg-indigo-400/10 text-indigo-200',
-   zinc: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-300',
+   amber: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200',
+   emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+   indigo: 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200',
+   zinc: 'border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-zinc-400/15 dark:bg-zinc-400/8 dark:text-zinc-300',
 };
 
 function TaskListPanel({
@@ -187,7 +187,7 @@ function TaskListPanel({
 }) {
    return (
       <LinearPanel title={title} className={cn('min-h-[360px] overflow-hidden', className)}>
-         <div className="max-h-[560px] divide-y divide-white/6 overflow-y-auto">
+         <div className="max-h-[560px] divide-y divide-zinc-100 overflow-y-auto dark:divide-white/6">
             {tasks.length === 0 ? (
                <div className="p-4">
                   <LinearEmptyState>{empty}</LinearEmptyState>
@@ -221,7 +221,7 @@ function NoInProgressUsersPanel({ users }: { users: HeartbeatIdleUser[] }) {
          }
          className="min-h-[360px] overflow-hidden"
       >
-         <div className="max-h-[560px] divide-y divide-white/6 overflow-y-auto">
+         <div className="max-h-[560px] divide-y divide-zinc-100 overflow-y-auto dark:divide-white/6">
             {users.length === 0 ? (
                <div className="p-4">
                   <LinearEmptyState>{fa.heartbeat.noIdlePeople}</LinearEmptyState>
@@ -232,7 +232,7 @@ function NoInProgressUsersPanel({ users }: { users: HeartbeatIdleUser[] }) {
                      <div className="flex min-w-0 items-center gap-3">
                         <LinearAvatar name={user.name} src={user.avatarUrl} className="size-7" />
                         <div className="min-w-0">
-                           <div className="truncate text-sm font-medium text-zinc-200">{user.name}</div>
+                           <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-200">{user.name}</div>
                            <div className="ltr mt-1 truncate text-xs text-zinc-500">{user.email}</div>
                         </div>
                      </div>
@@ -261,7 +261,7 @@ function TaskPulseRow({
    task: TaskaraTask;
 }) {
    const rowClassName =
-      'block px-4 py-3 transition hover:bg-white/[0.018]';
+      'block px-4 py-3 transition hover:bg-zinc-50 dark:hover:bg-white/[0.018]';
    const content = <TaskPulseRowContent dateKind={dateKind} now={now} task={task} />;
 
    if (task.syncState === 'pending') {
@@ -306,11 +306,11 @@ function TaskPulseRowContent({
          >
             {relatedDateLabel}
          </span>
-         <span className="hidden min-w-0 items-center gap-1.5 text-xs text-zinc-500 sm:flex">
+         <span className="hidden min-w-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-500 sm:flex">
             <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
             <span className="min-w-0 truncate text-right">{task.project?.name || fa.app.unset}</span>
          </span>
-         <span className="min-w-0 truncate text-right text-sm text-zinc-200 [direction:rtl] [unicode-bidi:plaintext]" dir="rtl">
+         <span className="min-w-0 truncate text-right text-sm text-zinc-900 [direction:rtl] [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
             {task.title}
          </span>
          <span className="flex size-6 items-center justify-center justify-self-center">
@@ -321,9 +321,9 @@ function TaskPulseRowContent({
 }
 
 const heartbeatTaskDateToneClasses: Record<HeartbeatTaskDateKind, string> = {
-   done: 'text-emerald-200/70',
-   overdue: 'text-amber-200/80',
-   progress: 'text-indigo-200/70',
+   done: 'text-emerald-700 dark:text-emerald-200/70',
+   overdue: 'text-amber-700 dark:text-amber-200/80',
+   progress: 'text-indigo-700 dark:text-indigo-200/70',
 };
 
 function buildNoInProgressUsers(users: TaskaraUser[], tasks: TaskaraTask[]): HeartbeatIdleUser[] {
