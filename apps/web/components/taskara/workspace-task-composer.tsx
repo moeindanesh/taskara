@@ -11,7 +11,6 @@ import {
 import { toast } from 'sonner';
 import {
    Box,
-   CalendarClock,
    Check,
    ChevronDown,
    Loader2,
@@ -335,11 +334,7 @@ export function WorkspaceTaskComposer() {
                   </div>
                </div>
 
-               <div className="flex items-center justify-between border-t border-white/7 px-5 py-3">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-[12px] text-zinc-500">
-                     <CalendarClock className="size-3.5" />
-                     <span>همه پروژه‌های قابل دسترس</span>
-                  </div>
+               <div className="flex items-center justify-end border-t border-white/7 px-5 py-3">
                   <div className="flex items-center gap-3">
                      <label className="flex items-center gap-2 text-[13px] text-zinc-500" htmlFor="workspace-composer-create-more">
                         <Switch
