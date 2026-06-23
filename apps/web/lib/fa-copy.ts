@@ -283,6 +283,8 @@ export const fa = {
       created: 'کار ایجاد شد.',
       createdOffline: 'کار ایجاد شد و پس از اتصال همگام‌سازی می‌شود.',
       openIssue: 'باز کردن کار',
+      copyLink: 'کپی لینک',
+      linkCopied: 'لینک کار کپی شد.',
       deleted: 'کار حذف شد.',
       deleteConfirm: 'این کار حذف شود؟',
       pendingSync: 'در انتظار همگام‌سازی',
