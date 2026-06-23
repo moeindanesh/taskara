@@ -196,20 +196,22 @@ export function WorkspaceTaskComposer() {
       [workspaceSlug]
    );
 
-   const sendCreatedTaskMessage = useCallback(async (task: TaskaraTask) => {
+   const sendCreatedTaskMessage = useCallback(async (task: TaskaraTask): Promise<boolean> => {
       if (!task.assignee) {
          toast.error(fa.issue.smsNoAssignee);
-         return;
+         return false;
       }
       if (!task.assignee.phone) {
          toast.error(fa.issue.smsNoPhone);
-         return;
+         return false;
       }
       try {
          await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}/sms/task-created`, { method: 'POST' });
          toast.success(fa.issue.smsSent);
+         return true;
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.smsFailed);
+         return false;
       }
    }, []);
 
@@ -257,25 +259,14 @@ export function WorkspaceTaskComposer() {
             let createdToastId: string | number = '';
             createdToastId = toast.success(createdTask.title, {
                description: (
-                  <div className="mt-1 flex flex-col gap-2">
-                     <span>{fa.issue.created}</span>
-                     <div className="flex flex-wrap items-center gap-2">
-                        <ToastActionButton
-                           onClick={() => {
-                              toast.dismiss(createdToastId);
-                              openCreatedTask(createdTask);
-                           }}
-                        >
-                           {fa.issue.openIssue}
-                        </ToastActionButton>
-                        <ToastActionButton onClick={() => copyCreatedTaskLink(createdTask)}>
-                           {fa.issue.copyLink}
-                        </ToastActionButton>
-                        <ToastActionButton onClick={() => void sendCreatedTaskMessage(createdTask)}>
-                           {fa.issue.sendTaskSms}
-                        </ToastActionButton>
-                     </div>
-                  </div>
+                  <CreatedTaskToastActions
+                     onCopyLink={() => copyCreatedTaskLink(createdTask)}
+                     onOpen={() => {
+                        toast.dismiss(createdToastId);
+                        openCreatedTask(createdTask);
+                     }}
+                     onSendMessage={() => sendCreatedTaskMessage(createdTask)}
+                  />
                ),
             });
          }
@@ -716,14 +707,66 @@ function ComposerWeightPill({ weight, onChange }: { weight: string; onChange: (w
    );
 }
 
-function ToastActionButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+function ToastActionButton({
+   children,
+   disabled,
+   onClick,
+}: {
+   children: ReactNode;
+   disabled?: boolean;
+   onClick: () => void;
+}) {
    return (
       <button
-         className="inline-flex h-7 items-center rounded-md border border-white/10 bg-white/5 px-2.5 text-[12px] font-medium text-zinc-200 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400/60"
+         className="inline-flex h-7 items-center rounded-md border border-white/10 bg-white/5 px-2.5 text-[12px] font-medium text-zinc-200 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400/60 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/5"
+         disabled={disabled}
          onClick={onClick}
          type="button"
       >
          {children}
       </button>
+   );
+}
+
+function CreatedTaskToastActions({
+   onCopyLink,
+   onOpen,
+   onSendMessage,
+}: {
+   onCopyLink: () => void;
+   onOpen: () => void;
+   onSendMessage: () => Promise<boolean>;
+}) {
+   const [linkCopied, setLinkCopied] = useState(false);
+   const [messageSending, setMessageSending] = useState(false);
+   const [messageSent, setMessageSent] = useState(false);
+
+   return (
+      <div className="mt-1 flex flex-col gap-2">
+         <span>{fa.issue.created}</span>
+         <div className="flex flex-wrap items-center gap-2">
+            <ToastActionButton onClick={onOpen}>{fa.issue.openIssue}</ToastActionButton>
+            <ToastActionButton
+               disabled={linkCopied}
+               onClick={() => {
+                  setLinkCopied(true);
+                  onCopyLink();
+               }}
+            >
+               {fa.issue.copyLink}
+            </ToastActionButton>
+            <ToastActionButton
+               disabled={messageSending || messageSent}
+               onClick={async () => {
+                  setMessageSending(true);
+                  const sent = await onSendMessage();
+                  setMessageSending(false);
+                  if (sent) setMessageSent(true);
+               }}
+            >
+               {fa.issue.sendTaskSms}
+            </ToastActionButton>
+         </div>
+      </div>
    );
 }
