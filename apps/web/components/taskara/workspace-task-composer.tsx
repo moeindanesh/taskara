@@ -4,17 +4,16 @@ import {
    useMemo,
    useRef,
    useState,
-   type ChangeEvent,
    type FormEvent,
    type ReactNode,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
    Box,
    Check,
    ChevronDown,
    Loader2,
-   Tag,
    UserRound,
    X,
    XCircle,
@@ -31,9 +30,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
+import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { LinearAvatar, PriorityIcon, ProjectGlyph, StatusIcon, linearPriorityMeta, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import { taskaraRequest } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import type { TaskaraProject, TaskaraTask, TaskaraUser } from '@/lib/taskara-types';
@@ -52,7 +52,6 @@ const initialTaskForm = {
    weight: '',
    assigneeId: '',
    dueAt: '',
-   labels: '',
 };
 
 type TaskComposerPreferences = {
@@ -110,13 +109,6 @@ function assigneeLabel(user: Pick<TaskaraUser, 'id' | 'name'>, currentUserId: st
    return user.id === currentUserId ? `${user.name} (شما)` : user.name;
 }
 
-function parseLabels(value: string) {
-   return value
-      .split(',')
-      .map((label) => label.trim())
-      .filter(Boolean);
-}
-
 function isTaskCreateRetryableResult(task: TaskaraTask) {
    return task.syncState === 'pending';
 }
@@ -124,6 +116,7 @@ function isTaskCreateRetryableResult(task: TaskaraTask) {
 export function WorkspaceTaskComposer() {
    const { session } = useAuthSession();
    const { projects, users, createTask } = useWorkspaceTaskSync();
+   const navigate = useNavigate();
    const workspaceSlug = session?.workspace?.slug || 'taskara';
    const currentUserId = session?.user.id || null;
    const [open, setOpen] = useState(false);
@@ -187,6 +180,39 @@ export function WorkspaceTaskComposer() {
       return () => window.removeEventListener('taskara:create-issue', handleCreateIssue);
    }, [openComposer]);
 
+   const openCreatedTask = useCallback(
+      (task: TaskaraTask) => {
+         navigate(`/${workspaceSlug}/issue/${encodeURIComponent(task.key)}`);
+      },
+      [navigate, workspaceSlug]
+   );
+
+   const copyCreatedTaskLink = useCallback(
+      (task: TaskaraTask) => {
+         const url = `${window.location.origin}/${workspaceSlug}/issue/${encodeURIComponent(task.key)}`;
+         void navigator.clipboard?.writeText(url);
+         toast.success(fa.issue.linkCopied);
+      },
+      [workspaceSlug]
+   );
+
+   const sendCreatedTaskMessage = useCallback(async (task: TaskaraTask) => {
+      if (!task.assignee) {
+         toast.error(fa.issue.smsNoAssignee);
+         return;
+      }
+      if (!task.assignee.phone) {
+         toast.error(fa.issue.smsNoPhone);
+         return;
+      }
+      try {
+         await taskaraRequest(`/tasks/${encodeURIComponent(task.key)}/sms/task-created`, { method: 'POST' });
+         toast.success(fa.issue.smsSent);
+      } catch (err) {
+         toast.error(err instanceof Error ? err.message : fa.issue.smsFailed);
+      }
+   }, []);
+
    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
       event.preventDefault();
       if (submitting) return;
@@ -221,13 +247,38 @@ export function WorkspaceTaskComposer() {
             weight,
             assigneeId: form.assigneeId || undefined,
             dueAt: form.dueAt || undefined,
-            labels: parseLabels(form.labels),
+            labels: [],
             source: 'WEB',
          });
 
-         toast.success(createdTask.title, {
-            description: isTaskCreateRetryableResult(createdTask) ? fa.issue.createdOffline : fa.issue.created,
-         });
+         if (isTaskCreateRetryableResult(createdTask)) {
+            toast.success(createdTask.title, { description: fa.issue.createdOffline });
+         } else {
+            let createdToastId: string | number = '';
+            createdToastId = toast.success(createdTask.title, {
+               description: (
+                  <div className="mt-1 flex flex-col gap-2">
+                     <span>{fa.issue.created}</span>
+                     <div className="flex flex-wrap items-center gap-2">
+                        <ToastActionButton
+                           onClick={() => {
+                              toast.dismiss(createdToastId);
+                              openCreatedTask(createdTask);
+                           }}
+                        >
+                           {fa.issue.openIssue}
+                        </ToastActionButton>
+                        <ToastActionButton onClick={() => copyCreatedTaskLink(createdTask)}>
+                           {fa.issue.copyLink}
+                        </ToastActionButton>
+                        <ToastActionButton onClick={() => void sendCreatedTaskMessage(createdTask)}>
+                           {fa.issue.sendTaskSms}
+                        </ToastActionButton>
+                     </div>
+                  </div>
+               ),
+            });
+         }
 
          setForm({
             ...initialTaskForm,
@@ -287,10 +338,14 @@ export function WorkspaceTaskComposer() {
                      onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                      placeholder={fa.issue.titlePlaceholder}
                   />
-                  <Textarea
-                     className="mt-2 min-h-28 resize-none border-none bg-transparent px-0 text-right text-sm leading-6 text-zinc-300 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0"
+                  <DescriptionEditor
+                     className="mt-2"
+                     contentClassName="min-h-24 text-right text-sm leading-6 text-zinc-300"
+                     showToolbar={false}
+                     variant="plain"
+                     users={users}
                      value={form.description}
-                     onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                     onChange={(description) => setForm((current) => ({ ...current, description }))}
                      placeholder={fa.issue.descriptionPlaceholder}
                   />
 
@@ -317,13 +372,6 @@ export function WorkspaceTaskComposer() {
                      <ComposerWeightPill
                         weight={form.weight}
                         onChange={(weight) => setForm((current) => ({ ...current, weight }))}
-                     />
-                     <ComposerTextPill
-                        ariaLabel={fa.issue.labels}
-                        icon={<Tag className="size-3.5 text-zinc-500" />}
-                        value={form.labels}
-                        onChange={(event) => setForm((current) => ({ ...current, labels: event.target.value }))}
-                        placeholder={fa.issue.labels}
                      />
                      <TaskDueDateControl
                         dueAt={form.dueAt || null}
@@ -472,7 +520,7 @@ function ComposerStatusPill({ status, onChange }: { status: string; onChange: (s
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.status}
-         contentClassName="w-72"
+         contentClassName="w-auto min-w-[11rem]"
          icon={<StatusIcon status={status} className="size-3.5" />}
          label={linearStatusMeta[status]?.label || status}
          open={open}
@@ -501,7 +549,7 @@ function ComposerPriorityPill({ priority, onChange }: { priority: string; onChan
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.priority}
-         contentClassName="w-72"
+         contentClassName="w-auto min-w-[11rem]"
          icon={<PriorityIcon priority={priority} className="size-3.5" />}
          label={linearPriorityMeta[priority]?.label || priority}
          open={open}
@@ -643,7 +691,7 @@ function ComposerWeightPill({ weight, onChange }: { weight: string; onChange: (w
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.weight}
-         contentClassName="w-56"
+         contentClassName="w-auto min-w-[11rem]"
          icon={weight ? <Box className="size-3.5 text-zinc-500" /> : <XCircle className="size-3.5 text-zinc-500" />}
          label={weightLabel}
          open={open}
@@ -668,33 +716,14 @@ function ComposerWeightPill({ weight, onChange }: { weight: string; onChange: (w
    );
 }
 
-function ComposerTextPill({
-   ariaLabel,
-   icon,
-   onChange,
-   placeholder,
-   value,
-}: {
-   ariaLabel: string;
-   icon: ReactNode;
-   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
-   placeholder: string;
-   value: string;
-}) {
+function ToastActionButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
    return (
-      <label className="relative inline-flex h-6 w-[128px] shrink-0">
-         <span className="sr-only">{ariaLabel}</span>
-         <span className="pointer-events-none absolute start-2 top-1/2 z-10 flex -translate-y-1/2 items-center">
-            {icon}
-         </span>
-         <input
-            aria-label={ariaLabel}
-            className="h-6 w-full rounded-full border border-white/8 bg-[#2a2a2d] py-0 pe-2.5 ps-6 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition placeholder:text-zinc-500 hover:bg-[#303033] focus:ring-2 focus:ring-indigo-400/35"
-            value={value}
-            onChange={onChange}
-            placeholder={placeholder}
-            type="text"
-         />
-      </label>
+      <button
+         className="inline-flex h-7 items-center rounded-md border border-white/10 bg-white/5 px-2.5 text-[12px] font-medium text-zinc-200 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400/60"
+         onClick={onClick}
+         type="button"
+      >
+         {children}
+      </button>
    );
 }
