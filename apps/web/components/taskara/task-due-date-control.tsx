@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CalendarClock, XCircle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
@@ -29,21 +29,34 @@ export function TaskDueDateControl({
    dueAt,
    className,
    iconClassName,
+   open,
    onChange,
+   onAfterChange,
+   onOpenChange,
 }: {
    dueAt?: string | null;
    className?: string;
    iconClassName?: string;
+   open?: boolean;
    onChange: (dueAt: string | null) => void;
+   onAfterChange?: () => void;
+   onOpenChange?: (open: boolean) => void;
 }) {
-   const [open, setOpen] = useState(false);
+   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+   const contentRef = useRef<HTMLDivElement | null>(null);
+   const actualOpen = open ?? uncontrolledOpen;
+   const setOpen = (nextOpen: boolean) => {
+      if (open === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+   };
    const handleChange = (nextDueAt: string | null) => {
       onChange(nextDueAt);
       setOpen(false);
+      onAfterChange?.();
    };
 
    return (
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={actualOpen} onOpenChange={setOpen}>
          <PopoverTrigger asChild>
             <button
                aria-label={fa.issue.dueAt}
@@ -60,7 +73,20 @@ export function TaskDueDateControl({
                <span className="min-w-0 flex-1 truncate text-end">{dueAt ? formatJalaliDate(dueAt) : fa.issue.dueAt}</span>
             </button>
          </PopoverTrigger>
-         <PopoverContent align="start" className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl">
+         <PopoverContent
+            ref={contentRef}
+            align="start"
+            className="w-80 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+            onOpenAutoFocus={(event) => {
+               event.preventDefault();
+               window.requestAnimationFrame(() => {
+                  contentRef.current
+                     ?.querySelector<HTMLElement>('button:not(:disabled), input, [tabindex]:not([tabindex="-1"])')
+                     ?.focus();
+               });
+            }}
+         >
             <DueDateMenuOption
                icon={<CalendarClock className="size-4 text-zinc-400" />}
                label="امروز"

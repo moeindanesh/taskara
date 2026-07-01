@@ -201,12 +201,14 @@ type DescriptionEditorProps = {
    autoFocus?: boolean;
    className?: string;
    contentClassName?: string;
+   focusToken?: number;
    onBlur?: (value: string) => void;
    onCancel?: () => void;
    onFocus?: () => void;
    placeholder: string;
    placeholderClassName?: string;
    showToolbar?: boolean;
+   slashCommands?: DescriptionSlashCommand[];
    toolbarClassName?: string;
    uploadInlineImages?: (files: File[]) => Promise<DescriptionInlineImage[]>;
    onInlineImageUploadError?: (error: unknown) => void;
@@ -214,6 +216,16 @@ type DescriptionEditorProps = {
    onInlineFileUploadError?: (error: unknown) => void;
    users?: MentionUser[];
    variant?: 'framed' | 'plain';
+};
+
+export type DescriptionSlashCommand = {
+   command: (editor: LexicalEditor) => void;
+   description: string;
+   icon: ReactNode;
+   key: string;
+   keywords: string[];
+   shortcut?: string;
+   title: string;
 };
 
 type DescriptionInlineImage = {
@@ -1325,7 +1337,7 @@ function MentionMenu({
 
 type FloatingMenuStyleOptions = {
    estimatedHeight?: number;
-   maxHeight?: string;
+   maxHeight?: number;
    minWidth?: number;
    preferredWidth?: number;
 };
@@ -1418,6 +1430,7 @@ function $getSelectedListItems(selection: RangeSelection): ListItemNode[] {
 }
 
 function createSlashCommandOptions({
+   customCommands = [],
    editor,
    onFileUploadError,
    onImageUploadError,
@@ -1425,6 +1438,7 @@ function createSlashCommandOptions({
    uploadFiles,
    uploadImages,
 }: {
+   customCommands?: DescriptionSlashCommand[];
    editor: LexicalEditor;
    onFileUploadError?: (error: unknown) => void;
    onImageUploadError?: (error: unknown) => void;
@@ -1433,6 +1447,18 @@ function createSlashCommandOptions({
    uploadImages?: (files: File[]) => Promise<DescriptionInlineImage[]>;
 }) {
    const dynamicOptions = createDynamicSlashCommandOptions(query);
+   const customOptions = customCommands.map(
+      (command) =>
+         new SlashCommandOption({
+            command: command.command,
+            description: command.description,
+            icon: command.icon,
+            key: command.key,
+            keywords: command.keywords,
+            shortcut: command.shortcut,
+            title: command.title,
+         })
+   );
    const baseOptions = [
       new SlashCommandOption({
          command: (activeEditor) => activeEditor.update(() => $formatCurrentSelection('bold')),
@@ -1633,10 +1659,11 @@ function createSlashCommandOptions({
       ),
    ];
 
-   if (!query) return [...dynamicOptions, ...baseOptions];
+   if (!query) return [...dynamicOptions, ...customOptions, ...baseOptions];
    const normalizedQuery = query.toLocaleLowerCase('fa-IR');
    return [
       ...dynamicOptions,
+      ...customOptions.filter((option) => option.searchText.includes(normalizedQuery)),
       ...baseOptions.filter((option) => option.searchText.includes(normalizedQuery)),
    ];
 }
@@ -1756,11 +1783,13 @@ function selectAndUploadInlineFiles(
 }
 
 function SlashCommandsPlugin({
+   customCommands,
    onFileUploadError,
    onImageUploadError,
    uploadFiles,
    uploadImages,
 }: {
+   customCommands?: DescriptionSlashCommand[];
    onFileUploadError?: (error: unknown) => void;
    onImageUploadError?: (error: unknown) => void;
    uploadFiles?: (files: File[]) => Promise<DescriptionInlineFile[]>;
@@ -1777,6 +1806,7 @@ function SlashCommandsPlugin({
    const options = useMemo(() => {
       const query = (queryString || '').trim().toLocaleLowerCase('en-US');
       return createSlashCommandOptions({
+         customCommands,
          editor,
          onFileUploadError,
          onImageUploadError,
@@ -1784,7 +1814,7 @@ function SlashCommandsPlugin({
          uploadFiles,
          uploadImages,
       });
-   }, [editor, onFileUploadError, onImageUploadError, queryString, uploadFiles, uploadImages]);
+   }, [customCommands, editor, onFileUploadError, onImageUploadError, queryString, uploadFiles, uploadImages]);
 
    const onSelectOption = useCallback(
       (selectedOption: SlashCommandOption, textNodeContainingQuery: TextNode | null, closeMenu: () => void) => {
@@ -1999,23 +2029,36 @@ function SlashCommandMenu({
 }) {
    const anchor = anchorElementRef.current;
    const portalTarget = anchor?.ownerDocument.body;
+   const menuRef = useRef<HTMLDivElement | null>(null);
+   const selectedOptionRef = useRef<HTMLButtonElement | null>(null);
+
+   useEffect(() => {
+      selectedOptionRef.current?.scrollIntoView({ block: 'nearest' });
+   }, [selectedIndex]);
+
    if (!anchor || !portalTarget || !options.length) return null;
 
    return createPortal(
       <div
-         className="z-50 overflow-hidden rounded-xl border border-white/10 bg-[#202023] p-1.5 text-right shadow-2xl"
+         ref={menuRef}
+         className="z-50 overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-[#202023] p-1.5 text-right shadow-2xl"
          dir="rtl"
+         role="listbox"
          style={getFloatingMenuStyle(anchor, {
             estimatedHeight: 420,
-            maxHeight: 'min(28rem, calc(100vh - 24px))',
+            maxHeight: 448,
             minWidth: 272,
             preferredWidth: 320,
          })}
+         onWheel={(event) => event.stopPropagation()}
       >
          {options.map((option, index) => (
             <button
                key={option.key}
-               ref={option.setRefElement}
+               ref={(element) => {
+                  option.setRefElement(element);
+                  if (selectedIndex === index) selectedOptionRef.current = element;
+               }}
                aria-selected={selectedIndex === index}
                className={cn(
                   'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-right text-sm text-zinc-300 outline-none transition',
@@ -2057,15 +2100,21 @@ function getFloatingMenuStyle(anchor: HTMLElement, options: FloatingMenuStyleOpt
    const maxRight = Math.max(viewportPadding, ownerWindow.innerWidth - width - viewportPadding);
    const right = Math.min(Math.max(viewportPadding, ownerWindow.innerWidth - rect.right), maxRight);
    const estimatedHeight = options.estimatedHeight ?? 260;
-   const opensAbove = rect.bottom + estimatedHeight > ownerWindow.innerHeight && rect.top > estimatedHeight;
+   const gap = 8;
+   const preferredMaxHeight = options.maxHeight ?? estimatedHeight;
+   const spaceBelow = ownerWindow.innerHeight - rect.bottom - gap - viewportPadding;
+   const spaceAbove = rect.top - gap - viewportPadding;
+   const opensAbove = spaceBelow < Math.min(estimatedHeight, preferredMaxHeight) && spaceAbove > spaceBelow;
+   const availableHeight = opensAbove ? spaceAbove : spaceBelow;
+   const maxHeight = Math.max(160, Math.min(preferredMaxHeight, Math.max(0, availableHeight)));
 
    return {
-      bottom: opensAbove ? ownerWindow.innerHeight - rect.top + 8 : undefined,
-      maxHeight: options.maxHeight ?? 'min(18rem, calc(100vh - 24px))',
+      bottom: opensAbove ? ownerWindow.innerHeight - rect.top + gap : undefined,
+      maxHeight,
       overflowY: 'auto',
       position: 'fixed',
       right,
-      top: opensAbove ? undefined : Math.min(rect.bottom + 8, ownerWindow.innerHeight - viewportPadding),
+      top: opensAbove ? undefined : Math.min(rect.bottom + gap, ownerWindow.innerHeight - viewportPadding - maxHeight),
       width,
    };
 }
@@ -2504,32 +2553,32 @@ function FloatingTextFormatToolbarPlugin(): JSX.Element | null {
          dir="rtl"
          style={style}
       >
-         <FloatingToolbarButton active={toolbarState.isBold} label="پررنگ" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}>
+         <FloatingToolbarButton active={toolbarState.isBold} label="پررنگ" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold'))}>
             <Bold className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isItalic} label="کج" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic')}>
+         <FloatingToolbarButton active={toolbarState.isItalic} label="کج" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic'))}>
             <Italic className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isUnderline} label="زیرخط" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'underline')}>
+         <FloatingToolbarButton active={toolbarState.isUnderline} label="زیرخط" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'underline'))}>
             <Underline className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isStrikethrough} label="خط خورده" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough')}>
+         <FloatingToolbarButton active={toolbarState.isStrikethrough} label="خط خورده" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough'))}>
             <Strikethrough className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isCode} label="کد" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'code')}>
+         <FloatingToolbarButton active={toolbarState.isCode} label="کد" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'code'))}>
             <Code2 className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isSubscript} label="زیرنویس" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'subscript')}>
+         <FloatingToolbarButton active={toolbarState.isSubscript} label="زیرنویس" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'subscript'))}>
             <Subscript className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton active={toolbarState.isSuperscript} label="بالانویس" onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'superscript')}>
+         <FloatingToolbarButton active={toolbarState.isSuperscript} label="بالانویس" onSelect={() => editor.focus(() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'superscript'))}>
             <Superscript className="size-4" />
          </FloatingToolbarButton>
          <span className="mx-1 h-5 w-px bg-white/10" />
-         <FloatingToolbarButton active={toolbarState.isLink} label="لینک" onClick={() => insertLinkWithPrompt(editor)}>
+         <FloatingToolbarButton active={toolbarState.isLink} label="لینک" onSelect={() => insertLinkWithPrompt(editor)}>
             <Link2 className="size-4" />
          </FloatingToolbarButton>
-         <FloatingToolbarButton label="حذف لینک" onClick={() => removeLink(editor)}>
+         <FloatingToolbarButton label="حذف لینک" onSelect={() => removeLink(editor)}>
             <Link2Off className="size-4" />
          </FloatingToolbarButton>
       </div>,
@@ -2541,13 +2590,17 @@ function FloatingToolbarButton({
    active = false,
    children,
    label,
-   onClick,
+   onSelect,
 }: {
    active?: boolean;
    children: ReactNode;
    label: string;
-   onClick: () => void;
+   onSelect: () => void;
 }) {
+   const runCommand = () => {
+      onSelect();
+   };
+
    return (
       <button
          aria-label={label}
@@ -2556,8 +2609,21 @@ function FloatingToolbarButton({
             active ? 'bg-indigo-500/20 text-indigo-200' : 'text-zinc-400'
          )}
          type="button"
-         onClick={onClick}
-         onMouseDown={(event) => event.preventDefault()}
+         onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+         }}
+         onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            event.stopPropagation();
+            runCommand();
+         }}
+         onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            runCommand();
+         }}
       >
          {children}
       </button>
@@ -2665,6 +2731,21 @@ function AutoDirectionPlugin() {
          syncDirections(editorState);
       });
    }, [editor, syncDirections]);
+
+   return null;
+}
+
+function DescriptionFocusPlugin({ focusToken }: { focusToken?: number }) {
+   const [editor] = useLexicalComposerContext();
+   const previousTokenRef = useRef(focusToken);
+
+   useEffect(() => {
+      if (focusToken === undefined || previousTokenRef.current === focusToken) return;
+      previousTokenRef.current = focusToken;
+      window.requestAnimationFrame(() => {
+         editor.focus();
+      });
+   }, [editor, focusToken]);
 
    return null;
 }
@@ -3168,12 +3249,14 @@ export function DescriptionEditor({
    autoFocus = false,
    className,
    contentClassName,
+   focusToken,
    onBlur,
    onCancel,
    onFocus,
    placeholder,
    placeholderClassName,
    showToolbar = true,
+   slashCommands,
    toolbarClassName,
    uploadInlineImages,
    onInlineImageUploadError,
@@ -3284,8 +3367,10 @@ export function DescriptionEditor({
                   <LinkPlugin />
                   <AutoLinkPlugin matchers={autoLinkMatchers} />
                   <MentionsPlugin users={users} />
+                  <DescriptionFocusPlugin focusToken={focusToken} />
                   <FloatingTextFormatToolbarPlugin />
                   <SlashCommandsPlugin
+                     customCommands={slashCommands}
                      onFileUploadError={onInlineFileUploadError}
                      onImageUploadError={onInlineImageUploadError}
                      uploadFiles={uploadInlineFiles}
