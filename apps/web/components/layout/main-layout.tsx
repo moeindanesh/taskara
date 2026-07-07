@@ -18,7 +18,6 @@ import {
    DialogTitle,
 } from '@/components/ui/dialog';
 import { SidebarProvider } from '@/components/ui/sidebar';
-import { AiAssistantDock } from '@/components/taskara/ai-assistant-dock';
 import { LinearAvatar, ProjectGlyph, ShortcutKey, StatusIcon } from '@/components/taskara/linear-ui';
 import { WorkspaceTaskComposer } from '@/components/taskara/workspace-task-composer';
 import { fa } from '@/lib/fa-copy';
@@ -26,7 +25,8 @@ import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
-import { Activity, Bell, BookOpen, CalendarCheck2, CalendarDays, FileText, FolderKanban, LayoutTemplate, ListTodo, Megaphone, Plus, Search, Settings, Trophy, Users, UsersRound } from 'lucide-react';
+import { selectCommandSearchItems, selectTasksAssignedToUser } from '@/lib/workspace-data/selectors';
+import { Activity, Bell, BookOpen, CalendarCheck2, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -109,7 +109,11 @@ function formatViewTarget(view: TaskaraView, teams: Array<{ id: string; slug: st
 export default function MainLayout({ children, header, headersNumber = 2, showSidebar = true }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { tasks, projects, teams, users, views } = useWorkspaceTaskSync();
+  const taskSync = useWorkspaceTaskSync();
+  const { tasks, projects, teams, users, views } = React.useMemo(
+     () => selectCommandSearchItems(taskSync.workspaceData),
+     [taskSync.workspaceData]
+  );
    const [commandOpen, setCommandOpen] = React.useState(false);
    const [commandQuery, setCommandQuery] = React.useState('');
    const [knowledgeResults, setKnowledgeResults] = React.useState<TaskaraKnowledgePage[]>([]);
@@ -121,7 +125,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
 
-   const pageOwnsScroll = ['announcements', 'heartbeat', 'inbox', 'issue', 'meetings', 'projects', 'settings', 'tasks', 'team', 'today', 'wiki'].includes(routeKey);
+   const pageOwnsScroll = ['announcements', 'capacity', 'cockpit', 'communications', 'heartbeat', 'inbox', 'issue', 'meetings', 'people', 'projects', 'queues', 'reviews', 'settings', 'tasks', 'team', 'today', 'wiki'].includes(routeKey);
    const height = {
       1: 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]',
       2: 'h-[calc(100dvh-80px)] lg:h-[calc(100dvh-88px)]',
@@ -211,6 +215,41 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             run: openCreateProject,
          },
          {
+            id: 'go-cockpit',
+            label: fa.command.goCockpit,
+            description: fa.pages.cockpitDescription,
+            icon: ScanEye,
+            run: () => navigate(`/${orgId}/cockpit`),
+         },
+         {
+            id: 'go-decision-queues',
+            label: fa.command.goDecisionQueues,
+            description: fa.pages.decisionQueuesDescription,
+            icon: ListChecks,
+            run: () => navigate(`/${orgId}/queues`),
+         },
+         {
+            id: 'go-reviews',
+            label: fa.command.goReviews,
+            description: fa.pages.reviewsDescription,
+            icon: GitPullRequest,
+            run: () => navigate(`/${orgId}/reviews`),
+         },
+         {
+            id: 'go-people-workload',
+            label: fa.command.goPeopleWorkload,
+            description: fa.pages.peopleWorkloadDescription,
+            icon: Users,
+            run: () => navigate(`/${orgId}/people`),
+         },
+         {
+            id: 'go-capacity-settings',
+            label: fa.command.goCapacitySettings,
+            description: fa.pages.capacitySettingsDescription,
+            icon: SlidersHorizontal,
+            run: () => navigate(`/${orgId}/capacity`),
+         },
+         {
             id: 'go-issues',
             label: fa.command.goIssues,
             description: fa.pages.issuesDescription,
@@ -232,18 +271,11 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             run: () => navigate(`/${orgId}/inbox`),
          },
          {
-            id: 'go-announcements',
-            label: fa.nav.announcements,
-            description: fa.pages.announcementsDescription,
+            id: 'go-communications',
+            label: fa.nav.communications,
+            description: fa.pages.communicationsDescription,
             icon: Megaphone,
-            run: () => navigate(`/${orgId}/announcements`),
-         },
-         {
-            id: 'go-meetings',
-            label: fa.nav.meetings,
-            description: fa.pages.meetingsDescription,
-            icon: CalendarDays,
-            run: () => navigate(`/${orgId}/meetings`),
+            run: () => navigate(`/${orgId}/communications`),
          },
          {
             id: 'go-wiki',
@@ -260,11 +292,11 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             run: () => navigate(`/${orgId}/projects`),
          },
          {
-            id: 'go-leaderboard',
-            label: fa.command.goLeaderboard,
-            description: fa.pages.leaderboardDescription,
-            icon: Trophy,
-            run: () => navigate(`/${orgId}/leaderboard`),
+            id: 'go-team-health',
+            label: fa.command.goTeamHealth,
+            description: fa.pages.teamHealthDescription,
+            icon: Activity,
+            run: () => navigate(`/${orgId}/team-health`),
          },
          {
             id: 'go-heartbeat',
@@ -415,21 +447,8 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
 
    const focusedMemberAssignedIssues = React.useMemo(() => {
       if (!focusedMember) return [];
-      return tasks
-         .filter((task) => task.assignee?.id === focusedMember.id)
-         .sort((left, right) => {
-            const leftDate =
-               Date.parse(left.updatedAt || '') ||
-               Date.parse(left.createdAt || '') ||
-               0;
-            const rightDate =
-               Date.parse(right.updatedAt || '') ||
-               Date.parse(right.createdAt || '') ||
-               0;
-            return rightDate - leftDate;
-         })
-         .slice(0, COMMAND_RESULT_LIMIT);
-   }, [focusedMember, tasks]);
+      return selectTasksAssignedToUser(taskSync.workspaceData, focusedMember.id).slice(0, COMMAND_RESULT_LIMIT);
+   }, [focusedMember, taskSync.workspaceData]);
 
    const genericIssueResults = React.useMemo(() => {
       if (!focusedMember) return issueResults;
@@ -464,7 +483,6 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                </div>
             </div>
          </div>
-         <AiAssistantDock />
          <WorkspaceTaskComposer />
          <CommandDialog
             description={fa.command.description}

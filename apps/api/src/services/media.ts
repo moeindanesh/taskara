@@ -50,11 +50,11 @@ export function normalizeUploadedMediaInput(input: UploadedMediaInput): Uploaded
   if (!object) throw new HttpError(400, 'documentId, object, or url is required');
 
   return {
-    documentId: input.documentId,
+    ...(input.documentId ? { documentId: input.documentId } : {}),
     object,
     url: buildMediaUrl(object),
     name: input.name || 'upload',
-    mimeType: input.mimeType,
-    sizeBytes: input.sizeBytes
+    ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+    ...(input.sizeBytes === undefined ? {} : { sizeBytes: input.sizeBytes })
   };
 }

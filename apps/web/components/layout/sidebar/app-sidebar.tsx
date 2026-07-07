@@ -38,27 +38,31 @@ import {
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { taskaraRequest } from '@/lib/taskara-client';
+import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { fa } from '@/lib/fa-copy';
 import { clearAuthSession, getAuthSession, setAuthSession } from '@/store/auth-store';
 import type { NotificationsResponse, PaginatedResponse, TaskaraMe, TaskaraTask, TaskaraTeam } from '@/lib/taskara-types';
 import type { AnnouncementsResponse, TaskaraMeeting, TaskaraWorkspaceMembership } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
+import { selectSidebarCounts } from '@/lib/workspace-data/selectors';
 import {
    Activity,
-   BookOpen,
-   BarChart3,
-   CalendarDays,
    ChevronDown,
+   GitPullRequest,
    Laptop,
+   ListChecks,
    Megaphone,
    Moon,
    Plus,
+   ScanEye,
    Search,
+   SlidersHorizontal,
    Sun,
+   Users,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-const primarySidebarVisibleCount = 4;
+const primarySidebarVisibleCount = 6;
 const primarySidebarOrderStorageKey = 'taskara.sidebar.primaryOrder.v1';
 const expandedTeamsStoragePrefix = 'taskara.sidebar.expandedTeams.v1.';
 const sidebarItemDragMimeType = 'application/x-taskara-sidebar-item-id';
@@ -67,13 +71,15 @@ const sidebarItemClassName =
 
 type PrimarySidebarItemId =
    | 'inbox'
-   | 'announcements'
-   | 'meetings'
-   | 'wiki'
+   | 'cockpit'
+   | 'queues'
+   | 'reviews'
+   | 'people'
+   | 'capacity'
+   | 'team-health'
+   | 'communications'
    | 'all-tasks'
-   | 'my-issues'
-   | 'reports'
-   | 'heartbeat';
+   | 'my-issues';
 
 type PrimarySidebarItem = {
    id: PrimarySidebarItemId;
@@ -184,6 +190,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const { theme, setTheme } = useTheme();
    const pathname = location.pathname;
    const orgId = pathname.split('/').filter(Boolean)[0] || 'taskara';
+   const taskSync = useWorkspaceTaskSync();
    const [me, setMe] = React.useState<TaskaraMe | null>(null);
    const [teams, setTeams] = React.useState<TaskaraTeam[]>([]);
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
@@ -202,10 +209,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const initialLoadRef = React.useRef(true);
 
    const pathParts = pathname.split('/').filter(Boolean);
-   const isPrimaryItemActive = (item: PrimarySidebarItem) =>
-      item.id === 'wiki' || item.id === 'announcements' || item.id === 'meetings'
-         ? pathParts[1] === item.id
-         : pathname === item.href;
+   const currentUserId = me?.user.id || getAuthSession()?.user.id || null;
+   const workspaceCounts = React.useMemo(
+      () => selectSidebarCounts(taskSync.workspaceData, currentUserId),
+      [currentUserId, taskSync.workspaceData]
+   );
+   const liveTaskCountsReady = taskSync.hasBootstrapped;
+   const displayedMyIssueCount = liveTaskCountsReady ? workspaceCounts.myActiveTaskCount : myIssueCount;
+   const displayedReviewCount = liveTaskCountsReady ? workspaceCounts.reviewCount : undefined;
+   const isPrimaryItemActive = (item: PrimarySidebarItem) => {
+      if (item.id === 'communications') {
+         return pathParts[1] === 'communications' || pathParts[1] === 'announcements' || pathParts[1] === 'meetings';
+      }
+      return pathname === item.href;
+   };
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -316,16 +333,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
    const primaryItems = React.useMemo<PrimarySidebarItem[]>(
       () => [
-         { id: 'inbox', title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
-         { id: 'announcements', title: fa.nav.announcements, href: `/${orgId}/announcements`, icon: Megaphone, count: announcementUnreadCount },
-         { id: 'meetings', title: fa.nav.meetings, href: `/${orgId}/meetings`, icon: CalendarDays, count: meetingCount },
-         { id: 'wiki', title: fa.nav.wiki, href: `/${orgId}/wiki`, icon: BookOpen },
+         { id: 'cockpit', title: fa.nav.cockpit, href: `/${orgId}/cockpit`, icon: ScanEye },
+         { id: 'queues', title: fa.nav.decisionQueues, href: `/${orgId}/queues`, icon: ListChecks },
+         { id: 'reviews', title: fa.nav.reviews, href: `/${orgId}/reviews`, icon: GitPullRequest, count: displayedReviewCount },
+         { id: 'team-health', title: fa.nav.teamHealth, href: `/${orgId}/team-health`, icon: Activity },
+         { id: 'people', title: fa.nav.peopleWorkload, href: `/${orgId}/people`, icon: Users },
+         { id: 'my-issues', title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: displayedMyIssueCount },
+         { id: 'capacity', title: fa.nav.capacitySettings, href: `/${orgId}/capacity`, icon: SlidersHorizontal },
          { id: 'all-tasks', title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
-         { id: 'my-issues', title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: myIssueCount },
-         { id: 'reports', title: fa.nav.reports, href: `/${orgId}/reports`, icon: BarChart3 },
-         { id: 'heartbeat', title: fa.nav.heartbeat, href: `/${orgId}/heartbeat`, icon: Activity },
+         { id: 'inbox', title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
+         { id: 'communications', title: fa.nav.communications, href: `/${orgId}/communications`, icon: Megaphone, count: announcementUnreadCount + meetingCount },
       ],
-      [allIssueCount, announcementUnreadCount, meetingCount, myIssueCount, orgId, unreadCount]
+      [allIssueCount, announcementUnreadCount, displayedMyIssueCount, displayedReviewCount, meetingCount, orgId, unreadCount]
    );
    const orderedPrimaryItems = React.useMemo(
       () => orderPrimarySidebarItems(primaryItems, primaryItemOrder),
@@ -431,7 +450,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                  <DropdownMenuItem
                                     key={item.membershipId}
                                     className="rounded-lg px-3 py-2"
-                                    onSelect={() => navigate(`/${item.workspace.slug}/team/all/all`)}
+                                    onSelect={() => navigate(item.role === 'OWNER' || item.role === 'ADMIN' ? `/${item.workspace.slug}/cockpit` : `/${item.workspace.slug}/team/all/all`)}
                                  >
                                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                                        <span className="truncate text-sm">{item.workspace.name}</span>

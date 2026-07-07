@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TaskaraClientError, taskaraApiBaseUrl, taskaraRequest, taskaraRequestHeaders } from '@/lib/taskara-client';
+import { fa } from '@/lib/fa-copy';
 import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
 import { authChangedEvent, authStorageKey, clearAuthSession, getAuthSession } from '@/store/auth-store';
 import type { TaskaraProject, TaskaraTask, TaskaraTeam, TaskaraUser, TaskaraView } from '@/lib/taskara-types';
+import { applyWorkspaceSyncEvents, type WorkspaceDataSyncEvent } from '@/lib/workspace-data/sync-events';
+import {
+   createWorkspaceDataState,
+   emptyWorkspaceDataEntities,
+   type WorkspaceDataEntities,
+} from '@/lib/workspace-data/store';
 
 export type TaskUpdatePatch = {
    title?: string;
@@ -52,9 +59,12 @@ type PullResponse = {
 type SyncTaskEvent = {
    cursor: string;
    entityType?: string;
+   entityId?: string;
    clientId?: string | null;
    mutationId?: string | null;
    type?: 'upsert' | 'delete' | 'removeFromScope';
+   entity?: unknown;
+   payload?: unknown;
    task?: TaskaraTask;
    taskId?: string;
    taskKey?: string;
@@ -70,6 +80,8 @@ type PushResponse = {
       error?: { code: string; message: string; retryable: boolean };
    }>;
 };
+
+type PushMutationResult = PushResponse['results'][number];
 
 export type TaskSyncScope = {
    teamId: string;
@@ -91,10 +103,30 @@ const taskSyncDbName = 'taskara-task-sync';
 const pendingMutationsStore = 'pendingMutations';
 const scopeSnapshotsStore = 'scopeSnapshots';
 const broadcastName = 'taskara.task-sync.v1';
+export const taskSyncMutationFailuresEvent = 'taskara:task-sync-mutation-failures';
 const windowSyncMessageEvent = 'taskara:task-sync-message';
 const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
+const taskSyncMutationActionLabels: Record<string, string> = {
+   'attention.dismiss': 'رد کردن مورد توجه',
+   'attention.resolve': 'حل کردن مورد توجه',
+   'attention.snooze': 'تعویق مورد توجه',
+   'check_in.create': 'ثبت چک‌این',
+   'meeting_action_item.cancel': 'لغو کار خروجی جلسه',
+   'meeting_action_item.carry_forward': 'انتقال کار خروجی به دستور جلسه',
+   'meeting_action_item.complete': 'بستن کار خروجی جلسه',
+   'meeting_action_item.create': 'ساخت کار خروجی جلسه',
+   'meeting_action_item.create_task': 'ساخت کار از خروجی جلسه',
+   'meeting_action_item.update': 'به‌روزرسانی کار خروجی جلسه',
+   'one_on_one.create': 'ساخت ۱:۱',
+   'one_on_one_agenda_item.create': 'افزودن دستور جلسه ۱:۱',
+   'project_health_update.create': 'ثبت آپدیت سلامت پروژه',
+   'task.comment.create': 'ثبت دیدگاه کار',
+   'task.create': 'ایجاد کار',
+   'task.delete': 'حذف کار',
+   'task.update': 'به‌روزرسانی کار',
+};
 
-type PersistedTaskMutation = {
+export type PersistedTaskMutation = {
    clientId: string;
    mutationId: string;
    name: string;
@@ -104,6 +136,26 @@ type PersistedTaskMutation = {
    optimisticTask?: TaskaraTask;
    deletedTaskId?: string;
    deletedTaskKey?: string;
+};
+
+export type TaskSyncMutationFailure = {
+   mutationId: string;
+   name: string;
+   status: 'rejected' | 'conflict';
+   code: string;
+   retryable: boolean;
+   userMessage: string;
+   serverMessage?: string;
+};
+
+export type TaskSyncMutationFailureEventDetail = {
+   failures: TaskSyncMutationFailure[];
+};
+
+export type TaskSyncMutationFlushResult = {
+   failures: TaskSyncMutationFailure[];
+   hadAppliedMutations: boolean;
+   hadFinalFailures: boolean;
 };
 
 type CachedScopeSnapshot = BootstrapResponse & {
@@ -132,12 +184,14 @@ type TaskSyncAuthIdentity = {
 };
 
 export class TaskSyncMutationError extends Error {
+   failure?: TaskSyncMutationFailure;
    retryable: boolean;
 
-   constructor(message: string, retryable: boolean) {
+   constructor(message: string, retryable: boolean, failure?: TaskSyncMutationFailure) {
       super(message);
       this.name = 'TaskSyncMutationError';
       this.retryable = retryable;
+      this.failure = failure;
    }
 }
 
@@ -165,6 +219,7 @@ export function useTaskSync(scope: TaskSyncScope) {
       users: [],
       views: [],
    });
+   const [workspaceEntities, setWorkspaceEntities] = useState<WorkspaceDataEntities>(() => emptyWorkspaceDataEntities());
    const [cursor, setCursor] = useState('0');
    const [omittedCompletedBefore, setOmittedCompletedBefore] = useState<string | null>(null);
    const [loading, setLoading] = useState(true);
@@ -216,10 +271,11 @@ export function useTaskSync(scope: TaskSyncScope) {
    const applyEvents = useCallback(
       (events: SyncTaskEvent[], nextCursor: string, broadcast = true) => {
          if (compareCursor(nextCursor, cursorRef.current) < 0) return;
-         const taskEvents = events.filter((event) => event.type === 'upsert' || event.type === 'delete' || event.type === 'removeFromScope');
+         const taskEvents = events.filter((event) => event.entityType === 'task' && (event.type === 'upsert' || event.type === 'delete' || event.type === 'removeFromScope'));
+         const workspaceEvents = events.filter((event): event is SyncTaskEvent & WorkspaceDataSyncEvent => event.entityType !== 'task');
          const cursorAdvanced = compareCursor(nextCursor, cursorRef.current) > 0;
 
-         if (!taskEvents.length && !cursorAdvanced) return;
+         if (!taskEvents.length && !workspaceEvents.length && !cursorAdvanced) return;
 
          if (taskEvents.length) {
             setTasks((current) => {
@@ -236,6 +292,10 @@ export function useTaskSync(scope: TaskSyncScope) {
                }
                return next;
             });
+         }
+
+         if (workspaceEvents.length) {
+            setWorkspaceEntities((current) => applyWorkspaceSyncEvents(current, workspaceEvents));
          }
 
          advanceCursor(nextCursor, cursorRef, setCursor);
@@ -271,6 +331,7 @@ export function useTaskSync(scope: TaskSyncScope) {
       if (!preserveVisibleState && lastBootstrappedScopeRef.current !== requestedScopeKey) {
          setTasks([]);
          setResources({ projects: [], teams: [], users: [], views: [] });
+         setWorkspaceEntities(emptyWorkspaceDataEntities());
       }
       try {
          if (!preserveVisibleState) {
@@ -370,6 +431,7 @@ export function useTaskSync(scope: TaskSyncScope) {
          setError('');
          setTasks([]);
          setResources({ projects: [], teams: [], users: [], views: [] });
+         setWorkspaceEntities(emptyWorkspaceDataEntities());
          void refresh();
       };
       window.addEventListener('pageshow', handlePageShow);
@@ -443,10 +505,10 @@ export function useTaskSync(scope: TaskSyncScope) {
       if (loading) return;
       const handleWake = () => {
          if (document.visibilityState === 'hidden') return;
-         void flushPendingTaskSyncMutations(clientId).then((hadFinalFailures) => {
-            if (hadFinalFailures) void refresh({ preserveVisibleState: true });
-            else void pull();
-         });
+	         void flushPendingTaskSyncMutations(clientId).then((flushResult) => {
+	            if (flushResult.hadFinalFailures) void refresh({ preserveVisibleState: true });
+	            else void pull();
+	         });
       };
       const interval = window.setInterval(handleWake, 60000);
       window.addEventListener('online', handleWake);
@@ -560,6 +622,21 @@ export function useTaskSync(scope: TaskSyncScope) {
       [pushMutation, scopeKey]
    );
 
+   const workspaceData = useMemo(
+      () =>
+         createWorkspaceDataState(
+            {
+               tasks,
+               projects: resources.projects,
+               teams: resources.teams,
+               users: resources.users,
+               views: resources.views,
+            },
+            workspaceEntities
+         ),
+      [resources.projects, resources.teams, resources.users, resources.views, tasks, workspaceEntities]
+   );
+
    return useMemo(
       () => ({
          tasks,
@@ -576,6 +653,7 @@ export function useTaskSync(scope: TaskSyncScope) {
          createTask,
          updateTask,
          deleteTask,
+         workspaceData,
       }),
       [
          applyTask,
@@ -592,6 +670,7 @@ export function useTaskSync(scope: TaskSyncScope) {
          resources.views,
          tasks,
          updateTask,
+         workspaceData,
       ]
    );
 }
@@ -684,6 +763,32 @@ function mergeBootstrappedTasks(current: TaskaraTask[], bootstrapped: TaskaraTas
    return next;
 }
 
+export function replayPendingTaskMutationsForBootstrap(
+   tasks: TaskaraTask[],
+   pending: PersistedTaskMutation[]
+): TaskaraTask[] {
+   let next = tasks;
+   for (const mutation of [...pending].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+      if (mutation.deletedTaskId || mutation.deletedTaskKey) {
+         next = next.filter((task) => task.id !== mutation.deletedTaskId && task.key !== mutation.deletedTaskKey);
+         continue;
+      }
+
+      if (mutation.optimisticTask) {
+         next = upsertTask(next, mutation.optimisticTask);
+      }
+   }
+   return next;
+}
+
+export function reconcileBootstrappedTasksAfterSyncGap(
+   current: TaskaraTask[],
+   bootstrapped: TaskaraTask[],
+   pending: PersistedTaskMutation[]
+): TaskaraTask[] {
+   return mergeBootstrappedTasks(current, replayPendingTaskMutationsForBootstrap(bootstrapped, pending));
+}
+
 function canMatchTaskByKey(left: TaskaraTask, right: TaskaraTask): boolean {
    return Boolean(left.key && right.key && !isLocalTaskKey(left.key) && !isLocalTaskKey(right.key));
 }
@@ -703,20 +808,7 @@ async function applyPendingMutationsToTasks(
 ): Promise<TaskaraTask[]> {
    const pending = (await loadPendingMutations())
       .filter((mutation) => mutation.clientId === clientId && mutation.scopeKey === scopeKey)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-   let next = tasks;
-   for (const mutation of pending) {
-      if (mutation.deletedTaskId || mutation.deletedTaskKey) {
-         next = next.filter((task) => task.id !== mutation.deletedTaskId && task.key !== mutation.deletedTaskKey);
-         continue;
-      }
-
-      if (mutation.optimisticTask) {
-         next = upsertTask(next, mutation.optimisticTask);
-      }
-   }
-   return next;
+   return replayPendingTaskMutationsForBootstrap(tasks, pending);
 }
 
 function buildOptimisticTask(
@@ -1030,10 +1122,77 @@ export function isRetryableTaskSyncError(error: unknown): boolean {
    return error instanceof TaskSyncMutationError && error.retryable;
 }
 
+export async function loadPendingTaskSyncMutations(clientId = getOrCreateTaskSyncClientId()): Promise<PersistedTaskMutation[]> {
+   return (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId);
+}
+
+export function taskSyncMutationActionLabel(name: string): string {
+   return taskSyncMutationActionLabels[name] || 'این تغییر';
+}
+
+export function taskSyncMutationUserMessage(input: {
+   code?: string;
+   name: string;
+   retryable?: boolean;
+   status?: 'rejected' | 'conflict';
+}): string {
+   const action = taskSyncMutationActionLabel(input.name);
+   if (input.retryable || input.code === 'mutation_pending') return fa.sync.mutationPending(action);
+   if (input.status === 'conflict' || input.code === 'mutation_conflict') return fa.sync.mutationConflict(action);
+   if (input.code === 'validation_failed' || input.code === 'invalid_payload') return fa.sync.mutationValidationFailed(action);
+   return fa.sync.mutationRejected(action);
+}
+
 function isRetryableMutationTransportError(error: unknown): boolean {
    if (error instanceof TaskSyncMutationError) return error.retryable;
    if (error instanceof TaskaraClientError) return !error.status || error.status >= 500;
    return true;
+}
+
+function taskSyncMutationFailureFromResult(
+   mutation: PersistedTaskMutation,
+   result?: PushMutationResult
+): TaskSyncMutationFailure {
+   const status = result?.status === 'conflict' ? 'conflict' : 'rejected';
+   const code = result?.error?.code || (status === 'conflict' ? 'mutation_conflict' : 'mutation_rejected');
+   const retryable = Boolean(result?.error?.retryable);
+   return {
+      mutationId: mutation.mutationId,
+      name: mutation.name,
+      status,
+      code,
+      retryable,
+      userMessage: taskSyncMutationUserMessage({ code, name: mutation.name, retryable, status }),
+      serverMessage: result?.error?.message,
+   };
+}
+
+function taskSyncMutationFailureFromError(
+   mutation: PersistedTaskMutation,
+   error: unknown
+): TaskSyncMutationFailure {
+   if (error instanceof TaskSyncMutationError && error.failure) return error.failure;
+   const status = error instanceof TaskaraClientError && error.status === 409 ? 'conflict' : 'rejected';
+   const code = status === 'conflict' ? 'mutation_conflict' : 'mutation_failed';
+   const serverMessage = error instanceof Error ? error.message : undefined;
+   return {
+      mutationId: mutation.mutationId,
+      name: mutation.name,
+      status,
+      code,
+      retryable: false,
+      userMessage: taskSyncMutationUserMessage({ code, name: mutation.name, retryable: false, status }),
+      serverMessage,
+   };
+}
+
+function publishTaskSyncMutationFailures(failures: TaskSyncMutationFailure[]): void {
+   if (typeof window === 'undefined' || failures.length === 0) return;
+   window.dispatchEvent(
+      new CustomEvent<TaskSyncMutationFailureEventDetail>(taskSyncMutationFailuresEvent, {
+         detail: { failures },
+      })
+   );
 }
 
 export async function sendTaskSyncMutation<T>(
@@ -1058,13 +1217,14 @@ export async function sendTaskSyncMutation<T>(
 
    try {
       if (options.keepPendingOnRetryable && typeof navigator !== 'undefined' && navigator.onLine === false) {
-         throw new TaskSyncMutationError('Task mutation queued until connection is restored.', true);
+         throw new TaskSyncMutationError(fa.sync.mutationQueued, true);
       }
       const response = await sendPersistedMutation(mutation);
       const result = response.results[0];
       if (!result || result.status === 'rejected' || result.status === 'conflict') {
-         if (!result?.error?.retryable) await removePendingMutation(mutationId);
-         throw new TaskSyncMutationError(result?.error?.message || 'Task mutation failed.', Boolean(result?.error?.retryable));
+         const failure = taskSyncMutationFailureFromResult(mutation, result);
+         if (!failure.retryable) await removePendingMutation(mutationId);
+         throw new TaskSyncMutationError(failure.userMessage, failure.retryable, failure);
       }
 
       await removePendingMutation(mutationId);
@@ -1079,13 +1239,18 @@ export async function sendTaskSyncMutation<T>(
          await removePendingMutation(mutationId);
       }
       if (err instanceof TaskSyncMutationError) throw err;
-      if (err instanceof Error) throw new TaskSyncMutationError(err.message, retryable);
+      if (!retryable) {
+         const failure = taskSyncMutationFailureFromError(mutation, err);
+         throw new TaskSyncMutationError(failure.userMessage, false, failure);
+      }
+      if (err instanceof Error) throw new TaskSyncMutationError(fa.sync.mutationQueued, true);
       throw err;
    }
 }
 
-export async function flushPendingTaskSyncMutations(clientId = getOrCreateTaskSyncClientId()): Promise<boolean> {
-   let hadFinalFailures = false;
+export async function flushPendingTaskSyncMutations(clientId = getOrCreateTaskSyncClientId()): Promise<TaskSyncMutationFlushResult> {
+   let hadAppliedMutations = false;
+   const failures: TaskSyncMutationFailure[] = [];
    await runWithOptionalMutationLock(async () => {
       const pending = (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId);
       for (const mutation of pending) {
@@ -1107,22 +1272,29 @@ export async function flushPendingTaskSyncMutations(clientId = getOrCreateTaskSy
                   });
                }
                await removePendingMutation(mutation.mutationId);
+               hadAppliedMutations = true;
                continue;
             }
             if (result.error?.retryable) return;
+            failures.push(taskSyncMutationFailureFromResult(mutation, result));
             await removePendingMutation(mutation.mutationId);
-            hadFinalFailures = true;
          } catch (err) {
             if (!isRetryableMutationTransportError(err)) {
+               failures.push(taskSyncMutationFailureFromError(mutation, err));
                await removePendingMutation(mutation.mutationId);
-               hadFinalFailures = true;
                continue;
             }
             return;
          }
       }
    });
-   return hadFinalFailures;
+   if (failures.length) publishTaskSyncMutationFailures(failures);
+   if (hadAppliedMutations) dispatchWorkspaceRefresh({ source: 'task-sync-mutation:flush' });
+   return {
+      failures,
+      hadAppliedMutations,
+      hadFinalFailures: failures.length > 0,
+   };
 }
 
 export function getOrCreateTaskSyncClientId(): string {

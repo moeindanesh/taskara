@@ -20,6 +20,7 @@
     "db:migrate": "bun prisma migrate dev --schema packages/db/prisma/schema.prisma",
     "db:push": "bun prisma db push --schema packages/db/prisma/schema.prisma",
     "db:studio": "bun prisma studio --schema packages/db/prisma/schema.prisma",
+    "test:api": "API_HOST=127.0.0.1 API_PORT=4000 WEB_ORIGIN=http://localhost:3005 TASKARA_CDN_MEDIA_BASE_URL=https://cdn.example.test/v1/media/ MATTERMOST_SYNTHETIC_EMAIL_DOMAIN=mattermost.example.invalid bun test apps/api/src/**/*.test.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint"
   },

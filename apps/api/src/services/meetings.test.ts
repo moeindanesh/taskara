@@ -20,13 +20,14 @@ describe('meeting access', () => {
     expect(canAccessMeeting(actor('user-participant', 'MEMBER'), meeting, scope)).toBe(true);
   });
 
-  test('rejects unrelated non-managers', () => {
+  test('allows workspace admins and rejects unrelated members', () => {
     const scope: MeetingAccessScope = { memberTeamIds: [], memberProjectIds: [] };
-    expect(canAccessMeeting(actor('user-admin', 'ADMIN'), { participants: [] }, scope)).toBe(false);
+    expect(canAccessMeeting(actor('user-admin', 'ADMIN'), { participants: [] }, scope)).toBe(true);
+    expect(canAccessMeeting(actor('user-owner', 'OWNER'), { participants: [] }, scope)).toBe(true);
     expect(canAccessMeeting(actor('user-other', 'MEMBER'), { participants: [] }, scope)).toBe(false);
   });
 
-  test('allows owned/created meetings for any user and team/project meetings for workspace admins', () => {
+  test('allows owned/created meetings for any user', () => {
     const actorManager = actor('user-manager', 'MEMBER');
     const scope: MeetingAccessScope = { memberTeamIds: ['team-1'], memberProjectIds: ['project-1'] };
 
@@ -73,37 +74,16 @@ describe('meeting access', () => {
       )
     ).toBe(false);
 
-    const admin = actor('user-admin', 'ADMIN');
-    expect(
-      canAccessMeeting(
-        admin,
-        { participants: [], teamId: 'team-1' },
-        scope
-      )
-    ).toBe(true);
-    expect(
-      canAccessMeeting(
-        admin,
-        { participants: [], projectId: 'project-1' },
-        scope
-      )
-    ).toBe(true);
-    expect(
-      canAccessMeeting(
-        admin,
-        { participants: [], project: { teamId: 'team-1' } },
-        scope
-      )
-    ).toBe(true);
+    expect(canAccessMeeting(actor('user-admin', 'ADMIN'), { participants: [], teamId: 'team-2' }, scope)).toBe(true);
   });
 
-  test('owner is not global viewer and is limited to related meetings', () => {
+  test('owner is global workspace meeting viewer', () => {
     const ownerScope: MeetingAccessScope = { memberTeamIds: [], memberProjectIds: [] };
     expect(
       canAccessMeeting(actor('user-owner', 'OWNER'), { participants: [], ownerId: 'user-owner' }, ownerScope)
     ).toBe(true);
     expect(
       canAccessMeeting(actor('user-owner', 'OWNER'), { participants: [], ownerId: 'user-other' }, ownerScope)
-    ).toBe(false);
+    ).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { prisma, type Prisma, type SyncEvent, type Task, type TaskSource } from '@taskara/db';
-import type { RequestActor } from './actor';
+import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity, snapshot } from './audit';
 import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
@@ -20,11 +20,35 @@ import {
   taskStatusChangedNotificationBody
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
 const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
+
+const taskReviewCancellationSelect = {
+  id: true,
+  workspaceId: true,
+  taskId: true,
+  requesterId: true,
+  reviewerId: true,
+  status: true,
+  requestedAt: true,
+  respondedAt: true,
+  dueAt: true,
+  comment: true,
+  createdAt: true,
+  updatedAt: true
+} satisfies Prisma.TaskReviewRequestSelect;
+
+type TaskReviewForCancellation = Prisma.TaskReviewRequestGetPayload<{ select: typeof taskReviewCancellationSelect }>;
+
+interface TaskReviewCancellationAudit {
+  reviewId: string;
+  before: ReturnType<typeof serializeTaskReviewLifecycle>;
+  after: ReturnType<typeof serializeTaskReviewLifecycle>;
+}
 
 export const taskInclude = {
   project: {
@@ -40,6 +64,18 @@ export const taskInclude = {
   reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
+  triageState: {
+    select: {
+      id: true,
+      status: true,
+      requestedInfo: true,
+      snoozedUntil: true,
+      reason: true,
+      decidedById: true,
+      createdAt: true,
+      updatedAt: true
+    }
+  },
   _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
 } satisfies Prisma.TaskInclude;
 
@@ -188,7 +224,8 @@ export async function updateTask(
   if (!existing) throw new Error('Task not found in this workspace');
   await assertNoConflictingTaskUpdate(actor.workspace.id, taskId, input, existing.version, baseVersion);
 
-  let syncEvent: SyncEvent | null = null;
+  let syncEvents: SyncEvent[] = [];
+  let reviewCancellationAudits: TaskReviewCancellationAudit[] = [];
   const task = await prisma.$transaction(async (tx) => {
     const targetProjectId = input.projectId ?? existing.projectId;
     const isProjectChange = targetProjectId !== existing.projectId;
@@ -287,7 +324,7 @@ export async function updateTask(
       });
     }
 
-    syncEvent = await appendSyncEvent(tx, {
+    const taskEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
       entityId: task.id,
@@ -301,10 +338,13 @@ export async function updateTask(
       },
       mutation: syncMutation
     });
+    const reviewCancellation = await cancelActiveTaskReviewsForTaskStatusChange(tx, actor, task.id, input.status);
+    reviewCancellationAudits = reviewCancellation.audits;
+    syncEvents = [taskEvent, ...reviewCancellation.events];
     return task;
   });
 
-  if (syncEvent) publishSyncEvent(syncEvent);
+  for (const event of syncEvents) publishSyncEvent(event);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -317,6 +357,22 @@ export async function updateTask(
     after: task,
     source: actor.source
   }).catch(() => undefined);
+
+  await Promise.all(
+    reviewCancellationAudits.map((audit) =>
+      logActivity({
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        actorType: actor.actorType,
+        entityType: 'task_review',
+        entityId: audit.reviewId,
+        action: 'canceled',
+        before: audit.before,
+        after: audit.after,
+        source: actor.source
+      }).catch(() => undefined)
+    )
+  );
 
   return task;
 }
@@ -430,18 +486,95 @@ export async function addTaskComment(
   return comment;
 }
 
+export function shouldCancelActiveTaskReviewsForStatusChange(nextStatus?: string): boolean {
+  return Boolean(nextStatus && nextStatus !== 'IN_REVIEW');
+}
+
+async function cancelActiveTaskReviewsForTaskStatusChange(
+  tx: Prisma.TransactionClient,
+  actor: RequestActor,
+  taskId: string,
+  nextStatus?: string
+): Promise<{ events: SyncEvent[]; audits: TaskReviewCancellationAudit[] }> {
+  if (!shouldCancelActiveTaskReviewsForStatusChange(nextStatus)) {
+    return { events: [], audits: [] };
+  }
+
+  const activeReviews = await tx.taskReviewRequest.findMany({
+    where: {
+      workspaceId: actor.workspace.id,
+      taskId,
+      status: 'REQUESTED'
+    },
+    select: taskReviewCancellationSelect
+  });
+  if (!activeReviews.length) return { events: [], audits: [] };
+
+  const now = new Date();
+  const events: SyncEvent[] = [];
+  const audits: TaskReviewCancellationAudit[] = [];
+
+  for (const review of activeReviews) {
+    const before = serializeTaskReviewLifecycle(review);
+    const updated = await tx.taskReviewRequest.update({
+      where: { id: review.id },
+      data: {
+        status: 'CANCELED',
+        respondedAt: now
+      },
+      select: taskReviewCancellationSelect
+    });
+    const after = serializeTaskReviewLifecycle(updated);
+    const event = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id,
+      entityType: 'review',
+      entityId: review.id,
+      operation: 'canceled',
+      actorId: actor.user.id,
+      payload: {
+        before,
+        after,
+        changedFields: ['status', 'respondedAt'],
+        reason: 'task_status_changed',
+        taskStatus: nextStatus
+      }
+    });
+    events.push(event);
+    audits.push({ reviewId: review.id, before, after });
+  }
+
+  return { events, audits };
+}
+
+function serializeTaskReviewLifecycle(review: TaskReviewForCancellation) {
+  return {
+    id: review.id,
+    workspaceId: review.workspaceId,
+    taskId: review.taskId,
+    requesterId: review.requesterId,
+    reviewerId: review.reviewerId,
+    status: review.status,
+    requestedAt: review.requestedAt.toISOString(),
+    respondedAt: review.respondedAt?.toISOString() ?? null,
+    dueAt: review.dueAt?.toISOString() ?? null,
+    comment: review.comment,
+    createdAt: review.createdAt.toISOString(),
+    updatedAt: review.updatedAt.toISOString()
+  };
+}
+
 export async function findTaskByIdOrKey(
   workspaceId: string,
   idOrKey: string,
-  accessibleTeamIds: string[] | null = null
+  access: string[] | WorkspaceAccess | null = null
 ): Promise<Task | null> {
   const normalized = idOrKey.trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
+  const accessWhere = taskLookupAccessWhere(workspaceId, access);
 
   return prisma.task.findFirst({
     where: {
-      workspaceId,
-      ...(accessibleTeamIds ? { project: { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } } : {}),
+      ...accessWhere,
       OR: [
         ...(isUuid ? [{ id: normalized }] : []),
         { key: normalized.toUpperCase() }
@@ -524,11 +657,23 @@ async function assertActorCanAccessProject(
 ): Promise<{ id: string; teamId: string | null }> {
   const project = await tx.project.findFirst({
     where: { id: projectId, workspaceId: actor.workspace.id },
-    select: { id: true, teamId: true }
+    select: { id: true, teamId: true, leadId: true }
   });
   if (!project) throw new HttpError(400, 'Project not found in this workspace');
 
-  if (!project.teamId) return project;
+  if (!project.teamId || isWorkspaceAdminRole(actor.role) || project.leadId === actor.user.id) return project;
+
+  const projectMembership = await tx.projectMember.findUnique({
+    where: {
+      projectId_userId: {
+        projectId: project.id,
+        userId: actor.user.id
+      }
+    },
+    select: { id: true }
+  });
+
+  if (projectMembership) return project;
 
   const membership = await tx.teamMember.findUnique({
     where: {
@@ -542,6 +687,21 @@ async function assertActorCanAccessProject(
 
   if (!membership) throw new HttpError(403, 'Project access denied');
   return project;
+}
+
+function taskLookupAccessWhere(
+  workspaceId: string,
+  access: string[] | WorkspaceAccess | null
+): Prisma.TaskWhereInput {
+  if (!access) return { workspaceId };
+  if (Array.isArray(access)) {
+    return {
+      workspaceId,
+      project: { OR: [{ teamId: null }, { teamId: { in: access } }] }
+    };
+  }
+
+  return taskWhereForAccess(access);
 }
 
 async function assertNoConflictingTaskUpdate(

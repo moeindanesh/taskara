@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { BookOpen, ChevronDown, Loader2, Plus } from 'lucide-react';
+import { Activity, AlertTriangle, BookOpen, ChevronDown, Loader2, Plus, Send } from 'lucide-react';
 import {
    Dialog,
    DialogContent,
@@ -25,8 +25,18 @@ import {
    linearProjectStatusMeta,
 } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
+import { formatJalaliDate } from '@/lib/jalali';
+import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
+import { isRetryableTaskSyncError, loadPendingTaskSyncMutations, sendTaskSyncMutation } from '@/lib/task-sync';
 import { taskaraRequest } from '@/lib/taskara-client';
-import type { TaskaraKnowledgeSpace, TaskaraProject, TaskaraTeam } from '@/lib/taskara-types';
+import { applyPendingProjectHealthMutations } from '@/lib/workspace-data/pending';
+import type {
+   TaskaraKnowledgeSpace,
+   TaskaraProject,
+   TaskaraProjectHealthUpdate,
+   TaskaraProjectUpdateHealth,
+   TaskaraTeam,
+} from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
 
@@ -36,6 +46,24 @@ const initialProjectForm = {
    description: '',
    teamId: '',
 };
+
+const initialHealthForm: ProjectHealthForm = {
+   health: 'ON_TRACK',
+   summary: '',
+   progress: '',
+   risks: '',
+   decisionsNeeded: '',
+   nextUpdateDueAt: '',
+};
+
+interface ProjectHealthForm {
+   health: TaskaraProjectUpdateHealth;
+   summary: string;
+   progress: string;
+   risks: string;
+   decisionsNeeded: string;
+   nextUpdateDueAt: string;
+}
 
 export function ProjectsView() {
    const navigate = useNavigate();
@@ -47,10 +75,14 @@ export function ProjectsView() {
    const [knowledgeSpaces, setKnowledgeSpaces] = useState<TaskaraKnowledgeSpace[]>([]);
    const [form, setForm] = useState(initialProjectForm);
    const [modalOpen, setModalOpen] = useState(false);
+   const [healthProject, setHealthProject] = useState<TaskaraProject | null>(null);
+   const [healthForm, setHealthForm] = useState<ProjectHealthForm>(initialHealthForm);
    const [filter, setFilter] = useState<'all' | 'active'>('all');
    const [error, setError] = useState('');
    const [loading, setLoading] = useState(true);
    const [creatingDocsProjectId, setCreatingDocsProjectId] = useState<string | null>(null);
+   const [submittingHealth, setSubmittingHealth] = useState(false);
+   const [publishingHealthId, setPublishingHealthId] = useState<string | null>(null);
    const [isPending, startTransition] = useTransition();
    const loadRequestRef = useRef(0);
    const activeTeam = useMemo(
@@ -67,8 +99,9 @@ export function ProjectsView() {
             taskaraRequest<TaskaraTeam[]>('/teams'),
             taskaraRequest<TaskaraKnowledgeSpace[]>('/knowledge/spaces').catch(() => []),
          ]);
+         const pendingMutations = await loadPendingTaskSyncMutations();
          if (requestId !== loadRequestRef.current) return;
-         setProjects(projectData);
+         setProjects(applyPendingProjectHealthMutations(projectData, pendingMutations));
          setTeams(teamData);
          setKnowledgeSpaces(knowledgeSpaceData);
          const activeTeam = activeTeamSlug ? teamData.find((team) => team.slug === activeTeamSlug) : null;
@@ -88,6 +121,11 @@ export function ProjectsView() {
    useEffect(() => {
       void load();
    }, [load]);
+
+   useLiveRefresh(load, {
+      fireOnMount: false,
+      workspaceEventFilter: projectRefreshSourceMatches,
+   });
 
    useEffect(() => {
       const openProjectModal = () => setModalOpen(true);
@@ -183,6 +221,86 @@ export function ProjectsView() {
       }
    }
 
+   function openHealthUpdate(project: TaskaraProject) {
+      const latest = project.healthUpdates?.[0];
+      setHealthProject(project);
+      setHealthForm({
+         ...initialHealthForm,
+         health: latest?.health || 'ON_TRACK',
+      });
+   }
+
+   async function handleCreateProjectHealthUpdate(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (!healthProject) return;
+      if (!healthForm.summary.trim()) {
+         toast.error(fa.project.healthSummaryRequired);
+         return;
+      }
+
+      setSubmittingHealth(true);
+      try {
+         await sendTaskSyncMutation<TaskaraProjectHealthUpdate>('project_health_update.create', {
+            projectId: healthProject.id,
+            update: {
+               health: healthForm.health,
+               summary: healthForm.summary.trim(),
+               progress: healthForm.progress.trim() || undefined,
+               risks: healthForm.risks.trim() || undefined,
+               decisionsNeeded: healthForm.decisionsNeeded.trim() || undefined,
+               nextUpdateDueAt: healthForm.nextUpdateDueAt ? new Date(healthForm.nextUpdateDueAt).toISOString() : undefined,
+            },
+         }, undefined, undefined, {
+            keepPendingOnRetryable: true,
+         });
+         toast.success(fa.project.healthUpdateCreated);
+         setHealthProject(null);
+         setHealthForm(initialHealthForm);
+         startTransition(() => {
+            void load();
+         });
+      } catch (err) {
+         if (isRetryableTaskSyncError(err)) {
+            toast.message(fa.project.healthUpdateQueued);
+            setHealthProject(null);
+            setHealthForm(initialHealthForm);
+            return;
+         }
+         toast.error(err instanceof Error ? err.message : fa.project.healthUpdateFailed);
+      } finally {
+         setSubmittingHealth(false);
+      }
+   }
+
+   async function publishLatestProjectUpdate(project: TaskaraProject) {
+      const latest = project.healthUpdates?.[0];
+      if (!latest) {
+         toast.error(fa.project.noHealthUpdateToPublish);
+         return;
+      }
+
+      setPublishingHealthId(latest.id);
+      try {
+         const result = await taskaraRequest<{
+            update: TaskaraProjectHealthUpdate;
+            published: boolean;
+            reason?: 'missing_binding' | 'missing_config';
+         }>(`/projects/${project.id}/updates/${latest.id}/publish-mattermost`, { method: 'POST' });
+         if (result.published) {
+            toast.success(fa.project.healthUpdatePublished);
+         } else {
+            toast.info(result.reason === 'missing_binding' ? fa.project.healthPublishNoBinding : fa.project.healthPublishNoConfig);
+         }
+         startTransition(() => {
+            void load();
+         });
+      } catch (err) {
+         toast.error(err instanceof Error ? err.message : fa.project.healthPublishFailed);
+      } finally {
+         setPublishingHealthId(null);
+      }
+   }
+
    return (
       <div className="h-full bg-[#101011]" data-testid="projects-screen">
          {error ? (
@@ -232,7 +350,10 @@ export function ProjectsView() {
                         projectSpace={knowledgeSpaces.find((space) => space.projectId === project.id) || null}
                         teams={teams}
                         onCreateDocs={(item) => void createProjectDocs(item)}
+                        onHealthUpdate={openHealthUpdate}
+                        onPublishUpdate={(item) => void publishLatestProjectUpdate(item)}
                         onTeamChange={(teamId) => void updateProjectTeam(project, teamId)}
+                        publishingHealth={publishingHealthId === project.healthUpdates?.[0]?.id}
                      />
                   ))}
                </div>
@@ -323,6 +444,77 @@ export function ProjectsView() {
                </form>
             </DialogContent>
          </Dialog>
+         <Dialog open={Boolean(healthProject)} onOpenChange={(open) => !open && setHealthProject(null)}>
+            <DialogContent className="max-w-2xl border-white/10 bg-[#1d1d20] [direction:rtl]">
+               <DialogHeader>
+                  <DialogTitle>{healthProject ? fa.project.healthUpdateFor(healthProject.name) : fa.project.healthUpdate}</DialogTitle>
+                  <DialogDescription>{fa.project.healthUpdateDescription}</DialogDescription>
+               </DialogHeader>
+               <form className="mt-3 grid gap-3" onSubmit={handleCreateProjectHealthUpdate}>
+                  <div className="grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
+                     <label className="grid gap-1 text-xs text-zinc-500">
+                        {fa.project.health}
+                        <Select value={healthForm.health} onValueChange={(value) => setHealthForm((current) => ({ ...current, health: value as TaskaraProjectUpdateHealth }))}>
+                           <SelectTrigger className="h-9 border-white/8 bg-white/[0.03] text-zinc-200">
+                              <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent className="rounded-lg border-white/10 bg-[#202023] text-zinc-100">
+                              {projectHealthOptions.map((option) => (
+                                 <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                 </SelectItem>
+                              ))}
+                           </SelectContent>
+                        </Select>
+                     </label>
+                     <label className="grid gap-1 text-xs text-zinc-500">
+                        {fa.project.nextUpdateDue}
+                        <Input
+                           className="h-9 border-white/8 bg-white/[0.03] text-zinc-200"
+                           type="datetime-local"
+                           value={healthForm.nextUpdateDueAt}
+                           onChange={(event) => setHealthForm((current) => ({ ...current, nextUpdateDueAt: event.target.value }))}
+                        />
+                     </label>
+                  </div>
+                  <Textarea
+                     className="min-h-20 resize-none border-white/8 bg-white/[0.03] text-sm leading-6 text-zinc-200 placeholder:text-zinc-600"
+                     value={healthForm.summary}
+                     onChange={(event) => setHealthForm((current) => ({ ...current, summary: event.target.value }))}
+                     placeholder={fa.project.healthSummaryPlaceholder}
+                  />
+                  <Textarea
+                     className="min-h-20 resize-none border-white/8 bg-white/[0.03] text-sm leading-6 text-zinc-200 placeholder:text-zinc-600"
+                     value={healthForm.progress}
+                     onChange={(event) => setHealthForm((current) => ({ ...current, progress: event.target.value }))}
+                     placeholder={fa.project.healthProgressPlaceholder}
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                     <Textarea
+                        className="min-h-24 resize-none border-white/8 bg-white/[0.03] text-sm leading-6 text-zinc-200 placeholder:text-zinc-600"
+                        value={healthForm.risks}
+                        onChange={(event) => setHealthForm((current) => ({ ...current, risks: event.target.value }))}
+                        placeholder={fa.project.healthRisksPlaceholder}
+                     />
+                     <Textarea
+                        className="min-h-24 resize-none border-white/8 bg-white/[0.03] text-sm leading-6 text-zinc-200 placeholder:text-zinc-600"
+                        value={healthForm.decisionsNeeded}
+                        onChange={(event) => setHealthForm((current) => ({ ...current, decisionsNeeded: event.target.value }))}
+                        placeholder={fa.project.healthDecisionsPlaceholder}
+                     />
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-white/7 pt-3">
+                     <Button type="button" variant="secondary" className="rounded-full bg-white/8" onClick={() => setHealthProject(null)}>
+                        {fa.app.cancel}
+                     </Button>
+                     <Button disabled={submittingHealth} className="rounded-full bg-indigo-500 px-5 hover:bg-indigo-400">
+                        {submittingHealth ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                        {fa.project.createHealthUpdate}
+                     </Button>
+                  </div>
+               </form>
+            </DialogContent>
+         </Dialog>
       </div>
    );
 }
@@ -335,7 +527,10 @@ function ProjectRow({
    projectSpace,
    teams,
    onCreateDocs,
+   onHealthUpdate,
+   onPublishUpdate,
    onTeamChange,
+   publishingHealth,
 }: {
    activeTeamId: string | null;
    creatingDocs: boolean;
@@ -344,10 +539,16 @@ function ProjectRow({
    projectSpace: TaskaraKnowledgeSpace | null;
    teams: TaskaraTeam[];
    onCreateDocs: (project: TaskaraProject) => void;
+   onHealthUpdate: (project: TaskaraProject) => void;
+   onPublishUpdate: (project: TaskaraProject) => void;
    onTeamChange: (teamId: string) => void;
+   publishingHealth: boolean;
 }) {
    const statusMeta = linearProjectStatusMeta[project.status] || linearProjectStatusMeta.ACTIVE;
    const currentTeamId = project.team?.id || '';
+   const latestUpdate = project.healthUpdates?.[0] || null;
+   const healthMeta = latestUpdate ? projectHealthMeta[latestUpdate.health] : null;
+   const HealthIcon = healthMeta?.icon;
 
    return (
       <article
@@ -364,11 +565,37 @@ function ProjectRow({
                   {project.keyPrefix}
                </span>
             </div>
-            {project.description ? (
-               <p className="mt-1 line-clamp-1 text-xs text-zinc-500">{project.description}</p>
-            ) : null}
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-zinc-500">
+               {healthMeta && HealthIcon ? (
+                  <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px]', healthMeta.className)}>
+                     <HealthIcon className="size-3" />
+                     {healthMeta.label}
+                  </span>
+               ) : null}
+               <p className="line-clamp-1 min-w-0">{latestUpdate?.summary || project.description || fa.project.noHealthUpdate}</p>
+               {latestUpdate?.nextUpdateDueAt ? <span className="hidden shrink-0 md:inline">{formatJalaliDate(latestUpdate.nextUpdateDueAt)}</span> : null}
+            </div>
          </div>
          <div className="flex items-center gap-4 text-xs text-zinc-500">
+            <button
+               className="hidden h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2 text-xs text-zinc-300 transition hover:bg-white/[0.07] hover:text-zinc-100 sm:inline-flex"
+               type="button"
+               onClick={() => onHealthUpdate(project)}
+            >
+               <Activity className="size-3.5" />
+               {fa.project.healthUpdate}
+            </button>
+            {latestUpdate ? (
+               <button
+                  className="hidden h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2 text-xs text-zinc-300 transition hover:bg-white/[0.07] hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 xl:inline-flex"
+                  disabled={publishingHealth}
+                  type="button"
+                  onClick={() => onPublishUpdate(project)}
+               >
+                  {publishingHealth ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                  {latestUpdate.publishedAt ? fa.project.republishHealthUpdate : fa.project.publishHealthUpdate}
+               </button>
+            ) : null}
             {projectSpace ? (
                <Link
                   className="hidden h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2 text-xs text-zinc-300 transition hover:bg-white/[0.07] hover:text-zinc-100 sm:inline-flex"
@@ -436,5 +663,42 @@ function ViewChip({
       >
          {children}
       </button>
+   );
+}
+
+const projectHealthOptions: Array<{ value: TaskaraProjectUpdateHealth; label: string }> = [
+   { value: 'ON_TRACK', label: fa.project.healthOnTrack },
+   { value: 'AT_RISK', label: fa.project.healthAtRisk },
+   { value: 'OFF_TRACK', label: fa.project.healthOffTrack },
+];
+
+const projectHealthMeta: Record<
+   TaskaraProjectUpdateHealth,
+   { label: string; className: string; icon: typeof Activity }
+> = {
+   ON_TRACK: {
+      label: fa.project.healthOnTrack,
+      className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
+      icon: Activity,
+   },
+   AT_RISK: {
+      label: fa.project.healthAtRisk,
+      className: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
+      icon: AlertTriangle,
+   },
+   OFF_TRACK: {
+      label: fa.project.healthOffTrack,
+      className: 'border-rose-400/20 bg-rose-400/10 text-rose-200',
+      icon: AlertTriangle,
+   },
+};
+
+function projectRefreshSourceMatches(detail: WorkspaceRefreshDetail) {
+   return (
+      workspaceRefreshSourceMatches(detail, 'knowledge') ||
+      workspaceRefreshSourceMatches(detail, 'project') ||
+      workspaceRefreshSourceMatches(detail, 'task-sync-mutation') ||
+      workspaceRefreshSourceMatches(detail, 'team') ||
+      workspaceRefreshSourceMatches(detail, 'workspace')
    );
 }

@@ -40,23 +40,29 @@ export const taskViewDisplayProperties = [
 ] as const;
 
 export const projectStatuses = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'] as const;
+export const projectUpdateHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
 export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
+export const meetingActionItemStatuses = ['OPEN', 'DONE', 'CANCELED'] as const;
 export const meetingParticipantRoles = ['OWNER', 'PARTICIPANT'] as const;
 export const knowledgeSpaceTypes = ['WORKSPACE', 'TEAM', 'PROJECT'] as const;
 export const knowledgePageStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const knowledgeReferenceTypes = ['PAGE', 'TASK', 'PROJECT', 'MEETING', 'ANNOUNCEMENT', 'EXTERNAL_URL'] as const;
+export const taskReviewStatuses = ['REQUESTED', 'CHANGES_REQUESTED', 'APPROVED', 'CANCELED'] as const;
 
 export type TaskStatusValue = (typeof taskStatuses)[number];
 export type TaskPriorityValue = (typeof taskPriorities)[number];
+export type ProjectUpdateHealthValue = (typeof projectUpdateHealthValues)[number];
 export type WorkspaceRoleValue = (typeof workspaceRoles)[number];
 export type AnnouncementStatusValue = (typeof announcementStatuses)[number];
 export type MeetingStatusValue = (typeof meetingStatuses)[number];
+export type MeetingActionItemStatusValue = (typeof meetingActionItemStatuses)[number];
 export type MeetingParticipantRoleValue = (typeof meetingParticipantRoles)[number];
 export type KnowledgeSpaceTypeValue = (typeof knowledgeSpaceTypes)[number];
 export type KnowledgePageStatusValue = (typeof knowledgePageStatuses)[number];
 export type KnowledgeReferenceTypeValue = (typeof knowledgeReferenceTypes)[number];
+export type TaskReviewStatusValue = (typeof taskReviewStatuses)[number];
 export type TaskViewLayoutValue = (typeof taskViewLayouts)[number];
 export type TaskViewGroupingValue = (typeof taskViewGroupings)[number];
 export type TaskViewOrderingValue = (typeof taskViewOrderings)[number];
@@ -74,13 +80,16 @@ export const taskWeightSchema = z.union([
   z.literal(8)
 ]);
 export const projectStatusSchema = z.enum(projectStatuses);
+export const projectUpdateHealthSchema = z.enum(projectUpdateHealthValues);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
 export const announcementStatusSchema = z.enum(announcementStatuses);
 export const meetingStatusSchema = z.enum(meetingStatuses);
+export const meetingActionItemStatusSchema = z.enum(meetingActionItemStatuses);
 export const meetingParticipantRoleSchema = z.enum(meetingParticipantRoles);
 export const knowledgeSpaceTypeSchema = z.enum(knowledgeSpaceTypes);
 export const knowledgePageStatusSchema = z.enum(knowledgePageStatuses);
 export const knowledgeReferenceTypeSchema = z.enum(knowledgeReferenceTypes);
+export const taskReviewStatusSchema = z.enum(taskReviewStatuses);
 export const taskViewLayoutSchema = z.enum(taskViewLayouts);
 export const taskViewGroupingSchema = z.enum(taskViewGroupings);
 export const taskViewOrderingSchema = z.enum(taskViewOrderings);
@@ -195,6 +204,20 @@ export const updateProjectSchema = createProjectSchema.partial().extend({
   status: projectStatusSchema.optional()
 });
 
+export const createProjectHealthUpdateSchema = z.object({
+  health: projectUpdateHealthSchema,
+  summary: z.string().trim().min(1).max(2000),
+  progress: z.string().trim().max(5000).nullable().optional(),
+  risks: z.string().trim().max(5000).nullable().optional(),
+  decisionsNeeded: z.string().trim().max(5000).nullable().optional(),
+  nextUpdateDueAt: z.string().datetime().nullable().optional()
+});
+
+export const projectHealthUpdateListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
 export const createTaskSchema = z.object({
   projectId: z.string().uuid(),
   parentId: z.string().uuid().optional(),
@@ -228,6 +251,101 @@ export const createCommentSchema = z.object({
   body: z.string().min(1).max(15000),
   source: z.enum(['WEB', 'API', 'MATTERMOST', 'CODEX', 'AGENT', 'SYSTEM']).default('API'),
   mattermostPostId: z.string().optional()
+});
+
+export const requestTaskReviewSchema = z.object({
+  reviewerId: z.string().uuid(),
+  dueAt: z.string().datetime().nullable().optional(),
+  comment: z.string().trim().max(5000).nullable().optional()
+});
+
+export const reassignTaskReviewSchema = z.object({
+  reviewerId: z.string().uuid(),
+  dueAt: z.string().datetime().nullable().optional(),
+  comment: z.string().trim().max(5000).nullable().optional()
+});
+
+export const taskReviewDecisionSchema = z.object({
+  comment: z.string().trim().max(5000).nullable().optional()
+});
+
+export const assignmentRecommendationSchema = z.object({
+  taskIdOrKey: z.string().trim().min(1).max(120).optional(),
+  projectId: z.string().uuid().optional(),
+  title: z.string().trim().max(300).optional(),
+  description: z.string().trim().max(15000).optional(),
+  priority: taskPrioritySchema.default('NO_PRIORITY'),
+  weight: z.coerce.number().positive().max(40).nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  limit: z.coerce.number().int().min(1).max(20).default(8)
+}).superRefine((value, ctx) => {
+  if (!value.taskIdOrKey && !value.projectId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['projectId'],
+      message: 'Assignment recommendation requires taskIdOrKey or projectId'
+    });
+  }
+});
+
+export const updateUserCapacitySchema = z.object({
+  dailyWeightLimit: z.coerce.number().min(0).max(100).optional(),
+  weeklyWeightLimit: z.coerce.number().min(0).max(500).nullable().optional(),
+  active: z.boolean().optional(),
+  note: z.string().trim().max(2000).nullable().optional()
+});
+
+export const upsertWorkingAgreementSchema = z.object({
+  teamId: z.string().uuid().nullable().optional(),
+  activeWipLimit: z.coerce.number().int().min(0).max(500).nullable().optional(),
+  reviewWipLimit: z.coerce.number().int().min(0).max(500).nullable().optional(),
+  reviewSlaHours: z.coerce.number().int().min(1).max(720).optional(),
+  blockedSlaHours: z.coerce.number().int().min(1).max(720).optional(),
+  staleAfterHours: z.coerce.number().int().min(1).max(2160).optional()
+});
+
+export const triageAcceptSchema = z.object({
+  assigneeId: z.string().uuid().nullable().optional(),
+  priority: taskPrioritySchema.optional(),
+  weight: taskWeightSchema.nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  projectId: z.string().uuid().optional(),
+  unassignedReason: z.string().trim().max(2000).nullable().optional(),
+  comment: z.string().trim().max(5000).nullable().optional()
+}).superRefine((value, ctx) => {
+  if (!value.assigneeId && !value.unassignedReason?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unassignedReason'],
+      message: 'Accepting unassigned work requires a reason'
+    });
+  }
+});
+
+export const triageRequestInfoSchema = z.object({
+  comment: z.string().trim().min(3).max(5000)
+});
+
+export const triageDeclineSchema = z.object({
+  reason: z.string().trim().min(3).max(5000)
+});
+
+export const triageDuplicateSchema = z.object({
+  canonicalTaskIdOrKey: z.string().trim().min(1).max(120),
+  reason: z.string().trim().max(5000).nullable().optional()
+});
+
+export const triageSnoozeSchema = z.object({
+  snoozedUntil: z.string().datetime(),
+  reason: z.string().trim().min(3).max(5000)
+});
+
+export const triageSplitSchema = z.object({
+  items: z.array(z.object({
+    title: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(15000).nullable().optional()
+  })).min(2).max(12),
+  reason: z.string().trim().max(5000).nullable().optional()
 });
 
 export const taskListQuerySchema = z.object({
@@ -356,6 +474,96 @@ export const createMeetingTasksSchema = z.object({
     dueAt: z.string().datetime().optional(),
     labels: z.array(z.string().min(1).max(40)).max(12).default([])
   })).min(1).max(50)
+});
+
+export const createCheckInResponseSchema = z.object({
+  userId: z.string().uuid().optional(),
+  completedText: z.string().trim().max(5000).nullable().optional(),
+  blockersText: z.string().trim().max(5000).nullable().optional(),
+  planText: z.string().trim().max(5000).nullable().optional(),
+  helpText: z.string().trim().max(5000).nullable().optional(),
+  submittedFor: z.string().datetime().optional()
+}).superRefine((value, ctx) => {
+  if (!value.completedText?.trim() && !value.blockersText?.trim() && !value.planText?.trim() && !value.helpText?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['planText'],
+      message: 'Check-in requires at least one response field'
+    });
+  }
+});
+
+export const checkInListQuerySchema = z.object({
+  userId: z.string().uuid().optional(),
+  since: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const missingCheckInQuerySchema = z.object({
+  hours: z.coerce.number().int().min(1).max(720).default(24)
+});
+
+export const createOneOnOneSeriesSchema = z.object({
+  participantId: z.string().uuid(),
+  managerId: z.string().uuid().optional(),
+  title: z.string().trim().max(300).nullable().optional(),
+  cadenceDays: z.coerce.number().int().min(1).max(365).default(14),
+  nextScheduledAt: z.string().datetime().nullable().optional()
+});
+
+export const oneOnOneListQuerySchema = z.object({
+  participantId: z.string().uuid().optional(),
+  active: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const createOneOnOneAgendaItemSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  notes: z.string().trim().max(5000).nullable().optional(),
+  meetingId: z.string().uuid().nullable().optional(),
+  sourceType: z.string().trim().max(80).nullable().optional(),
+  sourceId: z.string().trim().max(160).nullable().optional(),
+  position: z.coerce.number().int().min(0).max(10000).default(0)
+});
+
+export const createMeetingActionItemSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  notes: z.string().trim().max(5000).nullable().optional(),
+  assigneeId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional()
+});
+
+export const meetingActionItemListQuerySchema = z.object({
+  assigneeId: z.string().uuid().optional(),
+  meetingId: z.string().uuid().optional(),
+  status: z.union([meetingActionItemStatusSchema, z.literal('ALL')]).default('OPEN'),
+  dueBefore: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const updateMeetingActionItemSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
+  assigneeId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  status: meetingActionItemStatusSchema.optional()
+}).refine((value) => Object.values(value).some((item) => item !== undefined), {
+  message: 'At least one action-item field is required'
+});
+
+export const carryForwardMeetingActionItemSchema = z.object({
+  seriesId: z.string().uuid(),
+  notes: z.string().trim().max(5000).nullable().optional()
+});
+
+export const createTaskFromMeetingActionItemSchema = z.object({
+  projectId: z.string().uuid().optional(),
+  assigneeId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  priority: taskPrioritySchema.default('MEDIUM')
 });
 
 const knowledgeContentSchema = z.unknown();

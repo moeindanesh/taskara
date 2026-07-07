@@ -64,6 +64,16 @@ type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'weight' |
 
 const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'weight', 'dueAt'];
 
+type TaskComposerOpenDetail = {
+   assigneeId?: string;
+   dueAt?: string;
+   priority?: string;
+   projectId?: string;
+   status?: string;
+   title?: string;
+   weight?: number | string | null;
+};
+
 type TaskComposerPreferences = {
    createMore?: boolean;
    projectId?: string;
@@ -319,9 +329,33 @@ export function WorkspaceTaskComposer() {
       window.setTimeout(() => titleInputRef.current?.focus(), 0);
    }, [open]);
 
-   const openComposer = useCallback(() => {
+   const openComposer = useCallback((detail?: TaskComposerOpenDetail) => {
+      if (detail && typeof detail === 'object') {
+         setForm((current) => {
+            const next = { ...current };
+            if (typeof detail.title === 'string') next.title = detail.title.slice(0, 300);
+            if (typeof detail.projectId === 'string' && projects.some((project) => project.id === detail.projectId)) {
+               next.projectId = detail.projectId;
+            }
+            if (typeof detail.assigneeId === 'string' && users.some((user) => user.id === detail.assigneeId)) {
+               next.assigneeId = detail.assigneeId;
+            }
+            if (typeof detail.status === 'string' && taskStatuses.includes(detail.status as (typeof taskStatuses)[number])) {
+               next.status = detail.status;
+            }
+            if (typeof detail.priority === 'string' && taskPriorities.includes(detail.priority as (typeof taskPriorities)[number])) {
+               next.priority = detail.priority;
+            }
+            if (typeof detail.dueAt === 'string') next.dueAt = detail.dueAt;
+            if (detail.weight !== undefined && detail.weight !== null && detail.weight !== '') {
+               const numericWeight = Number(detail.weight);
+               if (taskWeights.includes(numericWeight as (typeof taskWeights)[number])) next.weight = String(numericWeight);
+            }
+            return next;
+         });
+      }
       setOpen(true);
-   }, []);
+   }, [projects, users]);
 
    const addPendingFiles = useCallback((fileList: FileList | File[] | null) => {
       const files = Array.from(fileList || []);
@@ -380,7 +414,10 @@ export function WorkspaceTaskComposer() {
    }, []);
 
    useEffect(() => {
-      const handleCreateIssue = () => openComposer();
+      const handleCreateIssue = (event: Event) => {
+         const detail = event instanceof CustomEvent ? (event.detail as TaskComposerOpenDetail | undefined) : undefined;
+         openComposer(detail);
+      };
       window.addEventListener('taskara:create-issue', handleCreateIssue);
       return () => window.removeEventListener('taskara:create-issue', handleCreateIssue);
    }, [openComposer]);

@@ -84,7 +84,7 @@ export async function resolveMeetingAccessScope(actor: RequestActor): Promise<Me
 
 export function buildMeetingAccessWhere(
   actor: RequestActor,
-  scope: MeetingAccessScope,
+  _scope: MeetingAccessScope,
   options?: { mineOnly?: boolean }
 ): Prisma.MeetingWhereInput {
   const mineOnly = Boolean(options?.mineOnly);
@@ -99,27 +99,16 @@ export function buildMeetingAccessWhere(
   }
 
   if (isWorkspaceAdminRole(actor.role)) {
-    if (scope.memberTeamIds.length > 0) {
-      predicates.push({ teamId: { in: scope.memberTeamIds } });
-      predicates.push({ project: { is: { teamId: { in: scope.memberTeamIds } } } });
-    }
-    if (scope.memberProjectIds.length > 0) {
-      predicates.push({ projectId: { in: scope.memberProjectIds } });
-    }
+    return {};
   }
 
   return { OR: predicates };
 }
 
-export function canAccessMeeting(actor: RequestActor, meeting: MeetingWithAccess, scope: MeetingAccessScope): boolean {
+export function canAccessMeeting(actor: RequestActor, meeting: MeetingWithAccess, _scope: MeetingAccessScope): boolean {
   if (meeting.participants?.some((participant) => participant.userId === actor.user.id)) return true;
   if (meeting.ownerId === actor.user.id || meeting.createdById === actor.user.id) return true;
-
-  if (!isWorkspaceAdminRole(actor.role)) return false;
-
-  if (meeting.teamId && scope.memberTeamIds.includes(meeting.teamId)) return true;
-  if (meeting.project?.teamId && scope.memberTeamIds.includes(meeting.project.teamId)) return true;
-  if (meeting.projectId && scope.memberProjectIds.includes(meeting.projectId)) return true;
+  if (isWorkspaceAdminRole(actor.role)) return true;
   return false;
 }
 

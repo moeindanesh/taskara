@@ -1,11 +1,44 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma, type Prisma, type SyncEvent } from '@taskara/db';
-import { createCommentSchema, createTaskSchema, updateTaskSchema } from '@taskara/shared';
+import {
+  carryForwardMeetingActionItemSchema,
+  createCheckInResponseSchema,
+  createCommentSchema,
+  createMeetingActionItemSchema,
+  createOneOnOneAgendaItemSchema,
+  createOneOnOneSeriesSchema,
+  createProjectHealthUpdateSchema,
+  createTaskFromMeetingActionItemSchema,
+  createTaskSchema,
+  updateMeetingActionItemSchema,
+  updateTaskSchema
+} from '@taskara/shared';
 import { z, ZodError } from 'zod';
-import { config } from '../config';
 import { getRequestActor, type RequestActor } from '../services/actor';
+import { dismissAttentionItem, resolveAttentionItem, snoozeAttentionItem } from '../services/attention';
+import { resolveCorsOrigin as resolveAllowedCorsOrigin } from '../services/cors';
+import {
+  addOneOnOneAgendaItem,
+  cancelMeetingActionItem,
+  carryForwardMeetingActionItem,
+  completeMeetingActionItem,
+  createCheckInResponse,
+  createMeetingActionItem,
+  createOneOnOneSeries,
+  createTaskFromMeetingActionItem,
+  updateMeetingActionItem
+} from '../services/check-ins';
 import { HttpError } from '../services/http';
-import { assertActorCanAccessTeamSlug, listAccessibleTeamIds } from '../services/team-access';
+import { createProjectHealthUpdate } from '../services/project-health';
+import {
+  assertActorCanAccessTeamSlug,
+  canReadProject,
+  projectWhereForAccess,
+  resolveWorkspaceAccess,
+  taskWhereForAccess,
+  teamWhereForAccess,
+  type WorkspaceAccess
+} from '../services/team-access';
 import {
   addTaskComment,
   addTaskProgressStartedAt,
@@ -49,10 +82,6 @@ const pushRequestSchema = z.object({
 });
 
 const stalePendingMutationMs = 2 * 60 * 1000;
-const allowedCorsOrigins = new Set([
-  config.WEB_ORIGIN,
-  ...config.TASKARA_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
-]);
 
 const updateTaskMutationArgsSchema = z.object({
   idOrKey: z.string().trim().min(1),
@@ -71,19 +100,71 @@ const commentTaskMutationArgsSchema = z.object({
   mattermostPostId: z.string().optional()
 });
 
+const attentionResolveMutationArgsSchema = z.object({
+  id: z.string().uuid()
+});
+
+const attentionSnoozeMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  snoozedUntil: z.string().datetime({ offset: true })
+});
+
+const attentionDismissMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().trim().min(3).max(500)
+});
+
+const checkInCreateMutationArgsSchema = createCheckInResponseSchema;
+
+const oneOnOneCreateMutationArgsSchema = createOneOnOneSeriesSchema;
+
+const oneOnOneAgendaItemCreateMutationArgsSchema = z.object({
+  seriesId: z.string().uuid(),
+  item: createOneOnOneAgendaItemSchema
+});
+
+const meetingActionItemCreateMutationArgsSchema = z.object({
+  meetingId: z.string().uuid(),
+  item: createMeetingActionItemSchema
+});
+
+const meetingActionItemUpdateMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  patch: updateMeetingActionItemSchema
+});
+
+const meetingActionItemIdMutationArgsSchema = z.object({
+  id: z.string().uuid()
+});
+
+const meetingActionItemCarryMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  carry: carryForwardMeetingActionItemSchema
+});
+
+const meetingActionItemCreateTaskMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  task: createTaskFromMeetingActionItemSchema
+});
+
+const projectHealthUpdateCreateMutationArgsSchema = z.object({
+  projectId: z.string().uuid(),
+  update: createProjectHealthUpdateSchema
+});
+
 export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sync/bootstrap', async (request) => {
     const actor = await getRequestActor(request);
     const query = syncScopeQuerySchema.parse(request.query);
-    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    const access = await resolveWorkspaceAccess(actor);
     if (query.teamId !== 'all') await assertActorCanAccessTeamSlug(actor, query.teamId);
     const omittedCompletedBefore = hotCompletedCutoff(query.completedWindowDays).toISOString();
     const [tasksResult, projects, teams, usersResult, views, cursor] = await Promise.all([
-      listTasksForScope(actor, query, accessibleTeamIds),
-      listProjects(actor.workspace.id, accessibleTeamIds),
-      listTeams(actor.workspace.id, accessibleTeamIds),
+      listTasksForScope(actor, query, access),
+      listProjects(access),
+      listTeams(access),
       listUsers(actor.workspace.id),
-      listViews(actor, query.teamId, accessibleTeamIds),
+      listViews(actor, query.teamId, access),
       latestCursor(actor.workspace.id)
     ]);
 
@@ -104,7 +185,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sync/pull', async (request) => {
     const actor = await getRequestActor(request);
     const query = syncScopeQuerySchema.parse(request.query);
-    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    const access = await resolveWorkspaceAccess(actor);
     if (query.teamId !== 'all') await assertActorCanAccessTeamSlug(actor, query.teamId);
     const cursor = BigInt(query.cursor);
     const events = await prisma.syncEvent.findMany({
@@ -130,7 +211,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const mappedEvents = events
-      .map((event) => mapSyncEventForScope(event, query, actor, accessibleTeamIds))
+      .map((event) => mapSyncEventForScope(event, query, actor, access))
       .filter((event): event is NonNullable<typeof event> => event !== null);
     const nextCursor = events.length ? events[events.length - 1].workspaceSeq.toString() : query.cursor;
 
@@ -144,7 +225,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.post('/sync/push', async (request) => {
     const actor = await getRequestActor(request);
     const input = pushRequestSchema.parse(request.body);
-    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    const access = await resolveWorkspaceAccess(actor);
     const results = [];
 
     for (const mutation of input.mutations) {
@@ -232,7 +313,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const entity = await applyMutation(actor, mutation.name, mutation.args, meta, accessibleTeamIds, mutation.baseVersion);
+        const entity = await applyMutation(actor, mutation.name, mutation.args, meta, access, mutation.baseVersion);
         const ack = await prisma.clientMutation.findUnique({
           where: {
             workspaceId_clientId_mutationId: {
@@ -284,7 +365,7 @@ async function applyMutation(
   name: string,
   args: unknown,
   meta: SyncMutationMeta,
-  accessibleTeamIds: string[] | null,
+  access: WorkspaceAccess,
   baseVersion?: number
 ): Promise<unknown> {
   if (name === 'task.create') {
@@ -296,7 +377,7 @@ async function applyMutation(
 
   if (name === 'task.update') {
     const input = updateTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, access);
     if (!task) throw new HttpError(404, 'Task not found');
     const updated = serializeTaskForResponse(await updateTask(actor, task.id, input.patch, meta, input.baseVersion ?? baseVersion));
     const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [updated]);
@@ -305,23 +386,88 @@ async function applyMutation(
 
   if (name === 'task.delete') {
     const input = deleteTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, access);
     if (!task) throw new HttpError(404, 'Task not found');
     return serializeTaskForResponse(await deleteTask(actor, task.id, meta));
   }
 
   if (name === 'task.comment.create') {
     const input = commentTaskMutationArgsSchema.parse(args);
-    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, accessibleTeamIds);
+    const task = await findTaskByIdOrKey(actor.workspace.id, input.idOrKey, access);
     if (!task) throw new HttpError(404, 'Task not found');
     return addTaskComment(actor, task.id, input.body, input.source, input.mattermostPostId, meta);
+  }
+
+  if (name === 'attention.resolve') {
+    const input = attentionResolveMutationArgsSchema.parse(args);
+    return resolveAttentionItem(actor, input.id, meta);
+  }
+
+  if (name === 'attention.snooze') {
+    const input = attentionSnoozeMutationArgsSchema.parse(args);
+    return snoozeAttentionItem(actor, input.id, new Date(input.snoozedUntil), meta);
+  }
+
+  if (name === 'attention.dismiss') {
+    const input = attentionDismissMutationArgsSchema.parse(args);
+    return dismissAttentionItem(actor, input.id, input.reason, meta);
+  }
+
+  if (name === 'check_in.create') {
+    const input = checkInCreateMutationArgsSchema.parse(args);
+    return createCheckInResponse(actor, input, meta);
+  }
+
+  if (name === 'one_on_one.create') {
+    const input = oneOnOneCreateMutationArgsSchema.parse(args);
+    return createOneOnOneSeries(actor, input, meta);
+  }
+
+  if (name === 'one_on_one_agenda_item.create') {
+    const input = oneOnOneAgendaItemCreateMutationArgsSchema.parse(args);
+    return addOneOnOneAgendaItem(actor, input.seriesId, input.item, meta);
+  }
+
+  if (name === 'meeting_action_item.create') {
+    const input = meetingActionItemCreateMutationArgsSchema.parse(args);
+    return createMeetingActionItem(actor, input.meetingId, input.item, meta);
+  }
+
+  if (name === 'meeting_action_item.update') {
+    const input = meetingActionItemUpdateMutationArgsSchema.parse(args);
+    return updateMeetingActionItem(actor, input.id, input.patch, 'updated', meta);
+  }
+
+  if (name === 'meeting_action_item.complete') {
+    const input = meetingActionItemIdMutationArgsSchema.parse(args);
+    return completeMeetingActionItem(actor, input.id, meta);
+  }
+
+  if (name === 'meeting_action_item.cancel') {
+    const input = meetingActionItemIdMutationArgsSchema.parse(args);
+    return cancelMeetingActionItem(actor, input.id, meta);
+  }
+
+  if (name === 'meeting_action_item.carry_forward') {
+    const input = meetingActionItemCarryMutationArgsSchema.parse(args);
+    return carryForwardMeetingActionItem(actor, input.id, input.carry, meta);
+  }
+
+  if (name === 'meeting_action_item.create_task') {
+    const input = meetingActionItemCreateTaskMutationArgsSchema.parse(args);
+    return createTaskFromMeetingActionItem(actor, input.id, input.task, meta);
+  }
+
+  if (name === 'project_health_update.create') {
+    const input = projectHealthUpdateCreateMutationArgsSchema.parse(args);
+    return createProjectHealthUpdate(actor, input.projectId, input.update, meta);
   }
 
   throw new HttpError(400, `Unsupported sync mutation: ${name}`);
 }
 
-async function listTasksForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>, accessibleTeamIds: string[] | null) {
-  const where = taskWhereForScope(actor, query, accessibleTeamIds);
+async function listTasksForScope(actor: RequestActor, query: z.infer<typeof syncScopeQuerySchema>, access: WorkspaceAccess) {
+  const where = taskWhereForScope(actor, query, access);
   const [items, total] = await Promise.all([
     prisma.task.findMany({
       where,
@@ -338,10 +484,10 @@ async function listTasksForScope(actor: RequestActor, query: z.infer<typeof sync
 function taskWhereForScope(
   actor: RequestActor,
   query: z.infer<typeof syncScopeQuerySchema>,
-  accessibleTeamIds: string[] | null
+  access: WorkspaceAccess
 ): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = {
-    workspaceId: actor.workspace.id,
+    ...taskWhereForAccess(access),
     assigneeId: query.mine ? actor.user.id : undefined
   };
 
@@ -352,8 +498,6 @@ function taskWhereForScope(
         slug: query.teamId
       }
     };
-  } else if (accessibleTeamIds) {
-    where.project = { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] };
   }
 
   return {
@@ -364,12 +508,9 @@ function taskWhereForScope(
   };
 }
 
-async function listProjects(workspaceId: string, accessibleTeamIds: string[] | null) {
+async function listProjects(access: WorkspaceAccess) {
   return prisma.project.findMany({
-    where: {
-      workspaceId,
-      ...(accessibleTeamIds ? { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } : {})
-    },
+    where: projectWhereForAccess(access),
     orderBy: [{ parentId: 'asc' }, { updatedAt: 'desc' }],
     include: {
       team: { select: { id: true, name: true, slug: true } },
@@ -380,12 +521,9 @@ async function listProjects(workspaceId: string, accessibleTeamIds: string[] | n
   });
 }
 
-async function listTeams(workspaceId: string, accessibleTeamIds: string[] | null) {
+async function listTeams(access: WorkspaceAccess) {
   return prisma.team.findMany({
-    where: {
-      workspaceId,
-      ...(accessibleTeamIds ? { id: { in: accessibleTeamIds } } : {})
-    },
+    where: teamWhereForAccess(access),
     orderBy: { name: 'asc' },
     include: { _count: { select: { members: true, projects: true } } }
   });
@@ -427,12 +565,12 @@ async function listUsers(workspaceId: string) {
   };
 }
 
-async function listViews(actor: RequestActor, teamId: string, accessibleTeamIds: string[] | null) {
-  const accessibleTeamSlugs = accessibleTeamIds
+async function listViews(actor: RequestActor, teamId: string, access: WorkspaceAccess) {
+  const accessibleTeamSlugs = !access.workspaceWide
     ? new Set(
         (
           await prisma.team.findMany({
-            where: { workspaceId: actor.workspace.id, id: { in: accessibleTeamIds } },
+            where: { workspaceId: actor.workspace.id, id: { in: access.teamIds } },
             select: { slug: true }
           })
         ).map((team) => team.slug)
@@ -482,16 +620,18 @@ export function mapSyncEventForScope(
   event: SyncEvent,
   query: z.infer<typeof syncScopeQuerySchema>,
   actor: RequestActor,
-  accessibleTeamIds: string[] | null
+  access: string[] | WorkspaceAccess | null
 ) {
   const serialized = serializeSyncEvent(event);
-  if (event.entityType !== 'task') return serialized;
+  if (event.entityType !== 'task') {
+    return managerEventVisibleInScope(event, actor, access) ? mapGenericSyncEvent(serialized, event) : null;
+  }
 
   const payload = event.payload as Record<string, unknown>;
   const before = taskPayloadRecord(payload.before);
   const after = taskPayloadRecord(payload.after);
-  const beforeVisible = before ? taskVisibleInScope(before, query, actor, accessibleTeamIds) : false;
-  const afterVisible = after ? taskVisibleInScope(after, query, actor, accessibleTeamIds) : false;
+  const beforeVisible = before ? taskVisibleInScope(before, query, actor, access) : false;
+  const afterVisible = after ? taskVisibleInScope(after, query, actor, access) : false;
 
   if (afterVisible && after) {
     return {
@@ -513,7 +653,148 @@ export function mapSyncEventForScope(
   return null;
 }
 
+function mapGenericSyncEvent(serialized: ReturnType<typeof serializeSyncEvent>, event: SyncEvent) {
+  const payload = syncPayloadRecord(event.payload);
+  const before = syncPayloadRecord(payload?.before);
+  const after = syncPayloadRecord(payload?.after);
+
+  if (after) {
+    return {
+      ...serialized,
+      type: 'upsert' as const,
+      entity: after
+    };
+  }
+
+  if (before) {
+    return {
+      ...serialized,
+      type: event.operation === 'deleted' ? 'delete' as const : 'removeFromScope' as const,
+      entityId: event.entityId
+    };
+  }
+
+  return serialized;
+}
+
+function managerEventVisibleInScope(
+  event: SyncEvent,
+  actor: RequestActor,
+  access: string[] | WorkspaceAccess | null
+): boolean {
+  const payload = syncPayloadRecord(event.payload);
+  const before = syncPayloadRecord(payload?.before);
+  const after = syncPayloadRecord(payload?.after);
+  const record = after || before;
+  if (!record) return false;
+
+  if (isWorkspaceWideAccess(access)) return true;
+
+  switch (event.entityType) {
+    case 'review':
+      return reviewEventVisible(record, actor, access);
+    case 'attention':
+      return attentionEventVisible(record, actor);
+    case 'check_in':
+      return checkInEventVisible(record, actor);
+    case 'one_on_one':
+      return oneOnOneEventVisible(record, actor);
+    case 'one_on_one_agenda_item':
+      return agendaItemEventVisible(record, actor);
+    case 'meeting_action_item':
+      return meetingActionItemEventVisible(record, actor, access);
+    case 'project_health_update':
+      return projectHealthEventVisible(record, access);
+    default:
+      return false;
+  }
+}
+
+function reviewEventVisible(
+  review: Record<string, unknown>,
+  actor: RequestActor,
+  access: string[] | WorkspaceAccess | null
+): boolean {
+  if (review.requesterId === actor.user.id || review.reviewerId === actor.user.id) return true;
+
+  const task = syncPayloadRecord(review.task);
+  if (!task) return false;
+  const assignee = syncPayloadRecord(task.assignee);
+  const reporter = syncPayloadRecord(task.reporter);
+  if (assignee?.id === actor.user.id || reporter?.id === actor.user.id) return true;
+  return taskProjectVisible(task, access);
+}
+
+function attentionEventVisible(attention: Record<string, unknown>, actor: RequestActor): boolean {
+  return (
+    attention.assigneeId === actor.user.id ||
+    attention.managerId === actor.user.id ||
+    (attention.entityType === 'user' && attention.entityId === actor.user.id)
+  );
+}
+
+function checkInEventVisible(checkIn: Record<string, unknown>, actor: RequestActor): boolean {
+  return checkIn.userId === actor.user.id || checkIn.authorId === actor.user.id;
+}
+
+function oneOnOneEventVisible(series: Record<string, unknown>, actor: RequestActor): boolean {
+  return series.managerId === actor.user.id || series.participantId === actor.user.id;
+}
+
+function agendaItemEventVisible(item: Record<string, unknown>, actor: RequestActor): boolean {
+  // Agenda payloads currently do not include the parent series. For non-admins, only send items
+  // the actor created; participants/managers can still load their agenda through the route.
+  return item.createdById === actor.user.id;
+}
+
+function meetingActionItemEventVisible(
+  item: Record<string, unknown>,
+  actor: RequestActor,
+  access: string[] | WorkspaceAccess | null
+): boolean {
+  if (item.assigneeId === actor.user.id || item.createdById === actor.user.id) return true;
+  const meeting = syncPayloadRecord(item.meeting);
+  if (!meeting) return false;
+  if (meeting.ownerId === actor.user.id || meeting.createdById === actor.user.id) return true;
+  const participants = Array.isArray(meeting.participants) ? meeting.participants : [];
+  if (participants.some((participant) => syncPayloadRecord(participant)?.userId === actor.user.id)) return true;
+  if (!access || Array.isArray(access)) return false;
+
+  const project = syncPayloadRecord(meeting.project);
+  if (project && canReadProject(access, projectRecordForAccess(project))) return true;
+
+  const teamId = stringValue(meeting.teamId) || stringValue(project?.teamId);
+  return !teamId || access.teamIds.includes(teamId);
+}
+
+function projectHealthEventVisible(
+  update: Record<string, unknown>,
+  access: string[] | WorkspaceAccess | null
+): boolean {
+  if (!access || Array.isArray(access)) return false;
+  const project = syncPayloadRecord(update.project);
+  return canReadProject(access, projectRecordForAccess(project));
+}
+
+function projectRecordForAccess(project: Record<string, unknown> | null): { id?: string | null; teamId?: string | null; leadId?: string | null } | null {
+  if (!project) return null;
+  return {
+    id: stringValue(project.id),
+    teamId: stringValue(project.teamId),
+    leadId: stringValue(project.leadId)
+  };
+}
+
+function isWorkspaceWideAccess(access: string[] | WorkspaceAccess | null): boolean {
+  return Boolean(access && !Array.isArray(access) && access.workspaceWide);
+}
+
 function taskPayloadRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
+}
+
+function syncPayloadRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
 }
@@ -522,7 +803,7 @@ function taskVisibleInScope(
   task: Record<string, unknown>,
   query: z.infer<typeof syncScopeQuerySchema>,
   actor: RequestActor,
-  accessibleTeamIds: string[] | null
+  access: string[] | WorkspaceAccess | null
 ): boolean {
   if (query.mine) {
     const assignee = task.assignee as { id?: string } | null | undefined;
@@ -532,13 +813,29 @@ function taskVisibleInScope(
   if (query.teamId !== 'all') {
     const project = task.project as { team?: { slug?: string } | null } | null | undefined;
     if (project?.team?.slug !== query.teamId) return false;
-  } else if (accessibleTeamIds) {
-    const project = task.project as { team?: { id?: string } | null } | null | undefined;
-    const teamId = project?.team?.id ?? null;
-    if (teamId && !accessibleTeamIds.includes(teamId)) return false;
+  } else if (!taskProjectVisible(task, access)) {
+    return false;
   }
 
   return isHotTaskRecord(task, hotCompletedCutoff(query.completedWindowDays));
+}
+
+function taskProjectVisible(task: Record<string, unknown>, access: string[] | WorkspaceAccess | null): boolean {
+  if (!access) return true;
+
+  const project = task.project as { id?: string; leadId?: string | null; team?: { id?: string } | null } | null | undefined;
+  const projectId = project?.id ?? null;
+  const teamId = project?.team?.id ?? null;
+
+  if (Array.isArray(access)) {
+    return !teamId || access.includes(teamId);
+  }
+
+  if (access.workspaceWide) return true;
+  if (!teamId) return true;
+  if (project?.leadId === access.userId) return true;
+  if (projectId && access.projectIds.includes(projectId)) return true;
+  return access.teamIds.includes(teamId);
 }
 
 function hotCompletedCutoff(completedWindowDays = 5): Date {
@@ -668,8 +965,7 @@ function mutationErrorMessage(error: unknown): string {
 
 function resolveCorsOrigin(request: FastifyRequest): string | null {
   const originHeader = request.headers.origin;
-  if (typeof originHeader !== 'string') return null;
-  return allowedCorsOrigins.has(originHeader) ? originHeader : null;
+  return resolveAllowedCorsOrigin(originHeader);
 }
 
 function isStalePendingMutation(updatedAt: Date): boolean {

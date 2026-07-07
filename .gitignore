@@ -5,6 +5,9 @@ node_modules
 dist
 build
 coverage
+playwright-report
+apps/web/playwright-report
+apps/web/test-results
 .next
 **/.next
 .prisma

@@ -24,6 +24,7 @@ import { logActivity } from './audit';
 import { buildMediaUrl, type UploadedMediaObject } from './media';
 import { HttpError } from './http';
 import { appendSyncEvent, publishSyncEvent } from './sync';
+import { projectWhereForAccess, resolveWorkspaceAccess } from './team-access';
 
 type CreateKnowledgeSpaceInput = z.infer<typeof createKnowledgeSpaceSchema>;
 type UpdateKnowledgeSpaceInput = z.infer<typeof updateKnowledgeSpaceSchema>;
@@ -798,20 +799,15 @@ async function knowledgeSpaceWhereForActor(actor: RequestActor): Promise<Prisma.
     return { workspaceId: actor.workspace.id };
   }
 
-  const teamIds = await accessibleTeamIds(actor);
+  const access = await resolveWorkspaceAccess(actor);
   return {
     workspaceId: actor.workspace.id,
     OR: [
       { type: 'WORKSPACE' },
-      { teamId: { in: teamIds } },
+      { teamId: { in: access.teamIds } },
       {
         type: 'PROJECT',
-        project: {
-          OR: [
-            { teamId: null },
-            { teamId: { in: teamIds } }
-          ]
-        }
+        project: projectWhereForAccess(access)
       }
     ]
   };
@@ -899,18 +895,6 @@ async function actorTeamRole(actor: RequestActor, teamId: string): Promise<strin
     select: { role: true }
   });
   return membership?.role ?? null;
-}
-
-async function accessibleTeamIds(actor: RequestActor): Promise<string[]> {
-  if (isWorkspaceAdminRole(actor.role)) {
-    const teams = await prisma.team.findMany({ where: { workspaceId: actor.workspace.id }, select: { id: true } });
-    return teams.map((team) => team.id);
-  }
-  const memberships = await prisma.teamMember.findMany({
-    where: { userId: actor.user.id, team: { workspaceId: actor.workspace.id } },
-    select: { teamId: true }
-  });
-  return memberships.map((membership) => membership.teamId);
 }
 
 async function assertUserInWorkspace(workspaceId: string, userId: string, message: string): Promise<void> {

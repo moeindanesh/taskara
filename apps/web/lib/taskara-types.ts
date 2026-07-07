@@ -7,7 +7,42 @@ export interface TaskaraProject {
    parentId?: string | null;
    team?: { id: string; name: string; slug: string } | null;
    lead?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   healthUpdates?: TaskaraProjectHealthUpdate[];
    _count?: { tasks?: number; subprojects?: number };
+}
+
+export type TaskaraProjectUpdateHealth = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK';
+
+export interface TaskaraProjectHealthUpdate {
+   id: string;
+   workspaceId: string;
+   projectId: string;
+   authorId?: string | null;
+   health: TaskaraProjectUpdateHealth;
+   summary: string;
+   progress?: string | null;
+   risks?: string | null;
+   decisionsNeeded?: string | null;
+   nextUpdateDueAt?: string | null;
+   publishedAt?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   author?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   project?: {
+      id: string;
+      name: string;
+      keyPrefix: string;
+      teamId?: string | null;
+      leadId?: string | null;
+      team?: { id: string; name: string; slug: string } | null;
+   };
+}
+
+export interface TaskaraProjectHealthUpdateListResponse {
+   items: TaskaraProjectHealthUpdate[];
+   total: number;
+   limit: number;
+   offset: number;
 }
 
 export interface TaskaraTask {
@@ -17,12 +52,29 @@ export interface TaskaraTask {
    description?: string | null;
    status: string;
    priority: string;
+   parentId?: string | null;
    weight?: number | null;
    dueAt?: string | null;
    createdAt?: string;
    updatedAt?: string;
    completedAt?: string | null;
    progressStartedAt?: string | null;
+   activeReviewRequest?: {
+      id: string;
+      reviewerId: string;
+      requestedAt: string;
+      dueAt?: string | null;
+   };
+   triageState?: {
+      id: string;
+      status: 'OPEN' | 'WAITING_FOR_INFO' | 'SNOOZED';
+      requestedInfo?: string | null;
+      snoozedUntil?: string | null;
+      reason?: string | null;
+      decidedById?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+   } | null;
    project?: {
       id: string;
       name: string;
@@ -41,6 +93,24 @@ export interface TaskaraTask {
    blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string } }>;
    labels?: Array<{ label: { id: string; name: string; color?: string } }>;
    _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
+}
+
+export interface TaskaraTaskReview {
+   id: string;
+   workspaceId: string;
+   taskId: string;
+   requesterId?: string | null;
+   reviewerId: string;
+   status: 'REQUESTED' | 'CHANGES_REQUESTED' | 'APPROVED' | 'CANCELED';
+   requestedAt: string;
+   respondedAt?: string | null;
+   dueAt?: string | null;
+   comment?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   requester?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   reviewer?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   task?: TaskaraTask;
 }
 
 export interface TaskaraAnnouncement {
@@ -105,6 +175,116 @@ export interface TaskaraMeeting {
       task: TaskaraTask;
    }>;
    _count?: { participants?: number; tasks?: number };
+}
+
+export interface TaskaraCheckInMissingResponse {
+   items: Array<{
+      user: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null };
+      lastCheckInAt: string | null;
+      hoursSinceLastCheckIn: number | null;
+   }>;
+   total: number;
+   thresholdHours: number;
+   generatedAt: string;
+}
+
+export interface TaskaraCheckInResponse {
+   id: string;
+   workspaceId: string;
+   userId: string;
+   authorId?: string | null;
+   completedText?: string | null;
+   blockersText?: string | null;
+   planText?: string | null;
+   helpText?: string | null;
+   submittedFor: string;
+   createdAt: string;
+   updatedAt: string;
+   user?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   author?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+}
+
+export interface TaskaraOneOnOneSeries {
+   id: string;
+   workspaceId: string;
+   managerId: string;
+   participantId: string;
+   title?: string | null;
+   cadenceDays: number;
+   nextScheduledAt?: string | null;
+   lastMeetingId?: string | null;
+   active: boolean;
+   createdAt: string;
+   updatedAt: string;
+   manager?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   participant?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   lastMeeting?: { id: string; title: string; scheduledAt?: string | null; heldAt?: string | null; status: string } | null;
+   _count?: { agendaItems?: number };
+}
+
+export interface TaskaraOneOnOneAgendaItem {
+   id: string;
+   workspaceId?: string;
+   seriesId?: string;
+   meetingId?: string | null;
+   createdById?: string | null;
+   sourceType?: string | null;
+   sourceId?: string | null;
+   title: string;
+   notes?: string | null;
+   status: 'OPEN' | 'DONE' | 'CANCELED';
+   position?: number;
+   createdAt: string;
+   updatedAt?: string;
+   createdBy?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   meeting?: { id: string; title: string; scheduledAt?: string | null; heldAt?: string | null; status?: string } | null;
+}
+
+export interface TaskaraOneOnOneAgendaResponse {
+   series: TaskaraOneOnOneSeries;
+   items: TaskaraOneOnOneAgendaItem[];
+   generated: Array<{
+      sourceType: 'attention' | 'blocked_task' | 'overdue_task' | 'check_in' | 'action_item';
+      sourceId: string;
+      title: string;
+      notes?: string | null;
+      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+   }>;
+   generatedAt: string;
+}
+
+export interface TaskaraMeetingActionItem {
+   id: string;
+   workspaceId: string;
+   meetingId: string;
+   taskId?: string | null;
+   assigneeId?: string | null;
+   createdById?: string | null;
+   title: string;
+   notes?: string | null;
+   status: 'OPEN' | 'DONE' | 'CANCELED';
+   dueAt?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   createdBy?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | null;
+   meeting?: {
+      id: string;
+      title: string;
+      status?: string;
+      scheduledAt?: string | null;
+      heldAt?: string | null;
+      projectId?: string | null;
+      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+   } | null;
+}
+
+export interface TaskaraMeetingActionItemListResponse {
+   items: TaskaraMeetingActionItem[];
+   total: number;
+   limit: number;
+   offset: number;
 }
 
 export interface TaskaraKnowledgeSpace {
@@ -337,6 +517,336 @@ export interface TaskaraTeamMember {
       phone?: string | null;
       mattermostUsername?: string | null;
       avatarUrl?: string | null;
+   };
+}
+
+export interface WorkHealthSummary {
+   generatedAt: string;
+   scope: {
+      workspaceWide: boolean;
+      teamIds: string[];
+      projectIds: string[];
+   };
+   thresholds: {
+      dailyWeightLimit: number;
+      staleAfterHours: number;
+      blockedSlaHours: number;
+      reviewSlaHours: number;
+      dueSoonHours: number;
+   };
+   overview: {
+      activeTasks: number;
+      loadedActiveTasks: number;
+      truncated: boolean;
+      overdueTasks: number;
+      blockedTasks: number;
+      reviewTasks: number;
+      staleTasks: number;
+      unassignedActiveTasks: number;
+      backlogTasks: number;
+      statusCounts: Record<'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'BLOCKED' | 'DONE' | 'CANCELED', number>;
+      overloadedPeople: number;
+      peopleWithoutActiveWork: number;
+   };
+   attention: WorkHealthAttentionItem[];
+   people: WorkHealthPerson[];
+   queues: {
+      overdue: TaskaraTask[];
+      blocked: TaskaraTask[];
+      review: TaskaraTask[];
+      stale: TaskaraTask[];
+      unassigned: TaskaraTask[];
+      backlog: TaskaraTask[];
+   };
+   projects: WorkHealthProject[];
+}
+
+export interface WorkHealthAttentionItem {
+   id: string;
+   reason:
+      | 'overdue_task'
+      | 'blocked_task'
+      | 'review_waiting'
+      | 'stale_task'
+      | 'unassigned_due_soon'
+      | 'overloaded_person'
+      | 'person_without_active_work'
+      | 'project_at_risk'
+      | 'project_update_due';
+   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+   title: string;
+   description: string;
+   actionLabel: string;
+   entityType: 'task' | 'user' | 'project';
+   task?: TaskaraTask;
+   user?: {
+      id: string;
+      name: string;
+      email: string;
+      phone?: string | null;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+   project?: TaskaraProject;
+   ageHours?: number;
+   dueAt?: string | null;
+}
+
+export interface WorkHealthPerson {
+   user: {
+      id: string;
+      name: string;
+      email: string;
+      phone?: string | null;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+   activeCount: number;
+   activeWeight: number;
+   todayWeight: number;
+   reviewCount: number;
+   blockedCount: number;
+   overdueCount: number;
+   staleCount: number;
+   capacity: number;
+   capacityActive?: boolean;
+   loadRatio: number;
+   status: 'idle' | 'balanced' | 'busy' | 'overloaded';
+   tasks: TaskaraTask[];
+}
+
+export interface WorkHealthProject {
+   project: TaskaraProject;
+   activeCount: number;
+   activeWeight: number;
+   blockedCount: number;
+   overdueCount: number;
+   reviewCount: number;
+   staleCount: number;
+   unassignedCount: number;
+   health: 'healthy' | 'needs_attention' | 'at_risk';
+}
+
+export interface TaskaraUserCapacity {
+   id?: string;
+   workspaceId: string;
+   userId: string;
+   dailyWeightLimit: number;
+   weeklyWeightLimit?: number | null;
+   active: boolean;
+   note?: string | null;
+   createdAt?: string;
+   updatedAt?: string;
+}
+
+export interface TaskaraCapacityUser {
+   membershipId: string;
+   role: string;
+   joinedAt: string;
+   user: {
+      id: string;
+      name: string;
+      email: string;
+      phone?: string | null;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+   capacity: TaskaraUserCapacity;
+}
+
+export interface TaskaraCapacityUserListResponse {
+   items: TaskaraCapacityUser[];
+   total: number;
+}
+
+export interface TaskaraTeamWorkingAgreement {
+   id: string;
+   workspaceId: string;
+   teamId?: string | null;
+   scopeKey: string;
+   activeWipLimit?: number | null;
+   reviewWipLimit?: number | null;
+   reviewSlaHours: number;
+   blockedSlaHours: number;
+   staleAfterHours: number;
+   createdAt: string;
+   updatedAt: string;
+   team?: { id: string; name: string; slug: string } | null;
+}
+
+export interface TaskaraTeamWorkingAgreementListResponse {
+   items: TaskaraTeamWorkingAgreement[];
+   total: number;
+}
+
+export interface TaskaraAssignmentRecommendation {
+   user: {
+      id: string;
+      name: string;
+      email: string;
+      phone?: string | null;
+      mattermostUsername?: string | null;
+      avatarUrl?: string | null;
+   };
+   capacity: number;
+   activeCount: number;
+   activeWeight: number;
+   projectedWeight: number;
+   loadRatio: number;
+   projectedLoadRatio: number;
+   reviewCount: number;
+   blockedCount: number;
+   overdueCount: number;
+   dueSoonCount: number;
+   projectActiveCount: number;
+   score: number;
+   status: 'available' | 'busy' | 'overloaded' | 'unavailable';
+   reasons: Array<{
+      code: string;
+      tone: 'positive' | 'neutral' | 'warning';
+      message: string;
+   }>;
+}
+
+export interface TaskaraAssignmentRecommendationResponse {
+   generatedAt: string;
+   project: {
+      id: string;
+      name: string;
+      keyPrefix: string;
+      teamId?: string | null;
+      team?: { id: string; name: string; slug: string } | null;
+   };
+   task?: { id: string; key: string; title: string; assigneeId?: string | null } | null;
+   context: {
+      weight: number;
+      priority: string;
+      dueAt?: string | null;
+      activeWipLimit?: number | null;
+      reviewWipLimit?: number | null;
+   };
+   recommendations: TaskaraAssignmentRecommendation[];
+   excluded: {
+      inactive: number;
+      unsupportedRole: number;
+      outsideProjectMembership: number;
+   };
+}
+
+export interface TaskaraAttentionResponse {
+   items: TaskaraAttentionItem[];
+   total: number;
+   limit: number;
+   offset: number;
+   generatedAt: string | null;
+}
+
+export interface TaskaraAttentionItem {
+   id: string;
+   workspaceId: string;
+   assigneeId: string | null;
+   managerId: string | null;
+   entityType: 'task' | 'user' | string;
+   entityId: string;
+   reason:
+      | 'overdue_task'
+      | 'blocked_task'
+      | 'review_waiting'
+      | 'stale_task'
+      | 'unassigned_due_soon'
+      | 'overloaded_person'
+      | 'person_without_active_work'
+      | 'project_at_risk'
+      | 'project_update_due'
+      | 'missing_check_in'
+      | 'one_on_one_due'
+      | 'stale_meeting_action_item'
+      | string;
+   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+   status: 'OPEN' | 'SNOOZED' | 'RESOLVED' | 'DISMISSED';
+   firstSeenAt: string;
+   lastSeenAt: string;
+   snoozedUntil: string | null;
+   resolvedAt: string | null;
+   dismissedAt: string | null;
+   dismissalReason: string | null;
+   payload: TaskaraAttentionPayload;
+   createdAt: string;
+   updatedAt: string;
+}
+
+export interface TaskaraAttentionPayload {
+   version?: 1;
+   title?: string;
+   description?: string;
+   actionLabel?: string;
+   reason?: string;
+   severity?: TaskaraAttentionItem['severity'];
+   entity?: {
+      type: string;
+      id: string;
+   };
+   signal?: {
+      conditionKey?: string;
+      generatedAt?: string;
+      ageHours?: number;
+      dueAt?: string | null;
+   };
+   task?: {
+      id: string;
+      key: string;
+      title: string;
+      status: TaskaraTask['status'];
+      priority: TaskaraTask['priority'];
+      dueAt: string | null;
+      assigneeId: string | null;
+      projectId: string | null;
+      projectName: string | null;
+   };
+   user?: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string | null;
+   };
+   project?: {
+      id: string;
+      name: string;
+      keyPrefix: string;
+      teamId?: string | null;
+      teamName?: string | null;
+      leadId?: string | null;
+      healthUpdate?: {
+         id: string;
+         health: TaskaraProjectUpdateHealth;
+         summary: string;
+         nextUpdateDueAt?: string | null;
+         createdAt: string;
+      } | null;
+   };
+   oneOnOne?: {
+      id: string;
+      title?: string | null;
+      participantId: string;
+      participantName: string;
+      managerId: string;
+      managerName: string;
+      nextScheduledAt?: string | null;
+   };
+   actionItem?: {
+      id: string;
+      title: string;
+      dueAt?: string | null;
+      createdAt: string;
+      assigneeId?: string | null;
+      assigneeName?: string | null;
+      meetingId: string;
+      meetingTitle: string;
+   };
+   lifecycle?: {
+      lastClearedAt?: string;
+      manuallyResolvedAt?: string;
+      dismissedAt?: string;
    };
 }
 

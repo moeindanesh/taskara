@@ -1,20 +1,24 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import MainLayout from '@/components/layout/main-layout';
-import { AnnouncementsView } from '@/components/taskara/announcements-view';
 import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage } from '@/components/taskara/auth-pages';
+import { CommunicationsView } from '@/components/taskara/communications-view';
 import { HeartbeatView } from '@/components/taskara/heartbeat-view';
 import { InboxView } from '@/components/taskara/inbox-view';
 import { IssuePage } from '@/components/taskara/issue-page';
 import { KnowledgeView } from '@/components/taskara/knowledge-view';
-import { LeaderboardView } from '@/components/taskara/leaderboard-view';
+import { CapacitySettingsView } from '@/components/taskara/capacity-settings-view';
+import { DecisionQueuesView } from '@/components/taskara/decision-queues-view';
+import { ManagerCockpitView } from '@/components/taskara/manager-cockpit-view';
 import { MembersView } from '@/components/taskara/members-view';
-import { MeetingsView } from '@/components/taskara/meetings-view';
 import { PageHeader } from '@/components/taskara/page-header';
+import { PeopleWorkloadView } from '@/components/taskara/people-workload-view';
 import { ProjectsView } from '@/components/taskara/projects-view';
+import { ReviewsView } from '@/components/taskara/reviews-view';
 import { SettingsView } from '@/components/taskara/settings-view';
 import { TasksView } from '@/components/taskara/tasks-view';
 import { TaskReportsView } from '@/components/taskara/task-reports-view';
+import { TeamHealthView } from '@/components/taskara/team-health-view';
 import { TeamsView } from '@/components/taskara/teams-view';
 import { fa } from '@/lib/fa-copy';
 import { WorkspaceInboxSyncProvider } from '@/lib/inbox-sync';
@@ -23,17 +27,41 @@ import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
 import { useAuthSession } from '@/store/auth-store';
 
 const pageMetaByRoute = {
+  cockpit: {
+    title: fa.nav.cockpit,
+    description: fa.pages.cockpitDescription,
+  },
   inbox: {
     title: fa.nav.inbox,
     description: fa.pages.inboxDescription,
   },
+  queues: {
+    title: fa.nav.decisionQueues,
+    description: fa.pages.decisionQueuesDescription,
+  },
+  reviews: {
+    title: fa.nav.reviews,
+    description: fa.pages.reviewsDescription,
+  },
+  people: {
+    title: fa.nav.peopleWorkload,
+    description: fa.pages.peopleWorkloadDescription,
+  },
+  capacity: {
+    title: fa.nav.capacitySettings,
+    description: fa.pages.capacitySettingsDescription,
+  },
+  communications: {
+    title: fa.nav.communications,
+    description: fa.pages.communicationsDescription,
+  },
   announcements: {
-    title: fa.nav.announcements,
-    description: fa.pages.announcementsDescription,
+    title: fa.nav.communications,
+    description: fa.pages.communicationsDescription,
   },
   meetings: {
-    title: fa.nav.meetings,
-    description: fa.pages.meetingsDescription,
+    title: fa.nav.communications,
+    description: fa.pages.communicationsDescription,
   },
   wiki: {
     title: fa.nav.wiki,
@@ -47,9 +75,13 @@ const pageMetaByRoute = {
     title: fa.nav.members,
     description: fa.pages.membersDescription,
   },
+  'team-health': {
+    title: fa.nav.teamHealth,
+    description: fa.pages.teamHealthDescription,
+  },
   leaderboard: {
-    title: fa.nav.leaderboard,
-    description: fa.pages.leaderboardDescription,
+    title: fa.nav.teamHealth,
+    description: fa.pages.teamHealthDescription,
   },
   heartbeat: {
     title: fa.nav.heartbeat,
@@ -92,7 +124,7 @@ function WorkspaceShell() {
       ? pageMetaByRoute.projects
       : pageMetaByRoute[routeKey as keyof typeof pageMetaByRoute] || pageMetaByRoute.team;
   const header =
-    routeKey === 'issue' || routeKey === 'inbox' || routeKey === 'announcements' || routeKey === 'meetings' || isSettingsRoute ? null : (
+    routeKey === 'issue' || routeKey === 'inbox' || routeKey === 'communications' || routeKey === 'announcements' || routeKey === 'meetings' || isSettingsRoute ? null : (
       <PageHeader title={pageMeta.title} description={pageMeta.description} compact />
     );
 
@@ -132,7 +164,7 @@ function RootRedirect() {
 
   if (!session) return <Navigate replace to="/login" />;
   if (!session.workspace?.slug) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={`/${session.workspace.slug}/team/all/all`} />;
+  return <Navigate replace to={defaultWorkspacePath(session.workspace.slug, session.role)} />;
 }
 
 function WorkspacePage({ children }: { children: ReactNode }) {
@@ -149,15 +181,24 @@ export function App() {
       <Route path="/" element={<RootRedirect />} />
       <Route path="/:orgId" element={<AuthenticatedWorkspaceShell />}>
         <Route index element={<WorkspaceRedirect />} />
+        <Route path="cockpit" element={<WorkspacePage><ManagerCockpitView /></WorkspacePage>} />
+        <Route path="queues" element={<WorkspacePage><DecisionQueuesView /></WorkspacePage>} />
+        <Route path="reviews" element={<WorkspacePage><ReviewsView /></WorkspacePage>} />
+        <Route path="people" element={<WorkspacePage><PeopleWorkloadView /></WorkspacePage>} />
+        <Route path="capacity" element={<WorkspacePage><CapacitySettingsView /></WorkspacePage>} />
         <Route path="inbox" element={<WorkspacePage><InboxView /></WorkspacePage>} />
-        <Route path="announcements" element={<WorkspacePage><AnnouncementsView /></WorkspacePage>} />
-        <Route path="announcements/:announcementId" element={<WorkspacePage><AnnouncementsView /></WorkspacePage>} />
-        <Route path="meetings" element={<WorkspacePage><MeetingsView /></WorkspacePage>} />
-        <Route path="meetings/:meetingId" element={<WorkspacePage><MeetingsView /></WorkspacePage>} />
+        <Route path="communications" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="communications/announcements/:announcementId" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="communications/meetings/:meetingId" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="announcements" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="announcements/:announcementId" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="meetings" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
+        <Route path="meetings/:meetingId" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
         <Route path="wiki" element={<WorkspacePage><KnowledgeView /></WorkspacePage>} />
         <Route path="wiki/:spaceKey" element={<WorkspacePage><KnowledgeView /></WorkspacePage>} />
         <Route path="wiki/:spaceKey/:pageId" element={<WorkspacePage><KnowledgeView /></WorkspacePage>} />
-        <Route path="leaderboard" element={<WorkspacePage><LeaderboardView /></WorkspacePage>} />
+        <Route path="team-health" element={<WorkspacePage><TeamHealthView /></WorkspacePage>} />
+        <Route path="leaderboard" element={<WorkspacePage><TeamHealthView /></WorkspacePage>} />
         <Route path="heartbeat" element={<WorkspacePage><HeartbeatView /></WorkspacePage>} />
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />
         <Route path="projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
@@ -176,7 +217,12 @@ export function App() {
 }
 
 function WorkspaceRedirect() {
+  const { session } = useAuthSession();
   const { orgId } = useParams();
   if (!orgId) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={`/${orgId}/team/all/all`} />;
+  return <Navigate replace to={defaultWorkspacePath(orgId, session?.role)} />;
+}
+
+function defaultWorkspacePath(orgId: string, role?: string | null) {
+  return role === 'OWNER' || role === 'ADMIN' ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
 }

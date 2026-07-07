@@ -8,7 +8,13 @@ import { getRequestActor, isWorkspaceAdminRole, requireWorkspaceAdmin } from '..
 import { createAnnouncement } from '../services/announcements';
 import { HttpError } from '../services/http';
 import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
-import { listAccessibleTeamIds } from '../services/team-access';
+import {
+  projectWhereForAccess,
+  resolveWorkspaceAccess,
+  taskWhereForAccess,
+  teamWhereForAccess,
+  type WorkspaceAccess
+} from '../services/team-access';
 import {
   addTaskProgressStartedAt,
   createTask,
@@ -394,7 +400,7 @@ interface AssistantContext {
   projects: AssistantProjectContext[];
   users: AssistantUserContext[];
   recentTasks: AssistantTaskContext[];
-  accessibleTeamIds: string[] | null;
+  access: WorkspaceAccess;
 }
 
 interface ResolvedQueryFilters {
@@ -1524,30 +1530,22 @@ async function generateAssistantCommandPlan(params: {
 }
 
 async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestActor>>): Promise<AssistantContext> {
-  const accessibleTeamIds = await listAccessibleTeamIds(actor);
-  const projectWhere: Prisma.ProjectWhereInput = {
-    workspaceId: actor.workspace.id,
-    ...(accessibleTeamIds ? { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } : {})
-  };
-  const taskWhere: Prisma.TaskWhereInput = {
-    workspaceId: actor.workspace.id,
-    ...(accessibleTeamIds ? { project: { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] } } : {})
-  };
+  const access = await resolveWorkspaceAccess(actor);
 
-  const [teams, projects, members, teamMembers, recentTasks] = await Promise.all([
+  const [teams, projects, members, teamMembers, projectMembers, recentTasks] = await Promise.all([
     prisma.team.findMany({
-      where: {
-        workspaceId: actor.workspace.id,
-        ...(accessibleTeamIds ? { id: { in: accessibleTeamIds } } : {})
-      },
+      where: teamWhereForAccess(access),
       orderBy: [{ name: 'asc' }],
       select: { id: true, name: true, slug: true }
     }),
     prisma.project.findMany({
-      where: projectWhere,
+      where: projectWhereForAccess(access),
       orderBy: [{ updatedAt: 'desc' }],
       take: 120,
-      include: { team: { select: { id: true, name: true, slug: true } } }
+      include: {
+        team: { select: { id: true, name: true, slug: true } },
+        lead: { select: { id: true } }
+      }
     }),
     prisma.workspaceMember.findMany({
       where: { workspaceId: actor.workspace.id },
@@ -1556,11 +1554,19 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
       include: { user: { select: { id: true, name: true, email: true } } }
     }),
     prisma.teamMember.findMany({
-      where: { team: { workspaceId: actor.workspace.id } },
+      where: access.workspaceWide
+        ? { team: { workspaceId: actor.workspace.id } }
+        : { teamId: { in: access.teamIds } },
       select: { teamId: true, userId: true }
     }),
+    access.workspaceWide || access.projectIds.length === 0
+      ? Promise.resolve([])
+      : prisma.projectMember.findMany({
+        where: { projectId: { in: access.projectIds } },
+        select: { projectId: true, userId: true }
+      }),
     prisma.task.findMany({
-      where: taskWhere,
+      where: taskWhereForAccess(access),
       orderBy: [{ updatedAt: 'desc' }],
       take: 80,
       select: { id: true, key: true, title: true, projectId: true }
@@ -1573,6 +1579,18 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
     current.push(membership.teamId);
     teamIdsByUserId.set(membership.userId, current);
   }
+
+  const visibleUserIds = new Set<string>([actor.user.id]);
+  if (!access.workspaceWide) {
+    for (const membership of teamMembers) visibleUserIds.add(membership.userId);
+    for (const membership of projectMembers) visibleUserIds.add(membership.userId);
+    for (const project of projects) {
+      if (project.lead?.id) visibleUserIds.add(project.lead.id);
+    }
+  }
+  const visibleMembers = access.workspaceWide
+    ? members
+    : members.filter((member) => visibleUserIds.has(member.user.id));
 
   return {
     teams: teams.map((team, index) => ({
@@ -1590,7 +1608,7 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
       teamName: project.team?.name || null,
       teamSlug: project.team?.slug || null
     })),
-    users: members.map((member, index) => ({
+    users: visibleMembers.map((member, index) => ({
       index: index + 1,
       id: member.user.id,
       name: member.user.name,
@@ -1604,7 +1622,7 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
       title: task.title,
       projectId: task.projectId
     })),
-    accessibleTeamIds
+    access
   };
 }
 
@@ -1745,7 +1763,7 @@ async function executeUpdateTaskPlan(
     return assistantResponse('needs_clarification', 'تسکی که باید ویرایش شود مشخص نیست. کلید تسک یا شماره تسک اخیر را در پیام بفرست.');
   }
 
-  const existing = await findTaskByIdOrKey(actor.workspace.id, taskKeyOrId, context.accessibleTeamIds);
+  const existing = await findTaskByIdOrKey(actor.workspace.id, taskKeyOrId, context.access);
   if (!existing) {
     return assistantResponse('blocked', 'این تسک را پیدا نکردم یا به آن دسترسی نداری.');
   }
@@ -1805,12 +1823,7 @@ async function executeQueryTasksPlan(
   const limit = safeQuery.limit;
   const resolvedProject = resolveAssistantProject(safeQuery.projectId || undefined, safeQuery.projectHint || undefined, context);
   const resolvedAssignee = resolveOptionalAssistantUser(safeQuery.assigneeId, safeQuery.assigneeHint, context);
-  const baseWhere: Prisma.TaskWhereInput = {
-    workspaceId: actor.workspace.id,
-    ...(context.accessibleTeamIds
-      ? { project: { OR: [{ teamId: null }, { teamId: { in: context.accessibleTeamIds } }] } }
-      : {})
-  };
+  const baseWhere: Prisma.TaskWhereInput = taskWhereForAccess(context.access);
   const andFilters: Prisma.TaskWhereInput[] = [];
   if (resolvedProject) andFilters.push({ projectId: resolvedProject.id });
   if (safeQuery.statuses.length > 0) andFilters.push({ status: { in: safeQuery.statuses } });
@@ -1976,10 +1989,7 @@ async function executeBulkUpdateTasksPlan(
   const resolvedAssignee = resolveOptionalAssistantUser(input.assigneeId, input.assigneeHint, context);
   const targetAssignee = resolveOptionalAssistantUser(input.setAssigneeId, input.setAssigneeHint, context);
   const where: Prisma.TaskWhereInput = {
-    workspaceId: actor.workspace.id,
-    ...(context.accessibleTeamIds
-      ? { project: { OR: [{ teamId: null }, { teamId: { in: context.accessibleTeamIds } }] } }
-      : {}),
+    ...taskWhereForAccess(context.access),
     ...(resolvedProject ? { projectId: resolvedProject.id } : {}),
     ...(resolvedAssignee ? { assigneeId: resolvedAssignee.id } : {}),
     ...(input.statuses.length ? { status: { in: input.statuses } } : {}),
@@ -2995,12 +3005,9 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
     const effectiveModel = actor.user.aiModel
       ? normalizeOpenRouterModel(actor.user.aiModel)
       : aiConfig.model;
-    const accessibleTeamIds = await listAccessibleTeamIds(actor);
+    const access = await resolveWorkspaceAccess(actor);
     const accessibleTeams = await prisma.team.findMany({
-      where: {
-        workspaceId: actor.workspace.id,
-        ...(accessibleTeamIds ? { id: { in: accessibleTeamIds } } : {})
-      },
+      where: teamWhereForAccess(access),
       select: { id: true, slug: true, name: true },
       orderBy: [{ name: 'asc' }]
     });
@@ -3029,19 +3036,18 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
     };
 
     const where: Prisma.TaskWhereInput = {
-      workspaceId: actor.workspace.id,
-      OR: [
-        { createdAt: { gte: range.startsAt, lt: range.endsAt } },
-        { updatedAt: { gte: range.startsAt, lt: range.endsAt } },
-        { completedAt: { gte: range.startsAt, lt: range.endsAt } }
+      AND: [
+        taskWhereForAccess(access),
+        {
+          OR: [
+            { createdAt: { gte: range.startsAt, lt: range.endsAt } },
+            { updatedAt: { gte: range.startsAt, lt: range.endsAt } },
+            { completedAt: { gte: range.startsAt, lt: range.endsAt } }
+          ]
+        },
+        ...(selectedTeam ? [{ project: { teamId: selectedTeam.id } }] : [])
       ]
     };
-
-    if (selectedTeam) {
-      where.project = { teamId: selectedTeam.id };
-    } else if (accessibleTeamIds) {
-      where.project = { OR: [{ teamId: null }, { teamId: { in: accessibleTeamIds } }] };
-    }
 
     const andFilters: Prisma.TaskWhereInput[] = [];
     if (appliedFilters.statuses.length > 0) {
@@ -3087,7 +3093,9 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
         andFilters.push({ OR: keywordOr });
       }
     }
-    if (andFilters.length > 0) where.AND = andFilters;
+    if (andFilters.length > 0) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), ...andFilters];
+    }
 
     const tasks = await prisma.task.findMany({
       where,

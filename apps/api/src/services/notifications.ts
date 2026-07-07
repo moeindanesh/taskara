@@ -6,6 +6,8 @@ export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 export const TASK_STATUS_CHANGED_NOTIFICATION_TYPE = 'task_status_changed';
 export const TASK_COMMENTED_NOTIFICATION_TYPE = 'task_commented';
 export const TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE = 'task_description_changed';
+export const TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE = 'task_review_requested';
+export const TASK_REVIEW_DECIDED_NOTIFICATION_TYPE = 'task_review_decided';
 export const ANNOUNCEMENT_PUBLISHED_NOTIFICATION_TYPE = 'announcement_published';
 export const MEETING_ASSIGNED_NOTIFICATION_TYPE = 'meeting_assigned';
 
@@ -36,6 +38,18 @@ export function taskCommentedNotificationBody(actorName: string): string {
 
 export function taskDescriptionChangedNotificationBody(actorName: string): string {
   return `${actorName} توضیحات این کار را به‌روزرسانی کرد.`;
+}
+
+export function taskReviewRequestedNotificationBody(actorName: string): string {
+  return `${actorName} از شما درخواست بازبینی این کار را کرد.`;
+}
+
+export function taskReviewApprovedNotificationBody(actorName: string): string {
+  return `${actorName} بازبینی این کار را تایید کرد.`;
+}
+
+export function taskReviewChangesRequestedNotificationBody(actorName: string): string {
+  return `${actorName} برای این کار درخواست تغییرات داد.`;
 }
 
 export function announcementPublishedNotificationBody(actorName: string): string {

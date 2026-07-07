@@ -93,6 +93,165 @@ describe('sync event scope mapping', () => {
 
     expect((mapped as { type?: string } | null)?.type).toBe('upsert');
   });
+
+  test('keeps manager events visible for workspace-wide access', () => {
+    const event = syncEvent(
+      { after: { id: 'attention-1', assigneeId: 'user-2', entityType: 'task', entityId: 'task-1' } },
+      'updated',
+      'attention'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, workspaceWideAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+    expect(mapped && 'entity' in mapped ? (mapped.entity as { id?: string }).id : null).toBe('attention-1');
+  });
+
+  test('keeps member-owned attention events visible', () => {
+    const event = syncEvent(
+      { after: { id: 'attention-1', assigneeId: 'user-1', entityType: 'task', entityId: 'task-1' } },
+      'updated',
+      'attention'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters restricted attention events for members', () => {
+    const event = syncEvent(
+      { after: { id: 'attention-1', assigneeId: 'user-2', entityType: 'task', entityId: 'task-1' } },
+      'updated',
+      'attention'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect(mapped).toBeNull();
+  });
+
+  test('keeps review events when actor is the reviewer', () => {
+    const event = syncEvent(
+      { after: { id: 'review-1', taskId: 'task-1', requesterId: 'user-2', reviewerId: 'user-1' } },
+      'created',
+      'review'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters review events when neither participant nor task scope is visible', () => {
+    const event = syncEvent(
+      {
+        after: {
+          id: 'review-1',
+          taskId: 'task-1',
+          requesterId: 'user-2',
+          reviewerId: 'user-3',
+          task: { id: 'task-1', project: { id: 'project-2', team: { id: 'team-private' } } }
+        }
+      },
+      'created',
+      'review'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess({ teamIds: ['team-public'] }));
+
+    expect(mapped).toBeNull();
+  });
+
+  test('keeps own check-in events for members', () => {
+    const event = syncEvent(
+      { after: { id: 'check-in-1', userId: 'user-1', authorId: 'user-1' } },
+      'created',
+      'check_in'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters another member check-in event', () => {
+    const event = syncEvent(
+      { after: { id: 'check-in-1', userId: 'user-2', authorId: 'user-2' } },
+      'created',
+      'check_in'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect(mapped).toBeNull();
+  });
+
+  test('keeps project health updates for accessible project leads', () => {
+    const event = syncEvent(
+      {
+        after: {
+          id: 'update-1',
+          projectId: 'project-1',
+          project: { id: 'project-1', teamId: 'team-private', leadId: 'user-1' }
+        }
+      },
+      'created',
+      'project_health_update'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess({ projectIds: ['project-1'] }));
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters project health updates for inaccessible projects', () => {
+    const event = syncEvent(
+      {
+        after: {
+          id: 'update-1',
+          projectId: 'project-2',
+          project: { id: 'project-2', teamId: 'team-private', leadId: 'user-2' }
+        }
+      },
+      'created',
+      'project_health_update'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess({ teamIds: ['team-public'] }));
+
+    expect(mapped).toBeNull();
+  });
+
+  test('keeps meeting action items when the actor participates in the meeting', () => {
+    const event = syncEvent(
+      {
+        after: {
+          id: 'action-1',
+          assigneeId: 'user-2',
+          meeting: { id: 'meeting-1', participants: [{ userId: 'user-1' }] }
+        }
+      },
+      'created',
+      'meeting_action_item'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters one-on-one agenda items when non-admin access cannot be proven from the payload', () => {
+    const event = syncEvent(
+      { after: { id: 'agenda-1', seriesId: 'series-1', createdById: 'user-2' } },
+      'created',
+      'one_on_one_agenda_item'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect(mapped).toBeNull();
+  });
 });
 
 describe('sync cursor serialization', () => {
@@ -107,9 +266,10 @@ describe('sync cursor serialization', () => {
   });
 });
 
-function syncEvent(payload: Record<string, unknown>, operation = 'updated'): SyncEvent {
+function syncEvent(payload: Record<string, unknown>, operation = 'updated', entityType = 'task'): SyncEvent {
   return {
     ...baseEvent,
+    entityType,
     operation,
     payload: payload as SyncEvent['payload']
   };
@@ -135,6 +295,33 @@ function task(overrides: Record<string, unknown> = {}) {
     updatedAt: '2026-04-26T00:00:00.000Z',
     project: { team: { slug: 'ops' } },
     assignee: null,
+    ...overrides
+  };
+}
+
+function workspaceWideAccess(): {
+  workspaceId: string;
+  userId: string;
+  workspaceWide: boolean;
+  teamIds: string[];
+  projectIds: string[];
+} {
+  return {
+    workspaceId: 'workspace-1',
+    userId: 'user-1',
+    workspaceWide: true,
+    teamIds: [],
+    projectIds: []
+  };
+}
+
+function memberAccess(overrides: Partial<ReturnType<typeof workspaceWideAccess>> = {}) {
+  return {
+    workspaceId: 'workspace-1',
+    userId: 'user-1',
+    workspaceWide: false,
+    teamIds: [],
+    projectIds: [],
     ...overrides
   };
 }

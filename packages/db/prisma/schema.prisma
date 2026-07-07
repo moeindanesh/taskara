@@ -108,6 +108,12 @@ enum MeetingParticipantRole {
   PARTICIPANT
 }
 
+enum MeetingActionItemStatus {
+  OPEN
+  DONE
+  CANCELED
+}
+
 enum SmsDeliveryStatus {
   SENT
   FAILED
@@ -135,6 +141,39 @@ enum KnowledgeReferenceType {
   EXTERNAL_URL
 }
 
+enum AttentionItemStatus {
+  OPEN
+  SNOOZED
+  RESOLVED
+  DISMISSED
+}
+
+enum AttentionItemSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskReviewStatus {
+  REQUESTED
+  CHANGES_REQUESTED
+  APPROVED
+  CANCELED
+}
+
+enum TaskTriageStatus {
+  OPEN
+  WAITING_FOR_INFO
+  SNOOZED
+}
+
+enum ProjectUpdateHealth {
+  ON_TRACK
+  AT_RISK
+  OFF_TRACK
+}
+
 model Workspace {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
@@ -146,6 +185,7 @@ model Workspace {
   users                  WorkspaceMember[]
   teams                  Team[]
   projects               Project[]
+  projectHealthUpdates   ProjectHealthUpdate[]
   tasks                  Task[]
   labels                 Label[]
   cycles                 Cycle[]
@@ -157,6 +197,10 @@ model Workspace {
   announcementPollVotes  AnnouncementPollVote[]
   meetings               Meeting[]
   meetingParticipants    MeetingParticipant[]
+  checkInResponses       CheckInResponse[]
+  oneOnOneSeries         OneOnOneSeries[]
+  oneOnOneAgendaItems    OneOnOneAgendaItem[]
+  meetingActionItems     MeetingActionItem[]
   knowledgeSpaces        KnowledgeSpace[]
   knowledgePages         KnowledgePage[]
   knowledgeLabels        KnowledgeLabel[]
@@ -164,6 +208,11 @@ model Workspace {
   knowledgeSubscriptions KnowledgePageSubscription[]
   knowledgeReferences    KnowledgePageReference[]
   notifications          Notification[]
+  attentionItems         AttentionItem[]
+  taskReviewRequests     TaskReviewRequest[]
+  taskTriageStates       TaskTriageState[]
+  userCapacities         UserCapacity[]
+  teamWorkingAgreements  TeamWorkingAgreement[]
   taskSubscriptions      TaskSubscription[]
   activityLogs           ActivityLog[]
   smsDeliveries          SmsDelivery[]
@@ -192,6 +241,7 @@ model User {
   teamMemberships               TeamMember[]
   projectMemberships            ProjectMember[]
   ledProjects                   Project[]                   @relation("ProjectLead")
+  authoredProjectHealthUpdates  ProjectHealthUpdate[]       @relation("ProjectHealthUpdateAuthor")
   assignedTasks                 Task[]                      @relation("AssignedTasks")
   reportedTasks                 Task[]                      @relation("ReportedTasks")
   createdAnnouncements          Announcement[]              @relation("AnnouncementCreator")
@@ -200,6 +250,13 @@ model User {
   ownedMeetings                 Meeting[]                   @relation("MeetingOwner")
   createdMeetings               Meeting[]                   @relation("MeetingCreator")
   meetingParticipants           MeetingParticipant[]
+  checkInResponses              CheckInResponse[]            @relation("CheckInUser")
+  authoredCheckInResponses      CheckInResponse[]            @relation("CheckInAuthor")
+  managedOneOnOnes              OneOnOneSeries[]             @relation("OneOnOneManager")
+  participantOneOnOnes          OneOnOneSeries[]             @relation("OneOnOneParticipant")
+  createdOneOnOneAgendaItems    OneOnOneAgendaItem[]         @relation("OneOnOneAgendaCreator")
+  assignedMeetingActionItems    MeetingActionItem[]          @relation("MeetingActionAssignee")
+  createdMeetingActionItems     MeetingActionItem[]          @relation("MeetingActionCreator")
   createdKnowledgeSpaces        KnowledgeSpace[]            @relation("KnowledgeSpaceCreator")
   updatedKnowledgeSpaces        KnowledgeSpace[]            @relation("KnowledgeSpaceUpdater")
   ownedKnowledgePages           KnowledgePage[]             @relation("KnowledgePageOwner")
@@ -213,6 +270,12 @@ model User {
   taskSubscriptions             TaskSubscription[]
   comments                      TaskComment[]
   notifications                 Notification[]
+  assignedAttentionItems        AttentionItem[]              @relation("AttentionAssignee")
+  managedAttentionItems         AttentionItem[]              @relation("AttentionManager")
+  requestedTaskReviews          TaskReviewRequest[]          @relation("TaskReviewRequester")
+  assignedTaskReviews           TaskReviewRequest[]          @relation("TaskReviewReviewer")
+  taskTriageDecisions           TaskTriageState[]            @relation("TaskTriageDecider")
+  capacities                    UserCapacity[]
   activityLogs                  ActivityLog[]
   smsDeliveries                 SmsDelivery[]               @relation("SmsDeliveryRequester")
   createdAgentRuns              AgentRun[]
@@ -286,6 +349,7 @@ model Team {
   projects        Project[]
   meetings        Meeting[]
   knowledgeSpaces KnowledgeSpace[]
+  workingAgreements TeamWorkingAgreement[]
 
   @@unique([workspaceId, slug])
 }
@@ -326,11 +390,35 @@ model Project {
   tasks              Task[]
   meetings           Meeting[]
   knowledgeSpaces    KnowledgeSpace[]
+  healthUpdates      ProjectHealthUpdate[]
   cycles             Cycle[]
   mattermostBindings MattermostBinding[]
 
   @@unique([workspaceId, keyPrefix])
   @@index([workspaceId, parentId])
+}
+
+model ProjectHealthUpdate {
+  id              String              @id @default(uuid()) @db.Uuid
+  workspaceId     String              @db.Uuid
+  projectId       String              @db.Uuid
+  authorId        String?             @db.Uuid
+  health          ProjectUpdateHealth
+  summary         String
+  progress        String?
+  risks           String?
+  decisionsNeeded String?
+  nextUpdateDueAt DateTime?
+  publishedAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author    User?     @relation("ProjectHealthUpdateAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, projectId, createdAt])
+  @@index([workspaceId, health, nextUpdateDueAt])
 }
 
 model ProjectMember {
@@ -394,7 +482,10 @@ model Task {
   attachments          TaskAttachment[]
   labels               TaskLabel[]
   subscriptions        TaskSubscription[]
+  reviewRequests       TaskReviewRequest[]
+  triageState          TaskTriageState?
   meetingLinks         MeetingTask[]
+  meetingActionItems   MeetingActionItem[]
   blockingDependencies TaskDependency[]   @relation("TaskBlockedBy")
   blockedTasks         TaskDependency[]   @relation("TaskBlocks")
   notifications        Notification[]
@@ -404,6 +495,26 @@ model Task {
   @@index([workspaceId, status])
   @@index([workspaceId, assigneeId])
   @@index([workspaceId, dueAt])
+}
+
+model TaskTriageState {
+  id            String           @id @default(uuid()) @db.Uuid
+  workspaceId   String           @db.Uuid
+  taskId        String           @unique @db.Uuid
+  status        TaskTriageStatus @default(OPEN)
+  requestedInfo String?
+  snoozedUntil  DateTime?
+  reason        String?
+  decidedById   String?          @db.Uuid
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  decidedBy User?     @relation("TaskTriageDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, snoozedUntil])
+  @@index([workspaceId, decidedById])
 }
 
 model TaskDependency {
@@ -491,6 +602,68 @@ model TaskSubscription {
   @@unique([taskId, userId])
   @@index([workspaceId, userId, createdAt])
   @@index([taskId])
+}
+
+model TaskReviewRequest {
+  id          String           @id @default(uuid()) @db.Uuid
+  workspaceId String           @db.Uuid
+  taskId      String           @db.Uuid
+  requesterId String?          @db.Uuid
+  reviewerId  String           @db.Uuid
+  status      TaskReviewStatus @default(REQUESTED)
+  requestedAt DateTime         @default(now())
+  respondedAt DateTime?
+  dueAt       DateTime?
+  comment     String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requester User?     @relation("TaskReviewRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  reviewer  User      @relation("TaskReviewReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, reviewerId, status, dueAt])
+  @@index([workspaceId, taskId, status])
+}
+
+model UserCapacity {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @db.Uuid
+  userId            String   @db.Uuid
+  dailyWeightLimit  Float    @default(8)
+  weeklyWeightLimit Float?
+  active            Boolean  @default(true)
+  note              String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId, active])
+  @@index([userId])
+}
+
+model TeamWorkingAgreement {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  teamId          String?  @db.Uuid
+  scopeKey        String
+  activeWipLimit  Int?
+  reviewWipLimit  Int?
+  reviewSlaHours  Int      @default(24)
+  blockedSlaHours Int      @default(24)
+  staleAfterHours Int      @default(72)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, scopeKey])
+  @@index([workspaceId, teamId])
 }
 
 model View {
@@ -619,6 +792,9 @@ model Meeting {
   createdBy     User?                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: SetNull)
   participants  MeetingParticipant[]
   tasks         MeetingTask[]
+  oneOnOneSeries OneOnOneSeries[]         @relation("OneOnOneLastMeeting")
+  agendaItems   OneOnOneAgendaItem[]
+  actionItems   MeetingActionItem[]
   notifications Notification[]
 
   @@index([workspaceId, status, scheduledAt])
@@ -653,6 +829,99 @@ model MeetingTask {
   task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@id([meetingId, taskId])
+  @@index([taskId])
+}
+
+model CheckInResponse {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid
+  userId        String   @db.Uuid
+  authorId      String?  @db.Uuid
+  completedText String?
+  blockersText  String?
+  planText      String?
+  helpText      String?
+  submittedFor  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation("CheckInUser", fields: [userId], references: [id], onDelete: Cascade)
+  author    User?     @relation("CheckInAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, userId, submittedFor])
+  @@index([workspaceId, createdAt])
+}
+
+model OneOnOneSeries {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  managerId       String   @db.Uuid
+  participantId   String   @db.Uuid
+  title           String?
+  cadenceDays     Int      @default(14)
+  nextScheduledAt DateTime?
+  lastMeetingId   String?  @db.Uuid
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  manager      User                  @relation("OneOnOneManager", fields: [managerId], references: [id], onDelete: Cascade)
+  participant  User                  @relation("OneOnOneParticipant", fields: [participantId], references: [id], onDelete: Cascade)
+  lastMeeting  Meeting?              @relation("OneOnOneLastMeeting", fields: [lastMeetingId], references: [id], onDelete: SetNull)
+  agendaItems  OneOnOneAgendaItem[]
+
+  @@index([workspaceId, managerId, active, nextScheduledAt])
+  @@index([workspaceId, participantId, active, nextScheduledAt])
+}
+
+model OneOnOneAgendaItem {
+  id          String                  @id @default(uuid()) @db.Uuid
+  workspaceId String                  @db.Uuid
+  seriesId    String                  @db.Uuid
+  meetingId   String?                 @db.Uuid
+  createdById String?                 @db.Uuid
+  sourceType  String?
+  sourceId    String?
+  title       String
+  notes       String?
+  status      MeetingActionItemStatus @default(OPEN)
+  position    Int                     @default(0)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  series    OneOnOneSeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  meeting   Meeting?        @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  createdBy User?           @relation("OneOnOneAgendaCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, seriesId, status, position])
+  @@index([workspaceId, meetingId])
+}
+
+model MeetingActionItem {
+  id          String                  @id @default(uuid()) @db.Uuid
+  workspaceId String                  @db.Uuid
+  meetingId   String                  @db.Uuid
+  taskId      String?                 @db.Uuid
+  assigneeId  String?                 @db.Uuid
+  createdById String?                 @db.Uuid
+  title       String
+  notes       String?
+  status      MeetingActionItemStatus @default(OPEN)
+  dueAt       DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  assignee  User?     @relation("MeetingActionAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("MeetingActionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, meetingId, status])
+  @@index([workspaceId, assigneeId, status, dueAt])
   @@index([taskId])
 }
 
@@ -970,6 +1239,36 @@ model ActivityLog {
 
   @@index([workspaceId, entityType, entityId])
   @@index([actorId, createdAt])
+}
+
+model AttentionItem {
+  id              String              @id @default(uuid()) @db.Uuid
+  workspaceId     String              @db.Uuid
+  assigneeId      String?             @db.Uuid
+  managerId       String?             @db.Uuid
+  entityType      String
+  entityId        String
+  reason          String
+  severity        AttentionItemSeverity
+  status          AttentionItemStatus @default(OPEN)
+  firstSeenAt     DateTime            @default(now())
+  lastSeenAt      DateTime            @default(now())
+  snoozedUntil    DateTime?
+  resolvedAt      DateTime?
+  dismissedAt     DateTime?
+  dismissalReason String?
+  payload         Json
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignee  User?     @relation("AttentionAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  manager   User?     @relation("AttentionManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, entityType, entityId, reason])
+  @@index([workspaceId, status, severity, lastSeenAt])
+  @@index([workspaceId, assigneeId, status])
+  @@index([workspaceId, managerId, status])
 }
 
 model IntegrationAccount {
