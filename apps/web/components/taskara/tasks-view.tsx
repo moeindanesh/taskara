@@ -83,6 +83,7 @@ import {
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import {
    TaskDueDateControl,
    makeDueDate,
@@ -4767,9 +4768,11 @@ function IssueRow({
                </span>
                <span className="min-w-0">
                   <span className="flex min-w-0 items-center gap-2">
-                     <span className="block min-w-0 truncate font-normal text-zinc-200">
-                        {task.title}
-                     </span>
+                     <IssueTitleTooltip title={task.title}>
+                        <span className="block min-w-0 truncate font-normal text-zinc-200">
+                           {task.title}
+                        </span>
+                     </IssueTitleTooltip>
                      {task.weight !== null && task.weight !== undefined ? (
                         <span className="inline-flex h-5 w-11 shrink-0 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
                            <Box className="size-2.5 shrink-0" />
@@ -4918,9 +4921,11 @@ function IssueCard({
                         ) : null}
                      </div>
                      <div className="mt-1 flex items-start gap-1.5">
-                        <span className="line-clamp-2 min-w-0 text-sm font-normal text-zinc-100">
-                           {task.title}
-                        </span>
+                        <IssueTitleTooltip title={task.title}>
+                           <span className="line-clamp-2 min-w-0 text-sm font-normal text-zinc-100">
+                              {task.title}
+                           </span>
+                        </IssueTitleTooltip>
                         {task.weight !== null && task.weight !== undefined ? (
                            <span className="mt-0.5 inline-flex h-5 w-11 shrink-0 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
                               <Box className="size-2.5 shrink-0" />

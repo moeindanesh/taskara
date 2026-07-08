@@ -452,18 +452,17 @@ function buildPeopleHealth(
       const allTasks = activeTasks
         .filter((task) => task.assignee?.id === membership.user.id)
         .sort(byDueDateAsc);
-      const displayTasks = allTasks.slice(0, queueLimit);
-      const activeWeight = allTasks.reduce((sum, task) => sum + taskWeight(task), 0);
-      const todayWeight = allTasks
-        .filter((task) => task.dueAt && new Date(task.dueAt).getTime() <= todayEnd.getTime())
-        .reduce((sum, task) => sum + taskWeight(task), 0);
+      const workloadTasks = allTasks.filter((task) => isDueTodayOrEarlier(task, todayEnd));
+      const displayTasks = workloadTasks.slice(0, queueLimit);
+      const activeWeight = workloadTasks.reduce((sum, task) => sum + taskWeight(task), 0);
+      const todayWeight = activeWeight;
       const capacityActive = capacityRecord?.active ?? true;
       const capacity = capacityActive ? capacityRecord?.dailyWeightLimit ?? workHealthThresholds.dailyWeightLimit : 0;
       const loadRatio = capacity > 0 ? activeWeight / capacity : activeWeight > 0 ? 999 : 0;
 
       return {
         user: membership.user,
-        activeCount: allTasks.length,
+        activeCount: workloadTasks.length,
         activeWeight,
         todayWeight,
         reviewCount: allTasks.filter((task) => task.status === 'IN_REVIEW').length,
@@ -473,7 +472,7 @@ function buildPeopleHealth(
         capacity,
         capacityActive,
         loadRatio,
-        status: capacityActive ? workloadStatus(allTasks.length, loadRatio) : activeWeight > 0 ? 'overloaded' : 'idle',
+        status: capacityActive ? workloadStatus(workloadTasks.length, loadRatio) : activeWeight > 0 ? 'overloaded' : 'idle',
         tasks: displayTasks
       } satisfies WorkHealthPerson;
     })
@@ -683,6 +682,11 @@ function isDueSoon(task: HealthTask, now: Date): boolean {
   if (!task.dueAt) return false;
   const dueAt = new Date(task.dueAt).getTime();
   return dueAt >= now.getTime() && dueAt <= now.getTime() + workHealthThresholds.dueSoonHours * 60 * 60 * 1000;
+}
+
+function isDueTodayOrEarlier(task: HealthTask, todayEnd: Date): boolean {
+  if (!task.dueAt) return false;
+  return new Date(task.dueAt).getTime() <= todayEnd.getTime();
 }
 
 function isStale(task: HealthTask, now: Date): boolean {

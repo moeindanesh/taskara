@@ -30,6 +30,7 @@ import {
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
 import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
@@ -263,14 +264,16 @@ function ReviewRow({
             <div className="mb-1 flex min-w-0 items-center gap-2">
                {task ? <StatusIcon status={task.status} className="size-4 shrink-0" /> : <GitPullRequest className="size-4 shrink-0 text-zinc-500" />}
                {task ? (
-                  <Link
-                     to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
-                     className="min-w-0 truncate text-sm font-medium text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-300"
-                  >
-                     <span className="font-mono text-xs text-zinc-500">{task.key}</span>
-                     <span className="px-1.5 text-zinc-400">·</span>
-                     {task.title}
-                  </Link>
+                  <IssueTitleTooltip title={task.title}>
+                     <Link
+                        to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
+                        className="min-w-0 truncate text-sm font-medium text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-300"
+                     >
+                        <span className="font-mono text-xs text-zinc-500">{task.key}</span>
+                        <span className="px-1.5 text-zinc-400">·</span>
+                        {task.title}
+                     </Link>
+                  </IssueTitleTooltip>
                ) : (
                   <span className="truncate text-sm font-medium">{fa.reviews.missingTask}</span>
                )}

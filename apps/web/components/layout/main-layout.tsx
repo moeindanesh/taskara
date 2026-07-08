@@ -18,6 +18,7 @@ import {
    DialogTitle,
 } from '@/components/ui/dialog';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { LinearAvatar, ProjectGlyph, ShortcutKey, StatusIcon } from '@/components/taskara/linear-ui';
 import { WorkspaceTaskComposer } from '@/components/taskara/workspace-task-composer';
 import { fa } from '@/lib/fa-copy';
@@ -550,7 +551,9 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                         >
                            <StatusIcon status={task.status} />
                            <span className="min-w-0">
-                              <span className="block truncate text-sm text-zinc-200">{task.title}</span>
+                              <IssueTitleTooltip title={task.title}>
+                                 <span className="block truncate text-sm text-zinc-200">{task.title}</span>
+                              </IssueTitleTooltip>
                               <span className="block truncate text-xs text-zinc-500">
                                  {task.key}
                                  {task.project?.name ? ` • ${task.project.name}` : ''}
@@ -578,7 +581,9 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                         >
                            <StatusIcon status={task.status} />
                            <span className="min-w-0">
-                              <span className="block truncate text-sm text-zinc-200">{task.title}</span>
+                              <IssueTitleTooltip title={task.title}>
+                                 <span className="block truncate text-sm text-zinc-200">{task.title}</span>
+                              </IssueTitleTooltip>
                               <span className="block truncate text-xs text-zinc-500">
                                  {task.key}
                                  {task.project?.name ? ` • ${task.project.name}` : ''}

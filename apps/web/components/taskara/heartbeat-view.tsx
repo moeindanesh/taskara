@@ -18,6 +18,7 @@ import {
    StatusIcon,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
 import type { TaskaraTask, TaskaraUser } from '@/lib/taskara-types';
@@ -318,9 +319,11 @@ function TodayPlanTaskContent({ task }: { task: TaskaraTask }) {
       <div className="min-w-0">
          <div className="flex min-w-0 items-center gap-1.5">
             <StatusIcon status={task.status} className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-right text-xs text-zinc-900 [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
-               {task.title}
-            </span>
+            <IssueTitleTooltip title={task.title}>
+               <span className="min-w-0 flex-1 truncate text-right text-xs text-zinc-900 [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
+                  {task.title}
+               </span>
+            </IssueTitleTooltip>
             <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] text-zinc-500 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-400">
                {formatTaskWeight(task.weight)}
             </span>
@@ -512,9 +515,11 @@ function TaskPulseRowContent({
             <ProjectGlyph name={task.project?.name} className="size-4 shrink-0 rounded-sm" iconClassName="size-3" />
             <span className="min-w-0 truncate text-right">{task.project?.name || fa.app.unset}</span>
          </span>
-         <span className="min-w-0 truncate text-right text-sm text-zinc-900 [direction:rtl] [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
-            {task.title}
-         </span>
+         <IssueTitleTooltip title={task.title}>
+            <span className="min-w-0 truncate text-right text-sm text-zinc-900 [direction:rtl] [unicode-bidi:plaintext] dark:text-zinc-200" dir="rtl">
+               {task.title}
+            </span>
+         </IssueTitleTooltip>
          <span className="flex size-6 items-center justify-center justify-self-center">
             {task.assignee ? <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-6" /> : null}
          </span>

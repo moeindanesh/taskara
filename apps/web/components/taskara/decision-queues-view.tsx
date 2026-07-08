@@ -44,6 +44,7 @@ import {
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
 import { dispatchWorkspaceRefresh, useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
@@ -239,7 +240,7 @@ export function DecisionQueuesView() {
    }, [applyTriageResult, triageDialog, triageDuplicateKey, triageNote, triagePriority, triageSnoozedUntil, triageSplitItems, triageSubmitting]);
 
    return (
-      <div className="flex min-h-full flex-col bg-background text-zinc-900 dark:bg-[#101011] dark:text-zinc-100" data-testid="decision-queues-screen">
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background text-zinc-900 dark:bg-[#101011] dark:text-zinc-100" data-testid="decision-queues-screen">
          <div className="sticky top-0 z-10 border-b border-zinc-200 bg-background/95 px-4 py-3 backdrop-blur dark:border-white/8 dark:bg-[#101011]/95 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
                <div className="min-w-0">
@@ -443,20 +444,22 @@ function DecisionTaskRow({
    const PriorityIcon = linearPriorityMeta[task.priority]?.icon || CircleDot;
 
    return (
-      <div className="grid gap-3 py-3 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.65fr)_auto] md:items-center">
+      <div className="grid gap-3 py-3 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-start" data-testid="decision-task-row">
          <div className="min-w-0">
-            <div className="mb-1 flex min-w-0 items-center gap-2">
-               <StatusIcon status={task.status} className="size-4 shrink-0" />
-               <Link
-                  to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
-                  className="min-w-0 truncate text-sm font-medium text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-300"
-               >
-                  <span className="font-mono text-xs text-zinc-500">{task.key}</span>
-                  <span className="px-1.5 text-zinc-400">·</span>
-                  {task.title}
-               </Link>
+            <div className="flex min-w-0 items-start gap-2">
+               <StatusIcon status={task.status} className="mt-0.5 size-4 shrink-0" />
+               <IssueTitleTooltip title={task.title}>
+                  <Link
+                     to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
+                     className="min-w-0 flex-1 truncate text-start text-sm font-medium text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-300"
+                  >
+                     <span className="font-mono text-xs text-zinc-500">{task.key}</span>
+                     <span className="px-1.5 text-zinc-400">·</span>
+                     {task.title}
+                  </Link>
+               </IssueTitleTooltip>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+            <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-zinc-500">
                {task.project ? (
                   <span className="inline-flex max-w-full items-center gap-1 truncate">
                      <ProjectGlyph name={task.project.name} className="size-3.5 shrink-0" />
@@ -468,35 +471,32 @@ function DecisionTaskRow({
                   {linearPriorityMeta[task.priority]?.label || task.priority}
                </span>
                <span>{statusMeta?.label || task.status}</span>
-            </div>
-         </div>
-
-         <div className="flex min-w-0 flex-wrap gap-1.5 text-xs text-zinc-500">
-            {task.assignee ? (
-               <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-200 px-2 py-0.5 dark:border-white/8">
-                  <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-4 shrink-0" />
-                  <span className="truncate">{task.assignee.name}</span>
-               </span>
-            ) : (
-               <span className="rounded-full border border-amber-300/60 bg-amber-300/10 px-2 py-0.5 text-amber-700 dark:border-amber-400/20 dark:text-amber-200">
-                  {fa.decisionQueues.noAssignee}
-               </span>
-            )}
-            {variant === 'review' && task.activeReviewRequest ? (
-               <>
-                  <span className="rounded-full border border-sky-300/60 bg-sky-300/10 px-2 py-0.5 text-sky-700 dark:border-sky-400/20 dark:text-sky-200">
-                     {reviewer ? fa.decisionQueues.reviewer(reviewer.name) : fa.decisionQueues.reviewerUnknown}
+               {task.assignee ? (
+                  <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-200 px-2 py-0.5 dark:border-white/8">
+                     <LinearAvatar name={task.assignee.name} src={task.assignee.avatarUrl} className="size-4 shrink-0" />
+                     <span className="truncate">{task.assignee.name}</span>
                   </span>
+               ) : (
+                  <span className="rounded-full border border-amber-300/60 bg-amber-300/10 px-2 py-0.5 text-amber-700 dark:border-amber-400/20 dark:text-amber-200">
+                     {fa.decisionQueues.noAssignee}
+                  </span>
+               )}
+               {variant === 'review' && task.activeReviewRequest ? (
+                  <>
+                     <span className="rounded-full border border-sky-300/60 bg-sky-300/10 px-2 py-0.5 text-sky-700 dark:border-sky-400/20 dark:text-sky-200">
+                        {reviewer ? fa.decisionQueues.reviewer(reviewer.name) : fa.decisionQueues.reviewerUnknown}
+                     </span>
+                     <span className="rounded-full border border-zinc-200 px-2 py-0.5 dark:border-white/8">
+                        {fa.decisionQueues.waitingSince(formatJalaliDate(task.activeReviewRequest.requestedAt))}
+                     </span>
+                  </>
+               ) : null}
+               {task.dueAt ? (
                   <span className="rounded-full border border-zinc-200 px-2 py-0.5 dark:border-white/8">
-                     {fa.decisionQueues.waitingSince(formatJalaliDate(task.activeReviewRequest.requestedAt))}
+                     {fa.decisionQueues.dueAt(formatJalaliDate(task.dueAt))}
                   </span>
-               </>
-            ) : null}
-            {task.dueAt ? (
-               <span className="rounded-full border border-zinc-200 px-2 py-0.5 dark:border-white/8">
-                  {fa.decisionQueues.dueAt(formatJalaliDate(task.dueAt))}
-               </span>
-            ) : null}
+               ) : null}
+            </div>
          </div>
 
          {variant === 'triage' && onOpenTriage ? (

@@ -27,6 +27,7 @@ import {
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceInboxSync } from '@/lib/inbox-sync';
 import { formatJalaliDateTime } from '@/lib/jalali';
@@ -325,6 +326,18 @@ function NotificationListItem({
    const isRead = Boolean(notification.readAt);
    const isStatusChange = notification.type === 'task_status_changed';
    const taskStatus = notification.task?.status || 'TODO';
+   const title = notificationTitle(notification);
+   const titleNode = (
+      <span
+         className={cn(
+            'block min-w-0 flex-1 truncate text-start text-[13px] leading-5',
+            isRead ? 'text-zinc-500' : 'text-zinc-100'
+         )}
+         dir="auto"
+      >
+         {title}
+      </span>
+   );
 
    return (
       <button
@@ -351,15 +364,7 @@ function NotificationListItem({
          <span className="min-w-0">
             <span className="mb-0.5 flex min-w-0 items-center gap-1.5">
                {!isRead ? <span className="size-1.5 shrink-0 rounded-full bg-[#5e6ad2]" /> : null}
-               <span
-                  className={cn(
-                     'block min-w-0 flex-1 truncate text-start text-[13px] leading-5',
-                     isRead ? 'text-zinc-500' : 'text-zinc-100'
-                  )}
-                  dir="auto"
-               >
-                  {notificationTitle(notification)}
-               </span>
+               {notification.task ? <IssueTitleTooltip title={title}>{titleNode}</IssueTitleTooltip> : titleNode}
             </span>
             {isStatusChange ? (
                <span
@@ -635,7 +640,9 @@ function MeetingDetailPane({
                   {(meeting?.tasks || []).slice(0, 8).map((link) => (
                      <div key={`${link.meetingId}-${link.taskId}`} className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
                         <span className="ltr me-2 text-xs text-zinc-500">{link.task.key}</span>
-                        {link.task.title}
+                        <IssueTitleTooltip title={link.task.title}>
+                           <span>{link.task.title}</span>
+                        </IssueTitleTooltip>
                      </div>
                   ))}
                </div>

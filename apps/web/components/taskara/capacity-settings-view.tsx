@@ -155,7 +155,7 @@ export function CapacitySettingsView() {
    }
 
    return (
-      <div className="flex min-h-full flex-col bg-background text-zinc-900 dark:bg-[#101011] dark:text-zinc-100" data-testid="capacity-settings-screen">
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background text-zinc-900 dark:bg-[#101011] dark:text-zinc-100" data-testid="capacity-settings-screen">
          <div className="sticky top-0 z-10 border-b border-zinc-200 bg-background/95 px-4 py-3 backdrop-blur dark:border-white/8 dark:bg-[#101011]/95 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
                <div className="min-w-0 text-xs leading-5 text-zinc-500">{fa.capacitySettings.description}</div>

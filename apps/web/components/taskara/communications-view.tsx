@@ -45,6 +45,7 @@ import {
    type CommunicationListItem,
 } from '@/components/taskara/communications/primitives';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { LazyJalaliDatePicker } from '@/components/taskara/lazy-jalali-date-picker';
 import { LinearAvatar, ProjectGlyph, StatusIcon } from '@/components/taskara/linear-ui';
 import { SmsConfirmDialog } from '@/components/taskara/sms-confirm-dialog';
@@ -1099,7 +1100,9 @@ function MeetingDetail({
                   {(meeting.tasks || []).slice(0, 10).map((link) => (
                      <div key={`${link.meetingId}-${link.taskId}`} className="flex min-w-0 items-center gap-3 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
                         <StatusIcon status={link.task.status} />
-                        <span className="min-w-0 flex-1 truncate">{link.task.title}</span>
+                        <IssueTitleTooltip title={link.task.title}>
+                           <span className="min-w-0 flex-1 truncate">{link.task.title}</span>
+                        </IssueTitleTooltip>
                         <span className="shrink-0 text-xs text-zinc-500">{link.task.key}</span>
                      </div>
                   ))}

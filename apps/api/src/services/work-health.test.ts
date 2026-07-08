@@ -76,13 +76,17 @@ describe('work health summary computation', () => {
     expect(summary.attention.find((item) => item.reason === 'blocked_task')?.ageHours).toBe(30);
   });
 
-  test('calculates person workload from every active task while limiting display tasks', () => {
+  test('calculates person workload from due-today and overdue tasks while limiting display tasks', () => {
     const activeTasks = Array.from({ length: 30 }, (_, index) => task({
       id: `load-${index}`,
       key: `OPS-${index + 1}`,
       weight: 1,
+      dueAt: dateFromNow(index % 2 === 0 ? -1 : 0),
       assignee: user('loaded')
-    }));
+    })).concat([
+      task({ id: 'future-load', key: 'OPS-99', weight: 8, dueAt: dateFromNow(48), assignee: user('loaded') }),
+      task({ id: 'unscheduled-load', key: 'OPS-100', weight: 8, dueAt: null, assignee: user('loaded') })
+    ]);
 
     const summary = computeWorkHealthSummary({
       access: workspaceAccess,
@@ -98,9 +102,11 @@ describe('work health summary computation', () => {
     expect(summary.people[0]).toMatchObject({
       activeCount: 30,
       activeWeight: 30,
+      todayWeight: 30,
       status: 'overloaded'
     });
     expect(summary.people[0]?.tasks).toHaveLength(24);
+    expect(summary.people[0]?.tasks.some((item) => item.id === 'future-load' || item.id === 'unscheduled-load')).toBe(false);
     expect(summary.overview.overloadedPeople).toBe(1);
     expect(summary.attention.some((item) => item.reason === 'overloaded_person')).toBe(true);
   });
@@ -110,6 +116,7 @@ describe('work health summary computation', () => {
       id: `custom-load-${index}`,
       key: `OPS-${index + 1}`,
       weight: 2,
+      dueAt: dateFromNow(-2),
       assignee: user('custom-capacity')
     }));
 

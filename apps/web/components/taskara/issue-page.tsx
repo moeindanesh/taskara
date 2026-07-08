@@ -2,11 +2,10 @@
 
 import type { ButtonHTMLAttributes, ChangeEvent, FormEvent } from 'react';
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
    ArrowRight,
-   BookOpen,
    Box,
    Check,
    CheckCircle2,
@@ -58,10 +57,7 @@ import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-present
 import type {
    PaginatedResponse,
    TaskaraActivity,
-   TaskaraAssignmentRecommendation,
-   TaskaraAssignmentRecommendationResponse,
    TaskaraAttachment,
-   TaskaraKnowledgeReference,
    TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
@@ -215,7 +211,6 @@ export function IssuePage() {
    const taskSync = useWorkspaceTaskSync();
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
-   const [relatedDocs, setRelatedDocs] = useState<TaskaraKnowledgeReference[]>([]);
    const [reviews, setReviews] = useState<TaskaraTaskReview[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
    const [projects, setProjects] = useState<TaskaraProject[]>([]);
@@ -231,8 +226,6 @@ export function IssuePage() {
    const [aiSuggestion, setAiSuggestion] = useState<TaskTextSuggestionResult | null>(null);
    const [aiApplying, setAiApplying] = useState(false);
    const [commentSubmitting, setCommentSubmitting] = useState(false);
-   const [assignmentLoading, setAssignmentLoading] = useState(false);
-   const [assignmentRecommendations, setAssignmentRecommendations] = useState<TaskaraAssignmentRecommendationResponse | null>(null);
    const [triageDraft, setTriageDraft] = useState('');
    const [triageSubmitting, setTriageSubmitting] = useState<'accept' | 'request-info' | 'decline' | null>(null);
    const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -255,7 +248,6 @@ export function IssuePage() {
    const cachedTaskRef = useRef<TaskaraTask | null>(null);
    const syncUsersRef = useRef<TaskaraUser[]>([]);
    const loadRequestRef = useRef(0);
-   const relatedDocsRequestRef = useRef(0);
    const reviewsRequestRef = useRef(0);
 
    const closeIssuePage = useCallback(() => {
@@ -280,19 +272,6 @@ export function IssuePage() {
          setActivities(activityResult);
       } catch {
          setActivities([]);
-      }
-   }, []);
-
-   const loadRelatedDocs = useCallback(async (taskId: string) => {
-      const requestId = ++relatedDocsRequestRef.current;
-      try {
-         const params = new URLSearchParams({ type: 'TASK', targetId: taskId });
-         const references = await taskaraRequest<TaskaraKnowledgeReference[]>(
-            `/knowledge/references?${params.toString()}`
-         );
-         if (requestId === relatedDocsRequestRef.current) setRelatedDocs(references);
-      } catch {
-         if (requestId === relatedDocsRequestRef.current) setRelatedDocs([]);
       }
    }, []);
 
@@ -363,7 +342,6 @@ export function IssuePage() {
       } else {
          setTask(null);
          setActivities([]);
-         setRelatedDocs([]);
          if (!titleFocusedRef.current) setTitleDraft('');
          if (!descriptionFocusedRef.current) setDescriptionDraft('');
          setLoading(true);
@@ -409,15 +387,6 @@ export function IssuePage() {
    }, [load]);
 
    useEffect(() => {
-      if (!task?.id) {
-         relatedDocsRequestRef.current += 1;
-         setRelatedDocs([]);
-         return;
-      }
-      void loadRelatedDocs(task.id);
-   }, [loadRelatedDocs, task?.id]);
-
-   useEffect(() => {
       const idOrKey = task?.key || taskKey;
       if (!idOrKey) {
          reviewsRequestRef.current += 1;
@@ -428,14 +397,10 @@ export function IssuePage() {
    }, [loadReviews, task?.key, taskKey]);
 
    useEffect(() => {
-      if (selectedReviewerId && users.some((user) => user.id === selectedReviewerId)) return;
-      const currentUserId = session?.user.id;
-      const fallbackReviewer =
-         users.find((user) => user.id !== currentUserId && user.id !== task?.assignee?.id) ||
-         users.find((user) => user.id !== currentUserId) ||
-         users[0];
-      setSelectedReviewerId(fallbackReviewer?.id || '');
-   }, [selectedReviewerId, session?.user.id, task?.assignee?.id, users]);
+      if (!selectedReviewerId) return;
+      if (users.some((user) => user.id === selectedReviewerId)) return;
+      setSelectedReviewerId('');
+   }, [selectedReviewerId, users]);
 
    useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
@@ -708,56 +673,6 @@ export function IssuePage() {
          toast.error(err instanceof Error ? err.message : fa.issue.commentFailed);
       } finally {
          setCommentSubmitting(false);
-      }
-   }
-
-   async function loadAssignmentRecommendations() {
-      if (!task || assignmentLoading || !task.project?.id) return;
-
-      setAssignmentLoading(true);
-      try {
-         const result = await taskaraRequest<TaskaraAssignmentRecommendationResponse>('/assignment/recommend', {
-            method: 'POST',
-            body: JSON.stringify({
-               taskIdOrKey: task.key,
-               projectId: task.project.id,
-               priority: task.priority,
-               weight: task.weight ?? undefined,
-               dueAt: task.dueAt ?? undefined,
-               limit: 5,
-            }),
-         });
-         setAssignmentRecommendations(result);
-      } catch (err) {
-         toast.error(err instanceof Error ? err.message : fa.issue.assignmentRecommendationFailed);
-      } finally {
-         setAssignmentLoading(false);
-      }
-   }
-
-   async function acceptAssignmentRecommendation(recommendation: TaskaraAssignmentRecommendation) {
-      if (!task || assignmentLoading) return;
-      setAssignmentLoading(true);
-      try {
-         const updated = await updateTask({ assigneeId: recommendation.user.id });
-         if (updated) {
-            setAssignmentRecommendations((current) =>
-               current
-                  ? {
-                       ...current,
-                       task: {
-                          id: updated.id,
-                          key: updated.key,
-                          title: updated.title,
-                          assigneeId: updated.assignee?.id || null,
-                       },
-                    }
-                  : current
-            );
-            toast.success(fa.issue.assignedRecommendedUser);
-         }
-      } finally {
-         setAssignmentLoading(false);
       }
    }
 
@@ -1313,14 +1228,6 @@ export function IssuePage() {
                onRunAction={(action) => void runTriageAction(action)}
             />
 
-            <AssignmentSidebarPanel
-               loading={assignmentLoading}
-               recommendations={assignmentRecommendations}
-               task={task}
-               onAccept={(recommendation) => void acceptAssignmentRecommendation(recommendation)}
-               onRefresh={() => void loadAssignmentRecommendations()}
-            />
-
             <ReviewSidebarPanel
                activeReview={activeReview}
                canCancelActiveReview={canCancelActiveReview}
@@ -1336,32 +1243,6 @@ export function IssuePage() {
                onRequestReview={() => void requestReview()}
                onReviewerChange={setSelectedReviewerId}
             />
-
-            <SidebarSection title={fa.issue.relatedDocs} className="mt-3">
-               <div className="grid gap-1 p-2 text-sm">
-                  {relatedDocs.length ? (
-                     relatedDocs.map((reference) => (
-                        <Link
-                           key={reference.id}
-                           className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/5"
-                           to={`/${orgId || 'taskara'}/wiki/${reference.page.space?.key || reference.page.spaceId}/${reference.page.id}`}
-                        >
-                           <span className="flex size-5 shrink-0 items-center justify-center text-zinc-500">
-                              <BookOpen className="size-5" />
-                           </span>
-                           <span className="min-w-0 flex-1">
-                              <span className="block truncate text-base text-zinc-100">{reference.page.title}</span>
-                              <span className="block truncate text-xs text-zinc-500">
-                                 {reference.page.space?.name || fa.nav.wiki}
-                              </span>
-                           </span>
-                        </Link>
-                     ))
-                  ) : (
-                     <SidebarEmptyRow icon={<BookOpen className="size-5" />} label={fa.issue.noRelatedDocs} />
-                  )}
-               </div>
-            </SidebarSection>
 
             <SidebarSection title={fa.issue.labels} className="mt-3">
                <div className="min-h-9 p-2">
@@ -1482,105 +1363,6 @@ function TriageSidebarPanel({
             </div>
          </div>
       </SidebarSection>
-   );
-}
-
-function AssignmentSidebarPanel({
-   loading,
-   recommendations,
-   task,
-   onAccept,
-   onRefresh,
-}: {
-   loading: boolean;
-   recommendations: TaskaraAssignmentRecommendationResponse | null;
-   task: TaskaraTask;
-   onAccept: (recommendation: TaskaraAssignmentRecommendation) => void;
-   onRefresh: () => void;
-}) {
-   const disabled = loading || !task.project?.id || ['DONE', 'CANCELED'].includes(task.status);
-   const items = recommendations?.recommendations || [];
-
-   return (
-      <SidebarSection title={fa.issue.assignmentAssistant} className="mt-3">
-         <div className="grid gap-2 p-2 text-sm">
-            <button
-               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-indigo-400/20 bg-indigo-400/10 px-2 text-xs font-medium text-indigo-100 hover:bg-indigo-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-               disabled={disabled}
-               type="button"
-               onClick={onRefresh}
-            >
-               {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-               {items.length ? fa.issue.refreshAssignmentRecommendations : fa.issue.loadAssignmentRecommendations}
-            </button>
-
-            {items.length ? (
-               <div className="divide-y divide-white/7 overflow-hidden rounded-lg border border-white/7">
-                  {items.map((item) => (
-                     <AssignmentRecommendationRow
-                        key={item.user.id}
-                        disabled={loading || task.assignee?.id === item.user.id}
-                        item={item}
-                        onAccept={() => onAccept(item)}
-                     />
-                  ))}
-               </div>
-            ) : recommendations ? (
-               <SidebarEmptyRow icon={<UserRoundCheck className="size-5" />} label={fa.issue.noAssignmentRecommendations} />
-            ) : null}
-         </div>
-      </SidebarSection>
-   );
-}
-
-function AssignmentRecommendationRow({
-   disabled,
-   item,
-   onAccept,
-}: {
-   disabled: boolean;
-   item: TaskaraAssignmentRecommendation;
-   onAccept: () => void;
-}) {
-   const primaryReason = item.reasons[0];
-
-   return (
-      <div className="grid gap-2 bg-[#171719] px-2.5 py-2.5">
-         <div className="flex min-w-0 items-center gap-2">
-            <LinearAvatar name={item.user.name} src={item.user.avatarUrl} className="size-6" />
-            <div className="min-w-0 flex-1">
-               <div className="truncate text-sm font-medium text-zinc-100">{item.user.name}</div>
-               <div className="truncate text-[11px] text-zinc-500">
-                  {fa.issue.assignmentLoad(item.projectedWeight, item.capacity)}
-               </div>
-            </div>
-            <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px]', assignmentStatusClasses[item.status])}>
-               {assignmentStatusLabels[item.status]}
-            </span>
-         </div>
-
-         <div className="h-1.5 overflow-hidden rounded-full bg-white/7">
-            <div
-               className={cn('h-full rounded-full', assignmentLoadBarClasses[item.status])}
-               style={{ width: `${Math.min(item.projectedLoadRatio * 100, 100)}%` }}
-            />
-         </div>
-
-         <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className={cn('min-w-0 truncate text-xs', primaryReason?.tone === 'warning' ? 'text-amber-200' : 'text-zinc-500')}>
-               {primaryReason ? assignmentReasonLabel(primaryReason.code) : fa.issue.assignmentReasonFallback}
-            </span>
-            <button
-               className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.035] px-2 text-xs text-zinc-300 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
-               disabled={disabled}
-               type="button"
-               onClick={onAccept}
-            >
-               <Check className="size-3.5" />
-               {fa.issue.assignRecommendedUser}
-            </button>
-         </div>
-      </div>
    );
 }
 
@@ -1817,56 +1599,6 @@ const reviewStatusClasses = {
    APPROVED: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
    CANCELED: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-300',
 };
-
-const assignmentStatusLabels = {
-   available: 'آزاد',
-   busy: 'پرکار',
-   overloaded: 'اضافه‌بار',
-   unavailable: 'غیرفعال',
-};
-
-const assignmentStatusClasses = {
-   available: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
-   busy: 'border-amber-400/20 bg-amber-400/10 text-amber-100',
-   overloaded: 'border-rose-400/20 bg-rose-400/10 text-rose-100',
-   unavailable: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-300',
-};
-
-const assignmentLoadBarClasses = {
-   available: 'bg-emerald-400',
-   busy: 'bg-amber-400',
-   overloaded: 'bg-rose-400',
-   unavailable: 'bg-zinc-500',
-};
-
-function assignmentReasonLabel(code: string): string {
-   switch (code) {
-      case 'capacity_available':
-         return 'بعد از واگذاری هنوز ظرفیت دارد.';
-      case 'no_visible_active_work':
-         return 'کار فعال قابل مشاهده‌ای ندارد.';
-      case 'project_context':
-         return 'در همین پروژه زمینه کاری دارد.';
-      case 'busy':
-         return 'بعد از واگذاری پرکار می‌شود.';
-      case 'over_capacity':
-         return 'بعد از واگذاری از ظرفیت عبور می‌کند.';
-      case 'zero_capacity':
-         return 'ظرفیت این فرد صفر تنظیم شده است.';
-      case 'review_load':
-         return 'بار بازبینی فعال دارد.';
-      case 'blocked_load':
-         return 'کار مسدود دارد.';
-      case 'due_pressure':
-         return 'فشار سررسید دارد.';
-      case 'over_wip_limit':
-         return 'از حد WIP تیم عبور می‌کند.';
-      case 'over_review_wip_limit':
-         return 'بار بازبینی از توافق تیم بیشتر است.';
-      default:
-         return fa.issue.assignmentReasonFallback;
-   }
-}
 
 type TimelineItem =
    | { id: string; createdAt: string; type: 'activity'; activity: TaskaraActivity }

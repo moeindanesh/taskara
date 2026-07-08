@@ -12,6 +12,7 @@ test.describe('@manager-os manager surfaces', () => {
     await gotoApp(page, `/${workspaceSlug}/queues`);
 
     await expect(page.getByTestId('decision-queues-screen')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'صندوق ورودی' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'صف بازبینی' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'تریاژ ورودی' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'واگذاری و مالکیت' })).toBeVisible();
@@ -21,6 +22,8 @@ test.describe('@manager-os manager surfaces', () => {
     await expect(screen.getByRole('link', { name: /بازبینی/ }).first()).toHaveAttribute('href', /\/issue\/CORE-101/);
     await expect(screen.getByRole('button', { name: /پذیرش/ }).first()).toBeVisible();
     await expect(screen.getByRole('link', { name: /جزئیات/ }).first()).toHaveAttribute('href', /\/issue\/CORE-102/);
+    await expectDecisionRowBadgesBelowTitle(page, 'کار نزدیک به موعد که هنوز مسئول ندارد');
+    await expectIssueTitleTooltip(page, longPersianTitle);
 
     await expectNoPageOverflow(page);
   });
@@ -135,6 +138,23 @@ test.describe('@manager-os manager surfaces', () => {
     await expectNoPageOverflow(page);
   });
 
+  test('manager decision, people, and capacity screens own vertical scrolling', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 520 });
+    await setupManagerPage(page);
+
+    await gotoApp(page, `/${workspaceSlug}/queues`);
+    await expect(page.getByTestId('decision-queues-screen')).toBeVisible();
+    await expectScreenCanVerticallyScroll(page, 'decision-queues-screen');
+
+    await gotoApp(page, `/${workspaceSlug}/people?person=${users.overloaded.id}`);
+    await expect(page.getByTestId('people-workload-screen')).toBeVisible();
+    await expectScreenCanVerticallyScroll(page, 'people-workload-screen');
+
+    await gotoApp(page, `/${workspaceSlug}/capacity`);
+    await expect(page.getByTestId('capacity-settings-screen')).toBeVisible();
+    await expectScreenCanVerticallyScroll(page, 'capacity-settings-screen');
+  });
+
   test('cockpit, team health, and projects render the manager operating loop', async ({ page }) => {
     await setupManagerPage(page);
     await gotoApp(page, `/${workspaceSlug}/cockpit`);
@@ -171,6 +191,18 @@ test.describe('@manager-os manager surfaces', () => {
     await gotoApp(page, `/${workspaceSlug}/meetings`);
     await expect(page.getByRole('heading', { name: 'جلسه‌ها' })).toBeVisible();
     await expect(page.getByText('جلسه‌ای برای نمایش وجود ندارد.')).toBeVisible();
+    await expectNoPageOverflow(page);
+  });
+
+  test('issue detail review request starts without a default reviewer', async ({ page }) => {
+    await setupManagerPage(page);
+    await gotoApp(page, `/${workspaceSlug}/issue/CORE-102`);
+
+    await expect(page.getByTestId('issue-page')).toBeVisible();
+    const reviewSection = page.locator('aside section').filter({ hasText: 'بازبینی' });
+    await expect(reviewSection.getByRole('combobox', { name: 'بازبین' })).toContainText('بازبین');
+    await expect(reviewSection.getByText(users.reviewer.name)).toHaveCount(0);
+    await expect(reviewSection.getByRole('button', { name: 'درخواست بازبینی' })).toBeDisabled();
     await expectNoPageOverflow(page);
   });
 
@@ -902,6 +934,44 @@ async function expectNoPageOverflow(page: Page) {
       }));
   });
   expect(overflowing).toEqual([]);
+}
+
+async function expectScreenCanVerticallyScroll(page: Page, testId: string) {
+  const state = await page.getByTestId(testId).evaluate((element) => {
+    const screen = element as HTMLElement;
+    screen.scrollTop = 0;
+    screen.scrollTop = screen.scrollHeight;
+
+    return {
+      clientHeight: screen.clientHeight,
+      overflowY: getComputedStyle(screen).overflowY,
+      scrollHeight: screen.scrollHeight,
+      scrollTop: screen.scrollTop,
+    };
+  });
+
+  expect(state.overflowY).toMatch(/auto|scroll/);
+  expect(state.scrollHeight).toBeGreaterThan(state.clientHeight + 8);
+  expect(state.scrollTop).toBeGreaterThan(0);
+}
+
+async function expectDecisionRowBadgesBelowTitle(page: Page, title: string) {
+  const row = page.getByTestId('decision-task-row').filter({ hasText: title }).first();
+  const titleBox = await row.getByRole('link', { name: new RegExp(title) }).boundingBox();
+  const badgeBox = await row.getByText('بی‌مسئول').boundingBox();
+
+  expect(titleBox).not.toBeNull();
+  expect(badgeBox).not.toBeNull();
+  expect(badgeBox!.y).toBeGreaterThanOrEqual(titleBox!.y + titleBox!.height - 2);
+}
+
+async function expectIssueTitleTooltip(page: Page, title: string) {
+  await page.getByRole('link', { name: new RegExp(escapeRegExp(title)) }).first().hover();
+  await expect(page.locator('[data-slot="tooltip-content"]').filter({ hasText: title })).toBeVisible();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const workspace = {

@@ -17,6 +17,7 @@ import {
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { LinearAvatar, linearStatusMeta } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
@@ -336,7 +337,9 @@ function TaskRiskRow({ task, orgId }: { task: TaskaraTask; orgId: string }) {
             <Icon className={cn('size-3.5 shrink-0', meta?.iconClassName)} />
             <span className="truncate">{task.key}</span>
          </span>
-         <span className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">{task.title}</span>
+         <IssueTitleTooltip title={task.title}>
+            <span className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">{task.title}</span>
+         </IssueTitleTooltip>
          <span className="shrink-0 text-zinc-500">{task.dueAt ? formatJalaliDate(task.dueAt) : fa.app.noDate}</span>
       </Link>
    );

@@ -12,6 +12,7 @@ import { PrioritySelector } from './priority-selector';
 import { ProjectBadge } from './project-badge';
 import { StatusSelector } from './status-selector';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { IssueContextMenu } from './issue-context-menu';
 
 export const IssueDragType = 'ISSUE';
@@ -31,7 +32,9 @@ function IssueDragPreview({ issue }: { issue: Issue }) {
             <StatusSelector status={issue.status} issueId={issue.id} />
          </div>
 
-         <h3 className="text-sm font-normal mb-3 line-clamp-2">{issue.title}</h3>
+         <IssueTitleTooltip title={issue.title}>
+            <h3 className="text-sm font-normal mb-3 line-clamp-2">{issue.title}</h3>
+         </IssueTitleTooltip>
 
          <div className="flex flex-wrap gap-1.5 mb-3 min-h-[1.5rem]">
             <LabelBadge label={issue.labels} />
@@ -120,7 +123,9 @@ export function IssueGrid({ issue }: IssueGridProps) {
                   </div>
                   <StatusSelector status={issue.status} issueId={issue.id} />
                </div>
-               <h3 className="text-sm font-normal mb-3 line-clamp-2">{issue.title}</h3>
+               <IssueTitleTooltip title={issue.title}>
+                  <h3 className="text-sm font-normal mb-3 line-clamp-2">{issue.title}</h3>
+               </IssueTitleTooltip>
                <div className="flex flex-wrap gap-1.5 mb-3 min-h-[1.5rem]">
                   <LabelBadge label={issue.labels} />
                   {issue.project && <ProjectBadge project={issue.project} />}

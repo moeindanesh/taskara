@@ -29,7 +29,6 @@ import {
 import { useTheme } from 'next-themes';
 import {
    LinearAvatar,
-   SidebarInboxIcon,
    SidebarIssueIcon,
    SidebarMyIssuesIcon,
    SidebarProjectIcon,
@@ -41,7 +40,7 @@ import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { fa } from '@/lib/fa-copy';
 import { clearAuthSession, getAuthSession, setAuthSession } from '@/store/auth-store';
-import type { NotificationsResponse, PaginatedResponse, TaskaraMe, TaskaraTask, TaskaraTeam } from '@/lib/taskara-types';
+import type { PaginatedResponse, TaskaraMe, TaskaraTask, TaskaraTeam } from '@/lib/taskara-types';
 import type { AnnouncementsResponse, TaskaraMeeting, TaskaraWorkspaceMembership } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { selectSidebarCounts } from '@/lib/workspace-data/selectors';
@@ -70,7 +69,6 @@ const sidebarItemClassName =
    'h-8 rounded-lg text-[13px] data-[active=true]:bg-zinc-200 data-[active=true]:text-zinc-950 data-[active=true]:hover:bg-zinc-200 data-[active=true]:hover:text-zinc-950 dark:data-[active=true]:bg-white/8 dark:data-[active=true]:text-zinc-100 dark:data-[active=true]:hover:bg-white/10 dark:data-[active=true]:hover:text-zinc-100';
 
 type PrimarySidebarItemId =
-   | 'inbox'
    | 'cockpit'
    | 'queues'
    | 'reviews'
@@ -194,7 +192,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const [me, setMe] = React.useState<TaskaraMe | null>(null);
    const [teams, setTeams] = React.useState<TaskaraTeam[]>([]);
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
-   const [unreadCount, setUnreadCount] = React.useState(0);
    const [announcementUnreadCount, setAnnouncementUnreadCount] = React.useState(0);
    const [allIssueCount, setAllIssueCount] = React.useState(0);
    const [myIssueCount, setMyIssueCount] = React.useState(0);
@@ -233,11 +230,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const loadSidebarData = React.useCallback(async (isCancelled: () => boolean, showLoading = false) => {
       if (showLoading) setLoadingTeams(true);
 
-      const [meResult, teamsResult, workspacesResult, notificationsResult, announcementsResult, allTasksResult, myTasksResult, meetingsResult] = await Promise.allSettled([
+      const [meResult, teamsResult, workspacesResult, announcementsResult, allTasksResult, myTasksResult, meetingsResult] = await Promise.allSettled([
          taskaraRequest<TaskaraMe>('/me'),
          taskaraRequest<TaskaraTeam[]>('/teams'),
          taskaraRequest<{ items: TaskaraWorkspaceMembership[]; total: number }>('/workspaces'),
-         taskaraRequest<NotificationsResponse>('/notifications?limit=1'),
          taskaraRequest<AnnouncementsResponse>('/announcements?limit=1'),
          taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?limit=1'),
          taskaraRequest<PaginatedResponse<TaskaraTask>>('/tasks?mine=true&limit=1'),
@@ -262,9 +258,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       }
       setTeams(teamsResult.status === 'fulfilled' ? teamsResult.value : []);
       setWorkspaces(workspacesResult.status === 'fulfilled' ? workspacesResult.value.items : []);
-      const notificationData =
-         notificationsResult.status === 'fulfilled' ? (notificationsResult.value as NotificationsResponse) : null;
-      setUnreadCount(notificationData?.unreadCount ?? 0);
       setAnnouncementUnreadCount(announcementsResult.status === 'fulfilled' ? announcementsResult.value.unreadCount : 0);
       setAllIssueCount(allTasksResult.status === 'fulfilled' ? allTasksResult.value.total : 0);
       setMyIssueCount(myTasksResult.status === 'fulfilled' ? myTasksResult.value.total : 0);
@@ -341,10 +334,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
          { id: 'my-issues', title: fa.nav.myIssues, href: `/${orgId}/team/all/all`, icon: SidebarMyIssuesIcon, count: displayedMyIssueCount },
          { id: 'capacity', title: fa.nav.capacitySettings, href: `/${orgId}/capacity`, icon: SlidersHorizontal },
          { id: 'all-tasks', title: fa.nav.allTasks, href: `/${orgId}/tasks`, icon: SidebarIssueIcon, count: allIssueCount },
-         { id: 'inbox', title: fa.nav.inbox, href: `/${orgId}/inbox`, icon: SidebarInboxIcon, count: unreadCount },
          { id: 'communications', title: fa.nav.communications, href: `/${orgId}/communications`, icon: Megaphone, count: announcementUnreadCount + meetingCount },
       ],
-      [allIssueCount, announcementUnreadCount, displayedMyIssueCount, displayedReviewCount, meetingCount, orgId, unreadCount]
+      [allIssueCount, announcementUnreadCount, displayedMyIssueCount, displayedReviewCount, meetingCount, orgId]
    );
    const orderedPrimaryItems = React.useMemo(
       () => orderPrimarySidebarItems(primaryItems, primaryItemOrder),

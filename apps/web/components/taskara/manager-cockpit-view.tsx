@@ -27,6 +27,7 @@ import {
    StatusIcon,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import {
    Dialog,
    DialogContent,
@@ -537,7 +538,9 @@ function PersonRow({ orgId, person }: { orgId: string; person: WorkHealthPerson 
                      to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
                   >
                      <StatusIcon status={task.status} className="size-3" />
-                     <span className="truncate">{task.title}</span>
+                     <IssueTitleTooltip title={task.title}>
+                        <span className="truncate">{task.title}</span>
+                     </IssueTitleTooltip>
                   </Link>
                ))}
             </div>
@@ -584,7 +587,9 @@ function TaskQueueRow({ orgId, task }: { orgId: string; task: TaskaraTask }) {
          <div className="flex min-w-0 items-center gap-2">
             <StatusIcon status={task.status} className="size-3.5" />
             <span className="ltr shrink-0 text-[11px] font-medium text-zinc-500">{task.key}</span>
-            <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{task.title}</span>
+            <IssueTitleTooltip title={task.title}>
+               <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{task.title}</span>
+            </IssueTitleTooltip>
          </div>
          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
             <span>{statusLabel}</span>

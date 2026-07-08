@@ -10,6 +10,7 @@ import { StatusSelector } from './status-selector';
 import { motion } from 'motion/react';
 
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { IssueContextMenu } from './issue-context-menu';
 
 export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?: boolean }) {
@@ -29,9 +30,11 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                   <StatusSelector status={issue.status} issueId={issue.id} />
                </div>
                <span className="min-w-0 flex items-center justify-start mr-1 ml-0.5">
-                  <span className="text-xs sm:text-sm font-normal truncate">
-                     {issue.title}
-                  </span>
+                  <IssueTitleTooltip title={issue.title}>
+                     <span className="text-xs sm:text-sm font-normal truncate">
+                        {issue.title}
+                     </span>
+                  </IssueTitleTooltip>
                </span>
                <div className="flex items-center justify-end gap-2 ml-auto sm:w-fit">
                   <div className="w-3 shrink-0"></div>
