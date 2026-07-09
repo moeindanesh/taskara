@@ -238,6 +238,7 @@ model User {
 
   workspaces                    WorkspaceMember[]
   authSessions                  AuthSession[]
+  passwordResetCodes            PasswordResetCode[]
   teamMemberships               TeamMember[]
   projectMemberships            ProjectMember[]
   ledProjects                   Project[]                   @relation("ProjectLead")
@@ -296,6 +297,22 @@ model AuthSession {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model PasswordResetCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String
+  sentTo    String
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([createdAt])
 }
 
 model WorkspaceInvite {

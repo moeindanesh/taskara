@@ -153,6 +153,18 @@ export const authRegisterSchema = z.object({
   password: passwordSchema
 });
 
+export const authPasswordResetSmsLookupSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254)
+});
+
+export const authPasswordResetSmsRequestSchema = authPasswordResetSmsLookupSchema;
+
+export const authPasswordResetSmsCompleteSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  code: z.string().trim().regex(/^\d{6}$/, 'Reset code must be 6 digits'),
+  password: passwordSchema
+});
+
 export const createAuthWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().trim().toLowerCase().min(2).max(48).regex(/^[a-z0-9-]+$/),
