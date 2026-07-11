@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
+import { useAuthSession } from '@/store/auth-store';
 import { Bell, ChevronRight, Filter, SlidersHorizontal } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -16,15 +17,26 @@ interface PageHeaderProps {
    count?: number;
    action?: React.ReactNode;
    compact?: boolean;
+   showViewControls?: boolean;
 }
 
-export function PageHeader({ title, description, count, action, compact = false }: PageHeaderProps) {
+export function PageHeader({
+   title,
+   description,
+   count,
+   action,
+   compact = false,
+   showViewControls = false,
+}: PageHeaderProps) {
    const navigate = useNavigate();
    const location = useLocation();
+   const { session } = useAuthSession();
    const [openMenu, setOpenMenu] = useState<'display' | 'filters' | null>(null);
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
    const isKnowledgeRoute = pathParts[1] === 'wiki';
+   const isManager = session?.role === 'OWNER' || session?.role === 'ADMIN';
+   const appHome = isManager ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
 
    useEffect(() => {
       const handleMenuState = (event: Event) => {
@@ -75,7 +87,7 @@ export function PageHeader({ title, description, count, action, compact = false 
                            size="icon"
                            variant="ghost"
                            className="size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"
-                           onClick={() => navigate(`/${orgId}/team/all/all`)}
+                           onClick={() => navigate(appHome)}
                         >
                            <ChevronRight className="size-4" />
                         </Button>
@@ -101,40 +113,44 @@ export function PageHeader({ title, description, count, action, compact = false 
             </div>
             <div className="flex items-center gap-1.5">
                {action}
-               <Tooltip>
-                  <TooltipTrigger asChild>
-                     <Button
-                        aria-label={fa.issue.filters}
-                        size="icon"
-                        variant="ghost"
-                        className={cn(
-                           'size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100',
-                           openMenu === 'filters' && 'bg-white/[0.08] text-zinc-100'
-                        )}
-                        onClick={openFilters}
-                     >
-                        <Filter className="size-4" />
-                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{fa.issue.filters}</TooltipContent>
-               </Tooltip>
-               <Tooltip>
-                  <TooltipTrigger asChild>
-                     <Button
-                        aria-label={fa.issue.display}
-                        size="icon"
-                        variant="ghost"
-                        className={cn(
-                           'size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100',
-                           openMenu === 'display' && 'bg-white/[0.08] text-zinc-100'
-                        )}
-                        onClick={openDisplay}
-                     >
-                        <SlidersHorizontal className="size-4" />
-                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{fa.issue.display}</TooltipContent>
-               </Tooltip>
+               {showViewControls ? (
+                  <>
+                     <Tooltip>
+                        <TooltipTrigger asChild>
+                           <Button
+                              aria-label={fa.issue.filters}
+                              size="icon"
+                              variant="ghost"
+                              className={cn(
+                                 'size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100',
+                                 openMenu === 'filters' && 'bg-white/[0.08] text-zinc-100'
+                              )}
+                              onClick={openFilters}
+                           >
+                              <Filter className="size-4" />
+                           </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{fa.issue.filters}</TooltipContent>
+                     </Tooltip>
+                     <Tooltip>
+                        <TooltipTrigger asChild>
+                           <Button
+                              aria-label={fa.issue.display}
+                              size="icon"
+                              variant="ghost"
+                              className={cn(
+                                 'size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100',
+                                 openMenu === 'display' && 'bg-white/[0.08] text-zinc-100'
+                              )}
+                              onClick={openDisplay}
+                           >
+                              <SlidersHorizontal className="size-4" />
+                           </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{fa.issue.display}</TooltipContent>
+                     </Tooltip>
+                  </>
+               ) : null}
                <div className="ms-auto flex items-center gap-1.5">
                   <Tooltip>
                      <TooltipTrigger asChild>

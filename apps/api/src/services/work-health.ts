@@ -123,6 +123,7 @@ export interface WorkHealthAttentionItem {
     | 'overdue_task'
     | 'blocked_task'
     | 'review_waiting'
+    | 'backlog_triage'
     | 'stale_task'
     | 'unassigned_due_soon'
     | 'overloaded_person'

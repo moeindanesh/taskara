@@ -27,6 +27,7 @@ import { taskaraRequest } from '@/lib/taskara-client';
 import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { selectCommandSearchItems, selectTasksAssignedToUser } from '@/lib/workspace-data/selectors';
+import { useAuthSession } from '@/store/auth-store';
 import { Activity, Bell, BookOpen, CalendarCheck2, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -57,6 +58,7 @@ type CommandAction = {
    id: string;
    label: string;
    description: string;
+   defaultVisible?: boolean;
    icon: React.ComponentType<{ className?: string }>;
    shortcut?: string;
    run: () => void;
@@ -110,6 +112,7 @@ function formatViewTarget(view: TaskaraView, teams: Array<{ id: string; slug: st
 export default function MainLayout({ children, header, headersNumber = 2, showSidebar = true }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { session } = useAuthSession();
   const taskSync = useWorkspaceTaskSync();
   const { tasks, projects, teams, users, views } = React.useMemo(
      () => selectCommandSearchItems(taskSync.workspaceData),
@@ -122,6 +125,8 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
    const routeKey = pathParts[1] || 'team';
+   const currentRole = session?.role;
+   const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
    const activeTeamSlug = pathParts[1] === 'team' && pathParts[2] !== 'all' ? pathParts[2] : null;
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
@@ -201,6 +206,14 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const commandActions = React.useMemo<CommandAction[]>(
       () => [
          {
+            id: 'go-cockpit',
+            label: fa.command.goCockpit,
+            description: fa.pages.cockpitDescription,
+            defaultVisible: isManager,
+            icon: ScanEye,
+            run: () => navigate(`/${orgId}/cockpit`),
+         },
+         {
             id: 'create-issue',
             label: fa.command.createIssue,
             description: fa.command.createIssueDescription,
@@ -209,51 +222,42 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             run: openCreateIssue,
          },
          {
-            id: 'create-project',
-            label: fa.command.createProject,
-            description: fa.command.createProjectDescription,
-            icon: FolderKanban,
-            run: openCreateProject,
-         },
-         {
-            id: 'go-cockpit',
-            label: fa.command.goCockpit,
-            description: fa.pages.cockpitDescription,
-            icon: ScanEye,
-            run: () => navigate(`/${orgId}/cockpit`),
-         },
-         {
             id: 'go-decision-queues',
             label: fa.command.goDecisionQueues,
             description: fa.pages.decisionQueuesDescription,
+            defaultVisible: false,
             icon: ListChecks,
             run: () => navigate(`/${orgId}/queues`),
-         },
-         {
-            id: 'go-reviews',
-            label: fa.command.goReviews,
-            description: fa.pages.reviewsDescription,
-            icon: GitPullRequest,
-            run: () => navigate(`/${orgId}/reviews`),
          },
          {
             id: 'go-people-workload',
             label: fa.command.goPeopleWorkload,
             description: fa.pages.peopleWorkloadDescription,
+            defaultVisible: false,
             icon: Users,
             run: () => navigate(`/${orgId}/people`),
          },
          {
-            id: 'go-capacity-settings',
-            label: fa.command.goCapacitySettings,
-            description: fa.pages.capacitySettingsDescription,
-            icon: SlidersHorizontal,
-            run: () => navigate(`/${orgId}/capacity`),
+            id: 'go-projects',
+            label: fa.command.goProjects,
+            description: fa.pages.projectsDescription,
+            defaultVisible: false,
+            icon: FolderKanban,
+            run: () => navigate(`/${orgId}/projects`),
+         },
+         {
+            id: 'create-project',
+            label: fa.command.createProject,
+            description: fa.command.createProjectDescription,
+            defaultVisible: false,
+            icon: FolderKanban,
+            run: openCreateProject,
          },
          {
             id: 'go-issues',
             label: fa.command.goIssues,
             description: fa.pages.issuesDescription,
+            defaultVisible: !isManager,
             icon: ListTodo,
             run: () => navigate(`/${orgId}/team/all/all`),
          },
@@ -261,6 +265,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-all-tasks',
             label: fa.command.goAllTasks,
             description: fa.pages.allTasksDescription,
+            defaultVisible: false,
             icon: ListTodo,
             run: () => navigate(`/${orgId}/tasks`),
          },
@@ -268,6 +273,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-inbox',
             label: fa.command.goInbox,
             description: fa.pages.inboxDescription,
+            defaultVisible: false,
             icon: Bell,
             run: () => navigate(`/${orgId}/inbox`),
          },
@@ -275,6 +281,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-communications',
             label: fa.nav.communications,
             description: fa.pages.communicationsDescription,
+            defaultVisible: false,
             icon: Megaphone,
             run: () => navigate(`/${orgId}/communications`),
          },
@@ -282,20 +289,31 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-wiki',
             label: fa.command.goWiki,
             description: fa.pages.wikiDescription,
+            defaultVisible: false,
             icon: BookOpen,
             run: () => navigate(`/${orgId}/wiki`),
          },
          {
-            id: 'go-projects',
-            label: fa.command.goProjects,
-            description: fa.pages.projectsDescription,
-            icon: FolderKanban,
-            run: () => navigate(`/${orgId}/projects`),
+            id: 'go-reviews',
+            label: fa.command.goReviews,
+            description: fa.pages.reviewsDescription,
+            defaultVisible: false,
+            icon: GitPullRequest,
+            run: () => navigate(`/${orgId}/reviews`),
+         },
+         {
+            id: 'go-capacity-settings',
+            label: fa.command.goCapacitySettings,
+            description: fa.pages.capacitySettingsDescription,
+            defaultVisible: false,
+            icon: SlidersHorizontal,
+            run: () => navigate(`/${orgId}/capacity`),
          },
          {
             id: 'go-team-health',
             label: fa.command.goTeamHealth,
             description: fa.pages.teamHealthDescription,
+            defaultVisible: false,
             icon: Activity,
             run: () => navigate(`/${orgId}/team-health`),
          },
@@ -303,6 +321,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-heartbeat',
             label: fa.command.goHeartbeat,
             description: fa.pages.heartbeatDescription,
+            defaultVisible: false,
             icon: Activity,
             run: () => navigate(`/${orgId}/heartbeat`),
          },
@@ -310,6 +329,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-today-plan',
             label: fa.command.goTodayPlan,
             description: fa.pages.todayPlanDescription,
+            defaultVisible: false,
             icon: CalendarCheck2,
             run: () => navigate(`/${orgId}/heartbeat`),
          },
@@ -317,6 +337,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-members',
             label: fa.command.goMembers,
             description: fa.pages.membersDescription,
+            defaultVisible: false,
             icon: Users,
             run: () => navigate(`/${orgId}/members`),
          },
@@ -324,6 +345,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-teams',
             label: fa.command.goTeams,
             description: fa.pages.teamsDescription,
+            defaultVisible: false,
             icon: UsersRound,
             run: () => navigate(`/${orgId}/teams`),
          },
@@ -331,11 +353,12 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             id: 'go-settings',
             label: fa.command.goSettings,
             description: fa.pages.settingsDescription,
+            defaultVisible: false,
             icon: Settings,
             run: () => navigate(`/${orgId}/settings/profile`),
          },
       ],
-      [navigate, openCreateIssue, openCreateProject, orgId]
+      [isManager, navigate, openCreateIssue, openCreateProject, orgId]
    );
 
    const normalizedCommandQuery = React.useMemo(
@@ -369,7 +392,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    }, [commandOpen, hasCommandQuery, normalizedCommandQuery]);
 
    const visibleCommandActions = React.useMemo(() => {
-      if (!hasCommandQuery) return commandActions;
+      if (!hasCommandQuery) return commandActions.filter((item) => item.defaultVisible !== false);
       return takeTopMatches(
          commandActions,
          (item) =>

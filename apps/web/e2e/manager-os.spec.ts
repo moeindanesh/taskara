@@ -155,13 +155,32 @@ test.describe('@manager-os manager surfaces', () => {
     await expectScreenCanVerticallyScroll(page, 'capacity-settings-screen');
   });
 
-  test('cockpit, team health, and projects render the manager operating loop', async ({ page }) => {
-    await setupManagerPage(page);
+  test('cockpit renders one manager queue while supporting diagnostics remain available', async ({ page }) => {
+    const requestedPaths: string[] = [];
+    await setupManagerPage(page, { requestedPaths });
     await gotoApp(page, `/${workspaceSlug}/cockpit`);
     await expect(page.getByTestId('manager-cockpit-screen')).toBeVisible();
-    await expect(page.getByText('نیازمند توجه').first()).toBeVisible();
-    await expect(page.getByText('ظرفیت افراد').first()).toBeVisible();
+    await expect(page.getByText('اقدام بعدی')).toBeVisible();
+    await expect(page.getByText('۲ مورد باز')).toBeVisible();
+    await expect(page.getByText('مانع فوری پرداخت')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'تصمیم تریاژ' })).toHaveAttribute('href', `/${workspaceSlug}/queues`);
+    await expect(page.getByRole('link', { name: 'تصمیم‌های امروز' })).toHaveCount(0);
+    await expect(page.getByText('ظرفیت افراد')).toHaveCount(0);
+    expect(requestedPaths).toContain('/attention');
+    expect(requestedPaths).not.toContain('/work-health/summary');
+    expect(requestedPaths).not.toContain('/check-ins/missing');
+    expect(requestedPaths).not.toContain('/one-on-ones');
     await expectNoPageOverflow(page);
+
+    await page.getByRole('region', { name: 'اقدام بعدی' }).getByRole('button', { name: 'حل شد' }).click();
+    await expect(page.getByText('عقب‌افتاده')).toBeVisible();
+    await expect(page.getByText('مسدود')).toHaveCount(0);
+
+    await page.keyboard.press('Control+k');
+    await expect(page.getByTestId('command-menu')).toBeVisible();
+    await expect(page.getByText('رفتن به میز مدیر')).toBeVisible();
+    await expect(page.getByText('تصمیم‌های امروز')).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     await gotoApp(page, `/${workspaceSlug}/team-health`);
     await expect(page.getByTestId('team-health-screen')).toBeVisible();
@@ -174,6 +193,15 @@ test.describe('@manager-os manager surfaces', () => {
     await expect(page.getByText('بازطراحی تجربه مدیریت تیم با عنوان بسیار طولانی')).toBeVisible();
     await expect(page.getByText('در ریسک').first()).toBeVisible();
     await expectNoPageOverflow(page);
+  });
+
+  test('cockpit never reports a clear queue when attention loading fails', async ({ page }) => {
+    await setupManagerPage(page, { attentionFailure: true });
+    await gotoApp(page, `/${workspaceSlug}/cockpit`);
+
+    await expect(page.getByTestId('manager-cockpit-screen')).toBeVisible();
+    await expect(page.getByText('Attention unavailable')).toBeVisible();
+    await expect(page.getByText('صف توجه خالی است')).toHaveCount(0);
   });
 
   test('issue detail, inbox, and meetings routes render without horizontal overflow', async ({ page }) => {
@@ -271,6 +299,19 @@ test.describe('@manager-os manager surfaces', () => {
     await expectNoPageOverflow(page);
   });
 
+  test('member navigation keeps personal work as the default entry', async ({ page }, testInfo) => {
+    await setupManagerPage(page, { scenario: 'limited-member' });
+    await gotoApp(page, `/${workspaceSlug}/team/all/all`);
+
+    if (!testInfo.project.name.includes('mobile')) {
+      await expect(page.getByRole('link', { name: 'کارهای من' })).toHaveCount(1);
+      await expect(page.getByRole('link', { name: 'میز مدیر' })).toHaveCount(0);
+    }
+    await page.keyboard.press('Control+k');
+    await expect(page.getByText('رفتن به کارها')).toBeVisible();
+    await expect(page.getByText('رفتن به میز مدیر')).toHaveCount(0);
+  });
+
   test('workspace admins with no team membership still see manager queues', async ({ page }) => {
     await setupManagerPage(page, { scenario: 'admin-no-teams' });
 
@@ -333,7 +374,9 @@ type ManagerFixtureScenario =
   | 'mattermost-missing-config';
 
 type MockTaskaraOptions = {
+  attentionFailure?: boolean;
   scenario?: ManagerFixtureScenario;
+  requestedPaths?: string[];
 };
 
 async function gotoApp(page: Page, path: string) {
@@ -368,12 +411,14 @@ async function seedAuth(page: Page, options: MockTaskaraOptions = {}) {
 async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
   const fixture = fixtureForScenario(options.scenario || 'default');
   const triagedBacklogTaskIds = new Set<string>();
+  const resolvedAttentionIds = new Set<string>();
 
   await page.route(`${apiOrigin}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
     const query = url.searchParams;
+    options.requestedPaths?.push(path);
 
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204 });
     if (path === '/sync/stream') return route.fulfill({ status: 204 });
@@ -395,7 +440,7 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
     if (request.method() === 'POST' && path === '/sync/push') {
       const body = request.postDataJSON() as {
         mutations?: Array<{
-          args?: { projectId?: string; update?: Partial<(typeof projects)[number]['healthUpdates'][number]> };
+          args?: { id?: string; projectId?: string; update?: Partial<(typeof projects)[number]['healthUpdates'][number]> };
           mutationId: string;
           name: string;
         }>;
@@ -403,6 +448,9 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
       return json(route, {
         cursor: '16',
         results: (body.mutations || []).map((mutation) => {
+          if (mutation.name === 'attention.resolve' && mutation.args?.id) {
+            resolvedAttentionIds.add(mutation.args.id);
+          }
           const summary = mutation.args?.update?.summary || '';
           if (mutation.name === 'project_health_update.create' && summary.includes('رد شود')) {
             return {
@@ -584,7 +632,17 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
         },
       });
     }
-    if (path === '/attention') return json(route, fixture.attentionResponse);
+    if (path === '/attention') {
+      if (options.attentionFailure) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Attention unavailable' }),
+        });
+      }
+      const items = fixture.attentionResponse.items.filter((item) => !resolvedAttentionIds.has(item.id));
+      return json(route, { ...fixture.attentionResponse, items, total: items.length });
+    }
     if (path === '/check-ins/missing') return json(route, fixture.missingCheckIns);
     if (path === '/one-on-ones') return json(route, { items: fixture.oneOnOnes, total: fixture.oneOnOnes.length, limit: 50, offset: 0 });
     if (path === '/capacity/users') return json(route, { items: fixture.capacityUsers, total: fixture.capacityUsers.length });
@@ -1312,8 +1370,78 @@ const attentionResponse = {
       createdAt: '2026-07-05T09:00:00.000Z',
       updatedAt: now,
     },
+    {
+      id: 'attention-2',
+      workspaceId: workspace.id,
+      assigneeId: users.overloaded.id,
+      managerId: users.admin.id,
+      entityType: 'task',
+      entityId: 'task-blocked',
+      reason: 'overdue_task',
+      severity: 'HIGH',
+      status: 'OPEN',
+      firstSeenAt: '2026-07-05T10:00:00.000Z',
+      lastSeenAt: now,
+      snoozedUntil: null,
+      resolvedAt: null,
+      dismissedAt: null,
+      dismissalReason: null,
+      payload: {
+        title: 'مانع فوری پرداخت',
+        description: 'موعد کار گذشته و مانع هنوز باز است.',
+        actionLabel: 'رفع مانع',
+        task: {
+          id: 'task-blocked',
+          key: 'CORE-104',
+          title: tasks[3].title,
+          status: 'BLOCKED',
+          priority: 'URGENT',
+          dueAt: tasks[3].dueAt,
+          assigneeId: users.overloaded.id,
+          projectId: 'project-core',
+          projectName: projects[0].name,
+        },
+      },
+      createdAt: '2026-07-05T10:00:00.000Z',
+      updatedAt: now,
+    },
+    {
+      id: 'attention-3',
+      workspaceId: workspace.id,
+      assigneeId: null,
+      managerId: users.admin.id,
+      entityType: 'task',
+      entityId: 'task-backlog',
+      reason: 'backlog_triage',
+      severity: 'LOW',
+      status: 'OPEN',
+      firstSeenAt: '2026-07-05T11:00:00.000Z',
+      lastSeenAt: now,
+      snoozedUntil: null,
+      resolvedAt: null,
+      dismissedAt: null,
+      dismissalReason: null,
+      payload: {
+        title: 'ورودی تازه برای تریاژ',
+        description: 'این ورودی باید امروز تعیین تکلیف شود.',
+        actionLabel: 'تصمیم تریاژ',
+        task: {
+          id: 'task-backlog',
+          key: 'CORE-102',
+          title: tasks[1].title,
+          status: 'BACKLOG',
+          priority: 'MEDIUM',
+          dueAt: null,
+          assigneeId: null,
+          projectId: 'project-core',
+          projectName: projects[0].name,
+        },
+      },
+      createdAt: '2026-07-05T11:00:00.000Z',
+      updatedAt: now,
+    },
   ],
-  total: 1,
+  total: 3,
   limit: 24,
   offset: 0,
   generatedAt: now,

@@ -129,6 +129,8 @@ function SettingsChrome({
    children: ReactNode;
    orgId: string;
 }) {
+   const role = getAuthSession()?.role;
+   const appHome = role === 'OWNER' || role === 'ADMIN' ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
    const navGroups: Array<{ title: string; items: Array<{ title: string; to: string; icon: SettingsIcon; section: SettingsSection }> }> = [
       {
          title: 'تنظیمات فردی',
@@ -154,7 +156,7 @@ function SettingsChrome({
          <aside className="flex w-full shrink-0 flex-col border-b border-white/8 bg-[#09090a] px-3 py-3 lg:min-h-full lg:w-[280px] lg:border-b-0 lg:border-l lg:border-r-0">
             <Link
                className="mb-5 inline-flex h-8 w-fit items-center gap-2 rounded-md px-2 text-sm font-medium text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
-               to={`/${orgId}/team/all/all`}
+               to={appHome}
             >
                <ArrowRight className="size-4" />
                بازگشت به برنامه

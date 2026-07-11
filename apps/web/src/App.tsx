@@ -119,13 +119,19 @@ function WorkspaceShell() {
   const routeKey = pathParts[1] || 'team';
   const isSettingsRoute = routeKey === 'settings';
   const isKnowledgeRoute = routeKey === 'wiki';
+  const isTaskRoute = routeKey === 'tasks' || (routeKey === 'team' && pathParts[3] !== 'projects');
   const pageMeta =
     routeKey === 'team' && pathParts[3] === 'projects'
       ? pageMetaByRoute.projects
       : pageMetaByRoute[routeKey as keyof typeof pageMetaByRoute] || pageMetaByRoute.team;
   const header =
     routeKey === 'issue' || routeKey === 'inbox' || routeKey === 'communications' || routeKey === 'announcements' || routeKey === 'meetings' || isSettingsRoute ? null : (
-      <PageHeader title={pageMeta.title} description={pageMeta.description} compact />
+      <PageHeader
+        title={pageMeta.title}
+        description={pageMeta.description}
+        compact
+        showViewControls={isTaskRoute}
+      />
     );
 
   return (

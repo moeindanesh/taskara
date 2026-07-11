@@ -4,13 +4,19 @@ import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, resolveMeetingAccessScope } from './meetings';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
-import { getWorkHealthSummary, type WorkHealthAttentionItem } from './work-health';
+import {
+  getWorkHealthSummary,
+  workHealthThresholds,
+  type WorkHealthAttentionItem,
+  type WorkHealthSummary
+} from './work-health';
 import { resolveWorkspaceAccess, type WorkspaceAccess } from './team-access';
 
 export const trackedAttentionReasons = [
   'overdue_task',
   'blocked_task',
   'review_waiting',
+  'backlog_triage',
   'stale_task',
   'unassigned_due_soon',
   'overloaded_person',
@@ -190,10 +196,11 @@ export async function listAttentionItems(actor: RequestActor, query: AttentionLi
 export async function synchronizeAttention(actor: RequestActor, now = new Date()): Promise<{ generatedAt: string; candidates: AttentionCandidate[] }> {
   const summary = await getWorkHealthSummary(actor, now);
   const access = await resolveWorkspaceAccess(actor);
-  const candidates = [
+  const candidates = dedupeAttentionCandidates([
     ...summary.attention.map((item) => attentionCandidateFromWorkHealth(actor.workspace.id, item, now)),
+    ...attentionCandidatesFromDecisionQueues(actor.workspace.id, summary.queues, now),
     ...await buildCadenceAttentionCandidates(actor, now)
-  ];
+  ]);
   const candidateByKey = new Map(candidates.map((candidate) => [attentionKey(candidate), candidate]));
   const events = [];
 
@@ -233,6 +240,86 @@ export async function synchronizeAttention(actor: RequestActor, now = new Date()
   for (const event of events) publishSyncEvent(event);
   return { generatedAt: summary.generatedAt, candidates };
 }
+
+type WorkHealthDecisionQueues = Pick<WorkHealthSummary['queues'], 'backlog' | 'review'>;
+
+export function attentionCandidatesFromDecisionQueues(
+  workspaceId: string,
+  queues: WorkHealthDecisionQueues,
+  now: Date
+): AttentionCandidate[] {
+  const reviewCandidates = queues.review.map((task) => {
+    const waitingSince = new Date(
+      task.activeReviewRequest?.requestedAt || task.progressStartedAt || task.updatedAt || now
+    );
+    const ageHours = hoursBetween(waitingSince, now);
+    const severity: AttentionSeverity =
+      ageHours >= workHealthThresholds.reviewSlaHours * 2
+        ? 'HIGH'
+        : ageHours >= workHealthThresholds.reviewSlaHours
+          ? 'MEDIUM'
+          : 'LOW';
+
+    return attentionCandidateFromWorkHealth(workspaceId, {
+      id: `task:${task.id}:review`,
+      reason: 'review_waiting',
+      severity,
+      title: `${task.key}: ${task.title}`,
+      description:
+        severity === 'LOW'
+          ? 'این کار برای بازبینی آماده و منتظر تصمیم است.'
+          : 'این کار در صف بازبینی مانده و نیاز به پیگیری دارد.',
+      actionLabel: 'باز کردن بازبینی',
+      entityType: 'task',
+      task,
+      ageHours,
+      dueAt: task.activeReviewRequest?.dueAt || null
+    }, now);
+  });
+
+  const backlogCandidates = queues.backlog.map((task) => {
+    const dueAt = task.dueAt ? new Date(task.dueAt) : null;
+    const severity: AttentionSeverity =
+      task.priority === 'URGENT' || (dueAt && dueAt.getTime() <= now.getTime())
+        ? 'HIGH'
+        : task.priority === 'HIGH'
+          ? 'MEDIUM'
+          : 'LOW';
+
+    return attentionCandidateFromWorkHealth(workspaceId, {
+      id: `task:${task.id}:backlog-triage`,
+      reason: 'backlog_triage',
+      severity,
+      title: `${task.key}: ${task.title}`,
+      description: 'این ورودی باید پذیرفته، روشن، رد، تکراری یا تقسیم شود.',
+      actionLabel: 'تصمیم تریاژ',
+      entityType: 'task',
+      task,
+      dueAt: dueAt?.toISOString() || null
+    }, now);
+  });
+
+  return [...reviewCandidates, ...backlogCandidates];
+}
+
+function dedupeAttentionCandidates(candidates: AttentionCandidate[]): AttentionCandidate[] {
+  const unique = new Map<string, AttentionCandidate>();
+  for (const candidate of candidates) {
+    const key = attentionKey(candidate);
+    const current = unique.get(key);
+    if (!current || attentionSeverityRank[candidate.severity] > attentionSeverityRank[current.severity]) {
+      unique.set(key, candidate);
+    }
+  }
+  return [...unique.values()];
+}
+
+const attentionSeverityRank: Record<AttentionSeverity, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+  URGENT: 3
+};
 
 export async function snoozeAttentionItem(
   actor: RequestActor,

@@ -1,33 +1,20 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-   AlertTriangle,
    ArrowUpRight,
-   Blocks,
-   CalendarPlus,
+   CalendarDays,
    CheckCircle2,
    CircleDot,
    Clock3,
    EyeOff,
-   Inbox,
    ListChecks,
+   MessagesSquare,
    RefreshCw,
-   ScanEye,
    TimerReset,
-   UserRoundCheck,
-   Users,
 } from 'lucide-react';
-import {
-   LinearAvatar,
-   LinearEmptyState,
-   LinearPanel,
-   ProjectGlyph,
-   StatusIcon,
-   linearStatusMeta,
-} from '@/components/taskara/linear-ui';
-import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
+import { LinearAvatar, LinearEmptyState, ProjectGlyph, StatusIcon } from '@/components/taskara/linear-ui';
 import {
    Dialog,
    DialogContent,
@@ -39,128 +26,225 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
+import { managerAttentionGroupKey } from '@/lib/manager-attention';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { isRetryableTaskSyncError, loadPendingTaskSyncMutations, sendTaskSyncMutation } from '@/lib/task-sync';
 import { taskaraRequest } from '@/lib/taskara-client';
 import {
+   applyPendingAgendaItemMutations,
    applyPendingAttentionAction,
    applyPendingAttentionMutations,
-   applyPendingAgendaItemMutations,
    applyPendingCarryForwardAgendaMutations,
    applyPendingMeetingActionItemMutations,
-   applyPendingOneOnOneMutations,
    type PendingAttentionAction,
 } from '@/lib/workspace-data/pending';
 import type {
    TaskaraAttentionItem,
    TaskaraAttentionResponse,
-   TaskaraCheckInMissingResponse,
    TaskaraMeetingActionItem,
    TaskaraMeetingActionItemListResponse,
    TaskaraOneOnOneAgendaResponse,
-   TaskaraOneOnOneSeries,
    TaskaraTask,
-   WorkHealthPerson,
-   WorkHealthProject,
-   WorkHealthSummary,
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const numberFormatter = new Intl.NumberFormat('fa-IR');
 
+interface ManagerQueueItem {
+   id: string;
+   items: TaskaraAttentionItem[];
+   primary: TaskaraAttentionItem;
+   reasons: TaskaraAttentionItem['reason'][];
+   severity: TaskaraAttentionItem['severity'];
+}
+
 export function ManagerCockpitView() {
    const { orgId } = useParams();
    const workspaceSlug = orgId || 'taskara';
-   const [summary, setSummary] = useState<WorkHealthSummary | null>(null);
    const [attention, setAttention] = useState<TaskaraAttentionResponse | null>(null);
-   const [missingCheckIns, setMissingCheckIns] = useState<TaskaraCheckInMissingResponse | null>(null);
-   const [oneOnOnes, setOneOnOnes] = useState<TaskaraOneOnOneSeries[]>([]);
    const [loading, setLoading] = useState(true);
    const [refreshing, setRefreshing] = useState(false);
    const [error, setError] = useState<string | null>(null);
+   const [pendingId, setPendingId] = useState<string | null>(null);
+   const [dismissTarget, setDismissTarget] = useState<ManagerQueueItem | null>(null);
+   const [dismissReason, setDismissReason] = useState('');
+   const [agendaTarget, setAgendaTarget] = useState<TaskaraAttentionItem | null>(null);
+   const [showAllActions, setShowAllActions] = useState(false);
+   const loadRequestRef = useRef(0);
 
-   const loadSummary = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+   const loadAttention = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+      const requestId = ++loadRequestRef.current;
       if (mode === 'initial') setLoading(true);
       if (mode === 'refresh') setRefreshing(true);
       setError(null);
 
       try {
-         const [data, attentionData, missingData, oneOnOneData] = await Promise.all([
-            taskaraRequest<WorkHealthSummary>('/work-health/summary'),
-            taskaraRequest<TaskaraAttentionResponse>('/attention?limit=24'),
-            taskaraRequest<TaskaraCheckInMissingResponse>('/check-ins/missing?hours=24').catch(() => null),
-            taskaraRequest<{ items: TaskaraOneOnOneSeries[] }>('/one-on-ones?active=true&limit=50').catch(() => ({ items: [] })),
-         ]);
+         const data = await taskaraRequest<TaskaraAttentionResponse>('/attention?limit=100');
          const pendingMutations = await loadPendingTaskSyncMutations();
-         const people = [
-            ...data.people.map((person) => person.user),
-            ...(missingData?.items || []).map((item) => item.user),
-         ];
-         setSummary(data);
-         setAttention(applyPendingAttentionMutations(attentionData, pendingMutations));
-         setMissingCheckIns(missingData);
-         setOneOnOnes(applyPendingOneOnOneMutations(oneOnOneData.items, pendingMutations, people));
+         if (requestId !== loadRequestRef.current) return;
+         setAttention(applyPendingAttentionMutations(data, pendingMutations));
       } catch (loadError) {
-         setError(loadError instanceof Error ? loadError.message : fa.cockpit.loadFailed);
+         if (requestId === loadRequestRef.current) {
+            setError(loadError instanceof Error ? loadError.message : fa.cockpit.loadFailed);
+         }
       } finally {
-         setLoading(false);
-         setRefreshing(false);
+         if (requestId === loadRequestRef.current) {
+            setLoading(false);
+            setRefreshing(false);
+         }
       }
    }, []);
 
    useEffect(() => {
-      let cancelled = false;
-      const run = async () => {
-         if (cancelled) return;
-         await loadSummary('initial');
-      };
-      void run();
-      return () => {
-         cancelled = true;
-      };
-   }, [loadSummary]);
+      void loadAttention('initial');
+   }, [loadAttention]);
 
-   useLiveRefresh(() => loadSummary('refresh'), {
+   useLiveRefresh(() => loadAttention('refresh'), {
       fireOnMount: false,
       workspaceEventFilter: cockpitRefreshSourceMatches,
    });
 
-   const overview = summary?.overview;
-   const metrics = useMemo(
-      () => [
-         { label: fa.cockpit.activeWork, value: overview?.activeTasks || 0, icon: CircleDot, tone: 'indigo' as const },
-         { label: fa.cockpit.attention, value: attention?.total || 0, icon: ScanEye, tone: 'amber' as const },
-         { label: fa.cockpit.overdue, value: overview?.overdueTasks || 0, icon: AlertTriangle, tone: 'rose' as const },
-         { label: fa.cockpit.blocked, value: overview?.blockedTasks || 0, icon: Blocks, tone: 'zinc' as const },
-         { label: fa.cockpit.reviews, value: overview?.reviewTasks || 0, icon: UserRoundCheck, tone: 'sky' as const },
-         { label: fa.cockpit.overloaded, value: overview?.overloadedPeople || 0, icon: Users, tone: 'rose' as const },
-      ],
-      [attention?.total, overview]
+   const visibleItems = useMemo(() => groupAttentionItems(attention?.items || []), [attention?.items]);
+   const nextItem = visibleItems[0] || null;
+   const remainingItems = visibleItems.slice(1);
+   const displayedRemainingItems = showAllActions ? remainingItems : remainingItems.slice(0, 4);
+
+   const applyLifecycleAction = useCallback(
+      async (item: ManagerQueueItem, action: 'snooze' | 'resolve') => {
+         setPendingId(item.id);
+         const snoozedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+         const targetItems = action === 'snooze' ? item.items : [item.primary];
+         const optimisticAction: PendingAttentionAction =
+            action === 'snooze' ? { type: 'snooze', snoozedUntil } : { type: 'resolve' };
+         setAttention((current) =>
+            current
+               ? targetItems.reduce(
+                    (next, attentionItem) => applyPendingAttentionAction(next, attentionItem, optimisticAction),
+                    current
+                 )
+               : current
+         );
+
+         try {
+            if (action === 'snooze') {
+               await Promise.all(
+                  targetItems.map((attentionItem) =>
+                     sendTaskSyncMutation<TaskaraAttentionItem>(
+                        'attention.snooze',
+                        { id: attentionItem.id, snoozedUntil },
+                        undefined,
+                        undefined,
+                        { keepPendingOnRetryable: true }
+                     )
+                  )
+               );
+            } else {
+               await Promise.all(
+                  targetItems.map((attentionItem) =>
+                     sendTaskSyncMutation<TaskaraAttentionItem>(
+                        'attention.resolve',
+                        { id: attentionItem.id },
+                        undefined,
+                        undefined,
+                        { keepPendingOnRetryable: true }
+                     )
+                  )
+               );
+            }
+            void loadAttention('refresh');
+         } catch (actionError) {
+            if (isRetryableTaskSyncError(actionError)) {
+               toast.message(fa.cockpit.actionQueued);
+               return;
+            }
+            toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.actionFailed);
+            void loadAttention('refresh');
+         } finally {
+            setPendingId(null);
+         }
+      },
+      [loadAttention]
    );
+
+   async function submitDismiss(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      const reason = dismissReason.trim();
+      if (!dismissTarget || reason.length < 3) return;
+
+      setPendingId(dismissTarget.id);
+      setAttention((current) =>
+         current
+            ? applyPendingAttentionAction(current, dismissTarget.primary, { type: 'dismiss', reason })
+            : current
+      );
+      try {
+         await sendTaskSyncMutation<TaskaraAttentionItem>(
+            'attention.dismiss',
+            { id: dismissTarget.primary.id, reason },
+            undefined,
+            undefined,
+            { keepPendingOnRetryable: true }
+         );
+         setDismissTarget(null);
+         setDismissReason('');
+         void loadAttention('refresh');
+      } catch (actionError) {
+         if (isRetryableTaskSyncError(actionError)) {
+            toast.message(fa.cockpit.actionQueued);
+            setDismissTarget(null);
+            setDismissReason('');
+            return;
+         }
+         toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.actionFailed);
+         void loadAttention('refresh');
+      } finally {
+         setPendingId(null);
+      }
+   }
+
+   const itemActions = (item: ManagerQueueItem) => ({
+      disabled: pendingId === item.id,
+      onDismiss: () => {
+         setDismissTarget(item);
+         setDismissReason('');
+      },
+      onOpenAgenda: item.primary.payload.oneOnOne ? () => setAgendaTarget(item.primary) : undefined,
+      onResolve: () => void applyLifecycleAction(item, 'resolve'),
+      onSnooze: () => void applyLifecycleAction(item, 'snooze'),
+      orgId: workspaceSlug,
+   });
 
    return (
       <div className="flex h-full flex-col bg-background dark:bg-[#101011]" data-testid="manager-cockpit-screen">
-         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-            <div className="mx-auto max-w-[1440px]">
-               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                     {summary?.generatedAt ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.025] px-2 py-1">
-                           <Clock3 className="size-3.5" />
-                           {fa.cockpit.generatedAt}: {formatJalaliDateTime(summary.generatedAt)}
+         <div className="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
+            <main className="mx-auto max-w-[1040px]">
+               <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                     <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-300">
+                           <ListChecks className="size-3.5 text-indigo-300" />
+                           {fa.cockpit.queueCount(
+                              visibleItems.length,
+                              Boolean(attention && attention.total > attention.items.length)
+                           )}
                         </span>
-                     ) : null}
-                     {summary?.overview.truncated ? (
-                        <span className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-amber-200">
-                           {fa.cockpit.truncated}
-                        </span>
-                     ) : null}
+                        {attention?.generatedAt ? (
+                           <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+                              <Clock3 className="size-3.5" />
+                              {fa.cockpit.generatedAt}: {formatJalaliDateTime(attention.generatedAt)}
+                           </span>
+                        ) : null}
+                     </div>
+                     <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+                        {fa.cockpit.singleQueueDescription}
+                     </p>
                   </div>
                   <button
-                     className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.035] px-2.5 text-xs font-medium text-zinc-300 hover:bg-white/[0.06]"
+                     className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-45 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-300 dark:hover:bg-white/[0.06]"
+                     disabled={refreshing}
                      type="button"
-                     onClick={() => void loadSummary('refresh')}
+                     onClick={() => void loadAttention('refresh')}
                   >
                      <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
                      {fa.cockpit.refresh}
@@ -173,194 +257,64 @@ export function ManagerCockpitView() {
                   </p>
                ) : null}
 
-               {loading && !summary ? (
+               {loading && !attention ? (
                   <LinearEmptyState>{fa.app.loading}</LinearEmptyState>
-               ) : summary ? (
+               ) : error && !nextItem ? null : nextItem ? (
                   <>
-                     <section className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-                        {metrics.map((metric) => (
-                           <MetricTile key={metric.label} {...metric} />
-                        ))}
+                     <section aria-labelledby="next-manager-action">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                           <h2 id="next-manager-action" className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                              {fa.cockpit.nextAction}
+                           </h2>
+                           <span className="text-[11px] text-zinc-600">
+                              {fa.cockpit.itemProgress(1, visibleItems.length)}
+                           </span>
+                        </div>
+                        <NextAttentionCard item={nextItem} {...itemActions(nextItem)} />
                      </section>
 
-                     <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-                        <AttentionPanel
-                           items={attention?.items || []}
-                           onApply={(item, action) => {
-                              setAttention((current) => current ? applyPendingAttentionAction(current, item, action) : current);
-                           }}
-                           onRefresh={() => void loadSummary('refresh')}
-                           orgId={workspaceSlug}
-                        />
-                        <PeoplePanel people={summary.people} orgId={workspaceSlug} />
-                     </section>
-
-                     <section className="mt-4 grid gap-4 xl:grid-cols-3">
-                        <TaskQueuePanel
-                           empty={fa.cockpit.noQueueItems}
-                           icon={UserRoundCheck}
-                           orgId={workspaceSlug}
-                           tasks={summary.queues.review}
-                           title={fa.cockpit.reviews}
-                        />
-                        <TaskQueuePanel
-                           empty={fa.cockpit.noQueueItems}
-                           icon={Blocks}
-                           orgId={workspaceSlug}
-                           tasks={[...summary.queues.blocked, ...summary.queues.overdue].slice(0, 24)}
-                           title={fa.cockpit.blockers}
-                        />
-                        <TaskQueuePanel
-                           empty={fa.cockpit.noQueueItems}
-                           icon={Inbox}
-                           orgId={workspaceSlug}
-                           tasks={[...summary.queues.unassigned, ...summary.queues.backlog].slice(0, 24)}
-                           title={fa.cockpit.unassigned}
-                        />
-                     </section>
-
-                     <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)]">
-                        <SyncPanel
-                           orgId={workspaceSlug}
-                           missingCheckIns={missingCheckIns}
-                           onRefresh={() => void loadSummary('refresh')}
-                           oneOnOnes={oneOnOnes}
-                        />
-                        <ProjectHealthPanel orgId={workspaceSlug} projects={summary.projects} />
-                     </section>
+                     {remainingItems.length ? (
+                        <section className="mt-6" aria-labelledby="remaining-manager-actions">
+                           <div className="mb-2 flex items-center justify-between gap-3">
+                              <h2 id="remaining-manager-actions" className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                                 {fa.cockpit.remainingActions}
+                              </h2>
+                              <span className="text-[11px] text-zinc-600">
+                                 {numberFormatter.format(remainingItems.length)}
+                              </span>
+                           </div>
+                           <ol className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-white/8 dark:bg-[#171719]">
+                              {displayedRemainingItems.map((item, index) => (
+                                 <li className="border-b border-zinc-200 last:border-b-0 dark:border-white/7" key={item.id}>
+                                    <AttentionQueueRow
+                                       item={item}
+                                       position={index + 2}
+                                       total={visibleItems.length}
+                                       {...itemActions(item)}
+                                    />
+                                 </li>
+                              ))}
+                           </ol>
+                           {remainingItems.length > 4 ? (
+                              <button
+                                 className="mt-2 inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-white/[0.05] dark:hover:text-zinc-200"
+                                 type="button"
+                                 onClick={() => setShowAllActions((current) => !current)}
+                              >
+                                 {showAllActions
+                                    ? fa.cockpit.showFewerActions
+                                    : fa.cockpit.showAllActions(remainingItems.length)}
+                              </button>
+                           ) : null}
+                        </section>
+                     ) : null}
                   </>
-               ) : null}
-            </div>
+               ) : (
+                  <AllClearState />
+               )}
+            </main>
          </div>
-      </div>
-   );
-}
 
-function MetricTile({
-   icon: Icon,
-   label,
-   tone,
-   value,
-}: {
-   icon: typeof CircleDot;
-   label: string;
-   tone: 'amber' | 'indigo' | 'rose' | 'sky' | 'zinc';
-   value: number;
-}) {
-   return (
-      <div className="rounded-lg border border-white/8 bg-[#19191b] px-3 py-3">
-         <div className="flex items-center justify-between gap-2">
-            <span className={cn('inline-flex size-7 items-center justify-center rounded-md border', metricToneClasses[tone])}>
-               <Icon className="size-3.5" />
-            </span>
-            <span className="text-xl font-semibold text-zinc-100">{numberFormatter.format(value)}</span>
-         </div>
-         <div className="mt-2 truncate text-xs text-zinc-500">{label}</div>
-      </div>
-   );
-}
-
-function AttentionPanel({
-   items,
-   onApply,
-   onRefresh,
-   orgId,
-}: {
-   items: TaskaraAttentionItem[];
-   onApply: (item: TaskaraAttentionItem, action: PendingAttentionAction) => void;
-   onRefresh: () => void;
-   orgId: string;
-}) {
-   const [pendingId, setPendingId] = useState<string | null>(null);
-   const [dismissTarget, setDismissTarget] = useState<TaskaraAttentionItem | null>(null);
-   const [dismissReason, setDismissReason] = useState('');
-
-   const runAction = useCallback(
-      async (item: TaskaraAttentionItem, action: 'snooze' | 'resolve') => {
-         setPendingId(item.id);
-         const snoozedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-         onApply(item, action === 'snooze' ? { type: 'snooze', snoozedUntil } : { type: 'resolve' });
-         try {
-            if (action === 'snooze') {
-               await sendTaskSyncMutation<TaskaraAttentionItem>('attention.snooze', { id: item.id, snoozedUntil }, undefined, undefined, {
-                  keepPendingOnRetryable: true,
-               });
-            } else {
-               await sendTaskSyncMutation<TaskaraAttentionItem>('attention.resolve', { id: item.id }, undefined, undefined, {
-                  keepPendingOnRetryable: true,
-               });
-            }
-            onRefresh();
-         } catch (actionError) {
-            if (isRetryableTaskSyncError(actionError)) {
-               toast.message(fa.cockpit.actionQueued);
-               return;
-            }
-            toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.actionFailed);
-            onRefresh();
-         } finally {
-            setPendingId(null);
-         }
-      },
-      [onApply, onRefresh]
-   );
-
-   async function submitDismiss(event: FormEvent<HTMLFormElement>) {
-      event.preventDefault();
-      const reason = dismissReason.trim();
-      if (!dismissTarget || reason.length < 3) return;
-      setPendingId(dismissTarget.id);
-      onApply(dismissTarget, { type: 'dismiss', reason });
-      try {
-         await sendTaskSyncMutation<TaskaraAttentionItem>('attention.dismiss', { id: dismissTarget.id, reason }, undefined, undefined, {
-            keepPendingOnRetryable: true,
-         });
-         setDismissTarget(null);
-         setDismissReason('');
-         onRefresh();
-      } catch (actionError) {
-         if (isRetryableTaskSyncError(actionError)) {
-            toast.message(fa.cockpit.actionQueued);
-            setDismissTarget(null);
-            setDismissReason('');
-            return;
-         }
-         toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.actionFailed);
-         onRefresh();
-      } finally {
-         setPendingId(null);
-      }
-   }
-
-   return (
-      <>
-         <LinearPanel
-            title={<PanelTitle count={items.length} icon={ScanEye} label={fa.cockpit.attention} />}
-            className="overflow-hidden"
-         >
-            {items.length === 0 ? (
-               <div className="p-4">
-                  <LinearEmptyState>{fa.cockpit.noAttention}</LinearEmptyState>
-               </div>
-            ) : (
-               <div className="divide-y divide-white/7">
-                  {items.map((item) => (
-                     <AttentionRow
-                        disabled={pendingId === item.id}
-                        item={item}
-                        key={item.id}
-                        onDismiss={() => {
-                           setDismissTarget(item);
-                           setDismissReason('');
-                        }}
-                        onResolve={() => void runAction(item, 'resolve')}
-                        onSnooze={() => void runAction(item, 'snooze')}
-                        orgId={orgId}
-                     />
-                  ))}
-               </div>
-            )}
-         </LinearPanel>
          <Dialog open={Boolean(dismissTarget)} onOpenChange={(open) => !open && setDismissTarget(null)}>
             <DialogContent className="max-w-md [direction:rtl]">
                <form onSubmit={submitDismiss}>
@@ -394,301 +348,370 @@ function AttentionPanel({
                </form>
             </DialogContent>
          </Dialog>
+
+         <OneOnOneAgendaDialog
+            item={agendaTarget}
+            onClose={() => setAgendaTarget(null)}
+            orgId={workspaceSlug}
+         />
+      </div>
+   );
+}
+
+interface AttentionCardActions {
+   disabled: boolean;
+   onDismiss: () => void;
+   onOpenAgenda?: () => void;
+   onResolve: () => void;
+   onSnooze: () => void;
+   orgId: string;
+}
+
+function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & AttentionCardActions) {
+   const primary = item.primary;
+   const payload = primary.payload || {};
+   const title = payload.title || primary.reason;
+   const description = payload.description || primary.reason;
+
+   return (
+      <article className={cn('relative overflow-hidden rounded-2xl border bg-white p-5 shadow-sm dark:bg-[#18181a] sm:p-6', severityBorderClasses[item.severity])}>
+         <div className={cn('absolute inset-y-0 right-0 w-1', severityRailClasses[item.severity])} />
+         <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+            <AttentionEntityMark item={primary} featured />
+            <div className="min-w-0 flex-1">
+               <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-medium', severityBadgeClasses[item.severity])}>
+                     {severityLabels[item.severity]}
+                  </span>
+                  <AttentionReasonLabels reasons={item.reasons} />
+               </div>
+               <h3 className="mt-3 text-lg font-semibold leading-8 text-zinc-900 dark:text-zinc-100 sm:text-xl">
+                  {title}
+               </h3>
+               <p className="mt-1.5 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+                  {description}
+               </p>
+               <AttentionContext item={primary} className="mt-3" />
+            </div>
+         </div>
+         <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-4 dark:border-white/7">
+            <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} featured />
+            <LifecycleControls {...actions} featured />
+         </div>
+      </article>
+   );
+}
+
+function AttentionQueueRow({
+   item,
+   position,
+   total,
+   ...actions
+}: {
+   item: ManagerQueueItem;
+   position: number;
+   total: number;
+} & AttentionCardActions) {
+   const primary = item.primary;
+   const payload = primary.payload || {};
+
+   return (
+      <article className="grid gap-3 p-4 transition hover:bg-zinc-50 dark:hover:bg-white/[0.02] md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+         <AttentionEntityMark item={primary} />
+         <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+               <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-200">
+                  {payload.title || primary.reason}
+               </span>
+               <AttentionReasonLabels compact reasons={item.reasons} />
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
+               {payload.description || primary.reason}
+            </p>
+            <AttentionContext item={primary} className="mt-1.5" />
+         </div>
+         <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+            <span className="me-1 hidden text-[10px] text-zinc-600 lg:inline">
+               {fa.cockpit.itemProgress(position, total)}
+            </span>
+            <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} />
+            <LifecycleControls {...actions} />
+         </div>
+      </article>
+   );
+}
+
+function AttentionEntityMark({ item, featured = false }: { item: TaskaraAttentionItem; featured?: boolean }) {
+   const payload = item.payload || {};
+   const className = featured ? 'size-11 shrink-0' : 'size-9 shrink-0';
+
+   if (payload.task) {
+      return (
+         <span className={cn('inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 dark:border-white/8 dark:bg-white/[0.035]', className)}>
+            <StatusIcon status={payload.task.status} className={featured ? 'size-5' : 'size-4'} />
+         </span>
+      );
+   }
+   if (payload.project) {
+      return <ProjectGlyph name={payload.project.name} className={cn('rounded-xl', className)} iconClassName={featured ? 'size-5' : 'size-4'} />;
+   }
+   if (payload.user) {
+      return <LinearAvatar name={payload.user.name} src={payload.user.avatarUrl} className={className} />;
+   }
+   if (payload.oneOnOne) {
+      return <IconMark icon={CalendarDays} className={className} />;
+   }
+   if (payload.actionItem) {
+      return <IconMark icon={MessagesSquare} className={className} />;
+   }
+   return <IconMark icon={CircleDot} className={className} />;
+}
+
+function IconMark({ icon: Icon, className }: { icon: typeof CircleDot; className: string }) {
+   return (
+      <span className={cn('inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/8 dark:bg-white/[0.035]', className)}>
+         <Icon className="size-4" />
+      </span>
+   );
+}
+
+function AttentionContext({ item, className }: { item: TaskaraAttentionItem; className?: string }) {
+   const payload = item.payload || {};
+   const context = [
+      payload.task?.key,
+      payload.task?.projectName,
+      payload.project?.teamName,
+      payload.oneOnOne?.participantName,
+      payload.actionItem?.meetingTitle,
+      payload.signal?.dueAt ? formatJalaliDate(payload.signal.dueAt) : null,
+      typeof payload.signal?.ageHours === 'number' ? fa.cockpit.hourCount(payload.signal.ageHours) : null,
+   ].filter((value): value is string => Boolean(value));
+
+   if (!context.length) return null;
+
+   return (
+      <div className={cn('flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500', className)}>
+         {context.map((value, index) => (
+            <span className={cn('min-w-0 truncate', index === 0 && payload.task?.key && 'ltr font-medium')} key={`${value}-${index}`}>
+               {value}
+            </span>
+         ))}
+      </div>
+   );
+}
+
+function AttentionReasonLabels({
+   compact = false,
+   reasons,
+}: {
+   compact?: boolean;
+   reasons: TaskaraAttentionItem['reason'][];
+}) {
+   const visibleReasons = reasons.slice(0, 3);
+   const hiddenCount = Math.max(reasons.length - visibleReasons.length, 0);
+
+   return (
+      <>
+         {visibleReasons.map((reason) => (
+            <span
+               className={cn(
+                  'rounded-full border border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/8 dark:bg-white/[0.025]',
+                  compact ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]'
+               )}
+               key={reason}
+            >
+               {attentionReasonLabel(reason)}
+            </span>
+         ))}
+         {hiddenCount ? (
+            <span className="text-[10px] text-zinc-600">+{numberFormatter.format(hiddenCount)}</span>
+         ) : null}
       </>
    );
 }
 
-function AttentionRow({
-   disabled,
+function AttentionOpenControl({
+   featured = false,
    item,
-   onDismiss,
-   onResolve,
-   onSnooze,
+   onOpenAgenda,
    orgId,
 }: {
-   disabled: boolean;
+   featured?: boolean;
    item: TaskaraAttentionItem;
-   onDismiss: () => void;
-   onResolve: () => void;
-   onSnooze: () => void;
+   onOpenAgenda?: () => void;
    orgId: string;
 }) {
-   const payload = item.payload || {};
-   const task = payload.task;
-   const project = payload.project;
-   const oneOnOne = payload.oneOnOne;
-   const actionItem = payload.actionItem;
-   const title = payload.title || item.reason;
-   const description = payload.description || item.reason;
-   const actionLabel = payload.actionLabel || (task ? fa.cockpit.openTask : project ? fa.nav.projects : oneOnOne || actionItem ? fa.nav.meetings : fa.cockpit.openMembers);
-   const to = task?.key
-      ? `/${orgId}/issue/${encodeURIComponent(task.key)}`
-      : project
-        ? `/${orgId}/projects`
-        : oneOnOne || actionItem
-          ? `/${orgId}/meetings`
-          : `/${orgId}/members`;
+   const label = item.payload.actionLabel || fa.cockpit.openFocus;
+   const className = featured
+      ? 'inline-flex h-9 items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 text-xs font-semibold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white'
+      : 'inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-white/8 dark:text-zinc-300 dark:hover:bg-white/[0.05]';
+
+   if (item.payload.oneOnOne && onOpenAgenda) {
+      return (
+         <button className={className} type="button" onClick={onOpenAgenda}>
+            {label}
+            <ArrowUpRight className="size-3.5" />
+         </button>
+      );
+   }
 
    return (
-      <div className="grid gap-2 px-3 py-3 hover:bg-white/[0.025] md:grid-cols-[120px_minmax(0,1fr)_auto]">
-         <Link className="flex items-center gap-2" to={to}>
-            <span className={cn('size-2 rounded-full', severityDotClasses[item.severity])} />
-            <span className="text-xs font-medium text-zinc-400">{severityLabels[item.severity]}</span>
-         </Link>
-         <Link className="min-w-0" to={to}>
-            <div className="flex min-w-0 items-center gap-2">
-               {task ? (
-                  <StatusIcon status={task.status} className="size-3.5" />
-               ) : project ? (
-                  <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />
-               ) : oneOnOne || actionItem ? (
-                  <ListChecks className="size-3.5 text-zinc-500" />
-               ) : (
-                  <Users className="size-3.5 text-zinc-500" />
-               )}
-               <span className="truncate text-sm font-medium text-zinc-200">{title}</span>
-            </div>
-            <div className="mt-1 truncate text-xs text-zinc-500">{description}</div>
-         </Link>
-         <div className="flex items-center justify-start gap-1 md:justify-end">
-            <Link className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-200" to={to}>
-               {actionLabel}
-               <ArrowUpRight className="size-3.5" />
-            </Link>
-            <button
-               className="inline-flex size-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.05] hover:text-amber-200 disabled:opacity-40"
-               disabled={disabled}
-               title={fa.cockpit.snoozeDay}
-               type="button"
-               onClick={onSnooze}
-            >
-               <TimerReset className="size-3.5" />
-            </button>
-            <button
-               className="inline-flex size-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.05] hover:text-emerald-200 disabled:opacity-40"
-               disabled={disabled}
-               title={fa.cockpit.resolve}
-               type="button"
-               onClick={onResolve}
-            >
-               <CheckCircle2 className="size-3.5" />
-            </button>
-            <button
-               className="inline-flex size-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-40"
-               disabled={disabled}
-               title={fa.cockpit.dismiss}
-               type="button"
-               onClick={onDismiss}
-            >
-               <EyeOff className="size-3.5" />
-            </button>
-         </div>
-      </div>
-   );
-}
-
-function PeoplePanel({ people, orgId }: { people: WorkHealthPerson[]; orgId: string }) {
-   return (
-      <LinearPanel title={<PanelTitle count={people.length} icon={Users} label={fa.cockpit.workload} />} className="overflow-hidden">
-         {people.length === 0 ? (
-            <div className="p-4">
-               <LinearEmptyState>{fa.app.empty}</LinearEmptyState>
-            </div>
-         ) : (
-            <div className="max-h-[620px] divide-y divide-white/7 overflow-y-auto">
-               {people.map((person) => (
-                  <PersonRow key={person.user.id} orgId={orgId} person={person} />
-               ))}
-            </div>
-         )}
-      </LinearPanel>
-   );
-}
-
-function PersonRow({ orgId, person }: { orgId: string; person: WorkHealthPerson }) {
-   const progress = Math.min(person.loadRatio * 100, 100);
-
-   return (
-      <div className="px-3 py-3">
-         <Link className="flex min-w-0 items-center gap-2.5" to={`/${orgId}/people?person=${encodeURIComponent(person.user.id)}`}>
-            <LinearAvatar name={person.user.name} src={person.user.avatarUrl} className="size-7" />
-            <div className="min-w-0 flex-1">
-               <div className="truncate text-sm font-medium text-zinc-200">{person.user.name}</div>
-               <div className="ltr truncate text-[11px] text-zinc-500">{person.user.email}</div>
-            </div>
-            <span className={cn('rounded-full border px-2 py-0.5 text-[11px]', workloadBadgeClasses[person.status])}>
-               {workloadLabels[person.status]}
-            </span>
-         </Link>
-         <div className="mt-2">
-            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
-               <span>{fa.cockpit.weightOfCapacity(person.activeWeight, person.capacity)}</span>
-               <span>{fa.cockpit.taskCount(person.activeCount)}</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/7">
-               <div className={cn('h-full rounded-full', workloadBarClasses[person.status])} style={{ width: `${progress}%` }} />
-            </div>
-         </div>
-         {person.tasks.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-               {person.tasks.slice(0, 3).map((task) => (
-                  <Link
-                     key={task.id}
-                     className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.025] px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200"
-                     to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}
-                  >
-                     <StatusIcon status={task.status} className="size-3" />
-                     <IssueTitleTooltip title={task.title}>
-                        <span className="truncate">{task.title}</span>
-                     </IssueTitleTooltip>
-                  </Link>
-               ))}
-            </div>
-         ) : null}
-      </div>
-   );
-}
-
-function TaskQueuePanel({
-   empty,
-   icon,
-   orgId,
-   tasks,
-   title,
-}: {
-   empty: string;
-   icon: typeof UserRoundCheck;
-   orgId: string;
-   tasks: TaskaraTask[];
-   title: string;
-}) {
-   return (
-      <LinearPanel title={<PanelTitle count={tasks.length} icon={icon} label={title} />} className="overflow-hidden">
-         {tasks.length === 0 ? (
-            <div className="p-4">
-               <LinearEmptyState>{empty}</LinearEmptyState>
-            </div>
-         ) : (
-            <div className="divide-y divide-white/7">
-               {tasks.map((task) => (
-                  <TaskQueueRow key={task.id} orgId={orgId} task={task} />
-               ))}
-            </div>
-         )}
-      </LinearPanel>
-   );
-}
-
-function TaskQueueRow({ orgId, task }: { orgId: string; task: TaskaraTask }) {
-   const statusLabel = linearStatusMeta[task.status]?.label || task.status;
-
-   return (
-      <Link className="block px-3 py-2.5 hover:bg-white/[0.025]" to={`/${orgId}/issue/${encodeURIComponent(task.key)}`}>
-         <div className="flex min-w-0 items-center gap-2">
-            <StatusIcon status={task.status} className="size-3.5" />
-            <span className="ltr shrink-0 text-[11px] font-medium text-zinc-500">{task.key}</span>
-            <IssueTitleTooltip title={task.title}>
-               <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{task.title}</span>
-            </IssueTitleTooltip>
-         </div>
-         <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
-            <span>{statusLabel}</span>
-            <span>{task.dueAt ? formatJalaliDate(task.dueAt) : fa.app.noDate}</span>
-            <span className="flex min-w-0 items-center gap-1">
-               <ProjectGlyph name={task.project?.name} className="size-3.5 rounded-sm" iconClassName="size-2.5" />
-               <span className="min-w-0 truncate">{task.project?.name || fa.app.unset}</span>
-            </span>
-         </div>
+      <Link className={className} to={attentionHref(item, orgId)}>
+         {label}
+         <ArrowUpRight className="size-3.5" />
       </Link>
    );
 }
 
-function SyncPanel({
+function LifecycleControls({
+   disabled,
+   featured = false,
+   onDismiss,
+   onResolve,
+   onSnooze,
+}: Omit<AttentionCardActions, 'onOpenAgenda' | 'orgId'> & { featured?: boolean }) {
+   const buttonClassName = featured
+      ? 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-white/8 dark:text-zinc-400 dark:hover:bg-white/[0.05]'
+      : 'inline-flex size-8 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-white/[0.05]';
+
+   return (
+      <>
+         <button
+            aria-label={fa.cockpit.snoozeDay}
+            className={buttonClassName}
+            disabled={disabled}
+            title={fa.cockpit.snoozeDay}
+            type="button"
+            onClick={onSnooze}
+         >
+            <TimerReset className="size-3.5" />
+            {featured ? fa.cockpit.snooze : null}
+         </button>
+         <button
+            aria-label={fa.cockpit.resolve}
+            className={cn(buttonClassName, featured && 'text-emerald-700 dark:text-emerald-300')}
+            disabled={disabled}
+            title={fa.cockpit.resolve}
+            type="button"
+            onClick={onResolve}
+         >
+            <CheckCircle2 className="size-3.5" />
+            {featured ? fa.cockpit.resolve : null}
+         </button>
+         <button
+            aria-label={fa.cockpit.dismiss}
+            className={buttonClassName}
+            disabled={disabled}
+            title={fa.cockpit.dismiss}
+            type="button"
+            onClick={onDismiss}
+         >
+            <EyeOff className="size-3.5" />
+            {featured ? fa.cockpit.dismiss : null}
+         </button>
+      </>
+   );
+}
+
+function AllClearState() {
+   return (
+      <section className="rounded-2xl border border-emerald-300/50 bg-emerald-50 px-5 py-12 text-center dark:border-emerald-400/15 dark:bg-emerald-400/[0.06]">
+         <span className="mx-auto inline-flex size-12 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300">
+            <CheckCircle2 className="size-5" />
+         </span>
+         <h2 className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">{fa.cockpit.allClearTitle}</h2>
+         <p className="mx-auto mt-1.5 max-w-lg text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+            {fa.cockpit.allClearDescription}
+         </p>
+      </section>
+   );
+}
+
+function OneOnOneAgendaDialog({
+   item,
+   onClose,
    orgId,
-   missingCheckIns,
-   oneOnOnes,
-   onRefresh,
 }: {
+   item: TaskaraAttentionItem | null;
+   onClose: () => void;
    orgId: string;
-   missingCheckIns: TaskaraCheckInMissingResponse | null;
-   oneOnOnes: TaskaraOneOnOneSeries[];
-   onRefresh: () => void;
 }) {
-   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
    const [agenda, setAgenda] = useState<TaskaraOneOnOneAgendaResponse | null>(null);
    const [actionItems, setActionItems] = useState<TaskaraMeetingActionItem[]>([]);
-   const [agendaLoadingId, setAgendaLoadingId] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState<string | null>(null);
    const [persistingKey, setPersistingKey] = useState<string | null>(null);
    const [actionItemPendingId, setActionItemPendingId] = useState<string | null>(null);
-   const missingItems = missingCheckIns?.items || [];
-   const missingUserIds = new Set(missingItems.map((item) => item.user.id));
-   const dueSeries = oneOnOnes
-      .filter((series) => !series.nextScheduledAt || new Date(series.nextScheduledAt).getTime() <= Date.now() + 7 * 24 * 60 * 60 * 1000)
-      .filter((series) => !missingUserIds.has(series.participantId))
-      .slice(0, 8);
+   const oneOnOne = item?.payload.oneOnOne;
 
-   async function createSeries(userId: string) {
-      setPendingUserId(userId);
-      try {
-         const { entity: created } = await sendTaskSyncMutation<TaskaraOneOnOneSeries>('one_on_one.create', {
-            participantId: userId,
-            cadenceDays: 14,
-         }, undefined, undefined, {
-            keepPendingOnRetryable: true,
-         });
-         if (!created) throw new Error(fa.cockpit.syncActionFailed);
-         onRefresh();
-         await openAgenda(created);
-      } catch (error) {
-         if (isRetryableTaskSyncError(error)) {
-            toast.message(fa.cockpit.actionQueued);
-            return;
+   useEffect(() => {
+      if (!item || !oneOnOne) {
+         setAgenda(null);
+         setActionItems([]);
+         setError(null);
+         return;
+      }
+
+      let cancelled = false;
+      const load = async () => {
+         setLoading(true);
+         setError(null);
+         try {
+            const [result, actionItemResult] = await Promise.all([
+               taskaraRequest<TaskaraOneOnOneAgendaResponse>(`/one-on-ones/${encodeURIComponent(oneOnOne.id)}/agenda`),
+               taskaraRequest<TaskaraMeetingActionItemListResponse>(
+                  `/meeting-action-items?assigneeId=${encodeURIComponent(oneOnOne.participantId)}&status=OPEN&limit=12`
+               ).catch(() => ({ items: [], total: 0, limit: 12, offset: 0 })),
+            ]);
+            const pendingMutations = await loadPendingTaskSyncMutations();
+            if (cancelled) return;
+            const pendingActionItems = applyPendingMeetingActionItemMutations(actionItemResult.items, pendingMutations);
+            setAgenda(
+               applyPendingCarryForwardAgendaMutations(
+                  applyPendingAgendaItemMutations(result, pendingMutations),
+                  pendingActionItems,
+                  pendingMutations
+               )
+            );
+            setActionItems(pendingActionItems);
+         } catch (loadError) {
+            if (!cancelled) {
+               setError(loadError instanceof Error ? loadError.message : fa.cockpit.syncActionFailed);
+            }
+         } finally {
+            if (!cancelled) setLoading(false);
          }
-         toast.error(error instanceof Error ? error.message : fa.cockpit.syncActionFailed);
-      } finally {
-         setPendingUserId(null);
-      }
-   }
+      };
+      void load();
 
-   async function openAgenda(series: TaskaraOneOnOneSeries) {
-      setAgendaLoadingId(series.id);
-      try {
-         const [result, actionItemResult] = await Promise.all([
-            taskaraRequest<TaskaraOneOnOneAgendaResponse>(`/one-on-ones/${encodeURIComponent(series.id)}/agenda`),
-            taskaraRequest<TaskaraMeetingActionItemListResponse>(
-               `/meeting-action-items?assigneeId=${encodeURIComponent(series.participantId)}&status=OPEN&limit=12`
-            ).catch(() => ({ items: [], total: 0, limit: 12, offset: 0 })),
-         ]);
-         const pendingMutations = await loadPendingTaskSyncMutations();
-         const pendingActionItems = applyPendingMeetingActionItemMutations(actionItemResult.items, pendingMutations);
-         setAgenda(applyPendingCarryForwardAgendaMutations(applyPendingAgendaItemMutations(result, pendingMutations), pendingActionItems, pendingMutations));
-         setActionItems(pendingActionItems);
-      } catch (error) {
-         toast.error(error instanceof Error ? error.message : fa.cockpit.syncActionFailed);
-      } finally {
-         setAgendaLoadingId(null);
-      }
-   }
+      return () => {
+         cancelled = true;
+      };
+   }, [item, oneOnOne]);
 
    async function updateActionItem(actionItem: TaskaraMeetingActionItem, action: 'complete' | 'carry' | 'task') {
       if (!agenda) return;
       setActionItemPendingId(`${action}:${actionItem.id}`);
       try {
          if (action === 'complete') {
-            setActionItems((current) => current.filter((item) => item.id !== actionItem.id));
-            const { entity: updated } = await sendTaskSyncMutation<TaskaraMeetingActionItem>('meeting_action_item.complete', {
-               id: actionItem.id,
-            }, undefined, undefined, {
-               keepPendingOnRetryable: true,
-            });
+            setActionItems((current) => current.filter((candidate) => candidate.id !== actionItem.id));
+            const { entity: updated } = await sendTaskSyncMutation<TaskaraMeetingActionItem>(
+               'meeting_action_item.complete',
+               { id: actionItem.id },
+               undefined,
+               undefined,
+               { keepPendingOnRetryable: true }
+            );
             if (!updated) throw new Error(fa.cockpit.syncActionFailed);
-            setActionItems((current) => current.filter((item) => item.id !== updated.id));
             toast.success(fa.cockpit.actionItemCompleted);
             return;
          }
 
          if (action === 'carry') {
-            const { entity: result } = await sendTaskSyncMutation<{ actionItem: TaskaraMeetingActionItem; agendaItem: TaskaraOneOnOneAgendaResponse['items'][number] }>(
+            const { entity: result } = await sendTaskSyncMutation<{
+               actionItem: TaskaraMeetingActionItem;
+               agendaItem: TaskaraOneOnOneAgendaResponse['items'][number];
+            }>(
                'meeting_action_item.carry_forward',
                { id: actionItem.id, carry: { seriesId: agenda.series.id } },
                undefined,
@@ -696,15 +719,19 @@ function SyncPanel({
                { keepPendingOnRetryable: true }
             );
             if (!result) throw new Error(fa.cockpit.syncActionFailed);
-            setAgenda((current) => {
-               if (!current || current.items.some((item) => item.id === result.agendaItem.id)) return current;
-               return { ...current, items: [...current.items, result.agendaItem] };
-            });
+            setAgenda((current) =>
+               !current || current.items.some((candidate) => candidate.id === result.agendaItem.id)
+                  ? current
+                  : { ...current, items: [...current.items, result.agendaItem] }
+            );
             toast.success(fa.cockpit.actionItemCarried);
             return;
          }
 
-         const { entity: result } = await sendTaskSyncMutation<{ actionItem: TaskaraMeetingActionItem; task: TaskaraTask }>(
+         const { entity: result } = await sendTaskSyncMutation<{
+            actionItem: TaskaraMeetingActionItem;
+            task: TaskaraTask;
+         }>(
             'meeting_action_item.create_task',
             { id: actionItem.id, task: {} },
             undefined,
@@ -712,23 +739,21 @@ function SyncPanel({
             { keepPendingOnRetryable: true }
          );
          if (!result) throw new Error(fa.cockpit.syncActionFailed);
-         setActionItems((current) => current.filter((item) => item.id !== result.actionItem.id));
+         setActionItems((current) => current.filter((candidate) => candidate.id !== result.actionItem.id));
          toast.success(fa.cockpit.actionItemTaskCreated(result.task.key));
-      } catch (error) {
-         if (isRetryableTaskSyncError(error)) {
+      } catch (actionError) {
+         if (isRetryableTaskSyncError(actionError)) {
             if (action === 'carry') {
                setAgenda((current) =>
                   current
                      ? applyPendingCarryForwardAgendaMutations(
                           current,
                           [actionItem],
-                          [
-                             {
-                                name: 'meeting_action_item.carry_forward',
-                                args: { id: actionItem.id, carry: { seriesId: current.series.id } },
-                                createdAt: new Date().toISOString(),
-                             },
-                          ]
+                          [{
+                             name: 'meeting_action_item.carry_forward',
+                             args: { id: actionItem.id, carry: { seriesId: current.series.id } },
+                             createdAt: new Date().toISOString(),
+                          }]
                        )
                      : current
                );
@@ -736,16 +761,18 @@ function SyncPanel({
             toast.message(fa.cockpit.actionQueued);
             return;
          }
-         if (action === 'complete') setActionItems((current) => current.some((item) => item.id === actionItem.id) ? current : [actionItem, ...current]);
-         toast.error(error instanceof Error ? error.message : fa.cockpit.syncActionFailed);
+         if (action === 'complete') {
+            setActionItems((current) => current.some((candidate) => candidate.id === actionItem.id) ? current : [actionItem, ...current]);
+         }
+         toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.syncActionFailed);
       } finally {
          setActionItemPendingId(null);
       }
    }
 
-   async function persistGeneratedItem(item: TaskaraOneOnOneAgendaResponse['generated'][number]) {
+   async function persistGeneratedItem(generated: TaskaraOneOnOneAgendaResponse['generated'][number]) {
       if (!agenda) return;
-      const key = `${item.sourceType}:${item.sourceId}`;
+      const key = `${generated.sourceType}:${generated.sourceId}`;
       setPersistingKey(key);
       try {
          const { entity: created } = await sendTaskSyncMutation<TaskaraOneOnOneAgendaResponse['items'][number]>(
@@ -753,10 +780,10 @@ function SyncPanel({
             {
                seriesId: agenda.series.id,
                item: {
-                  title: item.title,
-                  notes: item.notes || undefined,
-                  sourceType: item.sourceType,
-                  sourceId: item.sourceId,
+                  title: generated.title,
+                  notes: generated.notes || undefined,
+                  sourceType: generated.sourceType,
+                  sourceId: generated.sourceId,
                },
             },
             undefined,
@@ -773,288 +800,232 @@ function SyncPanel({
                  }
                : current
          );
-      } catch (error) {
-         if (isRetryableTaskSyncError(error)) {
+      } catch (actionError) {
+         if (isRetryableTaskSyncError(actionError)) {
             toast.message(fa.cockpit.actionQueued);
             setAgenda((current) =>
                current
-                  ? {
-                       ...current,
-                       generated: current.generated.filter((candidate) => `${candidate.sourceType}:${candidate.sourceId}` !== key),
-                    }
+                  ? { ...current, generated: current.generated.filter((candidate) => `${candidate.sourceType}:${candidate.sourceId}` !== key) }
                   : current
             );
             return;
          }
-         toast.error(error instanceof Error ? error.message : fa.cockpit.syncActionFailed);
+         toast.error(actionError instanceof Error ? actionError.message : fa.cockpit.syncActionFailed);
       } finally {
          setPersistingKey(null);
       }
    }
 
    return (
-      <>
-         <LinearPanel title={<PanelTitle count={(missingCheckIns?.total || 0) + dueSeries.length} icon={ListChecks} label={fa.cockpit.syncs} />} className="overflow-hidden">
-            {!missingItems.length && !dueSeries.length ? (
-               <div className="p-4">
-                  <LinearEmptyState>{fa.cockpit.noSyncs}</LinearEmptyState>
-               </div>
-            ) : (
-               <div className="divide-y divide-white/7">
-                  {missingItems.slice(0, 8).map((item) => {
-                     const series = oneOnOnes.find((row) => row.participantId === item.user.id);
-                     const seriesPending = isPendingOneOnOneSeries(series);
-                     return (
-                        <div key={item.user.id} className="grid gap-2 px-3 py-3">
-                           <div className="flex min-w-0 items-center gap-2.5">
-                              <LinearAvatar name={item.user.name} src={item.user.avatarUrl} className="size-7" />
-                              <div className="min-w-0 flex-1">
-                                 <div className="truncate text-sm font-medium text-zinc-200">{item.user.name}</div>
-                                 <div className="truncate text-xs text-zinc-500">
-                                    {item.hoursSinceLastCheckIn === null
-                                       ? fa.cockpit.noCheckInYet
-                                       : fa.cockpit.checkInAge(item.hoursSinceLastCheckIn)}
-                                 </div>
-                              </div>
-                              <button
-                                 className="inline-flex h-7 items-center gap-1 rounded-md border border-white/8 bg-white/[0.035] px-2 text-xs text-zinc-300 hover:bg-white/[0.06] disabled:opacity-45"
-                                 disabled={pendingUserId === item.user.id || agendaLoadingId === series?.id || seriesPending}
-                                 type="button"
-                                 onClick={() => (series ? void openAgenda(series) : void createSeries(item.user.id))}
-                              >
-                                 {pendingUserId === item.user.id || agendaLoadingId === series?.id || seriesPending ? (
-                                    <RefreshCw className="size-3.5 animate-spin" />
-                                 ) : (
-                                    <CalendarPlus className="size-3.5" />
-                                 )}
-                                 {seriesPending ? fa.cockpit.queued : series ? fa.cockpit.openAgenda : fa.cockpit.createOneOnOne}
-                              </button>
+      <Dialog open={Boolean(item)} onOpenChange={(open) => !open && onClose()}>
+         <DialogContent className="max-w-2xl [direction:rtl]">
+            <DialogHeader>
+               <DialogTitle>{oneOnOne ? fa.cockpit.oneOnOneWith(oneOnOne.participantName) : fa.cockpit.syncs}</DialogTitle>
+               <DialogDescription>{fa.cockpit.agendaDescription}</DialogDescription>
+            </DialogHeader>
+            {loading ? <LinearEmptyState>{fa.app.loading}</LinearEmptyState> : null}
+            {error ? (
+               <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-200">{error}</p>
+            ) : null}
+            {agenda && !loading ? (
+               <div className="mt-3 grid max-h-[60vh] gap-4 overflow-y-auto pe-1">
+                  {agenda.items.length ? (
+                     <div className="rounded-lg border border-white/8">
+                        {agenda.items.map((agendaItem) => (
+                           <div key={agendaItem.id} className="border-b border-white/7 px-3 py-2 last:border-b-0">
+                              <div className="text-sm font-medium text-zinc-100">{agendaItem.title}</div>
+                              {agendaItem.notes ? <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-500">{agendaItem.notes}</div> : null}
                            </div>
-                        </div>
-                     );
-                  })}
-                  {dueSeries.map((series) => {
-                     const seriesPending = isPendingOneOnOneSeries(series);
-                     return (
-                        <button
-                           key={series.id}
-                           className="flex w-full min-w-0 items-center gap-2.5 px-3 py-3 text-start hover:bg-white/[0.025] disabled:cursor-not-allowed disabled:opacity-60"
-                           disabled={agendaLoadingId === series.id || seriesPending}
-                           type="button"
-                           onClick={() => void openAgenda(series)}
-                        >
-                           <LinearAvatar name={series.participant?.name} src={series.participant?.avatarUrl} className="size-7" />
-                           <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium text-zinc-200">
-                                 {series.title || fa.cockpit.oneOnOneWith(series.participant?.name || fa.app.unknown)}
-                              </span>
-                              <span className="block truncate text-xs text-zinc-500">
-                                 {seriesPending ? fa.cockpit.queued : series.nextScheduledAt ? formatJalaliDateTime(series.nextScheduledAt) : fa.cockpit.noNextOneOnOne}
-                              </span>
-                           </span>
-                           {agendaLoadingId === series.id || seriesPending ? <RefreshCw className="size-3.5 animate-spin text-zinc-500" /> : <ArrowUpRight className="size-3.5 text-zinc-500" />}
-                        </button>
-                     );
-                  })}
-               </div>
-            )}
-         </LinearPanel>
-         <Dialog
-            open={Boolean(agenda)}
-            onOpenChange={(open) => {
-               if (open) return;
-               setAgenda(null);
-               setActionItems([]);
-            }}
-         >
-            <DialogContent className="max-w-2xl [direction:rtl]">
-               <DialogHeader>
-                  <DialogTitle>{agenda ? fa.cockpit.oneOnOneWith(agenda.series.participant?.name || fa.app.unknown) : fa.cockpit.syncs}</DialogTitle>
-                  <DialogDescription>{fa.cockpit.agendaDescription}</DialogDescription>
-               </DialogHeader>
-               {agenda ? (
-                  <div className="mt-3 grid max-h-[60vh] gap-3 overflow-y-auto pe-1">
-                     {agenda.items.length ? (
+                        ))}
+                     </div>
+                  ) : null}
+
+                  <AgendaSection title={fa.cockpit.openActionItems}>
+                     {actionItems.length ? (
                         <div className="rounded-lg border border-white/8">
-                           {agenda.items.map((item) => (
-                              <div key={item.id} className="border-b border-white/7 px-3 py-2 last:border-b-0">
-                                 <div className="text-sm font-medium text-zinc-100">{item.title}</div>
-                                 {item.notes ? <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-500">{item.notes}</div> : null}
-                              </div>
-                           ))}
-                        </div>
-                     ) : null}
-                     <div className="grid gap-2">
-                        <div className="text-xs font-medium text-zinc-500">{fa.cockpit.openActionItems}</div>
-                        {actionItems.length ? (
-                           <div className="rounded-lg border border-white/8">
-                              {actionItems.map((item) => {
-                                 const itemPending = actionItemPendingId?.endsWith(`:${item.id}`) ?? false;
-                                 return (
-                                    <div key={item.id} className="border-b border-white/7 px-3 py-2.5 last:border-b-0">
-                                       <div className="flex min-w-0 items-start gap-3">
-                                          <div className="min-w-0 flex-1">
-                                             <div className="truncate text-sm font-medium text-zinc-100">{item.title}</div>
-                                             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
-                                                <span className="truncate">{item.meeting?.title || fa.meeting.title}</span>
-                                                {item.dueAt ? <span>{formatJalaliDate(item.dueAt)}</span> : null}
-                                                {item.task ? (
-                                                   <Link className="ltr text-zinc-300 hover:text-zinc-100" to={`/${orgId}/issue/${encodeURIComponent(item.task.key)}`}>
-                                                      {item.task.key}
-                                                   </Link>
-                                                ) : null}
-                                             </div>
-                                             {item.notes ? <div className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-5 text-zinc-500">{item.notes}</div> : null}
-                                          </div>
-                                          <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                                             <button
-                                                className="inline-flex h-7 items-center gap-1 rounded-md border border-white/8 px-2 text-xs text-zinc-300 hover:bg-white/[0.05] disabled:opacity-45"
-                                                disabled={itemPending}
-                                                type="button"
-                                                onClick={() => void updateActionItem(item, 'complete')}
-                                             >
-                                                {actionItemPendingId === `complete:${item.id}` ? <RefreshCw className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-                                                {fa.cockpit.completeActionItem}
-                                             </button>
-                                             <button
-                                                className="inline-flex h-7 items-center gap-1 rounded-md border border-white/8 px-2 text-xs text-zinc-300 hover:bg-white/[0.05] disabled:opacity-45"
-                                                disabled={itemPending}
-                                                type="button"
-                                                onClick={() => void updateActionItem(item, 'carry')}
-                                             >
-                                                {actionItemPendingId === `carry:${item.id}` ? <RefreshCw className="size-3.5 animate-spin" /> : <ListChecks className="size-3.5" />}
-                                                {fa.cockpit.carryForwardActionItem}
-                                             </button>
-                                             {!item.task ? (
-                                                <button
-                                                   className="inline-flex h-7 items-center gap-1 rounded-md border border-white/8 px-2 text-xs text-zinc-300 hover:bg-white/[0.05] disabled:opacity-45"
-                                                   disabled={itemPending}
-                                                   type="button"
-                                                   onClick={() => void updateActionItem(item, 'task')}
-                                                >
-                                                   {actionItemPendingId === `task:${item.id}` ? <RefreshCw className="size-3.5 animate-spin" /> : <CircleDot className="size-3.5" />}
-                                                   {fa.cockpit.createLinkedTask}
-                                                </button>
+                           {actionItems.map((actionItem) => {
+                              const itemPending = actionItemPendingId?.endsWith(`:${actionItem.id}`) ?? false;
+                              return (
+                                 <div key={actionItem.id} className="border-b border-white/7 px-3 py-2.5 last:border-b-0">
+                                    <div className="flex min-w-0 flex-wrap items-start gap-3">
+                                       <div className="min-w-0 flex-1">
+                                          <div className="truncate text-sm font-medium text-zinc-100">{actionItem.title}</div>
+                                          <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-zinc-500">
+                                             <span>{actionItem.meeting?.title || fa.meeting.title}</span>
+                                             {actionItem.dueAt ? <span>{formatJalaliDate(actionItem.dueAt)}</span> : null}
+                                             {actionItem.task ? (
+                                                <Link className="ltr text-zinc-300 hover:text-zinc-100" to={`/${orgId}/issue/${encodeURIComponent(actionItem.task.key)}`}>
+                                                   {actionItem.task.key}
+                                                </Link>
                                              ) : null}
                                           </div>
                                        </div>
-                                    </div>
-                                 );
-                              })}
-                           </div>
-                        ) : (
-                           <LinearEmptyState>{fa.cockpit.noOpenActionItems}</LinearEmptyState>
-                        )}
-                     </div>
-                     <div className="grid gap-2">
-                        <div className="text-xs font-medium text-zinc-500">{fa.cockpit.generatedAgenda}</div>
-                        {agenda.generated.length ? (
-                           agenda.generated.map((item) => {
-                              const key = `${item.sourceType}:${item.sourceId}`;
-                              return (
-                                 <div key={key} className="rounded-lg border border-white/8 bg-white/[0.025] p-3">
-                                    <div className="flex min-w-0 items-start gap-2">
-                                       <span className={cn('mt-1 size-2 rounded-full', severityDotClasses[item.severity])} />
-                                       <div className="min-w-0 flex-1">
-                                          <div className="text-sm font-medium text-zinc-100">{item.title}</div>
-                                          {item.notes ? <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-500">{item.notes}</div> : null}
+                                       <div className="flex flex-wrap gap-1.5">
+                                          <AgendaActionButton
+                                             disabled={itemPending}
+                                             icon={CheckCircle2}
+                                             label={fa.cockpit.completeActionItem}
+                                             loading={actionItemPendingId === `complete:${actionItem.id}`}
+                                             onClick={() => void updateActionItem(actionItem, 'complete')}
+                                          />
+                                          <AgendaActionButton
+                                             disabled={itemPending}
+                                             icon={ListChecks}
+                                             label={fa.cockpit.carryForwardActionItem}
+                                             loading={actionItemPendingId === `carry:${actionItem.id}`}
+                                             onClick={() => void updateActionItem(actionItem, 'carry')}
+                                          />
+                                          {!actionItem.task ? (
+                                             <AgendaActionButton
+                                                disabled={itemPending}
+                                                icon={CircleDot}
+                                                label={fa.cockpit.createLinkedTask}
+                                                loading={actionItemPendingId === `task:${actionItem.id}`}
+                                                onClick={() => void updateActionItem(actionItem, 'task')}
+                                             />
+                                          ) : null}
                                        </div>
-                                       <button
-                                          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-white/8 px-2 text-xs text-zinc-300 hover:bg-white/[0.05] disabled:opacity-45"
-                                          disabled={persistingKey === key}
-                                          type="button"
-                                          onClick={() => void persistGeneratedItem(item)}
-                                       >
-                                          {persistingKey === key ? <RefreshCw className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-                                          {fa.cockpit.addToAgenda}
-                                       </button>
                                     </div>
                                  </div>
                               );
-                           })
-                        ) : (
-                           <LinearEmptyState>{fa.cockpit.noGeneratedAgenda}</LinearEmptyState>
-                        )}
-                     </div>
-                  </div>
-               ) : null}
-            </DialogContent>
-         </Dialog>
-      </>
-   );
-}
-
-function ProjectHealthPanel({ orgId, projects }: { orgId: string; projects: WorkHealthProject[] }) {
-   return (
-      <LinearPanel title={<PanelTitle count={projects.length} icon={CheckCircle2} label={fa.cockpit.projectHealth} />} className="overflow-hidden">
-         {projects.length === 0 ? (
-            <div className="p-4">
-               <LinearEmptyState>{fa.app.empty}</LinearEmptyState>
-            </div>
-         ) : (
-            <div className="divide-y divide-white/7">
-               {projects.map((item) => (
-                  <Link key={item.project.id} className="grid gap-3 px-3 py-3 hover:bg-white/[0.025] lg:grid-cols-[minmax(260px,1fr)_repeat(5,minmax(72px,auto))]" to={`/${orgId}/projects`}>
-                     <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                           <ProjectGlyph name={item.project.name} className="size-6" iconClassName="size-3.5" />
-                           <span className="truncate text-sm font-medium text-zinc-200">{item.project.name}</span>
-                           <span className={cn('rounded-full border px-2 py-0.5 text-[11px]', projectHealthClasses[item.health])}>
-                              {projectHealthLabels[item.health]}
-                           </span>
+                           })}
                         </div>
-                        <div className="mt-1 truncate text-xs text-zinc-500">{item.project.team?.name || fa.nav.workspace}</div>
-                     </div>
-                     <ProjectMetric label={fa.cockpit.activeWork} value={item.activeCount} />
-                     <ProjectMetric label={fa.cockpit.overdue} value={item.overdueCount} />
-                     <ProjectMetric label={fa.cockpit.blocked} value={item.blockedCount} />
-                     <ProjectMetric label={fa.cockpit.reviews} value={item.reviewCount} />
-                     <ProjectMetric label={fa.cockpit.unassignedTasks} value={item.unassignedCount} />
-                  </Link>
-               ))}
-            </div>
-         )}
-      </LinearPanel>
+                     ) : (
+                        <LinearEmptyState>{fa.cockpit.noOpenActionItems}</LinearEmptyState>
+                     )}
+                  </AgendaSection>
+
+                  <AgendaSection title={fa.cockpit.generatedAgenda}>
+                     {agenda.generated.length ? (
+                        <div className="grid gap-2">
+                           {agenda.generated.map((generated) => {
+                              const key = `${generated.sourceType}:${generated.sourceId}`;
+                              return (
+                                 <div key={key} className="rounded-lg border border-white/8 bg-white/[0.025] p-3">
+                                    <div className="flex min-w-0 items-start gap-2">
+                                       <span className={cn('mt-1.5 size-2 rounded-full', severityRailClasses[generated.severity])} />
+                                       <div className="min-w-0 flex-1">
+                                          <div className="text-sm font-medium text-zinc-100">{generated.title}</div>
+                                          {generated.notes ? <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-500">{generated.notes}</div> : null}
+                                       </div>
+                                       <AgendaActionButton
+                                          disabled={persistingKey === key}
+                                          icon={CheckCircle2}
+                                          label={fa.cockpit.addToAgenda}
+                                          loading={persistingKey === key}
+                                          onClick={() => void persistGeneratedItem(generated)}
+                                       />
+                                    </div>
+                                 </div>
+                              );
+                           })}
+                        </div>
+                     ) : (
+                        <LinearEmptyState>{fa.cockpit.noGeneratedAgenda}</LinearEmptyState>
+                     )}
+                  </AgendaSection>
+               </div>
+            ) : null}
+         </DialogContent>
+      </Dialog>
    );
 }
 
-function ProjectMetric({ label, value }: { label: string; value: number }) {
+function AgendaSection({ children, title }: { children: ReactNode; title: string }) {
    return (
-      <div className="min-w-0">
-         <div className="text-sm font-semibold text-zinc-200">{numberFormatter.format(value)}</div>
-         <div className="truncate text-[11px] text-zinc-500">{label}</div>
-      </div>
+      <section className="grid gap-2">
+         <h3 className="text-xs font-medium text-zinc-500">{title}</h3>
+         {children}
+      </section>
    );
 }
 
-function PanelTitle({
-   count,
+function AgendaActionButton({
+   disabled,
    icon: Icon,
    label,
+   loading,
+   onClick,
 }: {
-   count: number;
-   icon: typeof ScanEye;
+   disabled: boolean;
+   icon: typeof CircleDot;
    label: string;
+   loading: boolean;
+   onClick: () => void;
 }) {
    return (
-      <div className="flex items-center justify-between gap-3">
-         <span className="flex min-w-0 items-center gap-2">
-            <Icon className="size-4 text-zinc-500" />
-            <span className="truncate">{label}</span>
-         </span>
-         <span className="rounded-full border border-white/8 bg-white/[0.035] px-2 py-0.5 text-[11px] text-zinc-400">
-            {numberFormatter.format(count)}
-         </span>
-      </div>
+      <button
+         className="inline-flex h-7 items-center gap-1 rounded-md border border-white/8 px-2 text-xs text-zinc-300 hover:bg-white/[0.05] disabled:opacity-45"
+         disabled={disabled}
+         type="button"
+         onClick={onClick}
+      >
+         {loading ? <RefreshCw className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
+         {label}
+      </button>
    );
 }
 
-const metricToneClasses = {
-   amber: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
-   indigo: 'border-indigo-400/20 bg-indigo-400/10 text-indigo-200',
-   rose: 'border-rose-400/20 bg-rose-400/10 text-rose-200',
-   sky: 'border-sky-400/20 bg-sky-400/10 text-sky-200',
-   zinc: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-300',
+function groupAttentionItems(items: TaskaraAttentionItem[]): ManagerQueueItem[] {
+   const grouped = new Map<string, ManagerQueueItem>();
+
+   for (const item of items) {
+      const id = managerAttentionGroupKey(item);
+      const current = grouped.get(id);
+      if (!current) {
+         grouped.set(id, {
+            id,
+            items: [item],
+            primary: item,
+            reasons: [item.reason],
+            severity: item.severity,
+         });
+         continue;
+      }
+
+      current.items.push(item);
+      if (!current.reasons.includes(item.reason)) current.reasons.push(item.reason);
+      if (severityRank[item.severity] > severityRank[current.severity]) {
+         current.primary = item;
+         current.severity = item.severity;
+      }
+   }
+
+   return [...grouped.values()].sort((left, right) => {
+      const severityDifference = severityRank[right.severity] - severityRank[left.severity];
+      if (severityDifference) return severityDifference;
+      return Date.parse(right.primary.lastSeenAt) - Date.parse(left.primary.lastSeenAt);
+   });
+}
+
+function attentionHref(item: TaskaraAttentionItem, orgId: string) {
+   const payload = item.payload || {};
+   if (item.reason === 'backlog_triage') return `/${orgId}/queues`;
+   if (payload.task?.key) return `/${orgId}/issue/${encodeURIComponent(payload.task.key)}`;
+   if (payload.project) return `/${orgId}/projects`;
+   if (payload.actionItem) return `/${orgId}/meetings/${encodeURIComponent(payload.actionItem.meetingId)}`;
+   if (payload.user) return `/${orgId}/people?person=${encodeURIComponent(payload.user.id)}`;
+   return `/${orgId}/members`;
+}
+
+function attentionReasonLabel(reason: TaskaraAttentionItem['reason']) {
+   return reasonLabels[reason] || fa.cockpit.attention;
+}
+
+const reasonLabels: Record<string, string> = {
+   overdue_task: fa.cockpit.overdue,
+   blocked_task: fa.cockpit.blocked,
+   review_waiting: fa.cockpit.reviews,
+   backlog_triage: fa.decisionQueues.backlogQueue,
+   stale_task: fa.cockpit.stale,
+   unassigned_due_soon: fa.cockpit.unassignedTasks,
+   overloaded_person: fa.cockpit.overloaded,
+   person_without_active_work: fa.cockpit.idle,
+   project_at_risk: fa.cockpit.focusProjects,
+   project_update_due: fa.cockpit.projectHealth,
+   missing_check_in: fa.peopleWorkload.missingCheckIn,
+   one_on_one_due: fa.peopleWorkload.oneOnOneDue,
+   stale_meeting_action_item: fa.cockpit.openActionItems,
 };
 
 const severityLabels = {
@@ -1064,44 +1035,32 @@ const severityLabels = {
    URGENT: 'فوری',
 };
 
-const severityDotClasses = {
+const severityRank = {
+   LOW: 0,
+   MEDIUM: 1,
+   HIGH: 2,
+   URGENT: 3,
+};
+
+const severityBadgeClasses = {
+   LOW: 'border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400',
+   MEDIUM: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200',
+   HIGH: 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200',
+   URGENT: 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-200',
+};
+
+const severityBorderClasses = {
+   LOW: 'border-zinc-200 dark:border-white/8',
+   MEDIUM: 'border-amber-300/70 dark:border-amber-400/20',
+   HIGH: 'border-orange-300/70 dark:border-orange-400/20',
+   URGENT: 'border-rose-300/70 dark:border-rose-400/25',
+};
+
+const severityRailClasses = {
    LOW: 'bg-zinc-500',
    MEDIUM: 'bg-amber-400',
    HIGH: 'bg-orange-400',
    URGENT: 'bg-rose-400',
-};
-
-const workloadLabels = {
-   idle: fa.cockpit.idle,
-   balanced: 'متعادل',
-   busy: 'پرکار',
-   overloaded: fa.cockpit.overloaded,
-};
-
-const workloadBadgeClasses = {
-   idle: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-400',
-   balanced: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
-   busy: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
-   overloaded: 'border-rose-400/20 bg-rose-400/10 text-rose-200',
-};
-
-const workloadBarClasses = {
-   idle: 'bg-zinc-500',
-   balanced: 'bg-emerald-400',
-   busy: 'bg-amber-400',
-   overloaded: 'bg-rose-400',
-};
-
-const projectHealthLabels = {
-   healthy: 'پایدار',
-   needs_attention: 'نیازمند توجه',
-   at_risk: 'در ریسک',
-};
-
-const projectHealthClasses = {
-   healthy: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
-   needs_attention: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
-   at_risk: 'border-rose-400/20 bg-rose-400/10 text-rose-200',
 };
 
 function cockpitRefreshSourceMatches(detail: WorkspaceRefreshDetail) {
@@ -1115,8 +1074,4 @@ function cockpitRefreshSourceMatches(detail: WorkspaceRefreshDetail) {
       workspaceRefreshSourceMatches(detail, 'team') ||
       workspaceRefreshSourceMatches(detail, 'workspace')
    );
-}
-
-function isPendingOneOnOneSeries(series: TaskaraOneOnOneSeries | null | undefined): boolean {
-   return Boolean(series?.id.startsWith('pending-one-on-one-'));
 }

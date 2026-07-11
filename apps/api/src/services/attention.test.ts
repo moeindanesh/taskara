@@ -2,13 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import type { AttentionItem } from '@taskara/db';
 import {
   attentionCandidateFromWorkHealth,
+  attentionCandidatesFromDecisionQueues,
   isCheckInMissing,
   isMeetingActionItemStale,
   isOneOnOneDue,
   shouldReopenAttention,
   trackedAttentionReasons
 } from './attention';
-import type { WorkHealthAttentionItem } from './work-health';
+import type { WorkHealthAttentionItem, WorkHealthSummary } from './work-health';
 
 const now = new Date('2026-07-05T12:00:00.000Z');
 
@@ -97,11 +98,33 @@ describe('attention lifecycle rules', () => {
   });
 
   test('tracks every generated manager attention reason', () => {
+    expect(trackedAttentionReasons).toContain('backlog_triage');
     expect(trackedAttentionReasons).toContain('project_at_risk');
     expect(trackedAttentionReasons).toContain('project_update_due');
     expect(trackedAttentionReasons).toContain('missing_check_in');
     expect(trackedAttentionReasons).toContain('one_on_one_due');
     expect(trackedAttentionReasons).toContain('stale_meeting_action_item');
+  });
+
+  test('projects fresh reviews and backlog triage into the manager attention queue', () => {
+    const candidates = attentionCandidatesFromDecisionQueues('workspace-1', {
+      review: [decisionTask({
+        id: 'review-task',
+        key: 'OPS-2',
+        status: 'IN_REVIEW',
+        activeReviewRequest: {
+          id: 'review-1',
+          reviewerId: 'manager-1',
+          requestedAt: '2026-07-05T11:00:00.000Z',
+          dueAt: null
+        }
+      })],
+      backlog: [decisionTask({ id: 'backlog-task', key: 'OPS-3', status: 'BACKLOG' })]
+    }, now);
+
+    expect(candidates.map((candidate) => candidate.reason)).toEqual(['review_waiting', 'backlog_triage']);
+    expect(candidates[0]?.severity).toBe('LOW');
+    expect(candidates[1]?.payload.actionLabel).toBe('تصمیم تریاژ');
   });
 
   test('uses fixed cadence thresholds for check-ins and 1:1s', () => {
@@ -175,6 +198,43 @@ function candidateFromDueAt(dueAt: string) {
       _count: { comments: 0, subtasks: 0, blockingDependencies: 0, attachments: 0 }
     } as WorkHealthAttentionItem['task']
   }, now);
+}
+
+function decisionTask(
+  overrides: Partial<WorkHealthSummary['queues']['review'][number]> = {}
+): WorkHealthSummary['queues']['review'][number] {
+  return {
+    id: 'decision-task',
+    workspaceId: 'workspace-1',
+    projectId: null,
+    cycleId: null,
+    parentId: null,
+    key: 'OPS-1',
+    sequence: 1,
+    title: 'Manager decision',
+    description: null,
+    status: 'TODO',
+    priority: 'MEDIUM',
+    weight: 1,
+    assigneeId: null,
+    reporterId: null,
+    dueAt: null,
+    completedAt: null,
+    source: 'WEB',
+    version: 1,
+    createdAt: new Date('2026-07-05T10:00:00.000Z'),
+    updatedAt: new Date('2026-07-05T11:00:00.000Z'),
+    progressStartedAt: null,
+    activeReviewRequest: null,
+    project: null,
+    assignee: null,
+    reporter: null,
+    attachments: [],
+    labels: [],
+    triageState: null,
+    _count: { comments: 0, subtasks: 0, blockingDependencies: 0, attachments: 0 },
+    ...overrides
+  } as WorkHealthSummary['queues']['review'][number];
 }
 
 function attentionItem(overrides: Partial<AttentionItem>): AttentionItem {

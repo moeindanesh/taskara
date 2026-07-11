@@ -188,6 +188,19 @@ export function CommunicationsView() {
       () => meetings.filter((meeting) => isMeetingForUser(meeting, currentUserId)).length,
       [currentUserId, meetings]
    );
+   const listTitle =
+      filter === 'meetings'
+         ? fa.meeting.title
+         : filter === 'announcements' || filter === 'unread' || filter === 'drafts'
+           ? fa.communications.announcementType
+           : fa.nav.communications;
+   const emptyListText = query
+      ? fa.communications.noSearchResults
+      : filter === 'meetings'
+        ? fa.meeting.noMeetings
+        : filter === 'announcements' || filter === 'unread' || filter === 'drafts'
+          ? fa.announcement.noAnnouncements
+          : fa.communications.noItems;
 
    const load = useCallback(async () => {
       const requestId = ++loadRequestRef.current;
@@ -628,7 +641,7 @@ export function CommunicationsView() {
                <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
                      <Megaphone className="size-4 shrink-0 text-zinc-500" />
-                     <h1 className="truncate text-sm font-semibold text-zinc-100">{fa.nav.communications}</h1>
+                     <h1 className="truncate text-sm font-semibold text-zinc-100">{listTitle}</h1>
                      {unreadAnnouncementCount > 0 ? (
                         <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-200">
                            {unreadAnnouncementCount.toLocaleString('fa-IR')}
@@ -657,7 +670,7 @@ export function CommunicationsView() {
                      onChange={(event) => setQuery(event.target.value)}
                   />
                </div>
-               <div className="mt-3 flex gap-1 overflow-x-auto pb-1">
+               <div className="mt-3 flex min-w-0 flex-wrap gap-1 pb-1">
                   {communicationFilters.map((item) => (
                      <button
                         key={item.value}
@@ -681,7 +694,7 @@ export function CommunicationsView() {
                   <CommunicationListSkeleton />
                ) : visibleItems.length === 0 ? (
                   <CommunicationEmptyState actionLabel={fa.communications.createPrimary} onAction={() => setCreateMenuOpen(true)}>
-                     {query ? fa.communications.noSearchResults : fa.communications.noItems}
+                     {emptyListText}
                   </CommunicationEmptyState>
                ) : (
                   <div className="space-y-1">
