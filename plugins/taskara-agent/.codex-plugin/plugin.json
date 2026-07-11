@@ -16,8 +16,8 @@
   "apps": "./.app.json",
   "interface": {
     "displayName": "Taskara Agent",
-    "shortDescription": "Create, search, update, and plan Taskara work from Codex.",
-    "longDescription": "Adds Taskara task-management workflows to Codex using the Taskara API. Optimized for team projects, follow-ups, and auditable agent proposals.",
+    "shortDescription": "Create, search, update, and plan Taskara work and milestones from Codex.",
+    "longDescription": "Adds Taskara project, milestone, and task-management workflows to Codex using the Taskara API. Optimized for team planning, follow-ups, and auditable agent proposals.",
     "developerName": "Taskara Team",
     "category": "Productivity",
     "capabilities": [
@@ -27,6 +27,8 @@
     ],
     "defaultPrompt": [
       "Create Taskara tasks from this plan.",
+      "Create a Taskara milestone for this implementation phase.",
+      "Summarize our active Taskara milestones.",
       "Find my blocked Taskara work.",
       "Generate today's Taskara focus list."
     ],

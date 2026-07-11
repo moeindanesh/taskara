@@ -2,6 +2,7 @@ import type {
    TaskaraAttentionItem,
    TaskaraCheckInResponse,
    TaskaraMeetingActionItem,
+   TaskaraMilestone,
    TaskaraOneOnOneAgendaItem,
    TaskaraOneOnOneSeries,
    TaskaraProjectHealthUpdate,
@@ -61,6 +62,48 @@ export function applyWorkspaceSyncEvents(
    return next;
 }
 
+/**
+ * Applies project-scoped milestone resource events without mixing them into the
+ * manager-entity maps. The API can carry the serialized resource directly or
+ * inside payload.after; delete events only need an entity id.
+ */
+export function applyMilestoneSyncEvents(
+   milestones: TaskaraMilestone[],
+   events: WorkspaceDataSyncEvent[]
+): TaskaraMilestone[] {
+   let next = milestones;
+
+   for (const event of events) {
+      if (event.entityType !== 'milestone') continue;
+      const incoming = milestoneEventEntity(event);
+      const id = typeof event.entityId === 'string' && event.entityId ? event.entityId : incoming?.id;
+      if (!id) continue;
+
+      if (event.type === 'delete' || event.type === 'removeFromScope') {
+         const index = next.findIndex((milestone) => milestone.id === id);
+         if (index === -1) continue;
+         next = [...next.slice(0, index), ...next.slice(index + 1)];
+         continue;
+      }
+
+      if (!incoming) continue;
+      const index = next.findIndex((milestone) => milestone.id === incoming.id);
+      if (index === -1) {
+         next = [...next, incoming];
+      } else {
+         const copy = [...next];
+         // Progress events are workspace-global and intentionally omit the
+         // viewer-specific canManage capability. Merge them into the cached
+         // resource so a task update cannot accidentally revoke local UI
+         // controls until the next bootstrap.
+         copy[index] = { ...copy[index], ...incoming };
+         next = copy;
+      }
+   }
+
+   return next;
+}
+
 function cloneWorkspaceEntities(entities: WorkspaceDataEntities): WorkspaceDataEntities {
    return {
       attention: { ...entities.attention },
@@ -98,6 +141,15 @@ function eventEntity(event: WorkspaceDataSyncEvent): ManagerEntity | null {
 
    const before = recordWithId(payload?.before);
    return before ? before as unknown as ManagerEntity : null;
+}
+
+function milestoneEventEntity(event: WorkspaceDataSyncEvent): TaskaraMilestone | null {
+   const direct = recordWithId(event.entity);
+   if (direct) return direct as unknown as TaskaraMilestone;
+
+   const payload = recordValue(event.payload);
+   const after = recordWithId(payload?.after);
+   return after ? after as unknown as TaskaraMilestone : null;
 }
 
 function entityId(event: WorkspaceDataSyncEvent, entity: ManagerEntity | null): string | null {

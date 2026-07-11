@@ -232,12 +232,22 @@ export function syncCursor(value: bigint | number | string | null | undefined): 
   return value.toString();
 }
 
-async function reserveWorkspaceSeq(tx: Prisma.TransactionClient, workspaceId: string): Promise<bigint> {
-  await tx.$executeRaw`
-    INSERT INTO "WorkspaceSyncState" ("workspaceId", "updatedAt")
-    VALUES (${workspaceId}::uuid, NOW())
-    ON CONFLICT ("workspaceId") DO NOTHING
+export async function lockWorkspaceSyncState(
+  tx: Prisma.TransactionClient,
+  workspaceId: string
+): Promise<void> {
+  await ensureWorkspaceSyncState(tx, workspaceId);
+  const rows = await tx.$queryRaw<Array<{ workspaceId: string }>>`
+    SELECT "workspaceId"
+    FROM "WorkspaceSyncState"
+    WHERE "workspaceId" = ${workspaceId}::uuid
+    FOR UPDATE
   `;
+  if (!rows[0]) throw new Error('Failed to lock workspace sync state');
+}
+
+async function reserveWorkspaceSeq(tx: Prisma.TransactionClient, workspaceId: string): Promise<bigint> {
+  await ensureWorkspaceSyncState(tx, workspaceId);
 
   const rows = await tx.$queryRaw<Array<{ workspaceSeq: bigint }>>`
     UPDATE "WorkspaceSyncState"
@@ -249,6 +259,14 @@ async function reserveWorkspaceSeq(tx: Prisma.TransactionClient, workspaceId: st
   const workspaceSeq = rows[0]?.workspaceSeq;
   if (workspaceSeq === undefined) throw new Error('Failed to reserve workspace sync cursor');
   return workspaceSeq;
+}
+
+async function ensureWorkspaceSyncState(tx: Prisma.TransactionClient, workspaceId: string): Promise<void> {
+  await tx.$executeRaw`
+    INSERT INTO "WorkspaceSyncState" ("workspaceId", "updatedAt")
+    VALUES (${workspaceId}::uuid, NOW())
+    ON CONFLICT ("workspaceId") DO NOTHING
+  `;
 }
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue {

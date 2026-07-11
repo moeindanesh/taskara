@@ -1,4 +1,4 @@
-import type { TaskaraTask, TaskaraTaskReview } from '@/lib/taskara-types';
+import type { TaskaraMilestone, TaskaraTask, TaskaraTaskReview } from '@/lib/taskara-types';
 import type { WorkspaceDataState } from '@/lib/workspace-data/store';
 import { workspaceEntityList } from '@/lib/workspace-data/store';
 
@@ -7,6 +7,7 @@ const activeTaskStatuses = new Set(['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW
 export function selectCommandSearchItems(state: WorkspaceDataState) {
    return {
       tasks: state.tasks,
+      milestones: state.milestones,
       projects: state.projects,
       teams: state.teams,
       users: state.users,
@@ -25,6 +26,7 @@ export function selectIssueDetail(state: WorkspaceDataState, idOrKey: string | n
       reviews,
       users: state.users,
       projects: state.projects,
+      milestones: state.milestones,
    };
 }
 
@@ -39,6 +41,9 @@ export function selectSidebarCounts(state: WorkspaceDataState, currentUserId?: s
       ? state.tasks.filter((task) => isActiveTask(task) && task.assignee?.id === currentUserId).length
       : 0;
    const myOpenActionItemCount = workspaceEntityList(state.meetingActionItems).filter((item) => item.status === 'OPEN').length;
+   const myOverdueMilestoneCount = currentUserId
+      ? state.milestones.filter((milestone) => isOwnedOverdueMilestone(milestone, currentUserId)).length
+      : 0;
 
    return {
       activeAttentionCount,
@@ -46,6 +51,7 @@ export function selectSidebarCounts(state: WorkspaceDataState, currentUserId?: s
       activeTaskCount,
       myActiveTaskCount,
       myOpenActionItemCount,
+      myOverdueMilestoneCount,
    };
 }
 
@@ -63,6 +69,20 @@ export function selectTasksAssignedToUser(state: WorkspaceDataState, userId: str
 
 function isActiveTask(task: TaskaraTask): boolean {
    return activeTaskStatuses.has(task.status);
+}
+
+function isOwnedOverdueMilestone(milestone: TaskaraMilestone, currentUserId: string): boolean {
+   if (milestone.ownerId !== currentUserId && milestone.owner?.id !== currentUserId) return false;
+   if (milestone.archivedAt || milestone.status === 'COMPLETED' || milestone.status === 'CANCELED') return false;
+   if (!milestone.targetOn) return false;
+   return milestone.targetOn.slice(0, 10) < localDateKey(new Date(Date.now()));
+}
+
+function localDateKey(date: Date): string {
+   const year = date.getFullYear();
+   const month = String(date.getMonth() + 1).padStart(2, '0');
+   const day = String(date.getDate()).padStart(2, '0');
+   return `${year}-${month}-${day}`;
 }
 
 function compareRecentTask(left: TaskaraTask, right: TaskaraTask): number {

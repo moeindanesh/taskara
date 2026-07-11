@@ -21,14 +21,16 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { LinearAvatar, ProjectGlyph, ShortcutKey, StatusIcon } from '@/components/taskara/linear-ui';
 import { WorkspaceTaskComposer } from '@/components/taskara/workspace-task-composer';
+import { MilestoneDialogHost, openMilestoneCreate } from '@/components/taskara/milestones/milestone-dialog-host';
+import { MilestoneGlyph, milestoneKindMeta, milestoneStatusMeta } from '@/components/taskara/milestones/primitives';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
-import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
+import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraMilestone, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { selectCommandSearchItems, selectTasksAssignedToUser } from '@/lib/workspace-data/selectors';
 import { useAuthSession } from '@/store/auth-store';
-import { Activity, Bell, BookOpen, CalendarCheck2, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
+import { Activity, Bell, BookOpen, CalendarCheck2, Diamond, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -114,7 +116,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
   const location = useLocation();
   const { session } = useAuthSession();
   const taskSync = useWorkspaceTaskSync();
-  const { tasks, projects, teams, users, views } = React.useMemo(
+  const { milestones, tasks, projects, teams, users, views } = React.useMemo(
      () => selectCommandSearchItems(taskSync.workspaceData),
      [taskSync.workspaceData]
   );
@@ -131,7 +133,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
 
-   const pageOwnsScroll = ['announcements', 'capacity', 'cockpit', 'communications', 'heartbeat', 'inbox', 'issue', 'meetings', 'people', 'projects', 'queues', 'reviews', 'settings', 'tasks', 'team', 'today', 'wiki'].includes(routeKey);
+   const pageOwnsScroll = ['announcements', 'capacity', 'cockpit', 'communications', 'heartbeat', 'inbox', 'issue', 'meetings', 'milestones', 'people', 'projects', 'queues', 'reviews', 'settings', 'tasks', 'team', 'today', 'wiki'].includes(routeKey);
    const height = {
       1: 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]',
       2: 'h-[calc(100dvh-80px)] lg:h-[calc(100dvh-88px)]',
@@ -244,6 +246,22 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             defaultVisible: false,
             icon: FolderKanban,
             run: () => navigate(`/${orgId}/projects`),
+         },
+         {
+            id: 'go-milestones',
+            label: fa.command.goMilestones,
+            description: fa.pages.milestonesDescription,
+            defaultVisible: true,
+            icon: Diamond,
+            run: () => navigate(`/${orgId}/milestones`),
+         },
+         {
+            id: 'create-milestone',
+            label: fa.command.createMilestone,
+            description: fa.command.createMilestoneDescription,
+            defaultVisible: false,
+            icon: Diamond,
+            run: () => openMilestoneCreate({ navigateOnCreate: true }),
          },
          {
             id: 'create-project',
@@ -414,6 +432,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             task.description,
             task.project?.name,
             task.project?.keyPrefix,
+            task.milestone?.name,
             task.assignee?.name,
          ])
       );
@@ -431,6 +450,22 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
          ])
       );
    }, [hasCommandQuery, normalizedCommandQuery, projects]);
+
+   const milestoneResults = React.useMemo<TaskaraMilestone[]>(() => {
+      if (!hasCommandQuery) return [];
+      return takeTopMatches(milestones, (milestone) =>
+         scoreCommandMatch(normalizedCommandQuery, [
+            milestone.name,
+            milestone.description,
+            milestone.project.name,
+            milestone.project.keyPrefix,
+            milestone.project.team?.name,
+            milestone.owner?.name,
+            milestoneKindMeta[milestone.kind].label,
+            milestoneStatusMeta[milestone.status].label,
+         ])
+      );
+   }, [hasCommandQuery, milestones, normalizedCommandQuery]);
 
    const viewResults = React.useMemo<TaskaraView[]>(() => {
       if (!hasCommandQuery) return [];
@@ -482,6 +517,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const hasEntityMatches =
       genericIssueResults.length > 0 ||
       knowledgeResults.length > 0 ||
+      milestoneResults.length > 0 ||
       projectResults.length > 0 ||
       viewResults.length > 0 ||
       teamResults.length > 0 ||
@@ -508,6 +544,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             </div>
          </div>
          <WorkspaceTaskComposer />
+         <MilestoneDialogHost />
          <CommandDialog
             description={fa.command.description}
             contentClassName="max-w-[760px] sm:max-w-[760px]"
@@ -519,7 +556,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             <CommandInput
                value={commandQuery}
                onValueChange={setCommandQuery}
-               placeholder="دستور اجرا کن یا در کارها، دانش‌نامه، پروژه‌ها و اعضا جستجو کن..."
+               placeholder="دستور اجرا کن یا در کارها، مایلستون‌ها، دانش‌نامه، پروژه‌ها و اعضا جستجو کن..."
             />
             <CommandList className="max-h-[520px] p-1.5" data-testid="command-menu">
                {!hasAnyCommandItem ? (
@@ -568,6 +605,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                               task.title,
                               task.project?.name || '',
                               task.project?.keyPrefix || '',
+                              task.milestone?.name || '',
                            ]}
                            className="rounded-md px-2 py-2"
                            onSelect={() => runCommand(() => navigate(`/${orgId}/issue/${task.key}`))}
@@ -580,6 +618,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                               <span className="block truncate text-xs text-zinc-500">
                                  {task.key}
                                  {task.project?.name ? ` • ${task.project.name}` : ''}
+                                 {task.milestone?.name ? ` • ${task.milestone.name}` : ''}
                               </span>
                            </span>
                         </CommandItem>
@@ -597,6 +636,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                               task.title,
                               task.project?.name || '',
                               task.project?.keyPrefix || '',
+                              task.milestone?.name || '',
                               task.assignee?.name || '',
                            ]}
                            className="rounded-md px-2 py-2"
@@ -610,6 +650,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                               <span className="block truncate text-xs text-zinc-500">
                                  {task.key}
                                  {task.project?.name ? ` • ${task.project.name}` : ''}
+                                 {task.milestone?.name ? ` • ${task.milestone.name}` : ''}
                               </span>
                            </span>
                         </CommandItem>
@@ -646,6 +687,39 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
                            </span>
                         </CommandItem>
                      ))}
+                  </CommandGroup>
+               ) : null}
+               {milestoneResults.length > 0 ? (
+                  <CommandGroup heading={fa.milestone.title}>
+                     {milestoneResults.map((milestone) => {
+                        const kind = milestoneKindMeta[milestone.kind];
+                        const status = milestoneStatusMeta[milestone.status];
+                        return (
+                           <CommandItem
+                              key={`milestone-${milestone.id}`}
+                              value={`milestone-${milestone.id}`}
+                              keywords={[
+                                 milestone.name,
+                                 milestone.description || '',
+                                 milestone.project.name,
+                                 milestone.project.keyPrefix,
+                                 milestone.owner?.name || '',
+                                 kind.label,
+                                 status.label,
+                              ]}
+                              className="rounded-md px-2 py-2"
+                              onSelect={() => runCommand(() => navigate(`/${orgId}/milestones/${encodeURIComponent(milestone.id)}`))}
+                           >
+                              <MilestoneGlyph className="size-6 rounded-md" />
+                              <span className="min-w-0 flex-1">
+                                 <span className="block truncate text-sm text-zinc-200">{milestone.name}</span>
+                                 <span className="block truncate text-xs text-zinc-500">
+                                    {milestone.project.name} • {kind.label} • {status.label}
+                                 </span>
+                              </span>
+                           </CommandItem>
+                        );
+                     })}
                   </CommandGroup>
                ) : null}
                {projectResults.length > 0 ? (

@@ -11,6 +11,7 @@ import { CapacitySettingsView } from '@/components/taskara/capacity-settings-vie
 import { DecisionQueuesView } from '@/components/taskara/decision-queues-view';
 import { ManagerCockpitView } from '@/components/taskara/manager-cockpit-view';
 import { MembersView } from '@/components/taskara/members-view';
+import { MilestonesView } from '@/components/taskara/milestones/milestones-view';
 import { PageHeader } from '@/components/taskara/page-header';
 import { PeopleWorkloadView } from '@/components/taskara/people-workload-view';
 import { ProjectsView } from '@/components/taskara/projects-view';
@@ -94,6 +95,10 @@ const pageMetaByRoute = {
   projects: {
     title: fa.nav.projects,
     description: fa.pages.projectsDescription,
+  },
+  milestones: {
+    title: fa.nav.milestones,
+    description: fa.pages.milestonesDescription,
   },
   settings: {
     title: fa.nav.settings,
@@ -208,6 +213,8 @@ export function App() {
         <Route path="heartbeat" element={<WorkspacePage><HeartbeatView /></WorkspacePage>} />
         <Route path="members" element={<WorkspacePage><MembersView /></WorkspacePage>} />
         <Route path="projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
+        <Route path="milestones" element={<WorkspacePage><MilestonesView /></WorkspacePage>} />
+        <Route path="milestones/:milestoneId" element={<WorkspacePage><MilestonesView /></WorkspacePage>} />
         <Route path="settings/*" element={<WorkspacePage><SettingsView /></WorkspacePage>} />
         <Route path="reports" element={<WorkspacePage><TaskReportsView /></WorkspacePage>} />
         <Route path="tasks" element={<WorkspacePage><TasksView defaultSystemView="all" personalOnly={false} /></WorkspacePage>} />

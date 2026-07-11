@@ -35,12 +35,14 @@ import { TaskaraLogo } from '@/components/taskara/brand-logo';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
+import { selectSidebarCounts } from '@/lib/workspace-data/selectors';
 import { fa } from '@/lib/fa-copy';
 import { clearAuthSession, getAuthSession, setAuthSession } from '@/store/auth-store';
 import type { TaskaraMe, TaskaraWorkspaceMembership } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import {
    ChevronDown,
+   Diamond,
    Laptop,
    Moon,
    Plus,
@@ -70,11 +72,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const loadRequestRef = React.useRef(0);
    const teams = taskSync.workspaceData.teams;
    const loadingTeams = !taskSync.hasBootstrapped;
+   const sidebarCounts = React.useMemo(
+      () => selectSidebarCounts(taskSync.workspaceData, me?.user.id),
+      [me?.user.id, taskSync.workspaceData]
+   );
 
    const currentRole = me?.role || getAuthSession()?.role;
-   const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
+   const isManager = currentRole === 'OWNER';
    const cockpitHref = `/${orgId}/cockpit`;
-   const primaryHref = isManager ? cockpitHref : `/${orgId}/team/all/all`;
+   const myIssuesHref = `/${orgId}/team/all/all`;
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -277,15 +283,50 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {isManager ? fa.nav.managerLoop : fa.nav.workspace}
                </SidebarGroupLabel>
                <SidebarMenu>
+                  {isManager ? (
+                     <SidebarMenuItem>
+                        <SidebarMenuButton
+                           asChild
+                           isActive={pathname === cockpitHref}
+                           className={sidebarItemClassName}
+                        >
+                           <Link to={cockpitHref}>
+                              <ScanEye />
+                              <span>{fa.nav.cockpit}</span>
+                           </Link>
+                        </SidebarMenuButton>
+                     </SidebarMenuItem>
+                  ) : null}
                   <SidebarMenuItem>
                      <SidebarMenuButton
                         asChild
-                        isActive={pathname === primaryHref}
+                        isActive={pathname === myIssuesHref}
                         className={sidebarItemClassName}
                      >
-                        <Link to={primaryHref}>
-                           {isManager ? <ScanEye /> : <SidebarIssueIcon />}
-                           <span>{isManager ? fa.nav.cockpit : fa.nav.myIssues}</span>
+                        <Link to={myIssuesHref}>
+                           <SidebarIssueIcon />
+                           <span>{fa.nav.myIssues}</span>
+                        </Link>
+                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                     <SidebarMenuButton
+                        asChild
+                        isActive={pathname === `/${orgId}/milestones` || pathname.startsWith(`/${orgId}/milestones/`)}
+                        className={sidebarItemClassName}
+                     >
+                        <Link to={`/${orgId}/milestones`}>
+                           <Diamond className="text-indigo-400" />
+                           <span className="min-w-0 flex-1 truncate">{fa.nav.milestones}</span>
+                           {sidebarCounts.myOverdueMilestoneCount > 0 ? (
+                              <span
+                                 aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} مایلستون عقب‌افتاده متعلق به شما`}
+                                 className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-400/12 px-1.5 text-[10px] tabular-nums text-rose-300"
+                                 title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} مایلستون عقب‌افتاده`}
+                              >
+                                 {sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')}
+                              </span>
+                           ) : null}
                         </Link>
                      </SidebarMenuButton>
                   </SidebarMenuItem>

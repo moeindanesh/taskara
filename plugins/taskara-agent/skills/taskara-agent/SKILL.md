@@ -1,11 +1,11 @@
 ---
 name: taskara-agent
-description: Use native Taskara MCP tools from Codex to create, search, update, comment on, plan, report on, and administer team tasks through the Taskara API.
+description: Use native Taskara MCP tools from Codex to create, search, update, assign, summarize, plan, report on, and administer project milestones and team tasks through the Taskara API.
 ---
 
 # Taskara Agent
 
-Use this skill when the user wants Codex to interact with Taskara tasks, projects, planning workflows, or workspace users.
+Use native tools when the user wants to interact with Taskara milestones, tasks, projects, planning workflows, or workspace users.
 
 ## Environment
 
@@ -23,6 +23,11 @@ The plugin exposes these MCP tools:
 - `list_projects`
 - `create_project`
 - `summarize_project`
+- `list_milestones`
+- `create_milestone`
+- `update_milestone`
+- `summarize_milestone`
+- `assign_task_to_milestone`
 - `search_tasks`
 - `list_my_tasks`
 - `get_task`
@@ -44,6 +49,9 @@ The plugin exposes these MCP tools:
 
 - Ask for confirmation before applying bulk changes.
 - Do not mark tasks `DONE` or `CANCELED` unless the user explicitly asks.
+- Do not complete, cancel, archive, or otherwise change milestone lifecycle implicitly. Keep those actions deliberate and preserve unfinished-task policy decisions.
+- Assign tasks only to an open milestone in the same project; let the API enforce this invariant and report its error instead of retrying with a different milestone silently.
+- Use a milestone's returned `version` for metadata updates. On conflict, refetch and show the user what changed before retrying.
 - Use `propose_tasks_from_text` for long plans or discussions, then apply selected proposed actions with `apply_agent_action`.
 - Include task keys in summaries after mutations.
 - User-management tools require `OWNER` or `ADMIN` in Taskara.

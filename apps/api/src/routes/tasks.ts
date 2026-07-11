@@ -31,6 +31,7 @@ const leaderboardQuerySchema = z.object({
 
 const taskArchiveQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
+  milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   assigneeId: z.string().uuid().optional(),
   priority: z.enum(['NO_PRIORITY', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   teamId: z.string().min(1).default('all'),
@@ -146,6 +147,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
       projectId: query.projectId,
+      milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       assigneeId: query.mine ? actor.user.id : query.assigneeId,
       status: query.status,
       priority: query.priority
@@ -198,6 +200,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
       projectId: query.projectId,
+      milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       assigneeId: query.mine ? actor.user.id : query.assigneeId,
       priority: query.priority,
       status: { in: ['DONE', 'CANCELED'] },

@@ -38,7 +38,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         parent: { select: { id: true, name: true, keyPrefix: true } },
         lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
         healthUpdates: { take: 1, orderBy: { createdAt: 'desc' }, include: projectHealthUpdateInclude },
-        _count: { select: { tasks: true, subprojects: true } }
+        _count: { select: { tasks: true, subprojects: true, milestones: true } }
       }
     });
   });
@@ -130,7 +130,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         subprojects: { orderBy: { updatedAt: 'desc' }, include: { _count: { select: { tasks: true } } } },
         tasks: { take: 50, orderBy: { updatedAt: 'desc' } },
         healthUpdates: { take: 5, orderBy: { createdAt: 'desc' }, include: projectHealthUpdateInclude },
-        _count: { select: { tasks: true, subprojects: true } }
+        _count: { select: { tasks: true, subprojects: true, milestones: true } }
       }
     });
     if (!project) return reply.code(404).send({ message: 'Project not found' });

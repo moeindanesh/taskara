@@ -174,6 +174,25 @@ enum ProjectUpdateHealth {
   OFF_TRACK
 }
 
+enum MilestoneKind {
+  FEATURE
+  PHASE
+  OTHER
+}
+
+enum MilestoneStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELED
+}
+
+enum MilestoneHealth {
+  ON_TRACK
+  AT_RISK
+  OFF_TRACK
+}
+
 model Workspace {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
@@ -186,6 +205,7 @@ model Workspace {
   teams                  Team[]
   projects               Project[]
   projectHealthUpdates   ProjectHealthUpdate[]
+  milestones             Milestone[]
   tasks                  Task[]
   labels                 Label[]
   cycles                 Cycle[]
@@ -242,6 +262,7 @@ model User {
   projectMemberships            ProjectMember[]
   ledProjects                   Project[]                   @relation("ProjectLead")
   authoredProjectHealthUpdates  ProjectHealthUpdate[]       @relation("ProjectHealthUpdateAuthor")
+  ownedMilestones               Milestone[]                 @relation("MilestoneOwner")
   assignedTasks                 Task[]                      @relation("AssignedTasks")
   reportedTasks                 Task[]                      @relation("ReportedTasks")
   createdAnnouncements          Announcement[]              @relation("AnnouncementCreator")
@@ -391,6 +412,7 @@ model Project {
   meetings           Meeting[]
   knowledgeSpaces    KnowledgeSpace[]
   healthUpdates      ProjectHealthUpdate[]
+  milestones         Milestone[]
   cycles             Cycle[]
   mattermostBindings MattermostBinding[]
 
@@ -434,6 +456,36 @@ model ProjectMember {
   @@unique([projectId, userId])
 }
 
+model Milestone {
+  id          String          @id @default(uuid()) @db.Uuid
+  workspaceId String          @db.Uuid
+  projectId   String          @db.Uuid
+  ownerId     String?         @db.Uuid
+  name        String
+  description String?
+  kind        MilestoneKind
+  status      MilestoneStatus @default(PLANNED)
+  health      MilestoneHealth?
+  startsOn    DateTime?       @db.Date
+  targetOn    DateTime?       @db.Date
+  position    Int             @default(1024)
+  version     Int             @default(1)
+  completedAt DateTime?
+  canceledAt  DateTime?
+  archivedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner     User?     @relation("MilestoneOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  tasks     Task[]
+
+  @@index([projectId, position])
+  @@index([workspaceId, archivedAt, status, targetOn])
+  @@index([ownerId, status])
+}
+
 model Cycle {
   id          String   @id @default(uuid()) @db.Uuid
   workspaceId String   @db.Uuid
@@ -454,6 +506,7 @@ model Task {
   workspaceId String       @db.Uuid
   projectId   String       @db.Uuid
   cycleId     String?      @db.Uuid
+  milestoneId String?      @db.Uuid
   parentId    String?      @db.Uuid
   key         String
   sequence    Int
@@ -474,6 +527,7 @@ model Task {
   workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project              Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   cycle                Cycle?             @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  milestone            Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   parent               Task?              @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
   subtasks             Task[]             @relation("TaskTree")
   assignee             User?              @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
@@ -495,6 +549,7 @@ model Task {
   @@index([workspaceId, status])
   @@index([workspaceId, assigneeId])
   @@index([workspaceId, dueAt])
+  @@index([milestoneId, status])
 }
 
 model TaskTriageState {

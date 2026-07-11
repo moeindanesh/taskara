@@ -210,7 +210,7 @@ TASKARA_API_URL="<api-url>" TASKARA_USER_EMAIL="<user-email>" TASKARA_WORKSPACE_
 
 ## Data Model Highlights
 
-- Workspaces, teams, projects, subprojects
+- Workspaces, teams, projects, subprojects, and project-scoped feature/phase milestones
 - Linear-style task workflow: backlog, todo, in progress, review, blocked, done, canceled
 - Human-readable task keys, e.g. `CORE-123`
 - Comments, labels, dependencies, activity logs, notifications
@@ -219,7 +219,7 @@ TASKARA_API_URL="<api-url>" TASKARA_USER_EMAIL="<user-email>" TASKARA_WORKSPACE_
 
 ## Implementation Notes
 
-- All timestamps are stored in UTC.
+- All timestamps are stored in UTC; milestone start and target values are date-only `YYYY-MM-DD` fields.
 - The UI formats and accepts dates in Jalali; the API still stores UTC timestamps.
 - Agent endpoints persist inputs, outputs, and proposed actions.
 - Bulk/destructive agent work should stay proposal-based until explicitly applied.
@@ -252,7 +252,7 @@ TASKARA_USER_EMAIL=<user-email>
 TASKARA_WORKSPACE_SLUG=<workspace-slug>
 ```
 
-After restarting Codex, install/enable `Taskara Agent` from the local marketplace. The plugin exposes native tools such as `create_task`, `search_tasks`, `update_task`, `comment_on_task`, `generate_daily_plan`, `triage_backlog`, `generate_weekly_report`, `create_user`, and `update_user_role`.
+After restarting Codex, install/enable `Taskara Agent` from the local marketplace. The plugin exposes native tools such as `list_milestones`, `create_milestone`, `update_milestone`, `summarize_milestone`, `assign_task_to_milestone`, `create_task`, `search_tasks`, `update_task`, `comment_on_task`, `generate_daily_plan`, `triage_backlog`, `generate_weekly_report`, `create_user`, and `update_user_role`.
 
 Smoke-test MCP discovery without Codex:
 

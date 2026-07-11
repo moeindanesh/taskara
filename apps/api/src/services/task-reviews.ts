@@ -8,6 +8,7 @@ import type {
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
+import { appendMilestoneProgressSyncEvents, lockMilestonesForUpdate } from './milestones';
 import {
   TASK_REVIEW_DECIDED_NOTIFICATION_TYPE,
   TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE,
@@ -114,6 +115,8 @@ export async function requestTaskReview(actor: RequestActor, idOrKey: string, in
   let review: TaskReviewWithRelations;
   try {
     review = await prisma.$transaction(async (tx) => {
+      await lockMilestonesForUpdate(tx, actor.workspace.id, [task.milestoneId]);
+      await assertTaskStateAfterMilestoneLock(tx, task);
       const beforeTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
       const created = await tx.taskReviewRequest.create({
         data: {
@@ -174,7 +177,15 @@ export async function requestTaskReview(actor: RequestActor, idOrKey: string, in
         actorId: actor.user.id,
         payload: { after: serializeTaskReview(created), changedFields: ['reviewerId', 'status'] }
       });
-      syncEvents = [taskEvent, reviewEvent];
+      syncEvents = [
+        taskEvent,
+        reviewEvent,
+        ...await appendMilestoneProgressSyncEvents(tx, {
+          workspaceId: actor.workspace.id,
+          actorId: actor.user.id,
+          milestoneIds: [afterTask.milestoneId]
+        })
+      ];
       return created;
     });
   } catch (error) {
@@ -251,6 +262,8 @@ export async function approveTaskReview(actor: RequestActor, reviewId: string, i
 
   let syncEvents: SyncEvent[] = [];
   const updated = await prisma.$transaction(async (tx) => {
+    await lockMilestonesForUpdate(tx, actor.workspace.id, [current.task.milestoneId]);
+    await assertTaskStateAfterMilestoneLock(tx, current.task);
     const row = await tx.taskReviewRequest.update({
       where: { id: current.id },
       data: {
@@ -291,7 +304,15 @@ export async function approveTaskReview(actor: RequestActor, reviewId: string, i
       actorId: actor.user.id,
       payload: { before, after: serializeTaskReview(row), changedFields: ['status', 'respondedAt'] }
     });
-    syncEvents = [taskEvent, reviewEvent];
+    syncEvents = [
+      taskEvent,
+      reviewEvent,
+      ...await appendMilestoneProgressSyncEvents(tx, {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        milestoneIds: [afterTask.milestoneId]
+      })
+    ];
     return row;
   });
 
@@ -310,6 +331,8 @@ export async function requestTaskReviewChanges(actor: RequestActor, reviewId: st
 
   let syncEvents: SyncEvent[] = [];
   const updated = await prisma.$transaction(async (tx) => {
+    await lockMilestonesForUpdate(tx, actor.workspace.id, [current.task.milestoneId]);
+    await assertTaskStateAfterMilestoneLock(tx, current.task);
     const row = await tx.taskReviewRequest.update({
       where: { id: current.id },
       data: {
@@ -350,7 +373,15 @@ export async function requestTaskReviewChanges(actor: RequestActor, reviewId: st
       actorId: actor.user.id,
       payload: { before, after: serializeTaskReview(row), changedFields: ['status', 'respondedAt'] }
     });
-    syncEvents = [taskEvent, reviewEvent];
+    syncEvents = [
+      taskEvent,
+      reviewEvent,
+      ...await appendMilestoneProgressSyncEvents(tx, {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        milestoneIds: [afterTask.milestoneId]
+      })
+    ];
     return row;
   });
 
@@ -371,6 +402,8 @@ export async function cancelTaskReview(actor: RequestActor, reviewId: string, in
 
   let syncEvents: SyncEvent[] = [];
   const updated = await prisma.$transaction(async (tx) => {
+    await lockMilestonesForUpdate(tx, actor.workspace.id, [current.task.milestoneId]);
+    await assertTaskStateAfterMilestoneLock(tx, current.task);
     const row = await tx.taskReviewRequest.update({
       where: { id: current.id },
       data: {
@@ -410,13 +443,34 @@ export async function cancelTaskReview(actor: RequestActor, reviewId: string, in
       actorId: actor.user.id,
       payload: { before, after: serializeTaskReview(row), changedFields: ['status', 'respondedAt'] }
     });
-    syncEvents = [taskEvent, reviewEvent];
+    syncEvents = [
+      taskEvent,
+      reviewEvent,
+      ...await appendMilestoneProgressSyncEvents(tx, {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        milestoneIds: [afterTask.milestoneId]
+      })
+    ];
     return row;
   });
 
   for (const event of syncEvents) publishSyncEvent(event);
   await logReviewActivity(actor, 'canceled', updated, before);
   return serializeTaskReview(updated);
+}
+
+async function assertTaskStateAfterMilestoneLock(
+  tx: Prisma.TransactionClient,
+  task: { id: string; version: number; milestoneId: string | null }
+): Promise<void> {
+  const current = await tx.task.findUnique({
+    where: { id: task.id },
+    select: { version: true, milestoneId: true }
+  });
+  if (!current || current.version !== task.version || current.milestoneId !== task.milestoneId) {
+    throw new HttpError(409, 'Task changed on another client');
+  }
 }
 
 export function serializeTaskReview(review: TaskReviewWithRelations): SerializedTaskReview {

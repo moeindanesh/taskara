@@ -12,6 +12,7 @@ import { registerCheckInRoutes } from './routes/check-ins';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerMediaRoutes } from './routes/media';
 import { registerMeetingRoutes } from './routes/meetings';
+import { registerMilestoneRoutes } from './routes/milestones';
 import { registerMattermostRoutes } from './routes/mattermost';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProjectRoutes } from './routes/projects';
@@ -60,6 +61,7 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerAttentionRoutes);
   await app.register(registerCheckInRoutes);
   await app.register(registerMeetingRoutes);
+  await app.register(registerMilestoneRoutes);
   await app.register(registerKnowledgeRoutes);
   await app.register(registerNotificationRoutes);
   await app.register(registerMediaRoutes);

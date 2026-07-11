@@ -9,10 +9,17 @@ import { z } from 'zod';
 const taskStatuses = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE', 'CANCELED'] as const;
 const taskPriorities = ['NO_PRIORITY', 'LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
+const milestoneKinds = ['FEATURE', 'PHASE', 'OTHER'] as const;
+const milestoneStatuses = ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELED'] as const;
+const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
 
 const TaskStatus = z.enum(taskStatuses);
 const TaskPriority = z.enum(taskPriorities);
 const WorkspaceRole = z.enum(workspaceRoles);
+const MilestoneKind = z.enum(milestoneKinds);
+const MilestoneStatus = z.enum(milestoneStatuses);
+const MilestoneHealth = z.enum(milestoneHealthValues);
+const MilestoneDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 type TaskStatusValue = (typeof taskStatuses)[number];
 type TaskPriorityValue = (typeof taskPriorities)[number];
@@ -40,7 +47,9 @@ interface Task {
   dueAt?: string | null;
   updatedAt?: string;
   completedAt?: string | null;
+  milestoneId?: string | null;
   project?: { id: string; name: string; keyPrefix: string };
+  milestone?: { id: string; name: string; kind: string; status: string; projectId?: string } | null;
   assignee?: { id: string; name: string; email: string } | null;
   labels?: Array<{ label: { id: string; name: string; color?: string } }>;
   attachments?: TaskAttachment[];
@@ -63,6 +72,52 @@ interface TaskAttachment {
 
 interface TaskListResponse {
   items: Task[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+interface MilestoneProgress {
+  totalTasks: number;
+  eligibleTasks: number;
+  completedTasks: number;
+  canceledTasks: number;
+  blockedTasks: number;
+  overdueTasks: number;
+  totalWeight: number;
+  completedWeight: number;
+  percentage: number | null;
+}
+
+interface Milestone {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  ownerId?: string | null;
+  name: string;
+  description?: string | null;
+  kind: (typeof milestoneKinds)[number];
+  status: (typeof milestoneStatuses)[number];
+  health?: (typeof milestoneHealthValues)[number] | null;
+  startsOn?: string | null;
+  targetOn?: string | null;
+  position: number;
+  version: number;
+  completedAt?: string | null;
+  canceledAt?: string | null;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  project?: { id: string; name: string; keyPrefix: string; team?: { id: string; name: string; slug: string } | null };
+  owner?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+  progress: MilestoneProgress;
+  attentionReasons?: Array<{ reason: string; count?: number }>;
+  readyToComplete?: boolean;
+  canManage?: boolean;
+}
+
+interface MilestoneListResponse {
+  items: Milestone[];
   total: number;
   limit: number;
   offset: number;
@@ -137,6 +192,113 @@ registerTool('summarize_project', {
   return summary;
 });
 
+registerTool('list_milestones', {
+  title: 'List Taskara milestones',
+  description: 'List accessible project-scoped milestones with lifecycle, owner, target date, attention, and server-derived progress.',
+  inputSchema: {
+    query: z.string().max(200).optional(),
+    projectId: z.string().uuid().optional(),
+    teamId: z.string().uuid().optional(),
+    ownerId: z.union([z.string().uuid(), z.literal('none')]).optional(),
+    kind: MilestoneKind.optional(),
+    status: z.array(MilestoneStatus).min(1).max(milestoneStatuses.length).optional(),
+    health: z.union([MilestoneHealth, z.literal('none')]).optional(),
+    overdue: z.boolean().optional(),
+    includeArchived: z.boolean().default(false),
+    limit: z.number().int().min(1).max(200).default(50),
+    offset: z.number().int().min(0).default(0)
+  }
+}, async (input) => {
+  const params = new URLSearchParams({
+    includeArchived: String(input.includeArchived),
+    limit: String(input.limit),
+    offset: String(input.offset)
+  });
+  if (input.query) params.set('q', input.query);
+  if (input.projectId) params.set('projectId', input.projectId);
+  if (input.teamId) params.set('teamId', input.teamId);
+  if (input.ownerId) params.set('ownerId', input.ownerId);
+  if (input.kind) params.set('kind', input.kind);
+  if (input.status?.length) params.set('status', input.status.join(','));
+  if (input.health) params.set('health', input.health);
+  if (input.overdue !== undefined) params.set('overdue', String(input.overdue));
+  const result = await api<MilestoneListResponse>(`/milestones?${params.toString()}`);
+  return {
+    total: result.total,
+    limit: result.limit,
+    offset: result.offset,
+    milestones: result.items.map(milestoneSummary)
+  };
+});
+
+registerTool('create_milestone', {
+  title: 'Create Taskara milestone',
+  description: 'Create a lightweight feature, implementation phase, or other goal inside one project.',
+  inputSchema: {
+    projectId: z.string().uuid(),
+    name: z.string().min(1).max(160),
+    kind: MilestoneKind,
+    status: z.enum(['PLANNED', 'ACTIVE']).default('PLANNED'),
+    ownerId: z.string().uuid().nullable().optional(),
+    description: z.string().max(15000).nullable().optional(),
+    health: MilestoneHealth.nullable().optional(),
+    startsOn: MilestoneDate.nullable().optional(),
+    targetOn: MilestoneDate.nullable().optional()
+  }
+}, async (input) => {
+  const milestone = await api<Milestone>('/milestones', { method: 'POST', body: input });
+  return { milestone: milestoneDetails(milestone) };
+});
+
+registerTool('update_milestone', {
+  title: 'Update Taskara milestone',
+  description: 'Update milestone metadata using its current version. Lifecycle changes remain explicit milestone actions in Taskara.',
+  inputSchema: {
+    milestoneId: z.string().uuid(),
+    version: z.number().int().min(1),
+    name: z.string().min(1).max(160).optional(),
+    kind: MilestoneKind.optional(),
+    ownerId: z.string().uuid().nullable().optional(),
+    description: z.string().max(15000).nullable().optional(),
+    health: MilestoneHealth.nullable().optional(),
+    startsOn: MilestoneDate.nullable().optional(),
+    targetOn: MilestoneDate.nullable().optional()
+  }
+}, async ({ milestoneId, ...patch }) => {
+  const body = dropUndefined(patch);
+  if (Object.keys(body).every((key) => key === 'version')) throw new Error('Provide at least one milestone field to update.');
+  const milestone = await api<Milestone>(`/milestones/${encodeURIComponent(milestoneId)}`, { method: 'PATCH', body });
+  return { milestone: milestoneDetails(milestone) };
+});
+
+registerTool('summarize_milestone', {
+  title: 'Summarize Taskara milestone',
+  description: 'Summarize a milestone using server-derived progress and its current executable work.',
+  inputSchema: {
+    milestoneId: z.string().uuid(),
+    taskLimit: z.number().int().min(1).max(200).default(100)
+  }
+}, async ({ milestoneId, taskLimit }) => {
+  const params = new URLSearchParams({ milestoneId, limit: String(taskLimit) });
+  const [milestone, tasksResult] = await Promise.all([
+    api<Milestone>(`/milestones/${encodeURIComponent(milestoneId)}`),
+    api<TaskListResponse>(`/tasks?${params.toString()}`)
+  ]);
+  const openTasks = tasksResult.items.filter((task) => !['DONE', 'CANCELED'].includes(task.status));
+  return {
+    milestone: milestoneDetails(milestone),
+    counts: {
+      ...milestone.progress,
+      byStatus: countBy(tasksResult.items, (task) => task.status),
+      returnedTasks: tasksResult.items.length,
+      allAssignedTasks: tasksResult.total
+    },
+    blocked: openTasks.filter((task) => task.status === 'BLOCKED').map(taskSummary),
+    overdue: openTasks.filter(isOverdue).map(taskSummary),
+    suggestedNext: rankTasks(openTasks).slice(0, 8).map(taskSummary)
+  };
+});
+
 registerTool('search_tasks', {
   title: 'Search Taskara tasks',
   description: 'Search tasks by text, key, status, priority, assignee, or project.',
@@ -144,6 +306,7 @@ registerTool('search_tasks', {
     query: z.string().max(200).optional(),
     projectId: z.string().uuid().optional(),
     assigneeId: z.string().uuid().optional(),
+    milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
     status: TaskStatus.optional(),
     priority: TaskPriority.optional(),
     mine: z.boolean().default(false),
@@ -154,6 +317,7 @@ registerTool('search_tasks', {
   if (input.query) params.set('q', input.query);
   if (input.projectId) params.set('projectId', input.projectId);
   if (input.assigneeId) params.set('assigneeId', input.assigneeId);
+  if (input.milestoneId) params.set('milestoneId', input.milestoneId);
   if (input.status) params.set('status', input.status);
   if (input.priority) params.set('priority', input.priority);
   if (input.mine) params.set('mine', 'true');
@@ -202,7 +366,8 @@ registerTool('create_task', {
     dueAt: z.string().datetime().optional(),
     labels: z.array(z.string().min(1).max(40)).max(12).default([]),
     parentId: z.string().uuid().optional(),
-    cycleId: z.string().uuid().optional()
+    cycleId: z.string().uuid().optional(),
+    milestoneId: z.string().uuid().optional()
   }
 }, async (input) => {
   const task = await api<Task>('/tasks', { method: 'POST', body: { ...input, source: 'CODEX' } });
@@ -222,12 +387,28 @@ registerTool('update_task', {
     dueAt: z.string().datetime().nullable().optional(),
     labels: z.array(z.string().min(1).max(40)).max(12).optional(),
     parentId: z.string().uuid().nullable().optional(),
-    cycleId: z.string().uuid().nullable().optional()
+    cycleId: z.string().uuid().nullable().optional(),
+    milestoneId: z.string().uuid().nullable().optional()
   }
 }, async ({ task, ...patch }) => {
   const body = dropUndefined(patch);
   if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
   const updated = await api<Task>(`/tasks/${encodeURIComponent(task)}`, { method: 'PATCH', body });
+  return { task: taskSummary(updated) };
+});
+
+registerTool('assign_task_to_milestone', {
+  title: 'Assign Taskara task to milestone',
+  description: 'Assign, move, or unassign one task. The API enforces same-project scope and rejects archived or terminal milestone targets.',
+  inputSchema: {
+    task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
+    milestoneId: z.string().uuid().nullable().describe('Open milestone UUID, or null to unassign')
+  }
+}, async ({ task, milestoneId }) => {
+  const updated = await api<Task>(`/tasks/${encodeURIComponent(task)}`, {
+    method: 'PATCH',
+    body: { milestoneId }
+  });
   return { task: taskSummary(updated) };
 });
 
@@ -529,7 +710,8 @@ function projectSummary(project: Project): JsonRecord {
     parentId: project.parentId ?? null,
     description: project.description ?? null,
     taskCount: project._count?.tasks ?? project.tasks?.length ?? 0,
-    subprojectCount: project._count?.subprojects ?? project.subprojects?.length ?? 0
+    subprojectCount: project._count?.subprojects ?? project.subprojects?.length ?? 0,
+    milestoneCount: (project._count as { milestones?: number } | undefined)?.milestones ?? 0
   };
 }
 
@@ -542,11 +724,53 @@ function taskSummary(task: Task): JsonRecord {
     priority: task.priority,
     dueAt: task.dueAt ?? null,
     project: task.project ? { id: task.project.id, name: task.project.name, keyPrefix: task.project.keyPrefix } : null,
+    milestone: task.milestone ? {
+      id: task.milestone.id,
+      name: task.milestone.name,
+      kind: task.milestone.kind,
+      status: task.milestone.status
+    } : null,
     assignee: task.assignee ? { id: task.assignee.id, name: task.assignee.name, email: task.assignee.email } : null,
     labels: task.labels?.map(({ label }) => label.name) ?? [],
     comments: task._count?.comments ?? task.comments?.length ?? 0,
     attachments: task._count?.attachments ?? task.attachments?.length ?? 0,
     blockingDependencies: task._count?.blockingDependencies ?? task.blockingDependencies?.length ?? 0
+  };
+}
+
+function milestoneSummary(milestone: Milestone): JsonRecord {
+  return {
+    id: milestone.id,
+    name: milestone.name,
+    kind: milestone.kind,
+    status: milestone.status,
+    health: milestone.health ?? null,
+    project: milestone.project ? {
+      id: milestone.project.id,
+      name: milestone.project.name,
+      keyPrefix: milestone.project.keyPrefix,
+      team: milestone.project.team ?? null
+    } : { id: milestone.projectId },
+    owner: milestone.owner ?? null,
+    startsOn: milestone.startsOn ?? null,
+    targetOn: milestone.targetOn ?? null,
+    progress: milestone.progress,
+    readyToComplete: milestone.readyToComplete ?? false,
+    attentionReasons: milestone.attentionReasons ?? [],
+    archivedAt: milestone.archivedAt ?? null,
+    version: milestone.version,
+    canManage: milestone.canManage ?? false
+  };
+}
+
+function milestoneDetails(milestone: Milestone): JsonRecord {
+  return {
+    ...milestoneSummary(milestone),
+    description: milestone.description ?? null,
+    completedAt: milestone.completedAt ?? null,
+    canceledAt: milestone.canceledAt ?? null,
+    createdAt: milestone.createdAt,
+    updatedAt: milestone.updatedAt
   };
 }
 

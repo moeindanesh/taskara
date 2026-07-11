@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
+import { appendMilestoneProgressSyncEvents, lockMilestonesForUpdate } from './milestones';
 import {
   TASK_ASSIGNED_NOTIFICATION_TYPE,
   TASK_COMMENTED_NOTIFICATION_TYPE,
@@ -60,6 +61,16 @@ export const taskInclude = {
       team: { select: { id: true, name: true, slug: true } }
     }
   },
+  milestone: {
+    select: {
+      id: true,
+      name: true,
+      kind: true,
+      status: true,
+      archivedAt: true,
+      projectId: true
+    }
+  },
   assignee: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
@@ -94,7 +105,7 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
 }
 
 export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
-  let syncEvent: SyncEvent | null = null;
+  let syncEvents: SyncEvent[] = [];
   const task = await prisma.$transaction(async (tx) => {
     await assertActorCanAccessProject(tx, actor, input.projectId);
     await assertTaskRelations(tx, actor.workspace.id, input, input.projectId);
@@ -107,6 +118,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         projectId: input.projectId,
         parentId: input.parentId,
         cycleId: input.cycleId,
+        milestoneId: input.milestoneId,
         key,
         sequence,
         title: input.title,
@@ -147,7 +159,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         }
       });
     }
-    syncEvent = await appendSyncEvent(tx, {
+    const taskEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
       entityId: task.id,
@@ -160,10 +172,18 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
       },
       mutation: syncMutation
     });
+    syncEvents = [
+      taskEvent,
+      ...await appendMilestoneProgressSyncEvents(tx, {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        milestoneIds: [task.milestoneId]
+      })
+    ];
     return task;
   });
 
-  if (syncEvent) publishSyncEvent(syncEvent);
+  for (const event of syncEvents) publishSyncEvent(event);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -229,12 +249,36 @@ export async function updateTask(
   const task = await prisma.$transaction(async (tx) => {
     const targetProjectId = input.projectId ?? existing.projectId;
     const isProjectChange = targetProjectId !== existing.projectId;
+    const resolvedMilestoneId = input.milestoneId !== undefined
+      ? input.milestoneId
+      : isProjectChange
+        ? null
+        : undefined;
 
     if (isProjectChange) {
       await assertActorCanAccessProject(tx, actor, targetProjectId);
     }
 
-    await assertTaskRelations(tx, actor.workspace.id, input, targetProjectId, taskId);
+    await assertTaskRelations(
+      tx,
+      actor.workspace.id,
+      { ...input, milestoneId: resolvedMilestoneId },
+      targetProjectId,
+      taskId,
+      [existing.milestoneId, resolvedMilestoneId === undefined ? existing.milestoneId : resolvedMilestoneId]
+    );
+    const currentTaskState = await tx.task.findUnique({
+      where: { id: taskId },
+      select: { version: true, milestoneId: true, projectId: true }
+    });
+    if (
+      !currentTaskState
+      || currentTaskState.version !== existing.version
+      || currentTaskState.milestoneId !== existing.milestoneId
+      || currentTaskState.projectId !== existing.projectId
+    ) {
+      throw new HttpError(409, 'Task changed on another client');
+    }
     const reservedKey = isProjectChange ? await reserveTaskKey(tx, targetProjectId) : null;
 
     const updated = await tx.task.update({
@@ -251,6 +295,7 @@ export async function updateTask(
         assigneeId: input.assigneeId === undefined ? undefined : input.assigneeId,
         parentId: input.parentId === undefined ? undefined : input.parentId,
         cycleId: input.cycleId === undefined ? undefined : input.cycleId,
+        milestoneId: resolvedMilestoneId,
         dueAt: input.dueAt === undefined ? undefined : input.dueAt ? new Date(input.dueAt) : null,
         completedAt: input.status === 'DONE' ? new Date() : input.status ? null : undefined,
         version: { increment: 1 }
@@ -324,6 +369,10 @@ export async function updateTask(
       });
     }
 
+    const changedFields = [...new Set([
+      ...Object.keys(input),
+      ...(isProjectChange && input.milestoneId === undefined && existing.milestoneId ? ['milestoneId'] : [])
+    ])];
     const taskEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
@@ -334,13 +383,18 @@ export async function updateTask(
       payload: {
         before: serializeTaskForResponse(existing),
         after: serializeTaskForResponse(task),
-        changedFields: Object.keys(input)
+        changedFields
       },
       mutation: syncMutation
     });
     const reviewCancellation = await cancelActiveTaskReviewsForTaskStatusChange(tx, actor, task.id, input.status);
     reviewCancellationAudits = reviewCancellation.audits;
-    syncEvents = [taskEvent, ...reviewCancellation.events];
+    const milestoneEvents = await appendMilestoneProgressSyncEvents(tx, {
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      milestoneIds: [existing.milestoneId, task.milestoneId]
+    });
+    syncEvents = [taskEvent, ...reviewCancellation.events, ...milestoneEvents];
     return task;
   });
 
@@ -378,7 +432,7 @@ export async function updateTask(
 }
 
 export async function deleteTask(actor: RequestActor, taskId: string, syncMutation?: SyncMutationMeta) {
-  let syncEvent: SyncEvent | null = null;
+  let syncEvents: SyncEvent[] = [];
   const existing = await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findFirst({
       where: { id: taskId, workspaceId: actor.workspace.id },
@@ -386,8 +440,20 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
     });
     if (!existing) throw new Error('Task not found in this workspace');
 
+    await lockMilestonesForUpdate(tx, actor.workspace.id, [existing.milestoneId]);
+    const currentTaskState = await tx.task.findUnique({
+      where: { id: taskId },
+      select: { version: true, milestoneId: true }
+    });
+    if (
+      !currentTaskState
+      || currentTaskState.version !== existing.version
+      || currentTaskState.milestoneId !== existing.milestoneId
+    ) {
+      throw new HttpError(409, 'Task changed on another client');
+    }
     await tx.task.delete({ where: { id: taskId } });
-    syncEvent = await appendSyncEvent(tx, {
+    const taskEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
       entityType: 'task',
       entityId: existing.id,
@@ -400,10 +466,18 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
       },
       mutation: syncMutation
     });
+    syncEvents = [
+      taskEvent,
+      ...await appendMilestoneProgressSyncEvents(tx, {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        milestoneIds: [existing.milestoneId]
+      })
+    ];
     return existing;
   });
 
-  if (syncEvent) publishSyncEvent(syncEvent);
+  for (const event of syncEvents) publishSyncEvent(event);
 
   await logActivity({
     workspaceId: actor.workspace.id,
@@ -603,14 +677,21 @@ async function syncTaskLabels(
 async function assertTaskRelations(
   tx: Prisma.TransactionClient,
   workspaceId: string,
-  input: { assigneeId?: string | null; parentId?: string | null; cycleId?: string | null },
+  input: {
+    assigneeId?: string | null;
+    parentId?: string | null;
+    cycleId?: string | null;
+    milestoneId?: string | null;
+  },
   projectId: string,
-  taskId?: string
+  taskId?: string,
+  milestoneLockIds: Array<string | null | undefined> = [input.milestoneId]
 ): Promise<void> {
   if (input.parentId && input.parentId === taskId) {
     throw new HttpError(400, 'Task cannot be its own parent');
   }
 
+  const lockedMilestones = await lockMilestonesForUpdate(tx, workspaceId, milestoneLockIds);
   const [project, assignee, parent, cycle] = await Promise.all([
     tx.project.findFirst({
       where: { id: projectId, workspaceId },
@@ -648,6 +729,22 @@ async function assertTaskRelations(
   }
   if (input.parentId && !parent) throw new HttpError(400, 'Parent task not found in this project');
   if (input.cycleId && !cycle) throw new HttpError(400, 'Cycle not found for this project');
+  const milestone = input.milestoneId ? lockedMilestones.get(input.milestoneId) : null;
+  if (
+    input.milestoneId
+    && (
+      !milestone
+      || milestone.projectId !== projectId
+      || milestone.archivedAt
+      || !selectableMilestoneStatus(milestone.status)
+    )
+  ) {
+    throw new HttpError(400, 'Milestone must be open and belong to the task project');
+  }
+}
+
+function selectableMilestoneStatus(status: string): boolean {
+  return status === 'PLANNED' || status === 'ACTIVE';
 }
 
 async function assertActorCanAccessProject(

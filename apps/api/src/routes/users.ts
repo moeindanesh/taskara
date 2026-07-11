@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma, type Prisma, type WorkspaceRole } from '@taskara/db';
+import { prisma, type Prisma, type SyncEvent, type WorkspaceRole } from '@taskara/db';
 import {
   createUserSchema,
   createWorkspaceInviteSchema,
@@ -9,9 +9,16 @@ import {
 } from '@taskara/shared';
 import { config } from '../config';
 import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
-import { logActivity } from '../services/audit';
+import { logActivity, snapshot } from '../services/audit';
 import { buildInviteUrl, createRawToken, hashToken, normalizeEmail } from '../services/auth';
 import { HttpError } from '../services/http';
+import {
+  lockMilestonesForUpdate,
+  milestoneInclude,
+  milestoneProgressById,
+  serializeMilestone
+} from '../services/milestones';
+import { appendSyncEvent, lockWorkspaceSyncState, publishSyncEvent } from '../services/sync';
 import { assertPhoneAvailable } from '../services/users';
 
 const userSelect = {
@@ -395,7 +402,18 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     assertOwnerRoleManageAllowed(actor.role, membership.role, 'MEMBER');
     if (membership.role === 'OWNER') await assertOwnerChangeIsSafe(actor.workspace.id, membership.role, 'MEMBER');
 
+    let milestoneEvents: SyncEvent[] = [];
     const cleanup = await prisma.$transaction(async (tx) => {
+      const ownedMilestoneIds = await tx.milestone.findMany({
+        where: { workspaceId: actor.workspace.id, ownerId: id },
+        select: { id: true }
+      });
+      await lockMilestonesForUpdate(
+        tx,
+        actor.workspace.id,
+        ownedMilestoneIds.map((milestone) => milestone.id)
+      );
+
       const teamMemberships = await tx.teamMember.deleteMany({
         where: { userId: id, team: { workspaceId: actor.workspace.id } }
       });
@@ -416,6 +434,55 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       const taskSubscriptions = await tx.taskSubscription.deleteMany({
         where: { workspaceId: actor.workspace.id, userId: id }
       });
+
+      const ownedMilestones = await tx.milestone.findMany({
+        where: { workspaceId: actor.workspace.id, ownerId: id },
+        include: milestoneInclude
+      });
+      const updatedMilestones = [];
+      for (const milestone of ownedMilestones) {
+        const updated = await tx.milestone.update({
+          where: { id: milestone.id, version: milestone.version },
+          data: { ownerId: null, version: { increment: 1 } },
+          include: milestoneInclude
+        });
+        updatedMilestones.push({ before: milestone, after: updated });
+      }
+      await lockWorkspaceSyncState(tx, actor.workspace.id);
+      const progressById = await milestoneProgressById(tx, ownedMilestones.map((milestone) => milestone.id));
+      milestoneEvents = [];
+      for (const milestone of updatedMilestones) {
+        const progress = progressById.get(milestone.before.id)!;
+        const before = serializeMilestone(milestone.before, progress);
+        const after = serializeMilestone(milestone.after, progress);
+        milestoneEvents.push(await appendSyncEvent(tx, {
+          workspaceId: actor.workspace.id,
+          entityType: 'milestone',
+          entityId: milestone.before.id,
+          operation: 'updated',
+          entityVersion: milestone.after.version,
+          actorId: actor.user.id,
+          payload: {
+            before,
+            after,
+            changedFields: ['ownerId'],
+            reason: 'workspace_membership_removed'
+          }
+        }));
+        await tx.activityLog.create({
+          data: {
+            workspaceId: actor.workspace.id,
+            actorId: actor.user.id,
+            actorType: actor.actorType,
+            entityType: 'milestone',
+            entityId: milestone.before.id,
+            action: 'owner_cleared',
+            before: snapshot(before),
+            after: snapshot(after),
+            source: actor.source
+          }
+        });
+      }
       await tx.workspaceMember.delete({ where: { id: membership.id } });
 
       return {
@@ -423,10 +490,13 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         projectMemberships: projectMemberships.count,
         ledProjects: ledProjects.count,
         assignedTasks: assignedTasks.count,
+        ownedMilestones: ownedMilestones.length,
         notifications: notifications.count,
         taskSubscriptions: taskSubscriptions.count
       };
     });
+
+    for (const event of milestoneEvents) publishSyncEvent(event);
 
     await logActivity({
       workspaceId: actor.workspace.id,

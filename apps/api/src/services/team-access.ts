@@ -1,4 +1,9 @@
-import { prisma, type Prisma } from '@taskara/db';
+import {
+  prisma,
+  type Prisma,
+  type ProjectRole,
+  type WorkspaceRole
+} from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { HttpError } from './http';
 
@@ -8,6 +13,8 @@ export interface WorkspaceAccess {
   workspaceWide: boolean;
   teamIds: string[];
   projectIds: string[];
+  teamRoles?: Record<string, WorkspaceRole>;
+  projectRoles?: Record<string, ProjectRole>;
 }
 
 export async function resolveWorkspaceAccess(actor: RequestActor): Promise<WorkspaceAccess> {
@@ -17,7 +24,9 @@ export async function resolveWorkspaceAccess(actor: RequestActor): Promise<Works
       userId: actor.user.id,
       workspaceWide: true,
       teamIds: [],
-      projectIds: []
+      projectIds: [],
+      teamRoles: {},
+      projectRoles: {}
     };
   }
 
@@ -27,14 +36,14 @@ export async function resolveWorkspaceAccess(actor: RequestActor): Promise<Works
         userId: actor.user.id,
         team: { workspaceId: actor.workspace.id }
       },
-      select: { teamId: true }
+      select: { teamId: true, role: true }
     }),
     prisma.projectMember.findMany({
       where: {
         userId: actor.user.id,
         project: { workspaceId: actor.workspace.id }
       },
-      select: { projectId: true }
+      select: { projectId: true, role: true }
     }),
     prisma.project.findMany({
       where: { workspaceId: actor.workspace.id, leadId: actor.user.id },
@@ -50,8 +59,80 @@ export async function resolveWorkspaceAccess(actor: RequestActor): Promise<Works
     projectIds: [...new Set([
       ...projectMemberships.map((membership) => membership.projectId),
       ...ledProjects.map((project) => project.id)
-    ])]
+    ])],
+    teamRoles: Object.fromEntries(teamMemberships.map((membership) => [membership.teamId, membership.role])),
+    projectRoles: Object.fromEntries(projectMemberships.map((membership) => [membership.projectId, membership.role]))
   };
+}
+
+export interface ProjectPlanningRecord {
+  id: string;
+  workspaceId: string;
+  teamId: string | null;
+  leadId: string | null;
+}
+
+type ProjectPlanningClient = Pick<Prisma.TransactionClient, 'project' | 'projectMember' | 'teamMember'>;
+
+export function canManageProjectPlanningFromRoles(
+  actor: Pick<RequestActor, 'role' | 'user'>,
+  project: Pick<ProjectPlanningRecord, 'id' | 'teamId' | 'leadId'>,
+  projectRole: ProjectRole | null | undefined,
+  teamRole: WorkspaceRole | null | undefined
+): boolean {
+  if (isWorkspaceAdminRole(actor.role)) return true;
+  if (project.leadId === actor.user.id) return true;
+  if (projectRole) return projectRole === 'LEAD' || projectRole === 'MEMBER';
+  if (!project.teamId) return false;
+  return teamRole === 'OWNER' || teamRole === 'ADMIN' || teamRole === 'MEMBER';
+}
+
+export function canManageProjectPlanning(
+  actor: Pick<RequestActor, 'role' | 'user'>,
+  access: WorkspaceAccess,
+  project: Pick<ProjectPlanningRecord, 'id' | 'teamId' | 'leadId'>
+): boolean {
+  return canManageProjectPlanningFromRoles(
+    actor,
+    project,
+    access.projectRoles?.[project.id],
+    project.teamId ? access.teamRoles?.[project.teamId] : undefined
+  );
+}
+
+export async function assertCanManageProjectPlanning(
+  actor: RequestActor,
+  projectId: string,
+  client: ProjectPlanningClient = prisma
+): Promise<ProjectPlanningRecord> {
+  const project = await client.project.findFirst({
+    where: { id: projectId, workspaceId: actor.workspace.id },
+    select: { id: true, workspaceId: true, teamId: true, leadId: true }
+  });
+  if (!project) throw new HttpError(404, 'Project not found');
+
+  if (isWorkspaceAdminRole(actor.role) || project.leadId === actor.user.id) return project;
+
+  const projectMembership = await client.projectMember.findUnique({
+    where: { projectId_userId: { projectId: project.id, userId: actor.user.id } },
+    select: { role: true }
+  });
+  if (projectMembership) {
+    if (projectMembership.role === 'LEAD' || projectMembership.role === 'MEMBER') return project;
+    throw new HttpError(403, 'Milestone planning access denied');
+  }
+
+  if (!project.teamId) throw new HttpError(403, 'Milestone planning access denied');
+
+  const teamMembership = await client.teamMember.findUnique({
+    where: { teamId_userId: { teamId: project.teamId, userId: actor.user.id } },
+    select: { role: true }
+  });
+  if (!teamMembership) throw new HttpError(404, 'Project not found');
+  if (teamMembership.role === 'OWNER' || teamMembership.role === 'ADMIN' || teamMembership.role === 'MEMBER') {
+    return project;
+  }
+  throw new HttpError(403, 'Milestone planning access denied');
 }
 
 export async function listAccessibleTeamIds(actor: RequestActor): Promise<string[] | null> {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { applyWorkspaceSyncEvents } from './sync-events';
+import { applyMilestoneSyncEvents, applyWorkspaceSyncEvents } from './sync-events';
+import type { TaskaraMilestone } from '../taskara-types';
 import { emptyWorkspaceDataEntities } from './store';
 
 describe('workspace-data sync event application', () => {
@@ -59,4 +60,79 @@ describe('workspace-data sync event application', () => {
 
       expect(next).toBe(initial);
    });
+
+   test('upserts and removes milestone resources without mutating the previous array', () => {
+      const initial = [milestone({ id: 'milestone-1', name: 'First', version: 1 })];
+      const replacement = milestone({ id: 'milestone-1', name: 'Updated', version: 2 });
+      const added = milestone({ id: 'milestone-2', name: 'Second' });
+
+      const updated = applyMilestoneSyncEvents(initial, [
+         { entityType: 'milestone', entityId: replacement.id, type: 'upsert', payload: { after: replacement } },
+         { entityType: 'milestone', entityId: added.id, type: 'upsert', entity: added },
+      ]);
+
+      expect(initial[0]?.name).toBe('First');
+      expect(updated.map((item) => [item.id, item.name])).toEqual([
+         ['milestone-1', 'Updated'],
+         ['milestone-2', 'Second'],
+      ]);
+
+      const removed = applyMilestoneSyncEvents(updated, [
+         { entityType: 'milestone', entityId: 'milestone-1', type: 'removeFromScope' },
+      ]);
+      expect(removed.map((item) => item.id)).toEqual(['milestone-2']);
+      expect(updated).toHaveLength(2);
+   });
+
+   test('preserves viewer-specific capabilities when a global progress event omits them', () => {
+      const initial = [milestone({ canManage: true })];
+      const refreshed = milestone({
+         version: 2,
+         progress: {
+            ...initial[0].progress,
+            eligibleTasks: 1,
+            percentage: 0,
+         },
+      });
+      const { canManage: _omitted, ...globalPayload } = refreshed;
+
+      const updated = applyMilestoneSyncEvents(initial, [
+         { entityType: 'milestone', entityId: refreshed.id, type: 'upsert', payload: { after: globalPayload } },
+      ]);
+
+      expect(updated[0].canManage).toBe(true);
+      expect(updated[0].progress.eligibleTasks).toBe(1);
+      expect(initial[0].progress.eligibleTasks).toBe(0);
+   });
 });
+
+function milestone(overrides: Partial<TaskaraMilestone> = {}): TaskaraMilestone {
+   return {
+      id: 'milestone-1',
+      workspaceId: 'workspace-1',
+      projectId: 'project-1',
+      ownerId: null,
+      name: 'Milestone',
+      kind: 'FEATURE',
+      status: 'ACTIVE',
+      health: null,
+      position: 1024,
+      version: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      project: { id: 'project-1', name: 'Project', keyPrefix: 'CORE' },
+      owner: null,
+      progress: {
+         totalTasks: 0,
+         eligibleTasks: 0,
+         completedTasks: 0,
+         canceledTasks: 0,
+         blockedTasks: 0,
+         overdueTasks: 0,
+         totalWeight: 0,
+         completedWeight: 0,
+         percentage: null,
+      },
+      ...overrides,
+   };
+}

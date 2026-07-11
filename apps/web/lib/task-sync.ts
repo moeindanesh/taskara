@@ -3,8 +3,25 @@ import { TaskaraClientError, taskaraApiBaseUrl, taskaraRequest, taskaraRequestHe
 import { fa } from '@/lib/fa-copy';
 import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
 import { authChangedEvent, authStorageKey, clearAuthSession, getAuthSession } from '@/store/auth-store';
-import type { TaskaraProject, TaskaraTask, TaskaraTeam, TaskaraUser, TaskaraView } from '@/lib/taskara-types';
-import { applyWorkspaceSyncEvents, type WorkspaceDataSyncEvent } from '@/lib/workspace-data/sync-events';
+import type {
+   TaskaraMilestone,
+   TaskaraMilestoneAttention,
+   TaskaraMilestoneCreateInput,
+   TaskaraMilestoneLifecycleAction,
+   TaskaraMilestoneLifecycleInput,
+   TaskaraMilestoneReorderInput,
+   TaskaraMilestoneUpdatePatch,
+   TaskaraProject,
+   TaskaraTask,
+   TaskaraTeam,
+   TaskaraUser,
+   TaskaraView,
+} from '@/lib/taskara-types';
+import {
+   applyMilestoneSyncEvents,
+   applyWorkspaceSyncEvents,
+   type WorkspaceDataSyncEvent,
+} from '@/lib/workspace-data/sync-events';
 import {
    createWorkspaceDataState,
    emptyWorkspaceDataEntities,
@@ -19,6 +36,7 @@ export type TaskUpdatePatch = {
    priority?: string;
    weight?: number | null;
    assigneeId?: string | null;
+   milestoneId?: string | null;
    dueAt?: string | null;
    labels?: string[];
 };
@@ -31,6 +49,7 @@ type TaskCreateInput = {
    priority: string;
    weight?: number | null;
    assigneeId?: string;
+   milestoneId?: string;
    dueAt?: string;
    labels: string[];
    source: 'WEB';
@@ -43,6 +62,7 @@ type BootstrapResponse = {
    omittedCompletedBefore?: string;
    totalHotTasks?: number;
    tasks: TaskaraTask[];
+   milestones?: TaskaraMilestone[];
    projects: TaskaraProject[];
    teams: TaskaraTeam[];
    users: TaskaraUser[];
@@ -90,6 +110,7 @@ export type TaskSyncScope = {
 };
 
 type TaskSyncResources = {
+   milestones: TaskaraMilestone[];
    projects: TaskaraProject[];
    teams: TaskaraTeam[];
    users: TaskaraUser[];
@@ -106,6 +127,7 @@ const broadcastName = 'taskara.task-sync.v1';
 export const taskSyncMutationFailuresEvent = 'taskara:task-sync-mutation-failures';
 const windowSyncMessageEvent = 'taskara:task-sync-message';
 const progressTaskStatuses = new Set(['IN_PROGRESS', 'IN_REVIEW']);
+let lastMutationCreatedAtMs = 0;
 const taskSyncMutationActionLabels: Record<string, string> = {
    'attention.dismiss': 'رد کردن مورد توجه',
    'attention.resolve': 'حل کردن مورد توجه',
@@ -117,6 +139,15 @@ const taskSyncMutationActionLabels: Record<string, string> = {
    'meeting_action_item.create': 'ساخت کار خروجی جلسه',
    'meeting_action_item.create_task': 'ساخت کار از خروجی جلسه',
    'meeting_action_item.update': 'به‌روزرسانی کار خروجی جلسه',
+   'milestone.activate': 'فعال‌سازی مایلستون',
+   'milestone.archive': 'بایگانی مایلستون',
+   'milestone.cancel': 'لغو مایلستون',
+   'milestone.complete': 'تکمیل مایلستون',
+   'milestone.create': 'ایجاد مایلستون',
+   'milestone.reopen': 'بازگشایی مایلستون',
+   'milestone.reorder': 'تغییر ترتیب مایلستون',
+   'milestone.restore': 'بازگردانی مایلستون',
+   'milestone.update': 'به‌روزرسانی مایلستون',
    'one_on_one.create': 'ساخت ۱:۱',
    'one_on_one_agenda_item.create': 'افزودن دستور جلسه ۱:۱',
    'project_health_update.create': 'ثبت آپدیت سلامت پروژه',
@@ -129,11 +160,15 @@ const taskSyncMutationActionLabels: Record<string, string> = {
 export type PersistedTaskMutation = {
    clientId: string;
    mutationId: string;
+   authIdentityKey?: string;
    name: string;
    args: unknown;
    createdAt: string;
+   dependsOnMutationIds?: string[];
    scopeKey?: string;
+   baseVersion?: number;
    optimisticTask?: TaskaraTask;
+   optimisticMilestone?: TaskaraMilestone;
    deletedTaskId?: string;
    deletedTaskKey?: string;
 };
@@ -167,7 +202,10 @@ type PendingMutationOptions = {
    mutationId?: string;
    keepPendingOnRetryable?: boolean;
    scopeKey?: string;
+   baseVersion?: number;
+   dependsOnMutationIds?: string[];
    optimisticTask?: TaskaraTask;
+   optimisticMilestone?: TaskaraMilestone;
    deletedTaskId?: string;
    deletedTaskKey?: string;
 };
@@ -175,7 +213,9 @@ type PendingMutationOptions = {
 type TaskSyncBroadcastMessage =
    | { type: 'events'; scopeKey: string; cursor: string; events: SyncTaskEvent[] }
    | { type: 'localTask'; scopeKey: string; task: TaskaraTask; mutationId?: string }
-   | { type: 'localTaskDeleted'; scopeKey: string; taskId?: string; taskKey?: string; mutationId?: string };
+   | { type: 'localTaskDeleted'; scopeKey: string; taskId?: string; taskKey?: string; mutationId?: string }
+   | { type: 'localMilestone'; scopeKey: string; milestone: TaskaraMilestone; mutationId?: string }
+   | { type: 'localMilestoneDeleted'; scopeKey: string; milestoneId: string; mutationId?: string };
 
 type TaskSyncAuthIdentity = {
    token: string | null;
@@ -203,7 +243,8 @@ type TaskSyncRefreshOptions = {
 };
 
 export function useTaskSync(scope: TaskSyncScope) {
-   const scopeKey = taskScopeKey(scope);
+   const [authRevision, setAuthRevision] = useState(0);
+   const scopeKey = useMemo(() => taskScopeKey(scope), [authRevision, scope]);
    const scopeRef = useRef(scope);
    const cursorRef = useRef('0');
    const pullingRef = useRef(false);
@@ -214,6 +255,7 @@ export function useTaskSync(scope: TaskSyncScope) {
    const clientId = useMemo(getOrCreateTaskSyncClientId, []);
    const [tasks, setTasks] = useState<TaskaraTask[]>([]);
    const [resources, setResources] = useState<TaskSyncResources>({
+      milestones: [],
       projects: [],
       teams: [],
       users: [],
@@ -246,6 +288,11 @@ export function useTaskSync(scope: TaskSyncScope) {
          if (options.preserveVisibleState && compareCursor(result.cursor, cursorRef.current) < 0) return false;
          const hotTasks = pruneColdCompletedTasks(result.tasks, result.omittedCompletedBefore);
          const tasksWithPending = await applyPendingMutationsToTasks(hotTasks, clientId, requestedScopeKey);
+         const milestonesWithPending = await applyPendingMutationsToMilestones(
+            normalizeMilestoneResources(result.milestones),
+            clientId,
+            requestedScopeKey
+         );
          if (bootstrapRunRef.current !== runId || taskScopeKey(scopeRef.current) !== requestedScopeKey) return false;
          if (options.preserveVisibleState && compareCursor(result.cursor, cursorRef.current) < 0) return false;
          cursorRef.current = result.cursor;
@@ -255,6 +302,7 @@ export function useTaskSync(scope: TaskSyncScope) {
             options.preserveVisibleState ? mergeBootstrappedTasks(current, tasksWithPending) : tasksWithPending
          );
          setResources({
+            milestones: milestonesWithPending,
             projects: result.projects,
             teams: result.teams,
             users: result.users,
@@ -270,12 +318,21 @@ export function useTaskSync(scope: TaskSyncScope) {
 
    const applyEvents = useCallback(
       (events: SyncTaskEvent[], nextCursor: string, broadcast = true) => {
+         if (scopeKey !== taskScopeKey(scopeRef.current)) return;
          if (compareCursor(nextCursor, cursorRef.current) < 0) return;
          const taskEvents = events.filter((event) => event.entityType === 'task' && (event.type === 'upsert' || event.type === 'delete' || event.type === 'removeFromScope'));
-         const workspaceEvents = events.filter((event): event is SyncTaskEvent & WorkspaceDataSyncEvent => event.entityType !== 'task');
+         const milestoneEvents = events.filter(
+            (event): event is SyncTaskEvent & WorkspaceDataSyncEvent =>
+               event.entityType === 'milestone' &&
+               (event.type === 'upsert' || event.type === 'delete' || event.type === 'removeFromScope')
+         );
+         const workspaceEvents = events.filter(
+            (event): event is SyncTaskEvent & WorkspaceDataSyncEvent =>
+               event.entityType !== 'task' && event.entityType !== 'milestone'
+         );
          const cursorAdvanced = compareCursor(nextCursor, cursorRef.current) > 0;
 
-         if (!taskEvents.length && !workspaceEvents.length && !cursorAdvanced) return;
+         if (!taskEvents.length && !milestoneEvents.length && !workspaceEvents.length && !cursorAdvanced) return;
 
          if (taskEvents.length) {
             setTasks((current) => {
@@ -296,6 +353,13 @@ export function useTaskSync(scope: TaskSyncScope) {
 
          if (workspaceEvents.length) {
             setWorkspaceEntities((current) => applyWorkspaceSyncEvents(current, workspaceEvents));
+         }
+
+         if (milestoneEvents.length) {
+            setResources((current) => ({
+               ...current,
+               milestones: applyMilestoneEventsWithPending(current.milestones, milestoneEvents, clientId),
+            }));
          }
 
          advanceCursor(nextCursor, cursorRef, setCursor);
@@ -330,7 +394,7 @@ export function useTaskSync(scope: TaskSyncScope) {
       }
       if (!preserveVisibleState && lastBootstrappedScopeRef.current !== requestedScopeKey) {
          setTasks([]);
-         setResources({ projects: [], teams: [], users: [], views: [] });
+         setResources({ milestones: [], projects: [], teams: [], users: [], views: [] });
          setWorkspaceEntities(emptyWorkspaceDataEntities());
       }
       try {
@@ -399,12 +463,13 @@ export function useTaskSync(scope: TaskSyncScope) {
          cursor,
          omittedCompletedBefore: omittedCompletedBefore || defaultOmittedCompletedBefore(),
          tasks,
+         milestones: resources.milestones,
          projects: resources.projects,
          teams: resources.teams,
          users: resources.users,
          views: resources.views,
       });
-   }, [cursor, loading, omittedCompletedBefore, resources.projects, resources.teams, resources.users, resources.views, scopeKey, tasks]);
+   }, [cursor, loading, omittedCompletedBefore, resources.milestones, resources.projects, resources.teams, resources.users, resources.views, scopeKey, tasks]);
 
    useEffect(() => {
       const handlePageShow = (event: PageTransitionEvent) => {
@@ -422,6 +487,7 @@ export function useTaskSync(scope: TaskSyncScope) {
          }
 
          bootstrappedRef.current = false;
+         bootstrapRunRef.current += 1;
          cursorRef.current = '0';
          setCursor('0');
          setOmittedCompletedBefore(null);
@@ -430,8 +496,9 @@ export function useTaskSync(scope: TaskSyncScope) {
          setLoading(true);
          setError('');
          setTasks([]);
-         setResources({ projects: [], teams: [], users: [], views: [] });
+         setResources({ milestones: [], projects: [], teams: [], users: [], views: [] });
          setWorkspaceEntities(emptyWorkspaceDataEntities());
+         setAuthRevision((revision) => revision + 1);
          void refresh();
       };
       window.addEventListener('pageshow', handlePageShow);
@@ -447,7 +514,7 @@ export function useTaskSync(scope: TaskSyncScope) {
    useEffect(() => {
       const channel = createBroadcastChannel();
       const handleMessage = (message: Partial<TaskSyncBroadcastMessage>) => {
-         if (message.scopeKey !== scopeKey) return;
+         if (message.scopeKey !== scopeKey || scopeKey !== taskScopeKey(scopeRef.current)) return;
          if (message.type === 'events' && message.cursor && message.events) {
             applyEvents(message.events, message.cursor, false);
             return;
@@ -470,6 +537,20 @@ export function useTaskSync(scope: TaskSyncScope) {
                      (!message.mutationId || task.syncMutationId !== message.mutationId)
                )
             );
+            return;
+         }
+         if (message.type === 'localMilestone' && message.milestone) {
+            setResources((current) => ({
+               ...current,
+               milestones: upsertMilestone(current.milestones, message.milestone as TaskaraMilestone),
+            }));
+            return;
+         }
+         if (message.type === 'localMilestoneDeleted' && message.milestoneId) {
+            setResources((current) => ({
+               ...current,
+               milestones: current.milestones.filter((milestone) => milestone.id !== message.milestoneId),
+            }));
          }
       };
 
@@ -547,7 +628,14 @@ export function useTaskSync(scope: TaskSyncScope) {
          broadcastLocalTask(scopeKey, optimistic);
 
          try {
-            const created = await pushMutation('task.create', input, { mutationId, optimisticTask: optimistic });
+            const milestoneDependency = input.milestoneId
+               ? resources.milestones.find((milestone) => milestone.id === input.milestoneId)?.syncMutationId
+               : undefined;
+            const created = await pushMutation('task.create', input, {
+               mutationId,
+               optimisticTask: optimistic,
+               dependsOnMutationIds: milestoneDependency ? [milestoneDependency] : [],
+            });
             setTasks((current) => current.map((task) => (task.id === tempId ? created : task)));
             return created;
          } catch (err) {
@@ -564,10 +652,18 @@ export function useTaskSync(scope: TaskSyncScope) {
       async (task: TaskaraTask, patch: TaskUpdatePatch): Promise<TaskaraTask> => {
          const previous = task;
          if (isLocalOptimisticTask(task) && task.syncMutationId) {
-            const optimistic = { ...applyPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: task.syncMutationId };
+            const optimistic = { ...applyOptimisticTaskPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: task.syncMutationId };
             setTasks((current) => current.map((item) => (item.id === task.id ? optimistic : item)));
             try {
-               await updatePendingCreateTaskMutation(task.syncMutationId, patch, optimistic);
+               const milestoneDependency = patch.milestoneId
+                  ? resources.milestones.find((milestone) => milestone.id === patch.milestoneId)?.syncMutationId
+                  : undefined;
+               await updatePendingCreateTaskMutation(
+                  task.syncMutationId,
+                  patch,
+                  optimistic,
+                  milestoneDependency ? [milestoneDependency] : []
+               );
                broadcastLocalTask(scopeKey, optimistic);
                return optimistic;
             } catch (err) {
@@ -577,14 +673,21 @@ export function useTaskSync(scope: TaskSyncScope) {
          }
 
          const mutationId = crypto.randomUUID();
-         const optimistic = { ...applyPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: mutationId };
+         const optimistic = { ...applyOptimisticTaskPatch(task, patch, resources), syncState: 'pending' as const, syncMutationId: mutationId };
          setTasks((current) => current.map((item) => (item.id === task.id ? optimistic : item)));
 
          try {
+            const milestoneDependency = patch.milestoneId
+               ? resources.milestones.find((milestone) => milestone.id === patch.milestoneId)?.syncMutationId
+               : undefined;
             const updated = await pushMutation(
                'task.update',
                { idOrKey: task.key || task.id, baseVersion: task.version, patch },
-               { mutationId, optimisticTask: optimistic }
+               {
+                  mutationId,
+                  optimisticTask: optimistic,
+                  dependsOnMutationIds: milestoneDependency ? [milestoneDependency] : [],
+               }
             );
             setTasks((current) => current.map((item) => (item.id === task.id || item.id === updated.id ? updated : item)));
             return updated;
@@ -622,11 +725,153 @@ export function useTaskSync(scope: TaskSyncScope) {
       [pushMutation, scopeKey]
    );
 
+   const pushMilestoneMutation = useCallback(
+      async (
+         name: string,
+         args: unknown,
+         optimistic: TaskaraMilestone,
+         previous: TaskaraMilestone | null,
+         dependencyMutationIds: string[] = []
+      ): Promise<TaskaraMilestone> => {
+         const mutationId = optimistic.syncMutationId || crypto.randomUUID();
+         setResources((current) => ({
+            ...current,
+            milestones: upsertMilestone(current.milestones, optimistic),
+         }));
+         broadcastLocalMilestone(scopeKey, optimistic);
+
+         try {
+            const { entity, response } = await sendTaskSyncMutation<unknown>(
+               name,
+               args,
+               clientId,
+               mutationId,
+               {
+                  baseVersion: previous?.version,
+                  dependsOnMutationIds: [
+                     ...(previous?.syncMutationId ? [previous.syncMutationId] : []),
+                     ...dependencyMutationIds,
+                  ],
+                  keepPendingOnRetryable: true,
+                  optimisticMilestone: milestoneForPersistence(optimistic),
+                  scopeKey,
+               }
+            );
+            advanceCursor(response.cursor, cursorRef, setCursor);
+            const confirmed = milestoneFromMutationEntity(entity) || clearMilestoneSyncState(optimistic);
+            setResources((current) => ({
+               ...current,
+               milestones: upsertMilestone(current.milestones, confirmed),
+            }));
+            broadcastLocalMilestone(scopeKey, confirmed);
+            dispatchWorkspaceRefresh({ source: 'milestone-sync-mutation' });
+            if (!entity) void pull();
+            return confirmed;
+         } catch (err) {
+            if (isRetryableTaskSyncError(err)) return optimistic;
+            if (previous) {
+               setResources((current) => ({
+                  ...current,
+                  milestones: upsertMilestone(current.milestones, previous),
+               }));
+               broadcastLocalMilestone(scopeKey, previous);
+            } else {
+               setResources((current) => ({
+                  ...current,
+                  milestones: current.milestones.filter((milestone) => milestone.id !== optimistic.id),
+               }));
+               broadcastLocalMilestoneDeleted(scopeKey, optimistic);
+            }
+            throw err;
+         }
+      },
+      [clientId, pull, scopeKey]
+   );
+
+   const createMilestone = useCallback(
+      async (input: TaskaraMilestoneCreateInput): Promise<TaskaraMilestone> => {
+         const mutationId = crypto.randomUUID();
+         const id = input.id || crypto.randomUUID();
+         const optimistic = buildOptimisticMilestone(id, { ...input, id }, resources, mutationId);
+         return pushMilestoneMutation('milestone.create', { ...input, id }, optimistic, null);
+      },
+      [pushMilestoneMutation, resources]
+   );
+
+   const updateMilestone = useCallback(
+      async (
+         milestone: TaskaraMilestone,
+         patch: TaskaraMilestoneUpdatePatch
+      ): Promise<TaskaraMilestone> => {
+         const mutationId = crypto.randomUUID();
+         const optimistic = applyOptimisticMilestonePatch(milestone, patch, resources, mutationId);
+         return pushMilestoneMutation(
+            'milestone.update',
+            { id: milestone.id, patch: { version: milestone.version, ...patch } },
+            optimistic,
+            milestone
+         );
+      },
+      [pushMilestoneMutation, resources]
+   );
+
+   const reorderMilestone = useCallback(
+      async (
+         milestone: TaskaraMilestone,
+         reorder: TaskaraMilestoneReorderInput
+      ): Promise<TaskaraMilestone> => {
+         const mutationId = crypto.randomUUID();
+         const optimistic = applyOptimisticMilestoneReorder(
+            resources.milestones,
+            milestone,
+            reorder,
+            mutationId
+         );
+         return pushMilestoneMutation(
+            'milestone.reorder',
+            { id: milestone.id, reorder: { version: milestone.version, ...reorder } },
+            optimistic,
+            milestone,
+            [reorder.beforeId, reorder.afterId]
+               .flatMap((id) => id ? [resources.milestones.find((item) => item.id === id)?.syncMutationId] : [])
+               .filter((id): id is string => Boolean(id))
+         );
+      },
+      [pushMilestoneMutation, resources.milestones]
+   );
+
+   const transitionMilestone = useCallback(
+      async (
+         milestone: TaskaraMilestone,
+         action: TaskaraMilestoneLifecycleAction,
+         input: TaskaraMilestoneLifecycleInput = {}
+      ): Promise<TaskaraMilestone> => {
+         const mutationId = crypto.randomUUID();
+         const optimistic = applyOptimisticMilestoneLifecycle(milestone, action, mutationId);
+         const transition = { version: milestone.version, ...input };
+         const args = action === 'complete' || action === 'cancel'
+            ? { id: milestone.id, completion: transition }
+            : { id: milestone.id, transition };
+         const targetDependency = input.targetMilestoneId
+            ? resources.milestones.find((item) => item.id === input.targetMilestoneId)?.syncMutationId
+            : undefined;
+         return pushMilestoneMutation(
+            `milestone.${action}`,
+            args,
+            optimistic,
+            milestone,
+            targetDependency ? [targetDependency] : []
+         );
+      },
+      [pushMilestoneMutation, resources.milestones]
+   );
+
    const workspaceData = useMemo(
       () =>
          createWorkspaceDataState(
             {
                tasks,
+               milestones: resources.milestones,
                projects: resources.projects,
                teams: resources.teams,
                users: resources.users,
@@ -634,12 +879,13 @@ export function useTaskSync(scope: TaskSyncScope) {
             },
             workspaceEntities
          ),
-      [resources.projects, resources.teams, resources.users, resources.views, tasks, workspaceEntities]
+      [resources.milestones, resources.projects, resources.teams, resources.users, resources.views, tasks, workspaceEntities]
    );
 
    return useMemo(
       () => ({
          tasks,
+         milestones: resources.milestones,
          projects: resources.projects,
          teams: resources.teams,
          users: resources.users,
@@ -653,23 +899,32 @@ export function useTaskSync(scope: TaskSyncScope) {
          createTask,
          updateTask,
          deleteTask,
+         createMilestone,
+         updateMilestone,
+         reorderMilestone,
+         transitionMilestone,
          workspaceData,
       }),
       [
          applyTask,
          createTask,
+         createMilestone,
          deleteTask,
          error,
          hasBootstrapped,
          loading,
          omittedCompletedBefore,
          refresh,
+         reorderMilestone,
          resources.projects,
+         resources.milestones,
          resources.teams,
          resources.users,
          resources.views,
          tasks,
+         transitionMilestone,
          updateTask,
+         updateMilestone,
          workspaceData,
       ]
    );
@@ -768,7 +1023,7 @@ export function replayPendingTaskMutationsForBootstrap(
    pending: PersistedTaskMutation[]
 ): TaskaraTask[] {
    let next = tasks;
-   for (const mutation of [...pending].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+   for (const mutation of orderPersistedTaskMutations(pending)) {
       if (mutation.deletedTaskId || mutation.deletedTaskKey) {
          next = next.filter((task) => task.id !== mutation.deletedTaskId && task.key !== mutation.deletedTaskKey);
          continue;
@@ -789,6 +1044,64 @@ export function reconcileBootstrappedTasksAfterSyncGap(
    return mergeBootstrappedTasks(current, replayPendingTaskMutationsForBootstrap(bootstrapped, pending));
 }
 
+export function orderPersistedTaskMutations(
+   mutations: PersistedTaskMutation[]
+): PersistedTaskMutation[] {
+   const chronological = [...mutations].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.mutationId.localeCompare(right.mutationId)
+   );
+   const byId = new Map(chronological.map((mutation) => [mutation.mutationId, mutation]));
+   const visiting = new Set<string>();
+   const visited = new Set<string>();
+   const ordered: PersistedTaskMutation[] = [];
+
+   const visit = (mutation: PersistedTaskMutation) => {
+      if (visited.has(mutation.mutationId)) return;
+      if (visiting.has(mutation.mutationId)) return;
+      visiting.add(mutation.mutationId);
+      for (const dependencyId of mutation.dependsOnMutationIds || []) {
+         const dependency = byId.get(dependencyId);
+         if (dependency) visit(dependency);
+      }
+      visiting.delete(mutation.mutationId);
+      visited.add(mutation.mutationId);
+      ordered.push(mutation);
+   };
+
+   for (const mutation of chronological) visit(mutation);
+   return ordered;
+}
+
+export function replayPendingMilestoneMutationsForBootstrap(
+   milestones: TaskaraMilestone[],
+   pending: PersistedTaskMutation[]
+): TaskaraMilestone[] {
+   let next = milestones;
+   for (const mutation of orderPersistedTaskMutations(pending)) {
+      if (mutation.optimisticMilestone) {
+         next = upsertMilestone(next, mutation.optimisticMilestone);
+      }
+   }
+   return next;
+}
+
+export function reconcileBootstrappedMilestonesAfterSyncGap(
+   current: TaskaraMilestone[],
+   bootstrapped: TaskaraMilestone[],
+   pending: PersistedTaskMutation[]
+): TaskaraMilestone[] {
+   const replayed = replayPendingMilestoneMutationsForBootstrap(bootstrapped, pending);
+   if (current.length === 0) return replayed;
+   const pendingIds = new Set(
+      pending.flatMap((mutation) => mutation.optimisticMilestone ? [mutation.optimisticMilestone.id] : [])
+   );
+   const replayedIds = new Set(replayed.map((milestone) => milestone.id));
+   return [
+      ...current.filter((milestone) => pendingIds.has(milestone.id) && !replayedIds.has(milestone.id)),
+      ...replayed,
+   ];
+}
+
 function canMatchTaskByKey(left: TaskaraTask, right: TaskaraTask): boolean {
    return Boolean(left.key && right.key && !isLocalTaskKey(left.key) && !isLocalTaskKey(right.key));
 }
@@ -807,11 +1120,88 @@ async function applyPendingMutationsToTasks(
    scopeKey: string
 ): Promise<TaskaraTask[]> {
    const pending = (await loadPendingMutations())
-      .filter((mutation) => mutation.clientId === clientId && mutation.scopeKey === scopeKey)
+      .filter((mutation) =>
+         mutation.clientId === clientId &&
+         mutation.scopeKey === scopeKey &&
+         mutationBelongsToCurrentAuth(mutation)
+      );
    return replayPendingTaskMutationsForBootstrap(tasks, pending);
 }
 
-function buildOptimisticTask(
+async function applyPendingMutationsToMilestones(
+   milestones: TaskaraMilestone[],
+   clientId: string,
+   scopeKey: string
+): Promise<TaskaraMilestone[]> {
+   const pending = (await loadPendingMutations())
+      .filter((mutation) =>
+         mutation.clientId === clientId &&
+         mutation.scopeKey === scopeKey &&
+         mutationBelongsToCurrentAuth(mutation)
+      );
+   return replayPendingMilestoneMutationsForBootstrap(milestones, pending);
+}
+
+function upsertMilestone(milestones: TaskaraMilestone[], milestone: TaskaraMilestone): TaskaraMilestone[] {
+   const index = milestones.findIndex((item) => item.id === milestone.id);
+   if (index === -1) return [milestone, ...milestones];
+   const next = [...milestones];
+   next[index] = milestone;
+   return next;
+}
+
+function clearMilestoneSyncState(milestone: TaskaraMilestone): TaskaraMilestone {
+   const confirmed = { ...milestone };
+   delete confirmed.syncState;
+   delete confirmed.syncMutationId;
+   return confirmed;
+}
+
+function milestoneForPersistence(milestone: TaskaraMilestone): TaskaraMilestone {
+   const persisted = { ...milestone };
+   delete persisted.activity;
+   delete persisted.tasks;
+   return persisted;
+}
+
+export function applyMilestoneEventsWithPending(
+   milestones: TaskaraMilestone[],
+   events: Array<WorkspaceDataSyncEvent & Pick<SyncTaskEvent, 'clientId' | 'mutationId'>>,
+   clientId: string
+): TaskaraMilestone[] {
+   let next = milestones;
+   for (const event of events) {
+      const incoming = milestoneFromSyncEvent(event);
+      const id = event.entityId || incoming?.id;
+      const existing = id ? next.find((milestone) => milestone.id === id) : undefined;
+      if (existing?.syncState === 'pending') {
+         const acknowledgesLatest = Boolean(
+            event.clientId === clientId &&
+            event.mutationId &&
+            event.mutationId === existing.syncMutationId
+         );
+         if (!acknowledgesLatest) continue;
+      }
+      next = applyMilestoneSyncEvents(next, [event]);
+      if (id && event.clientId === clientId && event.mutationId) {
+         next = next.map((milestone) =>
+            milestone.id === id && milestone.syncMutationId === event.mutationId
+               ? clearMilestoneSyncState(milestone)
+               : milestone
+         );
+      }
+   }
+   return next;
+}
+
+function milestoneFromSyncEvent(event: WorkspaceDataSyncEvent): TaskaraMilestone | null {
+   const direct = milestoneFromMutationEntity(event.entity);
+   if (direct) return direct;
+   if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return null;
+   return milestoneFromMutationEntity((event.payload as { after?: unknown }).after);
+}
+
+export function buildOptimisticTask(
    id: string,
    input: TaskCreateInput,
    resources: TaskSyncResources,
@@ -820,6 +1210,9 @@ function buildOptimisticTask(
    const now = new Date().toISOString();
    const project = resources.projects.find((item) => item.id === input.projectId) || null;
    const assignee = input.assigneeId ? resources.users.find((item) => item.id === input.assigneeId) || null : null;
+   const milestone = input.milestoneId
+      ? resources.milestones.find((item) => item.id === input.milestoneId && item.projectId === input.projectId) || null
+      : null;
 
    return {
       id,
@@ -845,6 +1238,17 @@ function buildOptimisticTask(
               team: project.team || null,
            }
          : null,
+      milestoneId: milestone?.id || null,
+      milestone: milestone
+         ? {
+              id: milestone.id,
+              name: milestone.name,
+              kind: milestone.kind,
+              status: milestone.status,
+              archivedAt: milestone.archivedAt,
+              projectId: milestone.projectId,
+           }
+         : null,
       assignee: assignee
          ? {
               id: assignee.id,
@@ -859,12 +1263,198 @@ function buildOptimisticTask(
    };
 }
 
+export function buildOptimisticMilestone(
+   id: string,
+   input: TaskaraMilestoneCreateInput,
+   resources: TaskSyncResources,
+   syncMutationId: string
+): TaskaraMilestone {
+   const now = new Date().toISOString();
+   const project = resources.projects.find((item) => item.id === input.projectId);
+   if (!project) throw new TaskSyncMutationError('Project is not available in the local workspace cache.', false);
+   const owner = input.ownerId ? resources.users.find((item) => item.id === input.ownerId) || null : null;
+   const projectMilestones = resources.milestones.filter((milestone) => milestone.projectId === input.projectId);
+   const position = projectMilestones.reduce((maximum, milestone) => Math.max(maximum, milestone.position), 0) + 1024;
+
+   const milestone: TaskaraMilestone = {
+      id,
+      workspaceId: resources.milestones[0]?.workspaceId || 'local',
+      projectId: input.projectId,
+      ownerId: input.ownerId || null,
+      name: input.name,
+      description: input.description || null,
+      kind: input.kind,
+      status: input.status,
+      health: input.health || null,
+      startsOn: input.startsOn || null,
+      targetOn: input.targetOn || null,
+      position,
+      version: 1,
+      completedAt: null,
+      canceledAt: null,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      project: {
+         id: project.id,
+         name: project.name,
+         keyPrefix: project.keyPrefix,
+         teamId: project.team?.id || null,
+         leadId: project.lead?.id || null,
+         team: project.team || null,
+         lead: project.lead || null,
+      },
+      owner: owner
+         ? {
+              id: owner.id,
+              name: owner.name,
+              email: owner.email,
+              avatarUrl: owner.avatarUrl,
+           }
+         : null,
+      progress: emptyMilestoneProgress(),
+      attentionReasons: [],
+      readyToComplete: false,
+      canManage: true,
+      syncState: 'pending',
+      syncMutationId,
+   };
+   milestone.attentionReasons = deriveOptimisticMilestoneAttention(milestone);
+   return milestone;
+}
+
+export function applyOptimisticMilestonePatch(
+   milestone: TaskaraMilestone,
+   patch: TaskaraMilestoneUpdatePatch,
+   resources: TaskSyncResources,
+   syncMutationId: string
+): TaskaraMilestone {
+   const next: TaskaraMilestone = {
+      ...milestone,
+      ...patch,
+      version: milestone.version + 1,
+      updatedAt: new Date().toISOString(),
+      syncState: 'pending',
+      syncMutationId,
+   };
+   if (Object.prototype.hasOwnProperty.call(patch, 'ownerId')) {
+      const owner = patch.ownerId ? resources.users.find((item) => item.id === patch.ownerId) || null : null;
+      next.owner = owner
+         ? { id: owner.id, name: owner.name, email: owner.email, avatarUrl: owner.avatarUrl }
+         : null;
+   }
+   next.attentionReasons = deriveOptimisticMilestoneAttention(next);
+   return next;
+}
+
+export function applyOptimisticMilestoneReorder(
+   milestones: TaskaraMilestone[],
+   milestone: TaskaraMilestone,
+   reorder: TaskaraMilestoneReorderInput,
+   syncMutationId: string
+): TaskaraMilestone {
+   const before = reorder.beforeId ? milestones.find((item) => item.id === reorder.beforeId) : null;
+   const after = reorder.afterId ? milestones.find((item) => item.id === reorder.afterId) : null;
+   let position = milestone.position;
+   if (before && after) position = (before.position + after.position) / 2;
+   else if (before) position = before.position + 1024;
+   else if (after) position = after.position - 1024;
+   return {
+      ...milestone,
+      position,
+      version: milestone.version + 1,
+      updatedAt: new Date().toISOString(),
+      syncState: 'pending',
+      syncMutationId,
+   };
+}
+
+export function applyOptimisticMilestoneLifecycle(
+   milestone: TaskaraMilestone,
+   action: TaskaraMilestoneLifecycleAction,
+   syncMutationId: string
+): TaskaraMilestone {
+   const now = new Date().toISOString();
+   const next: TaskaraMilestone = {
+      ...milestone,
+      version: milestone.version + 1,
+      updatedAt: now,
+      syncState: 'pending',
+      syncMutationId,
+   };
+   if (action === 'activate' || action === 'reopen') {
+      next.status = 'ACTIVE';
+      next.completedAt = null;
+      next.canceledAt = null;
+   } else if (action === 'complete') {
+      next.status = 'COMPLETED';
+      next.completedAt = now;
+      next.canceledAt = null;
+   } else if (action === 'cancel') {
+      next.status = 'CANCELED';
+      next.completedAt = null;
+      next.canceledAt = now;
+   } else if (action === 'archive') {
+      next.archivedAt = now;
+   } else if (action === 'restore') {
+      next.archivedAt = null;
+   }
+   next.attentionReasons = deriveOptimisticMilestoneAttention(next);
+   return next;
+}
+
+function deriveOptimisticMilestoneAttention(
+   milestone: TaskaraMilestone
+): TaskaraMilestoneAttention[] {
+   const reasons = (milestone.attentionReasons || []).map((reason) =>
+      typeof reason === 'string' ? { reason } : reason
+   ).filter(
+      (reason) => !['target_overdue', 'owner_missing', 'target_missing'].includes(reason.reason)
+   );
+   const today = new Date().toISOString().slice(0, 10);
+   if (
+      milestone.status !== 'COMPLETED'
+      && milestone.status !== 'CANCELED'
+      && milestone.targetOn
+      && milestone.targetOn < today
+   ) {
+      reasons.push({ reason: 'target_overdue' });
+   }
+   if (!milestone.ownerId) reasons.push({ reason: 'owner_missing' });
+   if (!milestone.targetOn) reasons.push({ reason: 'target_missing' });
+   return reasons;
+}
+
+function emptyMilestoneProgress(): TaskaraMilestone['progress'] {
+   return {
+      totalTasks: 0,
+      eligibleTasks: 0,
+      completedTasks: 0,
+      canceledTasks: 0,
+      blockedTasks: 0,
+      overdueTasks: 0,
+      totalWeight: 0,
+      completedWeight: 0,
+      percentage: null,
+   };
+}
+
 function optimisticTaskKey(syncMutationId: string): string {
    return `NEW-${syncMutationId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
 
-function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSyncResources): TaskaraTask {
-   const { assigneeId: _assigneeId, projectId: _projectId, labels: _labels, ...scalarPatch } = patch;
+export function applyOptimisticTaskPatch(
+   task: TaskaraTask,
+   patch: TaskUpdatePatch,
+   resources: TaskSyncResources
+): TaskaraTask {
+   const {
+      assigneeId: _assigneeId,
+      milestoneId: _milestoneId,
+      projectId: _projectId,
+      labels: _labels,
+      ...scalarPatch
+   } = patch;
    const now = new Date().toISOString();
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: now };
 
@@ -895,6 +1485,39 @@ function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSy
       delete (next as TaskaraTask & { projectId?: string | null }).projectId;
    }
 
+   const nextProjectId = next.project?.id || null;
+   if ('milestoneId' in patch) {
+      const resourceMilestone = patch.milestoneId
+         ? resources.milestones.find(
+              (item) => item.id === patch.milestoneId && (!nextProjectId || item.projectId === nextProjectId)
+           ) || null
+         : null;
+      const currentMilestone =
+         patch.milestoneId && task.milestone?.id === patch.milestoneId &&
+         (!nextProjectId || !task.milestone.projectId || task.milestone.projectId === nextProjectId)
+            ? task.milestone
+            : null;
+      next.milestoneId = resourceMilestone?.id || currentMilestone?.id || null;
+      next.milestone = resourceMilestone
+         ? {
+              id: resourceMilestone.id,
+              name: resourceMilestone.name,
+              kind: resourceMilestone.kind,
+              status: resourceMilestone.status,
+              archivedAt: resourceMilestone.archivedAt,
+              projectId: resourceMilestone.projectId,
+           }
+         : currentMilestone;
+   } else if (
+      'projectId' in patch &&
+      task.project?.id !== nextProjectId &&
+      task.milestone &&
+      task.milestone.projectId !== nextProjectId
+   ) {
+      next.milestoneId = null;
+      next.milestone = null;
+   }
+
    if (patch.labels) {
       next.labels = patch.labels.map((name) => ({ label: { id: `local-${name}`, name } }));
    }
@@ -914,7 +1537,8 @@ function applyPatch(task: TaskaraTask, patch: TaskUpdatePatch, resources: TaskSy
 async function updatePendingCreateTaskMutation(
    mutationId: string,
    patch: TaskUpdatePatch,
-   optimisticTask: TaskaraTask
+   optimisticTask: TaskaraTask,
+   dependsOnMutationIds: string[] = []
 ): Promise<void> {
    const mutation = (await loadPendingMutations()).find((item) => item.mutationId === mutationId);
    if (!mutation || mutation.name !== 'task.create' || !isTaskCreateInput(mutation.args)) {
@@ -924,6 +1548,10 @@ async function updatePendingCreateTaskMutation(
    await persistPendingMutation({
       ...mutation,
       args: mergeTaskCreateInput(mutation.args, patch),
+      dependsOnMutationIds: normalizedMutationDependencies([
+         ...(mutation.dependsOnMutationIds || []),
+         ...dependsOnMutationIds,
+      ], mutation.mutationId),
       optimisticTask,
    });
 }
@@ -935,6 +1563,9 @@ function mergeTaskCreateInput(input: TaskCreateInput, patch: TaskUpdatePatch): T
    if (patch.priority !== undefined) next.priority = patch.priority;
    if (patch.weight !== undefined) next.weight = patch.weight;
    if (patch.projectId) next.projectId = patch.projectId;
+   if (patch.projectId !== undefined && patch.projectId !== input.projectId && patch.milestoneId === undefined) {
+      delete next.milestoneId;
+   }
    if (patch.labels !== undefined) next.labels = patch.labels;
 
    if (patch.description !== undefined) {
@@ -945,6 +1576,11 @@ function mergeTaskCreateInput(input: TaskCreateInput, patch: TaskUpdatePatch): T
    if (patch.assigneeId !== undefined) {
       if (patch.assigneeId) next.assigneeId = patch.assigneeId;
       else delete next.assigneeId;
+   }
+
+   if (patch.milestoneId !== undefined) {
+      if (patch.milestoneId) next.milestoneId = patch.milestoneId;
+      else delete next.milestoneId;
    }
 
    if (patch.dueAt !== undefined) {
@@ -1061,7 +1697,16 @@ function scopeSearch(scope: TaskSyncScope): string {
 }
 
 function taskScopeKey(scope: TaskSyncScope): string {
-   return `${scope.workspaceSlug || currentWorkspaceSlug()}:${scope.teamId}:${scope.mine ? 'mine' : 'all'}`;
+   const identity = readTaskSyncAuthIdentity();
+   return taskSyncScopeKeyForIdentity(scope, identity);
+}
+
+export function taskSyncScopeKeyForIdentity(
+   scope: TaskSyncScope,
+   identity: Pick<TaskSyncAuthIdentity, 'userId' | 'workspaceSlug'>
+): string {
+   const workspaceSlug = scope.workspaceSlug || identity.workspaceSlug || currentWorkspaceSlug();
+   return `${workspaceSlug}:${identity.userId || 'anonymous'}:${scope.teamId}:${scope.mine ? 'mine' : 'all'}`;
 }
 
 function scopeSearchParams(scope: TaskSyncScope): URLSearchParams {
@@ -1095,6 +1740,24 @@ function taskSyncAuthIdentityChanged(
    );
 }
 
+function currentTaskSyncAuthIdentityKey(): string | null {
+   const identity = readTaskSyncAuthIdentity();
+   if (!identity.workspaceSlug || !identity.userId) return null;
+   return `${identity.workspaceSlug}:${identity.userId}`;
+}
+
+function mutationBelongsToCurrentAuth(mutation: PersistedTaskMutation): boolean {
+   const identityKey = currentTaskSyncAuthIdentityKey();
+   return Boolean(identityKey && mutationBelongsToAuthIdentity(mutation, identityKey));
+}
+
+export function mutationBelongsToAuthIdentity(
+   mutation: PersistedTaskMutation,
+   identityKey: string
+): boolean {
+   return mutation.authIdentityKey === identityKey;
+}
+
 function compareCursor(a: string, b: string): number {
    const left = BigInt(a || '0');
    const right = BigInt(b || '0');
@@ -1123,7 +1786,10 @@ export function isRetryableTaskSyncError(error: unknown): boolean {
 }
 
 export async function loadPendingTaskSyncMutations(clientId = getOrCreateTaskSyncClientId()): Promise<PersistedTaskMutation[]> {
-   return (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId);
+   return orderPersistedTaskMutations(
+      (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId)
+         .filter(mutationBelongsToCurrentAuth)
+   );
 }
 
 export function taskSyncMutationActionLabel(name: string): string {
@@ -1195,6 +1861,20 @@ function publishTaskSyncMutationFailures(failures: TaskSyncMutationFailure[]): v
    );
 }
 
+function nextMutationCreatedAt(): string {
+   const now = Date.now();
+   lastMutationCreatedAtMs = Math.max(now, lastMutationCreatedAtMs + 1);
+   return new Date(lastMutationCreatedAtMs).toISOString();
+}
+
+function normalizedMutationDependencies(
+   dependencyIds: string[] | undefined,
+   mutationId: string
+): string[] | undefined {
+   const normalized = [...new Set((dependencyIds || []).filter((id) => id && id !== mutationId))];
+   return normalized.length ? normalized : undefined;
+}
+
 export async function sendTaskSyncMutation<T>(
    name: string,
    args: unknown,
@@ -1205,11 +1885,15 @@ export async function sendTaskSyncMutation<T>(
    const mutation: PersistedTaskMutation = {
       clientId,
       mutationId,
+      authIdentityKey: currentTaskSyncAuthIdentityKey() || undefined,
       name,
       args,
-      createdAt: new Date().toISOString(),
+      createdAt: nextMutationCreatedAt(),
+      dependsOnMutationIds: normalizedMutationDependencies(options.dependsOnMutationIds, mutationId),
       scopeKey: options.scopeKey,
+      baseVersion: options.baseVersion,
       optimisticTask: options.optimisticTask,
+      optimisticMilestone: options.optimisticMilestone,
       deletedTaskId: options.deletedTaskId,
       deletedTaskKey: options.deletedTaskKey,
    };
@@ -1252,7 +1936,10 @@ export async function flushPendingTaskSyncMutations(clientId = getOrCreateTaskSy
    let hadAppliedMutations = false;
    const failures: TaskSyncMutationFailure[] = [];
    await runWithOptionalMutationLock(async () => {
-      const pending = (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId);
+      const pending = orderPersistedTaskMutations(
+         (await loadPendingMutations()).filter((mutation) => mutation.clientId === clientId)
+            .filter(mutationBelongsToCurrentAuth)
+      );
       for (const mutation of pending) {
          try {
             const response = await sendPersistedMutation(mutation);
@@ -1321,6 +2008,7 @@ async function sendPersistedMutation(mutation: PersistedTaskMutation): Promise<P
                mutationId: mutation.mutationId,
                name: mutation.name,
                args: mutation.args,
+               baseVersion: mutation.baseVersion,
                createdAt: mutation.createdAt,
             },
          ],
@@ -1459,6 +2147,7 @@ function bootstrapFromSnapshot(snapshot: CachedScopeSnapshot): BootstrapResponse
       omittedCompletedBefore,
       totalHotTasks: snapshot.totalHotTasks,
       tasks: pruneColdCompletedTasks(snapshot.tasks, omittedCompletedBefore),
+      milestones: normalizeMilestoneResources(snapshot.milestones),
       projects: snapshot.projects,
       teams: snapshot.teams,
       users: snapshot.users,
@@ -1473,7 +2162,11 @@ function isPersistedTaskMutation(value: unknown): value is PersistedTaskMutation
       typeof mutation.clientId === 'string' &&
       typeof mutation.mutationId === 'string' &&
       typeof mutation.name === 'string' &&
-      typeof mutation.createdAt === 'string'
+      typeof mutation.createdAt === 'string' &&
+      (
+         mutation.dependsOnMutationIds === undefined ||
+         (Array.isArray(mutation.dependsOnMutationIds) && mutation.dependsOnMutationIds.every((id) => typeof id === 'string'))
+      )
    );
 }
 
@@ -1486,6 +2179,7 @@ function isCachedScopeSnapshot(value: unknown): value is CachedScopeSnapshot {
       typeof snapshot.cursor === 'string' &&
       (snapshot.omittedCompletedBefore === undefined || typeof snapshot.omittedCompletedBefore === 'string') &&
       Array.isArray(snapshot.tasks) &&
+      (snapshot.milestones === undefined || Array.isArray(snapshot.milestones)) &&
       Array.isArray(snapshot.projects) &&
       Array.isArray(snapshot.teams) &&
       Array.isArray(snapshot.users) &&
@@ -1520,6 +2214,38 @@ function isTaskaraTaskEntity(value: unknown): value is TaskaraTask {
       typeof task.status === 'string' &&
       typeof task.priority === 'string'
    );
+}
+
+function milestoneFromMutationEntity(value: unknown): TaskaraMilestone | null {
+   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+   const direct = value as Partial<TaskaraMilestone> & { milestone?: unknown };
+   if (
+      typeof direct.id === 'string' &&
+      typeof direct.projectId === 'string' &&
+      typeof direct.name === 'string' &&
+      typeof direct.kind === 'string' &&
+      typeof direct.status === 'string' &&
+      direct.progress && typeof direct.progress === 'object'
+   ) {
+      return direct as TaskaraMilestone;
+   }
+   return milestoneFromMutationEntity(direct.milestone);
+}
+
+export function normalizeMilestoneResources(value: unknown): TaskaraMilestone[] {
+   if (!Array.isArray(value)) return [];
+   return value.filter((item): item is TaskaraMilestone => {
+      if (!item || typeof item !== 'object') return false;
+      const milestone = item as Partial<TaskaraMilestone>;
+      return (
+         typeof milestone.id === 'string' &&
+         typeof milestone.projectId === 'string' &&
+         typeof milestone.name === 'string' &&
+         typeof milestone.kind === 'string' &&
+         typeof milestone.status === 'string' &&
+         Boolean(milestone.progress && typeof milestone.progress === 'object')
+      );
+   });
 }
 
 function openTaskSyncDb(): Promise<IDBDatabase | null> {
@@ -1624,6 +2350,24 @@ function broadcastLocalTaskDeleted(scopeKey: string, task: TaskaraTask): void {
       taskId: task.id,
       taskKey: task.key,
       mutationId: task.syncMutationId,
+   } satisfies TaskSyncBroadcastMessage);
+}
+
+function broadcastLocalMilestone(scopeKey: string, milestone: TaskaraMilestone): void {
+   publishTaskSyncMessage({
+      type: 'localMilestone',
+      scopeKey,
+      milestone,
+      mutationId: milestone.syncMutationId,
+   } satisfies TaskSyncBroadcastMessage);
+}
+
+function broadcastLocalMilestoneDeleted(scopeKey: string, milestone: TaskaraMilestone): void {
+   publishTaskSyncMessage({
+      type: 'localMilestoneDeleted',
+      scopeKey,
+      milestoneId: milestone.id,
+      mutationId: milestone.syncMutationId,
    } satisfies TaskSyncBroadcastMessage);
 }
 

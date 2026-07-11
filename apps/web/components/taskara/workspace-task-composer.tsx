@@ -17,6 +17,7 @@ import {
    CalendarClock,
    Check,
    ChevronDown,
+   Diamond,
    Loader2,
    Paperclip,
    UploadCloud,
@@ -37,6 +38,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { DescriptionEditor, type DescriptionSlashCommand } from '@/components/taskara/description-editor';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { LinearAvatar, PriorityIcon, ProjectGlyph, StatusIcon, linearPriorityMeta, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
@@ -51,6 +53,7 @@ const workspaceComposerPreferenceStoragePrefix = 'taskara:workspace-task-compose
 
 const initialTaskForm = {
    projectId: '',
+   milestoneId: '',
    title: '',
    description: '',
    status: 'TODO',
@@ -60,15 +63,16 @@ const initialTaskForm = {
    dueAt: '',
 };
 
-type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'weight' | 'dueAt';
+type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'milestone' | 'weight' | 'dueAt';
 
-const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'weight', 'dueAt'];
+const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'milestone', 'weight', 'dueAt'];
 
 type TaskComposerOpenDetail = {
    assigneeId?: string;
    dueAt?: string;
    priority?: string;
    projectId?: string;
+   milestoneId?: string;
    status?: string;
    title?: string;
    weight?: number | string | null;
@@ -152,7 +156,7 @@ function dataTransferHasFiles(dataTransfer: DataTransfer) {
 
 export function WorkspaceTaskComposer() {
    const { session } = useAuthSession();
-   const { projects, users, createTask, applyTask } = useWorkspaceTaskSync();
+   const { milestones, projects, users, createTask, applyTask } = useWorkspaceTaskSync();
    const navigate = useNavigate();
    const workspaceSlug = session?.workspace?.slug || 'taskara';
    const currentUserId = session?.user.id || null;
@@ -179,6 +183,7 @@ export function WorkspaceTaskComposer() {
    }, [currentUserId, users]);
 
    const selectedProject = projects.find((project) => project.id === form.projectId) || null;
+   const selectedMilestone = milestones.find((milestone) => milestone.id === form.milestoneId) || null;
    const selectedAssignee = users.find((user) => user.id === form.assigneeId) || null;
 
    const focusDescription = useCallback(() => {
@@ -250,6 +255,14 @@ export function WorkspaceTaskComposer() {
             title: 'پروژه',
          },
          {
+            command: () => openComposerField('milestone'),
+            description: 'اتصال کار به یک مایلستون پروژه',
+            icon: <Diamond className="size-4 text-violet-300" />,
+            key: 'taskara-milestone',
+            keywords: ['milestone', 'goal', 'مایلستون', 'هدف', 'فاز', 'ویژگی'],
+            title: fa.project.milestones,
+         },
+         {
             command: () => openComposerField('priority'),
             description: 'انتخاب اولویت کار',
             icon: <PriorityIcon priority={form.priority} className="size-4" />,
@@ -279,7 +292,7 @@ export function WorkspaceTaskComposer() {
          },
          {
             command: () => startSetupFlow(),
-            description: 'انتخاب اولویت، مسئول، پروژه، وزن و سررسید',
+            description: 'انتخاب اولویت، مسئول، پروژه، مایلستون، وزن و سررسید',
             icon: <Check className="size-4" />,
             key: 'taskara-setup',
             keywords: ['setup', 'configure', 'تنظیم', 'پیکربندی'],
@@ -292,6 +305,7 @@ export function WorkspaceTaskComposer() {
          openComposerField,
          selectedAssignee,
          selectedProject?.name,
+         selectedMilestone?.name,
          startSetupFlow,
       ]
    );
@@ -311,10 +325,22 @@ export function WorkspaceTaskComposer() {
 
    useEffect(() => {
       setForm((current) => {
-         if (projects.some((project) => project.id === current.projectId)) return current;
-         return { ...current, projectId: projects[0]?.id || '' };
+         const projectId = projects.some((project) => project.id === current.projectId)
+            ? current.projectId
+            : projects[0]?.id || '';
+         const milestoneId = milestones.some(
+            (milestone) =>
+               milestone.id === current.milestoneId &&
+               milestone.projectId === projectId &&
+               !milestone.archivedAt &&
+               (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+         )
+            ? current.milestoneId
+            : '';
+         if (projectId === current.projectId && milestoneId === current.milestoneId) return current;
+         return { ...current, projectId, milestoneId };
       });
-   }, [projects]);
+   }, [milestones, projects]);
 
    useEffect(() => {
       if (!preferencesHydratedRef.current) return;
@@ -337,6 +363,20 @@ export function WorkspaceTaskComposer() {
             if (typeof detail.projectId === 'string' && projects.some((project) => project.id === detail.projectId)) {
                next.projectId = detail.projectId;
             }
+            if (
+               typeof detail.milestoneId === 'string' &&
+               milestones.some(
+                  (milestone) =>
+                     milestone.id === detail.milestoneId &&
+                     milestone.projectId === next.projectId &&
+                     !milestone.archivedAt &&
+                     (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+               )
+            ) {
+               next.milestoneId = detail.milestoneId;
+            } else if (detail.projectId) {
+               next.milestoneId = '';
+            }
             if (typeof detail.assigneeId === 'string' && users.some((user) => user.id === detail.assigneeId)) {
                next.assigneeId = detail.assigneeId;
             }
@@ -355,7 +395,7 @@ export function WorkspaceTaskComposer() {
          });
       }
       setOpen(true);
-   }, [projects, users]);
+   }, [milestones, projects, users]);
 
    const addPendingFiles = useCallback((fileList: FileList | File[] | null) => {
       const files = Array.from(fileList || []);
@@ -476,6 +516,7 @@ export function WorkspaceTaskComposer() {
       }
 
       const submittedProjectId = form.projectId;
+      const submittedMilestoneId = form.milestoneId;
       const submittedStatus = form.status;
       const submittedWeight = form.weight;
       const submittedAssigneeId = form.assigneeId;
@@ -491,6 +532,7 @@ export function WorkspaceTaskComposer() {
             priority: form.priority,
             weight,
             assigneeId: form.assigneeId || undefined,
+            milestoneId: form.milestoneId || undefined,
             dueAt: form.dueAt || undefined,
             labels: [],
             source: 'WEB',
@@ -553,6 +595,7 @@ export function WorkspaceTaskComposer() {
          setForm({
             ...initialTaskForm,
             projectId: submittedProjectId,
+            milestoneId: createMore ? submittedMilestoneId : '',
             status: submittedStatus,
             weight: submittedWeight,
             assigneeId: createMore ? submittedAssigneeId : '',
@@ -693,9 +736,28 @@ export function WorkspaceTaskComposer() {
                         open={activeComposerField === 'project'}
                         project={selectedProject}
                         projects={projects}
-                        onChange={(projectId) => setForm((current) => ({ ...current, projectId }))}
+                        onChange={(projectId) =>
+                           setForm((current) => ({
+                              ...current,
+                              projectId,
+                              milestoneId: current.projectId === projectId ? current.milestoneId : '',
+                           }))
+                        }
                         onAfterChange={() => handleComposerFieldPicked('project')}
                         onOpenChange={(nextOpen) => handleComposerFieldOpenChange('project', nextOpen)}
+                     />
+                     <MilestoneSelector
+                        className="h-6 max-w-[168px] rounded-full border-white/8 bg-[#2a2a2d] px-2.5 text-[12px] text-zinc-300 hover:bg-[#303033]"
+                        currentMilestone={selectedMilestone}
+                        milestones={milestones}
+                        placeholder={fa.milestone.selectMilestone}
+                        projectId={form.projectId}
+                        value={form.milestoneId || null}
+                        variant="pill"
+                        onChange={(milestoneId) => {
+                           setForm((current) => ({ ...current, milestoneId: milestoneId || '' }));
+                           handleComposerFieldPicked('milestone');
+                        }}
                      />
                      <ComposerWeightPill
                         open={activeComposerField === 'weight'}
@@ -800,6 +862,7 @@ function ComposerMenuPill({
    className,
    contentClassName,
    children,
+   disabled = false,
    icon,
    label,
    open,
@@ -809,6 +872,7 @@ function ComposerMenuPill({
    className?: string;
    contentClassName?: string;
    children: ReactNode;
+   disabled?: boolean;
    icon: ReactNode;
    label: ReactNode;
    open: boolean;
@@ -822,9 +886,10 @@ function ComposerMenuPill({
             <button
                aria-label={ariaLabel}
                className={cn(
-                  'inline-flex h-6 max-w-[168px] shrink-0 items-center gap-1.5 rounded-full border border-white/8 bg-[#2a2a2d] py-0 pl-2 pr-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35',
+                  'inline-flex h-6 max-w-[168px] shrink-0 items-center gap-1.5 rounded-full border border-white/8 bg-[#2a2a2d] py-0 pl-2 pr-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35 disabled:cursor-wait disabled:opacity-55',
                   className
                )}
+               disabled={disabled}
                type="button"
             >
                <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
@@ -950,13 +1015,17 @@ function MenuSearchField({
    );
 }
 
-function ComposerStatusPill({
+export function ComposerStatusPill({
+   className,
+   disabled = false,
    open,
    status,
    onAfterChange,
    onChange,
    onOpenChange,
 }: {
+   className?: string;
+   disabled?: boolean;
    open: boolean;
    status: string;
    onAfterChange: () => void;
@@ -972,7 +1041,9 @@ function ComposerStatusPill({
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.status}
+         className={className}
          contentClassName="w-auto min-w-[11rem]"
+         disabled={disabled}
          icon={<StatusIcon status={status} className="size-3.5" />}
          label={linearStatusMeta[status]?.label || status}
          open={open}
@@ -991,13 +1062,17 @@ function ComposerStatusPill({
    );
 }
 
-function ComposerPriorityPill({
+export function ComposerPriorityPill({
+   className,
+   disabled = false,
    open,
    priority,
    onAfterChange,
    onChange,
    onOpenChange,
 }: {
+   className?: string;
+   disabled?: boolean;
    open: boolean;
    priority: string;
    onAfterChange: () => void;
@@ -1013,7 +1088,9 @@ function ComposerPriorityPill({
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.priority}
+         className={className}
          contentClassName="w-auto min-w-[11rem]"
+         disabled={disabled}
          icon={<PriorityIcon priority={priority} className="size-3.5" />}
          label={linearPriorityMeta[priority]?.label || priority}
          open={open}
@@ -1032,9 +1109,11 @@ function ComposerPriorityPill({
    );
 }
 
-function ComposerAssigneePill({
+export function ComposerAssigneePill({
    assignee,
+   className,
    currentUserId,
+   disabled = false,
    open,
    users,
    onAfterChange,
@@ -1042,7 +1121,9 @@ function ComposerAssigneePill({
    onOpenChange,
 }: {
    assignee?: TaskaraTask['assignee'] | null;
+   className?: string;
    currentUserId: string | null;
+   disabled?: boolean;
    open: boolean;
    users: TaskaraUser[];
    onAfterChange: () => void;
@@ -1064,7 +1145,9 @@ function ComposerAssigneePill({
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.assignee}
+         className={className}
          contentClassName="w-80"
+         disabled={disabled}
          icon={
             assignee ? (
                <LinearAvatar name={assignee.name} src={assignee.avatarUrl} className="size-4" />
@@ -1110,7 +1193,9 @@ function ComposerAssigneePill({
    );
 }
 
-function ComposerProjectPill({
+export function ComposerProjectPill({
+   className,
+   disabled = false,
    open,
    project,
    projects,
@@ -1118,6 +1203,8 @@ function ComposerProjectPill({
    onChange,
    onOpenChange,
 }: {
+   className?: string;
+   disabled?: boolean;
    open: boolean;
    project?: TaskaraProject | null;
    projects: TaskaraProject[];
@@ -1141,7 +1228,9 @@ function ComposerProjectPill({
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.project}
+         className={className}
          contentClassName="w-80"
+         disabled={disabled}
          icon={<ProjectGlyph name={projectName} className="size-4 rounded" iconClassName="size-3" />}
          label={projectName}
          open={open}

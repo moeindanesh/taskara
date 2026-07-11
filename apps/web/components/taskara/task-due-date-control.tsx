@@ -28,6 +28,7 @@ export function makeEndOfIranWorkWeek() {
 export function TaskDueDateControl({
    dueAt,
    className,
+   disabled = false,
    iconClassName,
    open,
    onChange,
@@ -36,6 +37,7 @@ export function TaskDueDateControl({
 }: {
    dueAt?: string | null;
    className?: string;
+   disabled?: boolean;
    iconClassName?: string;
    open?: boolean;
    onChange: (dueAt: string | null) => void;
@@ -63,8 +65,10 @@ export function TaskDueDateControl({
                className={cn(
                   'inline-flex h-7 w-40 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs transition hover:border-white/8 hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-indigo-400/50 focus-visible:outline-none',
                   dueAt ? 'text-zinc-400' : 'text-zinc-600',
+                  'disabled:cursor-wait disabled:opacity-55',
                   className
                )}
+               disabled={disabled}
                type="button"
                onClick={(event) => event.stopPropagation()}
                onDoubleClick={(event) => event.stopPropagation()}

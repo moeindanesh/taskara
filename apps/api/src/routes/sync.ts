@@ -5,12 +5,17 @@ import {
   createCheckInResponseSchema,
   createCommentSchema,
   createMeetingActionItemSchema,
+  createMilestoneSchema,
   createOneOnOneAgendaItemSchema,
   createOneOnOneSeriesSchema,
   createProjectHealthUpdateSchema,
   createTaskFromMeetingActionItemSchema,
   createTaskSchema,
+  milestoneCompletionSchema,
+  milestoneTransitionSchema,
+  reorderMilestoneSchema,
   updateMeetingActionItemSchema,
+  updateMilestoneSchema,
   updateTaskSchema
 } from '@taskara/shared';
 import { z, ZodError } from 'zod';
@@ -29,9 +34,22 @@ import {
   updateMeetingActionItem
 } from '../services/check-ins';
 import { HttpError } from '../services/http';
+import {
+  activateMilestone,
+  archiveMilestone,
+  cancelMilestone,
+  completeMilestone,
+  createMilestone,
+  listMilestonesForSync,
+  reopenMilestone,
+  reorderMilestone,
+  restoreMilestone,
+  updateMilestone
+} from '../services/milestones';
 import { createProjectHealthUpdate } from '../services/project-health';
 import {
   assertActorCanAccessTeamSlug,
+  canManageProjectPlanning,
   canReadProject,
   projectWhereForAccess,
   resolveWorkspaceAccess,
@@ -152,6 +170,26 @@ const projectHealthUpdateCreateMutationArgsSchema = z.object({
   update: createProjectHealthUpdateSchema
 });
 
+const milestoneUpdateMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  patch: updateMilestoneSchema
+});
+
+const milestoneReorderMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  reorder: reorderMilestoneSchema
+});
+
+const milestoneTransitionMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  transition: milestoneTransitionSchema.default({})
+});
+
+const milestoneCompletionMutationArgsSchema = z.object({
+  id: z.string().uuid(),
+  completion: milestoneCompletionSchema.default({})
+});
+
 export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sync/bootstrap', async (request) => {
     const actor = await getRequestActor(request);
@@ -159,8 +197,9 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     const access = await resolveWorkspaceAccess(actor);
     if (query.teamId !== 'all') await assertActorCanAccessTeamSlug(actor, query.teamId);
     const omittedCompletedBefore = hotCompletedCutoff(query.completedWindowDays).toISOString();
-    const [tasksResult, projects, teams, usersResult, views, cursor] = await Promise.all([
+    const [tasksResult, milestones, projects, teams, usersResult, views, cursor] = await Promise.all([
       listTasksForScope(actor, query, access),
+      listMilestonesForSync(actor, access, query.completedWindowDays),
       listProjects(access),
       listTeams(access),
       listUsers(actor.workspace.id),
@@ -174,6 +213,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       completedWindowDays: query.completedWindowDays,
       omittedCompletedBefore,
       tasks: tasksResult.items,
+      milestones,
       totalHotTasks: tasksResult.total,
       projects,
       teams,
@@ -398,6 +438,50 @@ async function applyMutation(
     return addTaskComment(actor, task.id, input.body, input.source, input.mattermostPostId, meta);
   }
 
+  if (name === 'milestone.create') {
+    return createMilestone(actor, createMilestoneSchema.parse(args), meta);
+  }
+
+  if (name === 'milestone.update') {
+    const input = milestoneUpdateMutationArgsSchema.parse(args);
+    return updateMilestone(actor, input.id, input.patch, meta);
+  }
+
+  if (name === 'milestone.reorder') {
+    const input = milestoneReorderMutationArgsSchema.parse(args);
+    return reorderMilestone(actor, input.id, input.reorder, meta);
+  }
+
+  if (name === 'milestone.activate') {
+    const input = milestoneTransitionMutationArgsSchema.parse(args);
+    return activateMilestone(actor, input.id, input.transition, meta);
+  }
+
+  if (name === 'milestone.complete') {
+    const input = milestoneCompletionMutationArgsSchema.parse(args);
+    return completeMilestone(actor, input.id, input.completion, meta);
+  }
+
+  if (name === 'milestone.reopen') {
+    const input = milestoneTransitionMutationArgsSchema.parse(args);
+    return reopenMilestone(actor, input.id, input.transition, meta);
+  }
+
+  if (name === 'milestone.cancel') {
+    const input = milestoneCompletionMutationArgsSchema.parse(args);
+    return cancelMilestone(actor, input.id, input.completion, meta);
+  }
+
+  if (name === 'milestone.archive') {
+    const input = milestoneTransitionMutationArgsSchema.parse(args);
+    return archiveMilestone(actor, input.id, input.transition, meta);
+  }
+
+  if (name === 'milestone.restore') {
+    const input = milestoneTransitionMutationArgsSchema.parse(args);
+    return restoreMilestone(actor, input.id, input.transition, meta);
+  }
+
   if (name === 'attention.resolve') {
     const input = attentionResolveMutationArgsSchema.parse(args);
     return resolveAttentionItem(actor, input.id, meta);
@@ -516,7 +600,7 @@ async function listProjects(access: WorkspaceAccess) {
       team: { select: { id: true, name: true, slug: true } },
       parent: { select: { id: true, name: true, keyPrefix: true } },
       lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
-      _count: { select: { tasks: true, subprojects: true } }
+      _count: { select: { tasks: true, subprojects: true, milestones: true } }
     }
   });
 }
@@ -624,7 +708,11 @@ export function mapSyncEventForScope(
 ) {
   const serialized = serializeSyncEvent(event);
   if (event.entityType !== 'task') {
-    return managerEventVisibleInScope(event, actor, access) ? mapGenericSyncEvent(serialized, event) : null;
+    if (!managerEventVisibleInScope(event, actor, access)) return null;
+    if (event.entityType === 'milestone') {
+      return mapMilestoneSyncEvent(serialized, event, actor, access);
+    }
+    return mapGenericSyncEvent(serialized, event);
   }
 
   const payload = event.payload as Record<string, unknown>;
@@ -651,6 +739,40 @@ export function mapSyncEventForScope(
   }
 
   return null;
+}
+
+function mapMilestoneSyncEvent(
+  serialized: ReturnType<typeof serializeSyncEvent>,
+  event: SyncEvent,
+  actor: RequestActor,
+  access: string[] | WorkspaceAccess | null
+) {
+  const payload = syncPayloadRecord(event.payload);
+  const before = syncPayloadRecord(payload?.before);
+  const after = syncPayloadRecord(payload?.after);
+  if (after && access && !Array.isArray(access)) {
+    const project = projectRecordForAccess(syncPayloadRecord(after.project));
+    return {
+      ...serialized,
+      type: 'upsert' as const,
+      entity: {
+        ...after,
+        canManage: project ? canManageProjectPlanning(actor, access, {
+          id: project.id || '',
+          teamId: project.teamId || null,
+          leadId: project.leadId || null
+        }) : false
+      }
+    };
+  }
+  if (before) {
+    return {
+      ...serialized,
+      type: event.operation === 'deleted' ? 'delete' as const : 'removeFromScope' as const,
+      entityId: event.entityId
+    };
+  }
+  return serialized;
 }
 
 function mapGenericSyncEvent(serialized: ReturnType<typeof serializeSyncEvent>, event: SyncEvent) {
@@ -705,6 +827,8 @@ function managerEventVisibleInScope(
       return meetingActionItemEventVisible(record, actor, access);
     case 'project_health_update':
       return projectHealthEventVisible(record, access);
+    case 'milestone':
+      return milestoneEventVisible(record, access);
     default:
       return false;
   }
@@ -773,6 +897,15 @@ function projectHealthEventVisible(
 ): boolean {
   if (!access || Array.isArray(access)) return false;
   const project = syncPayloadRecord(update.project);
+  return canReadProject(access, projectRecordForAccess(project));
+}
+
+function milestoneEventVisible(
+  milestone: Record<string, unknown>,
+  access: string[] | WorkspaceAccess | null
+): boolean {
+  if (!access || Array.isArray(access)) return false;
+  const project = syncPayloadRecord(milestone.project);
   return canReadProject(access, projectRecordForAccess(project));
 }
 

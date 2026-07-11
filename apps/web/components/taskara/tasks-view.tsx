@@ -24,6 +24,7 @@ import {
    ChevronRight,
    CircleDashed,
    Copy,
+   Diamond,
    Link as LinkIcon,
    LayoutGrid,
    LayoutList,
@@ -84,6 +85,7 @@ import {
 } from '@/components/taskara/linear-ui';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import {
    TaskDueDateControl,
    makeDueDate,
@@ -107,6 +109,7 @@ import type {
    TaskViewOrdering,
    TaskViewSubGrouping,
    TaskaraProject,
+   TaskaraMilestone,
    TaskaraTask,
    TaskaraTaskViewState,
    TaskaraTeam,
@@ -152,6 +155,7 @@ const noProjectSearchResult = 'پروژه‌ای پیدا نشد';
 
 const initialTaskForm = {
    projectId: '',
+   milestoneId: '',
    title: '',
    description: '',
    status: 'TODO',
@@ -173,7 +177,7 @@ type MenuAnchor = {
    height: number;
 };
 
-type FilterSection = 'status' | 'assignee' | 'priority' | 'project' | 'labels';
+type FilterSection = 'status' | 'assignee' | 'priority' | 'project' | 'milestone' | 'labels';
 type FilterMenuSection = FilterSection | 'content';
 type FilterSubmenuSide = 'left' | 'right';
 
@@ -182,6 +186,15 @@ type GroupDescriptor = {
    label: string;
    toneClassName: string;
    toneStyle?: CSSProperties;
+   icon: ReactNode;
+   tasks: TaskaraTask[];
+   offset: number;
+   subgroups?: TaskSubgroupDescriptor[];
+};
+
+type TaskSubgroupDescriptor = {
+   key: string;
+   label: string;
    icon: ReactNode;
    tasks: TaskaraTask[];
    offset: number;
@@ -220,6 +233,12 @@ function getGroupDropPatch(
    if (grouping === 'project') {
       if (task.project?.id === groupKey) return null;
       return { projectId: groupKey };
+   }
+
+   if (grouping === 'milestone') {
+      const nextMilestoneId = groupKey === 'no-milestone' ? null : groupKey;
+      if ((task.milestone?.id || task.milestoneId || null) === nextMilestoneId) return null;
+      return { milestoneId: nextMilestoneId };
    }
 
    const nextAssigneeId = groupKey === 'unassigned' ? null : groupKey;
@@ -270,6 +289,11 @@ type StoredStableTaskOrderSnapshot = StableTaskOrderSnapshot & {
 type TaskComposerPreferences = {
    createMore?: boolean;
    projectId?: string;
+};
+
+type PendingTaskProjectChange = {
+   task: TaskaraTask;
+   projectId: string;
 };
 
 type TaskViewChipItem = {
@@ -567,6 +591,7 @@ const groupingOptions: Array<{ value: TaskViewGrouping; label: string }> = [
    { value: 'status', label: fa.issue.status },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'project', label: fa.issue.project },
+   { value: 'milestone', label: fa.project.milestones },
    { value: 'priority', label: fa.issue.priority },
 ];
 
@@ -582,6 +607,7 @@ const linearGroupingOptions: Array<{ value: TaskViewGrouping; label: string }> =
    { value: 'status', label: fa.issue.status },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'project', label: fa.issue.project },
+   { value: 'milestone', label: fa.project.milestones },
    { value: 'priority', label: fa.issue.priority },
 ];
 
@@ -622,6 +648,7 @@ const displayPropertyOptions: Array<{ value: TaskViewDisplayProperty; label: str
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'priority', label: fa.issue.priority },
    { value: 'project', label: fa.issue.project },
+   { value: 'milestone', label: fa.project.milestones },
    { value: 'dueAt', label: fa.issue.dueAt },
    { value: 'labels', label: fa.issue.labels },
 ];
@@ -676,6 +703,7 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
          assigneeIds: [],
          priority: [],
          projectIds: [],
+         milestoneIds: [],
          labels: [],
          layout: 'list',
          groupBy: 'status',
@@ -693,6 +721,7 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
       assigneeIds: [],
       priority: [],
       projectIds: [],
+      milestoneIds: [],
       labels: [],
       layout: 'list',
       groupBy: 'status',
@@ -716,6 +745,7 @@ function normalizeViewState(
       assigneeIds: state?.assigneeIds || [],
       priority: state?.priority || [],
       projectIds: state?.projectIds || [],
+      milestoneIds: state?.milestoneIds || [],
       labels: state?.labels || [],
       subGroupBy: state?.subGroupBy || 'none',
       showSubIssues: state?.showSubIssues ?? true,
@@ -827,6 +857,7 @@ function makeStableTaskOrderKey(
       pathname,
       priority: draftView.priority,
       projectIds: draftView.projectIds,
+      milestoneIds: draftView.milestoneIds,
       query: draftView.query,
       search,
       status: draftView.status,
@@ -880,7 +911,7 @@ function preserveStableTaskOrder(
 function taskMatchesQuery(task: TaskaraTask, query: string) {
    if (!query) return true;
    const normalizedQuery = query.trim().toLowerCase();
-   return [task.key, task.title, task.description || '', task.project?.name || '']
+   return [task.key, task.title, task.description || '', task.project?.name || '', task.milestone?.name || '']
       .join(' ')
       .toLowerCase()
       .includes(normalizedQuery);
@@ -946,6 +977,12 @@ function matchesViewState(task: TaskaraTask, state: TaskaraTaskViewState) {
    if (state.priority.length && !state.priority.includes(task.priority)) return false;
    if (state.projectIds.length && !state.projectIds.includes(task.project?.id || '')) return false;
    if (
+      state.milestoneIds.length &&
+      !state.milestoneIds.some((value) =>
+         value === 'no-milestone' ? !task.milestone?.id && !task.milestoneId : (task.milestone?.id || task.milestoneId) === value
+      )
+   ) return false;
+   if (
       state.labels.length &&
       !(task.labels || []).some((item) => state.labels.includes(item.label.id))
    )
@@ -986,6 +1023,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    const taskSync = useWorkspaceTaskSync();
    const {
       tasks,
+      milestones,
       projects,
       teams,
       users,
@@ -1034,6 +1072,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
    const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
    const [dropTargetGroupKey, setDropTargetGroupKey] = useState<string | null>(null);
+   const [pendingProjectChange, setPendingProjectChange] = useState<PendingTaskProjectChange | null>(null);
    const composerFileInputRef = useRef<HTMLInputElement>(null);
    const scrollContainerRef = useRef<HTMLDivElement>(null);
    const stableTaskOrderRef = useRef<StableTaskOrderSnapshot | null>(null);
@@ -1285,14 +1324,30 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       [activeTeamSlug, projects]
    );
 
+   const scopedProjectIds = useMemo(() => new Set(scopedProjects.map((project) => project.id)), [scopedProjects]);
+   const scopedMilestones = useMemo(
+      () => milestones.filter((milestone) => scopedProjectIds.has(milestone.projectId)),
+      [milestones, scopedProjectIds]
+   );
+
    useEffect(() => {
       setForm((current) => ({
          ...current,
          projectId: scopedProjects.some((project) => project.id === current.projectId)
             ? current.projectId
             : scopedProjects[0]?.id || '',
+         milestoneId:
+            scopedMilestones.some(
+               (milestone) =>
+                  milestone.id === current.milestoneId &&
+                  milestone.projectId === current.projectId &&
+                  !milestone.archivedAt &&
+                  (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+            )
+               ? current.milestoneId
+               : '',
       }));
-   }, [scopedProjects]);
+   }, [scopedMilestones, scopedProjects]);
 
    useEffect(() => {
       if (!composerPreferencesHydratedRef.current) return;
@@ -1331,6 +1386,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          omittedCompletedBefore,
          priority: [...draftView.priority].sort(),
          projectIds: [...draftView.projectIds].sort(),
+         milestoneIds: [...draftView.milestoneIds].sort(),
          query: draftView.query.trim(),
          status: [...draftView.status].sort(),
          team: activeTeamSlug || 'all',
@@ -1343,6 +1399,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       draftView.labels,
       draftView.priority,
       draftView.projectIds,
+      draftView.milestoneIds,
       draftView.query,
       draftView.status,
       isMyIssuesView,
@@ -1378,6 +1435,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (draftView.query.trim()) query.set('q', draftView.query.trim());
          if (draftView.priority.length === 1) query.set('priority', draftView.priority[0]);
          if (draftView.projectIds.length === 1) query.set('projectId', draftView.projectIds[0]);
+         if (draftView.milestoneIds.length === 1 && draftView.milestoneIds[0] !== 'no-milestone') {
+            query.set('milestoneId', draftView.milestoneIds[0]);
+         }
          if (draftView.assigneeIds.length === 1 && draftView.assigneeIds[0] !== 'unassigned') {
             query.set('assigneeId', draftView.assigneeIds[0]);
          }
@@ -1413,6 +1473,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          draftView.assigneeIds,
          draftView.priority,
          draftView.projectIds,
+         draftView.milestoneIds,
          draftView.query,
          isMyIssuesView,
          omittedCompletedBefore,
@@ -1472,6 +1533,28 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          .sort((a, b) => a.name.localeCompare(b.name, 'fa'));
    }, [scopedTasks]);
 
+   const milestoneOptions = useMemo(() => {
+      const byId = new Map<
+         string,
+         { id: string; name: string; projectId: string; kind: TaskaraMilestone['kind']; status: TaskaraMilestone['status']; archivedAt?: string | null }
+      >();
+      for (const milestone of scopedMilestones) {
+         byId.set(milestone.id, milestone);
+      }
+      for (const task of scopedTasks) {
+         if (!task.milestone?.id || !task.project?.id) continue;
+         byId.set(task.milestone.id, {
+            id: task.milestone.id,
+            name: task.milestone.name,
+            projectId: task.milestone.projectId || task.project.id,
+            kind: task.milestone.kind,
+            status: task.milestone.status,
+            archivedAt: task.milestone.archivedAt,
+         });
+      }
+      return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name, 'fa'));
+   }, [scopedMilestones, scopedTasks]);
+
    const activeSavedView = useMemo(
       () => visibleViews.find((view) => view.id === activeViewKey) || null,
       [activeViewKey, visibleViews]
@@ -1514,6 +1597,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          .filter((task) =>
             draftView.projectIds.length
                ? draftView.projectIds.includes(task.project?.id || '')
+               : true
+         )
+         .filter((task) =>
+            draftView.milestoneIds.length
+               ? draftView.milestoneIds.some((value) =>
+                    value === 'no-milestone'
+                       ? !task.milestone?.id && !task.milestoneId
+                       : (task.milestone?.id || task.milestoneId) === value
+                 )
                : true
          )
          .filter((task) =>
@@ -1607,6 +1699,25 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             .sort((a, b) => a.label.localeCompare(b.label, 'fa'));
 
          for (const project of availableProjects) pushGroup(project);
+      } else if (draftView.groupBy === 'milestone') {
+         pushGroup({
+            key: 'no-milestone',
+            label: 'بدون مایلستون',
+            icon: <CircleDashed className="size-4 text-zinc-500" />,
+            toneClassName: 'bg-white/[0.04]',
+            tasks: filteredTasks.filter((task) => !task.milestone?.id && !task.milestoneId),
+         });
+         for (const milestone of milestoneOptions) {
+            pushGroup({
+               key: milestone.id,
+               label: milestone.name,
+               icon: <Diamond className="size-4 text-violet-300" />,
+               toneClassName: 'bg-violet-400/[0.06]',
+               tasks: filteredTasks.filter(
+                  (task) => (task.milestone?.id || task.milestoneId) === milestone.id
+               ),
+            });
+         }
       } else {
          const availableUsers = [
             {
@@ -1637,15 +1748,95 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          for (const user of availableUsers) pushGroup(user);
       }
 
+      const makeSubgroups = (tasks: TaskaraTask[]): Array<Omit<TaskSubgroupDescriptor, 'offset'>> => {
+         if (draftView.subGroupBy === 'none' || draftView.subGroupBy === draftView.groupBy) return [];
+         const subgroups: Array<Omit<TaskSubgroupDescriptor, 'offset'>> = [];
+         const pushSubgroup = (subgroup: Omit<TaskSubgroupDescriptor, 'offset'>) => {
+            if (!draftView.showEmptyGroups && subgroup.tasks.length === 0) return;
+            subgroups.push(subgroup);
+         };
+
+         if (draftView.subGroupBy === 'status') {
+            for (const status of taskStatuses) {
+               pushSubgroup({
+                  key: status,
+                  label: linearStatusMeta[status]?.label || status,
+                  icon: <StatusIcon status={status} />,
+                  tasks: tasks.filter((task) => task.status === status),
+               });
+            }
+         } else if (draftView.subGroupBy === 'priority') {
+            for (const priority of taskPriorities) {
+               pushSubgroup({
+                  key: priority,
+                  label: linearPriorityMeta[priority]?.label || priority,
+                  icon: <PriorityIcon priority={priority} />,
+                  tasks: tasks.filter((task) => task.priority === priority),
+               });
+            }
+         } else if (draftView.subGroupBy === 'project') {
+            for (const project of scopedProjects) {
+               pushSubgroup({
+                  key: project.id,
+                  label: project.name,
+                  icon: <ProjectGlyph name={project.name} className="size-4 rounded-sm" iconClassName="size-3" />,
+                  tasks: tasks.filter((task) => task.project?.id === project.id),
+               });
+            }
+         } else if (draftView.subGroupBy === 'milestone') {
+            pushSubgroup({
+               key: 'no-milestone',
+               label: 'بدون مایلستون',
+               icon: <CircleDashed className="size-4 text-zinc-500" />,
+               tasks: tasks.filter((task) => !task.milestone?.id && !task.milestoneId),
+            });
+            for (const milestone of milestoneOptions) {
+               pushSubgroup({
+                  key: milestone.id,
+                  label: milestone.name,
+                  icon: <Diamond className="size-4 text-violet-300" />,
+                  tasks: tasks.filter((task) => (task.milestone?.id || task.milestoneId) === milestone.id),
+               });
+            }
+         } else {
+            pushSubgroup({
+               key: 'unassigned',
+               label: fa.issue.noAssignee,
+               icon: <NoAssigneeIcon className="size-4 text-zinc-400" />,
+               tasks: tasks.filter((task) => !task.assignee?.id),
+            });
+            for (const user of users) {
+               pushSubgroup({
+                  key: user.id,
+                  label: user.name,
+                  icon: <LinearAvatar name={user.name} src={user.avatarUrl} className="size-4" />,
+                  tasks: tasks.filter((task) => task.assignee?.id === user.id),
+               });
+            }
+         }
+         return subgroups;
+      };
+
       let offset = 0;
       return groups.map((group) => {
-         const next = { ...group, offset };
-         offset += group.tasks.length;
-         return next;
+         const groupOffset = offset;
+         const rawSubgroups = makeSubgroups(group.tasks);
+         const subgroups = rawSubgroups.length
+            ? rawSubgroups.map((subgroup) => {
+                 const next = { ...subgroup, offset };
+                 offset += subgroup.tasks.length;
+                 return next;
+              })
+            : undefined;
+         if (!subgroups) offset += group.tasks.length;
+         return { ...group, offset: groupOffset, subgroups };
       });
-   }, [draftView.groupBy, draftView.showEmptyGroups, filteredTasks, scopedProjects, users]);
+   }, [draftView.groupBy, draftView.showEmptyGroups, draftView.subGroupBy, filteredTasks, milestoneOptions, scopedProjects, users]);
 
-   const visibleTasks = useMemo(() => groupedTasks.flatMap((group) => group.tasks), [groupedTasks]);
+   const visibleTasks = useMemo(
+      () => groupedTasks.flatMap((group) => group.subgroups?.flatMap((subgroup) => subgroup.tasks) || group.tasks),
+      [groupedTasks]
+   );
    const visibleTaskById = useMemo(
       () => new Map(visibleTasks.map((task) => [task.id, task])),
       [visibleTasks]
@@ -2001,6 +2192,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          setComposerSubmitting(true);
          const filesToUpload = [...composerFiles];
          const submittedProjectId = form.projectId;
+         const submittedMilestoneId = form.milestoneId;
          const submittedStatus = form.status;
          const submittedWeight = form.weight;
          const submittedAssigneeId = form.assigneeId;
@@ -2014,6 +2206,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             priority: form.priority,
             weight,
             assigneeId,
+            milestoneId: form.milestoneId || undefined,
             dueAt: form.dueAt || undefined,
             labels: form.labels
                .split(',')
@@ -2027,6 +2220,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          setForm({
             ...initialTaskForm,
             projectId: submittedProjectId,
+            milestoneId: createMore ? submittedMilestoneId : '',
             status: submittedStatus,
             priority: 'NO_PRIORITY',
             weight: submittedWeight,
@@ -2097,12 +2291,43 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       event.currentTarget.requestSubmit();
    };
 
-   async function updateTask(task: TaskaraTask, patch: TaskUpdatePatch) {
+   async function updateTask(task: TaskaraTask, patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       try {
-         await updateSyncedTask(task, patch);
+         return await updateSyncedTask(task, patch);
       } catch (err) {
          toast.error(err instanceof Error ? err.message : fa.issue.updateFailed);
+         return null;
       }
+   }
+
+   async function applyTaskProjectChange(task: TaskaraTask, projectId: string) {
+      if (task.project?.id === projectId) return task;
+      const previousProjectId = task.project?.id || null;
+      const previousMilestoneId = task.milestone?.id || task.milestoneId || null;
+      const updated = await updateTask(task, { projectId });
+      if (!updated || !previousMilestoneId || !previousProjectId) return updated;
+
+      toast.success('پروژه تغییر کرد و مایلستون قبلی از کار برداشته شد.', {
+         action: {
+            label: 'بازگردانی',
+            onClick: () => {
+               void updateTask(updated, {
+                  projectId: previousProjectId,
+                  milestoneId: previousMilestoneId,
+               });
+            },
+         },
+      });
+      return updated;
+   }
+
+   function requestTaskProjectChange(task: TaskaraTask, projectId: string) {
+      if (task.project?.id === projectId) return;
+      if (task.milestone?.id || task.milestoneId) {
+         setPendingProjectChange({ task, projectId });
+         return;
+      }
+      void applyTaskProjectChange(task, projectId);
    }
 
    const handleTaskDragStart = useCallback((event: DragEvent<HTMLElement>, taskId: string) => {
@@ -2127,13 +2352,23 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (!draggedTaskId) return;
          const draggedTask = visibleTaskById.get(draggedTaskId);
          if (!draggedTask) return;
+         if (
+            draftView.groupBy === 'milestone' &&
+            groupKey !== 'no-milestone' &&
+            !scopedMilestones.some(
+               (milestone) =>
+                  milestone.id === groupKey &&
+                  !milestone.archivedAt &&
+                  (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+            )
+         ) return;
          const patch = getGroupDropPatch(draftView.groupBy, draggedTask, groupKey);
          if (!patch) return;
          event.preventDefault();
          event.dataTransfer.dropEffect = 'move';
          setDropTargetGroupKey(groupKey);
       },
-      [draggingTaskId, draftView.groupBy, visibleTaskById]
+      [draggingTaskId, draftView.groupBy, scopedMilestones, visibleTaskById]
    );
 
    const handleGroupDragLeave = useCallback((event: DragEvent<HTMLElement>, groupKey: string) => {
@@ -2152,11 +2387,28 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (!draggedTaskId) return;
          const draggedTask = visibleTaskById.get(draggedTaskId);
          if (!draggedTask) return;
+         if (
+            draftView.groupBy === 'milestone' &&
+            groupKey !== 'no-milestone' &&
+            !scopedMilestones.some(
+               (milestone) =>
+                  milestone.id === groupKey &&
+                  !milestone.archivedAt &&
+                  (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+            )
+         ) {
+            toast.error('برای افزودن کار، مایلستون باید برنامه‌ریزی‌شده یا فعال باشد.');
+            return;
+         }
          const patch = getGroupDropPatch(draftView.groupBy, draggedTask, groupKey);
          if (!patch) return;
+         if (patch.projectId) {
+            requestTaskProjectChange(draggedTask, patch.projectId);
+            return;
+         }
          await updateTask(draggedTask, patch);
       },
-      [draggingTaskId, draftView.groupBy, visibleTaskById]
+      [draggingTaskId, draftView.groupBy, scopedMilestones, visibleTaskById]
    );
 
    async function deleteTask(task: TaskaraTask) {
@@ -2197,8 +2449,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
               ? 'assigneeIds'
               : key === 'priority'
                 ? 'priority'
-                : key === 'project'
+              : key === 'project'
                   ? 'projectIds'
+                  : key === 'milestone'
+                    ? 'milestoneIds'
                   : 'labels';
 
       setDraftView((current) => {
@@ -2218,6 +2472,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          assigneeIds: [],
          priority: [],
          projectIds: [],
+         milestoneIds: [],
          labels: [],
       }));
    }
@@ -2234,6 +2489,21 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             return { ...current, assigneeId: group.key === 'unassigned' ? '' : group.key };
          }
          if (draftView.groupBy === 'project') return { ...current, projectId: group.key };
+         if (draftView.groupBy === 'milestone') {
+            const milestone = milestoneOptions.find((item) => item.id === group.key);
+            if (
+               group.key !== 'no-milestone' &&
+               (!milestone || milestone.archivedAt || (milestone.status !== 'PLANNED' && milestone.status !== 'ACTIVE'))
+            ) {
+               toast.error('به مایلستون تکمیل‌شده یا لغوشده نمی‌توان کار تازه افزود.');
+               return current;
+            }
+            return {
+               ...current,
+               projectId: milestone?.projectId || current.projectId,
+               milestoneId: group.key === 'no-milestone' ? '' : group.key,
+            };
+         }
          return current;
       });
       openComposer(false, true);
@@ -2421,10 +2691,12 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       draftView.assigneeIds.length +
       draftView.priority.length +
       draftView.projectIds.length +
+      draftView.milestoneIds.length +
       draftView.labels.length +
       (draftView.query.trim() ? 1 : 0);
    const composerProject =
       scopedProjects.find((project) => project.id === form.projectId) || scopedProjects[0] || null;
+   const composerMilestone = scopedMilestones.find((milestone) => milestone.id === form.milestoneId) || null;
    const composerAssignee = users.find((user) => user.id === form.assigneeId) || null;
 
    return (
@@ -2583,11 +2855,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onWeightChange={(task, weight) => void updateTask(task, { weight })}
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
+                              onMilestoneChange={(task, milestoneId) =>
+                                 void updateTask(task, { milestoneId })
+                              }
                               onPriorityChange={(task, priority) =>
                                  void updateTask(task, { priority })
                               }
                               onProjectChange={(task, projectId) =>
-                                 void updateTask(task, { projectId })
+                                 requestTaskProjectChange(task, projectId)
                               }
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
@@ -2626,7 +2901,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                                  void updateTask(task, { priority })
                               }
                               onProjectChange={(task, projectId) =>
-                                 void updateTask(task, { projectId })
+                                 requestTaskProjectChange(task, projectId)
                               }
                               onSelect={(task, absoluteIndex) => {
                                  setSelectedTaskId(task.id);
@@ -2639,6 +2914,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               onWeightChange={(task, weight) => void updateTask(task, { weight })}
                               onDueAtChange={(task, dueAt) => void updateTask(task, { dueAt })}
                               onLabelsChange={(task, labels) => void updateTask(task, { labels })}
+                              onMilestoneChange={(task, milestoneId) =>
+                                 void updateTask(task, { milestoneId })
+                              }
                               onToggleCollapse={() => toggleGroup(group.key)}
                               users={usersForAssignee}
                            />
@@ -2721,6 +2999,38 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             </DialogContent>
          </Dialog>
 
+         <Dialog
+            open={Boolean(pendingProjectChange)}
+            onOpenChange={(open) => {
+               if (!open) setPendingProjectChange(null);
+            }}
+         >
+            <DialogContent className="max-w-md rounded-2xl border-white/10 bg-[#1d1d20] text-zinc-100">
+               <DialogHeader className="text-right">
+                  <DialogTitle>تغییر پروژه و برداشتن مایلستون؟</DialogTitle>
+                  <DialogDescription className="text-sm leading-6 text-zinc-400">
+                     این کار اکنون به مایلستون «{pendingProjectChange?.task.milestone?.name || 'فعلی'}» متصل است.
+                     مایلستون فقط می‌تواند در همان پروژه باشد؛ با تغییر پروژه این اتصال برداشته می‌شود.
+                  </DialogDescription>
+               </DialogHeader>
+               <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button variant="ghost" onClick={() => setPendingProjectChange(null)}>
+                     انصراف
+                  </Button>
+                  <Button
+                     className="bg-indigo-500 text-white hover:bg-indigo-400"
+                     onClick={() => {
+                        const pending = pendingProjectChange;
+                        setPendingProjectChange(null);
+                        if (pending) void applyTaskProjectChange(pending.task, pending.projectId);
+                     }}
+                  >
+                     تغییر پروژه
+                  </Button>
+               </div>
+            </DialogContent>
+         </Dialog>
+
          {filterOpen && menuAnchor ? (
             <LinearFloatingPanel
                anchor={menuAnchor}
@@ -2733,6 +3043,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                   currentUserId={currentUserId}
                   draftView={draftView}
                   labelOptions={labelOptions}
+                  milestoneOptions={milestoneOptions}
                   projects={scopedProjects}
                   tasks={scopedTasks}
                   users={users}
@@ -3015,7 +3326,23 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                            project={scopedProjects.find((project) => project.id === form.projectId) || null}
                            projects={scopedProjects}
                            onChange={(projectId) =>
-                              setForm((current) => ({ ...current, projectId }))
+                              setForm((current) => ({
+                                 ...current,
+                                 projectId,
+                                 milestoneId: current.projectId === projectId ? current.milestoneId : '',
+                              }))
+                           }
+                        />
+                        <MilestoneSelector
+                           className="h-6 max-w-[168px] rounded-full border-white/8 bg-[#2a2a2d] px-2.5 text-[12px] text-zinc-300 hover:bg-[#303033]"
+                           currentMilestone={composerMilestone}
+                           milestones={scopedMilestones}
+                           placeholder={fa.milestone.selectMilestone}
+                           projectId={form.projectId}
+                           value={form.milestoneId || null}
+                           variant="pill"
+                           onChange={(milestoneId) =>
+                              setForm((current) => ({ ...current, milestoneId: milestoneId || '' }))
                            }
                         />
                         <ComposerWeightPill
@@ -3709,6 +4036,7 @@ function TaskFilterPopover({
    projects,
    users,
    labelOptions,
+   milestoneOptions,
    tasks,
    activeFilterCount,
    submenuSide,
@@ -3723,6 +4051,14 @@ function TaskFilterPopover({
    projects: TaskaraProject[];
    users: TaskaraUser[];
    labelOptions: Array<{ id: string; name: string }>;
+   milestoneOptions: Array<{
+      id: string;
+      name: string;
+      projectId: string;
+      kind: TaskaraMilestone['kind'];
+      status: TaskaraMilestone['status'];
+      archivedAt?: string | null;
+   }>;
    tasks: TaskaraTask[];
    activeFilterCount: number;
    submenuSide: FilterSubmenuSide;
@@ -3773,6 +4109,13 @@ function TaskFilterPopover({
          icon: <Box className="size-4 text-zinc-400" />,
          section: 'project',
          count: draftView.projectIds.length,
+      },
+      {
+         key: 'milestone',
+         label: fa.project.milestones,
+         icon: <Diamond className="size-4 text-violet-300" />,
+         section: 'milestone',
+         count: draftView.milestoneIds.length,
       },
       {
          key: 'content',
@@ -3837,6 +4180,7 @@ function TaskFilterPopover({
                currentUserId={currentUserId}
                draftView={draftView}
                labelOptions={labelOptions}
+               milestoneOptions={milestoneOptions}
                projects={projects}
                tasks={tasks}
                users={users}
@@ -3893,6 +4237,7 @@ function FilterSubmenu({
    currentUserId,
    draftView,
    labelOptions,
+   milestoneOptions,
    projects,
    tasks,
    users,
@@ -3904,6 +4249,14 @@ function FilterSubmenu({
    currentUserId: string | null;
    draftView: TaskaraTaskViewState;
    labelOptions: Array<{ id: string; name: string }>;
+   milestoneOptions: Array<{
+      id: string;
+      name: string;
+      projectId: string;
+      kind: TaskaraMilestone['kind'];
+      status: TaskaraMilestone['status'];
+      archivedAt?: string | null;
+   }>;
    projects: TaskaraProject[];
    tasks: TaskaraTask[];
    users: TaskaraUser[];
@@ -3922,7 +4275,8 @@ function FilterSubmenu({
       priority: 120,
       labels: 156,
       project: 192,
-      content: 228,
+      milestone: 228,
+      content: 264,
    };
 
    useEffect(() => {
@@ -4011,6 +4365,27 @@ function FilterSubmenu({
                     ),
                     onClick: () => onToggle('project', project.id),
                  }))
+               : activeSection === 'milestone'
+                 ? [
+                      {
+                         id: 'no-milestone',
+                         label: 'بدون مایلستون',
+                         active: draftView.milestoneIds.includes('no-milestone'),
+                         count: tasks.filter((task) => !task.milestone?.id && !task.milestoneId).length,
+                         icon: <CircleDashed className="size-4 text-zinc-500" />,
+                         onClick: () => onToggle('milestone', 'no-milestone'),
+                      },
+                      ...milestoneOptions.map((milestone) => ({
+                         id: milestone.id,
+                         label: milestone.name,
+                         active: draftView.milestoneIds.includes(milestone.id),
+                         count: tasks.filter(
+                            (task) => (task.milestone?.id || task.milestoneId) === milestone.id
+                         ).length,
+                         icon: <Diamond className="size-4 text-violet-300" />,
+                         onClick: () => onToggle('milestone', milestone.id),
+                      })),
+                   ]
                : activeSection === 'labels'
                  ? labelOptions.map((label) => ({
                       id: label.id,
@@ -4155,7 +4530,23 @@ function TaskDisplayPopover({
                   value={draftView.groupBy}
                   options={linearGroupingOptions}
                   onChange={(value) =>
-                     onChange((current) => ({ ...current, groupBy: value as TaskViewGrouping }))
+                     onChange((current) => ({
+                        ...current,
+                        groupBy: value as TaskViewGrouping,
+                        subGroupBy: current.subGroupBy === value ? 'none' : current.subGroupBy,
+                     }))
+                  }
+               />
+            </DisplaySettingRow>
+            <DisplaySettingRow label="زیرگروه">
+               <LinearSelectControl
+                  value={draftView.subGroupBy}
+                  options={linearSubGroupingOptions}
+                  onChange={(value) =>
+                     onChange((current) => ({
+                        ...current,
+                        subGroupBy: value === current.groupBy ? 'none' : (value as TaskViewSubGrouping),
+                     }))
                   }
                />
             </DisplaySettingRow>
@@ -4362,6 +4753,16 @@ function TeamProjectAttachEmpty({
    );
 }
 
+function TaskSubgroupHeader({ subgroup }: { subgroup: TaskSubgroupDescriptor }) {
+   return (
+      <div className="flex min-h-8 items-center gap-2 border-b border-white/[0.055] bg-white/[0.025] px-3 text-xs text-zinc-400">
+         {subgroup.icon}
+         <span className="min-w-0 flex-1 truncate">{subgroup.label}</span>
+         <span className="text-zinc-600">{subgroup.tasks.length.toLocaleString('fa-IR')}</span>
+      </div>
+   );
+}
+
 function ListGroup({
    group,
    collapsed,
@@ -4389,6 +4790,7 @@ function ListGroup({
    onWeightChange,
    onDueAtChange,
    onLabelsChange,
+   onMilestoneChange,
    onToggleCollapse,
    users,
 }: {
@@ -4418,9 +4820,40 @@ function ListGroup({
    onWeightChange: (task: TaskaraTask, weight: number | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
+   onMilestoneChange: (task: TaskaraTask, milestoneId: string | null) => void;
    onToggleCollapse: () => void;
    users: TaskaraUser[];
 }) {
+   const renderRow = (task: TaskaraTask, absoluteIndex: number) => (
+      <IssueRow
+         key={task.id}
+         highlighted={absoluteIndex === highlightedIndex}
+         displayProperties={displayProperties}
+         dragging={draggingTaskId === task.id}
+         returnHighlighted={returnHighlightedTaskId === task.id}
+         selected={selectedTaskId === task.id}
+         task={task}
+         onDragEnd={onDragEnd}
+         onDragStart={onDragStart}
+         onClick={() => {
+            onSelect(task, absoluteIndex);
+            onOpen(task);
+         }}
+         onPriorityChange={(priority) => onPriorityChange(task, priority)}
+         onProjectChange={(projectId) => onProjectChange(task, projectId)}
+         onStatusChange={(status) => onStatusChange(task, status)}
+         onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
+         onWeightChange={(weight) => onWeightChange(task, weight)}
+         onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
+         onLabelsChange={(labels) => onLabelsChange(task, labels)}
+         onMilestoneChange={(milestoneId) => onMilestoneChange(task, milestoneId)}
+         onDelete={() => onDelete(task)}
+         labelOptions={labelOptions}
+         projects={projects}
+         users={users}
+      />
+   );
+
    return (
       <section
          className={cn(
@@ -4474,36 +4907,20 @@ function ListGroup({
             <div className="px-5 py-3">
                <LinearEmptyState className="py-5">{fa.issue.noIssuesInGroup}</LinearEmptyState>
             </div>
+         ) : group.subgroups?.length ? (
+            <div className="space-y-2 px-3 pb-2">
+               {group.subgroups.map((subgroup) => (
+                  <div key={subgroup.key} className="overflow-hidden rounded-lg border border-white/[0.055] bg-white/[0.012]">
+                     <TaskSubgroupHeader subgroup={subgroup} />
+                     <div className="space-y-0.5 p-1">
+                        {subgroup.tasks.map((task, index) => renderRow(task, subgroup.offset + index))}
+                     </div>
+                  </div>
+               ))}
+            </div>
          ) : (
             <div className="space-y-0.5 px-3 pb-1">
-               {group.tasks.map((task, index) => (
-                  <IssueRow
-                     key={task.id}
-                     highlighted={group.offset + index === highlightedIndex}
-                     displayProperties={displayProperties}
-                     dragging={draggingTaskId === task.id}
-                     returnHighlighted={returnHighlightedTaskId === task.id}
-                     selected={selectedTaskId === task.id}
-                     task={task}
-                     onDragEnd={onDragEnd}
-                     onDragStart={onDragStart}
-                     onClick={() => {
-                        onSelect(task, group.offset + index);
-                        onOpen(task);
-                     }}
-                     onPriorityChange={(priority) => onPriorityChange(task, priority)}
-                     onProjectChange={(projectId) => onProjectChange(task, projectId)}
-                     onStatusChange={(status) => onStatusChange(task, status)}
-                     onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
-                     onWeightChange={(weight) => onWeightChange(task, weight)}
-                     onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
-                     onLabelsChange={(labels) => onLabelsChange(task, labels)}
-                     onDelete={() => onDelete(task)}
-                     labelOptions={labelOptions}
-                     projects={projects}
-                     users={users}
-                  />
-               ))}
+               {group.tasks.map((task, index) => renderRow(task, group.offset + index))}
             </div>
          )}
       </section>
@@ -4537,6 +4954,7 @@ function BoardGroup({
    onWeightChange,
    onDueAtChange,
    onLabelsChange,
+   onMilestoneChange,
    onToggleCollapse,
    users,
 }: {
@@ -4566,9 +4984,40 @@ function BoardGroup({
    onWeightChange: (task: TaskaraTask, weight: number | null) => void;
    onDueAtChange: (task: TaskaraTask, dueAt: string | null) => void;
    onLabelsChange: (task: TaskaraTask, labels: string[]) => void;
+   onMilestoneChange: (task: TaskaraTask, milestoneId: string | null) => void;
    onToggleCollapse: () => void;
    users: TaskaraUser[];
 }) {
+   const renderCard = (task: TaskaraTask, absoluteIndex: number) => (
+      <IssueCard
+         key={task.id}
+         highlighted={absoluteIndex === highlightedIndex}
+         displayProperties={displayProperties}
+         dragging={draggingTaskId === task.id}
+         returnHighlighted={returnHighlightedTaskId === task.id}
+         selected={selectedTaskId === task.id}
+         task={task}
+         onDragEnd={onDragEnd}
+         onDragStart={onDragStart}
+         onClick={() => {
+            onSelect(task, absoluteIndex);
+            onOpen(task);
+         }}
+         onPriorityChange={(priority) => onPriorityChange(task, priority)}
+         onProjectChange={(projectId) => onProjectChange(task, projectId)}
+         onStatusChange={(status) => onStatusChange(task, status)}
+         onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
+         onWeightChange={(weight) => onWeightChange(task, weight)}
+         onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
+         onLabelsChange={(labels) => onLabelsChange(task, labels)}
+         onMilestoneChange={(milestoneId) => onMilestoneChange(task, milestoneId)}
+         onDelete={() => onDelete(task)}
+         labelOptions={labelOptions}
+         projects={projects}
+         users={users}
+      />
+   );
+
    return (
       <section
          className={cn(
@@ -4625,35 +5074,17 @@ function BoardGroup({
             <div className="flex-1 space-y-2 overflow-y-auto p-2">
                {group.tasks.length === 0 ? (
                   <LinearEmptyState className="py-6">{fa.issue.noIssuesInGroup}</LinearEmptyState>
-               ) : (
-                  group.tasks.map((task, index) => (
-                     <IssueCard
-                        key={task.id}
-                        highlighted={group.offset + index === highlightedIndex}
-                        displayProperties={displayProperties}
-                        dragging={draggingTaskId === task.id}
-                        returnHighlighted={returnHighlightedTaskId === task.id}
-                        selected={selectedTaskId === task.id}
-                        task={task}
-                        onDragEnd={onDragEnd}
-                        onDragStart={onDragStart}
-                        onClick={() => {
-                           onSelect(task, group.offset + index);
-                           onOpen(task);
-                        }}
-                        onPriorityChange={(priority) => onPriorityChange(task, priority)}
-                        onProjectChange={(projectId) => onProjectChange(task, projectId)}
-                        onStatusChange={(status) => onStatusChange(task, status)}
-                        onAssigneeChange={(assigneeId) => onAssigneeChange(task, assigneeId)}
-                        onWeightChange={(weight) => onWeightChange(task, weight)}
-                        onDueAtChange={(dueAt) => onDueAtChange(task, dueAt)}
-                        onLabelsChange={(labels) => onLabelsChange(task, labels)}
-                        onDelete={() => onDelete(task)}
-                        labelOptions={labelOptions}
-                        projects={projects}
-                        users={users}
-                     />
+               ) : group.subgroups?.length ? (
+                  group.subgroups.map((subgroup) => (
+                     <div key={subgroup.key} className="overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.012]">
+                        <TaskSubgroupHeader subgroup={subgroup} />
+                        <div className="space-y-2 p-2">
+                           {subgroup.tasks.map((task, index) => renderCard(task, subgroup.offset + index))}
+                        </div>
+                     </div>
                   ))
+               ) : (
+                  group.tasks.map((task, index) => renderCard(task, group.offset + index))
                )}
             </div>
          )}
@@ -4678,6 +5109,7 @@ function IssueRow({
    onWeightChange,
    onDueAtChange,
    onLabelsChange,
+   onMilestoneChange,
    onDelete,
    labelOptions,
    projects,
@@ -4699,6 +5131,7 @@ function IssueRow({
    onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onMilestoneChange: (milestoneId: string | null) => void;
    onDelete: () => void;
    labelOptions: Array<{ id: string; name: string }>;
    projects: TaskaraProject[];
@@ -4779,6 +5212,9 @@ function IssueRow({
                            <span>{task.weight.toLocaleString('fa-IR')}</span>
                         </span>
                      ) : null}
+                     {shows('milestone') && task.milestone ? (
+                        <TaskMilestoneBadge milestone={task.milestone} />
+                     ) : null}
                   </span>
                </span>
                <span className="grid min-w-0 grid-cols-[28px] items-center justify-end gap-2 justify-self-end md:w-[196px] md:grid-cols-[160px_28px] lg:w-[348px] lg:grid-cols-[144px_160px_28px] xl:w-[500px] xl:grid-cols-[144px_144px_160px_28px]">
@@ -4822,6 +5258,7 @@ function IssueRow({
             onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
+            onMilestoneChange={onMilestoneChange}
             onWeightChange={onWeightChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
@@ -4849,6 +5286,7 @@ function IssueCard({
    onWeightChange,
    onDueAtChange,
    onLabelsChange,
+   onMilestoneChange,
    onDelete,
    labelOptions,
    projects,
@@ -4870,6 +5308,7 @@ function IssueCard({
    onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onMilestoneChange: (milestoneId: string | null) => void;
    onDelete: () => void;
    labelOptions: Array<{ id: string; name: string }>;
    projects: TaskaraProject[];
@@ -4937,8 +5376,11 @@ function IssueCard({
                   {shows('priority') ? <PriorityIcon priority={task.priority} /> : null}
                </div>
                <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-zinc-500">
-                     {shows('project') ? task.project?.name || fa.app.unknown : null}
+                  <span className="flex min-w-0 items-center gap-2 truncate text-xs text-zinc-500">
+                     {shows('project') ? <span className="truncate">{task.project?.name || fa.app.unknown}</span> : null}
+                     {shows('milestone') && task.milestone ? (
+                        <TaskMilestoneBadge milestone={task.milestone} />
+                     ) : null}
                   </span>
                   {shows('assignee') ? (
                      task.assignee ? (
@@ -4971,6 +5413,7 @@ function IssueCard({
             onDelete={onDelete}
             onDueAtChange={onDueAtChange}
             onLabelsChange={onLabelsChange}
+            onMilestoneChange={onMilestoneChange}
             onWeightChange={onWeightChange}
             onOpen={onClick}
             onPriorityChange={onPriorityChange}
@@ -5155,6 +5598,18 @@ function TaskLabelSummary({ labels }: { labels: NonNullable<TaskaraTask['labels'
    );
 }
 
+function TaskMilestoneBadge({ milestone }: { milestone: NonNullable<TaskaraTask['milestone']> }) {
+   return (
+      <span
+         className="inline-flex min-w-0 max-w-40 shrink items-center gap-1.5 truncate rounded-full border border-violet-300/15 bg-violet-400/[0.07] px-2 py-1 text-[11px] text-violet-200"
+         title={milestone.name}
+      >
+         <Diamond className="size-3 shrink-0" />
+         <span className="truncate">{milestone.name}</span>
+      </span>
+   );
+}
+
 function TaskIssueContextMenu({
    task,
    users,
@@ -5168,6 +5623,7 @@ function TaskIssueContextMenu({
    onWeightChange,
    onDueAtChange,
    onLabelsChange,
+   onMilestoneChange,
    onDelete,
 }: {
    task: TaskaraTask;
@@ -5182,9 +5638,11 @@ function TaskIssueContextMenu({
    onWeightChange: (weight: number | null) => void;
    onDueAtChange: (dueAt: string | null) => void;
    onLabelsChange: (labels: string[]) => void;
+   onMilestoneChange: (milestoneId: string | null) => void;
    onDelete: () => void;
 }) {
    const { session } = useAuthSession();
+   const { milestones } = useWorkspaceTaskSync();
    const currentUserId = session?.user.id || null;
    const [assigneeQuery, setAssigneeQuery] = useState('');
    const [projectQuery, setProjectQuery] = useState('');
@@ -5195,6 +5653,16 @@ function TaskIssueContextMenu({
    const filteredProjects = useMemo(
       () => filterProjectOptions(projects, projectQuery),
       [projects, projectQuery]
+   );
+   const selectableMilestones = useMemo(
+      () =>
+         milestones.filter(
+            (milestone) =>
+               milestone.projectId === task.project?.id &&
+               !milestone.archivedAt &&
+               (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
+         ),
+      [milestones, task.project?.id]
    );
    const taskLabelNames = labelNames(task);
    const allLabelOptions = [
@@ -5296,6 +5764,55 @@ function TaskIssueContextMenu({
                      onSelect={() => onWeightChange(item)}
                   />
                ))}
+            </ContextMenuSubContent>
+         </ContextMenuSub>
+
+         <ContextMenuSub>
+            <LinearContextSubTrigger
+               icon={
+                  task.milestone ? (
+                     <Diamond className="size-4 text-violet-300" />
+                  ) : (
+                     <CircleDashed className="size-4 text-zinc-500" />
+                  )
+               }
+               label={fa.project.milestones}
+               shortcut="M"
+            />
+            <ContextMenuSubContent
+               dir="rtl"
+               className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
+            >
+               <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
+                  <LinearContextItem
+                     active={!task.milestone?.id && !task.milestoneId}
+                     icon={<CircleDashed className="size-4 text-zinc-500" />}
+                     label="بدون مایلستون"
+                     onSelect={() => onMilestoneChange(null)}
+                  />
+                  {task.milestone && !selectableMilestones.some((item) => item.id === task.milestone?.id) ? (
+                     <LinearContextItem
+                        active
+                        icon={<Diamond className="size-4 text-zinc-400" />}
+                        label={`${task.milestone.name} · فعلی`}
+                        onSelect={() => onMilestoneChange(task.milestone?.id || null)}
+                     />
+                  ) : null}
+                  {selectableMilestones.map((milestone) => (
+                     <LinearContextItem
+                        key={milestone.id}
+                        active={(task.milestone?.id || task.milestoneId) === milestone.id}
+                        icon={<Diamond className="size-4 text-violet-300" />}
+                        label={milestone.name}
+                        onSelect={() => onMilestoneChange(milestone.id)}
+                     />
+                  ))}
+                  {!selectableMilestones.length && !task.milestone ? (
+                     <ContextMenuItem disabled className="text-zinc-500">
+                        مایلستون بازی برای این پروژه وجود ندارد
+                     </ContextMenuItem>
+                  ) : null}
+               </div>
             </ContextMenuSubContent>
          </ContextMenuSub>
 

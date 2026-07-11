@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, BookOpen, ChevronDown, Loader2, Plus, Send } from 'lucide-react';
+import { Activity, AlertTriangle, BookOpen, ChevronDown, Diamond, Loader2, Plus, Send } from 'lucide-react';
 import {
    Dialog,
    DialogContent,
@@ -39,6 +39,7 @@ import type {
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
+import { openMilestoneCreate } from '@/components/taskara/milestones/milestone-dialog-host';
 
 const initialProjectForm = {
    name: '',
@@ -577,6 +578,26 @@ function ProjectRow({
             </div>
          </div>
          <div className="flex items-center gap-4 text-xs text-zinc-500">
+            <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-white/8 bg-white/[0.03]">
+               <Link
+                  aria-label={`${fa.project.milestones}: ${project.name}`}
+                  className="inline-flex h-8 items-center gap-1.5 px-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100"
+                  title={`${fa.project.milestones}: ${(project._count?.milestones || 0).toLocaleString('fa-IR')}`}
+                  to={`/${orgId}/milestones?projectId=${encodeURIComponent(project.id)}`}
+               >
+                  <Diamond className="size-3.5 text-indigo-400" />
+                  <span className="hidden xl:inline">{(project._count?.milestones || 0).toLocaleString('fa-IR')}</span>
+               </Link>
+               <button
+                  aria-label={`${fa.milestone.newMilestone}: ${project.name}`}
+                  className="inline-flex size-8 items-center justify-center border-r border-white/8 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-100"
+                  title={fa.milestone.newMilestone}
+                  type="button"
+                  onClick={() => openMilestoneCreate({ projectId: project.id, navigateOnCreate: true })}
+               >
+                  <Plus className="size-3.5" />
+               </button>
+            </div>
             <button
                className="hidden h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2 text-xs text-zinc-300 transition hover:bg-white/[0.07] hover:text-zinc-100 sm:inline-flex"
                type="button"

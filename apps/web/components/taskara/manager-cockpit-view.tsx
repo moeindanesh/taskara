@@ -15,6 +15,13 @@ import {
    TimerReset,
 } from 'lucide-react';
 import { LinearAvatar, LinearEmptyState, ProjectGlyph, StatusIcon } from '@/components/taskara/linear-ui';
+import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import {
+   ComposerAssigneePill,
+   ComposerPriorityPill,
+   ComposerProjectPill,
+   ComposerStatusPill,
+} from '@/components/taskara/workspace-task-composer';
 import {
    Dialog,
    DialogContent,
@@ -29,6 +36,8 @@ import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
 import { managerAttentionGroupKey } from '@/lib/manager-attention';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { isRetryableTaskSyncError, loadPendingTaskSyncMutations, sendTaskSyncMutation } from '@/lib/task-sync';
+import type { TaskUpdatePatch } from '@/lib/task-sync';
+import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import {
    applyPendingAgendaItemMutations,
@@ -47,6 +56,7 @@ import type {
    TaskaraTask,
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
+import { getAuthSession } from '@/store/auth-store';
 import { toast } from 'sonner';
 
 const numberFormatter = new Intl.NumberFormat('fa-IR');
@@ -392,6 +402,7 @@ function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & At
                   {description}
                </p>
                <AttentionContext item={primary} className="mt-3" />
+               {payload.task ? <ManagerTaskQuickEdit item={primary} className="mt-4" /> : null}
             </div>
          </div>
          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-4 dark:border-white/7">
@@ -429,6 +440,7 @@ function AttentionQueueRow({
                {payload.description || primary.reason}
             </p>
             <AttentionContext item={primary} className="mt-1.5" />
+            {payload.task ? <ManagerTaskQuickEdit compact item={primary} className="mt-2.5" /> : null}
          </div>
          <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
             <span className="me-1 hidden text-[10px] text-zinc-600 lg:inline">
@@ -479,11 +491,10 @@ function AttentionContext({ item, className }: { item: TaskaraAttentionItem; cla
    const payload = item.payload || {};
    const context = [
       payload.task?.key,
-      payload.task?.projectName,
       payload.project?.teamName,
       payload.oneOnOne?.participantName,
       payload.actionItem?.meetingTitle,
-      payload.signal?.dueAt ? formatJalaliDate(payload.signal.dueAt) : null,
+      !payload.task && payload.signal?.dueAt ? formatJalaliDate(payload.signal.dueAt) : null,
       typeof payload.signal?.ageHours === 'number' ? fa.cockpit.hourCount(payload.signal.ageHours) : null,
    ].filter((value): value is string => Boolean(value));
 
@@ -498,6 +509,169 @@ function AttentionContext({ item, className }: { item: TaskaraAttentionItem; cla
          ))}
       </div>
    );
+}
+
+type ManagerTaskQuickEditField = 'assignee' | 'dueAt' | 'priority' | 'project' | 'status';
+
+function ManagerTaskQuickEdit({
+   className,
+   compact = false,
+   item,
+}: {
+   className?: string;
+   compact?: boolean;
+   item: TaskaraAttentionItem;
+}) {
+   const { projects, tasks, updateTask, users } = useWorkspaceTaskSync();
+   const payloadTask = item.payload.task;
+   const sourceTask = useMemo<TaskaraTask | null>(() => {
+      if (!payloadTask) return null;
+
+      const syncedTask = tasks.find((task) => task.id === payloadTask.id || task.key === payloadTask.key);
+      if (syncedTask) return syncedTask;
+
+      const project = projects.find((candidate) => candidate.id === payloadTask.projectId) || null;
+      const assignee = users.find((candidate) => candidate.id === payloadTask.assigneeId) || null;
+      return {
+         id: payloadTask.id,
+         key: payloadTask.key,
+         title: payloadTask.title,
+         status: payloadTask.status,
+         priority: payloadTask.priority,
+         dueAt: payloadTask.dueAt,
+         project,
+         assignee,
+      };
+   }, [payloadTask, projects, tasks, users]);
+   const [draftTask, setDraftTask] = useState<TaskaraTask | null>(sourceTask);
+   const [openField, setOpenField] = useState<ManagerTaskQuickEditField | null>(null);
+   const [pendingField, setPendingField] = useState<ManagerTaskQuickEditField | null>(null);
+
+   useEffect(() => {
+      if (!pendingField) setDraftTask(sourceTask);
+   }, [pendingField, sourceTask]);
+
+   if (!draftTask || !payloadTask) return null;
+
+   const selectedProject = projects.find((project) => project.id === draftTask.project?.id) || null;
+   const selectedAssignee = users.find((user) => user.id === draftTask.assignee?.id) || draftTask.assignee || null;
+   const disabled = Boolean(pendingField);
+   const currentUserId = getAuthSession()?.user.id || null;
+   const pillClassName = cn(
+      'border-zinc-200 bg-zinc-100 text-zinc-700 shadow-none hover:bg-zinc-200 hover:text-zinc-950 dark:border-white/8 dark:bg-[#2a2a2d] dark:text-zinc-300 dark:hover:bg-[#303033] dark:hover:text-zinc-100',
+      compact ? 'h-6 max-w-[136px]' : 'h-7 max-w-[168px]'
+   );
+
+   const setFieldOpen = (field: ManagerTaskQuickEditField, open: boolean) => {
+      setOpenField(open ? field : null);
+   };
+
+   const applyPatch = async (field: ManagerTaskQuickEditField, patch: TaskUpdatePatch) => {
+      if (pendingField) return;
+      const previousTask = draftTask;
+      const optimisticTask = applyManagerTaskQuickEditPatch(previousTask, patch, projects, users);
+      setPendingField(field);
+      setDraftTask(optimisticTask);
+
+      try {
+         const updated = await updateTask(previousTask, patch);
+         setDraftTask(updated);
+      } catch (updateError) {
+         setDraftTask(previousTask);
+         toast.error(updateError instanceof Error ? updateError.message : fa.issue.updateFailed);
+      } finally {
+         setPendingField(null);
+      }
+   };
+
+   return (
+      <div
+         aria-label={`${fa.issue.properties}: ${draftTask.key}`}
+         className={cn('flex flex-wrap items-center gap-1.5', className)}
+         data-testid={`manager-task-quick-edit-${draftTask.id}`}
+      >
+         <ComposerStatusPill
+            className={pillClassName}
+            disabled={disabled}
+            open={openField === 'status'}
+            status={draftTask.status}
+            onAfterChange={() => undefined}
+            onChange={(status) => void applyPatch('status', { status })}
+            onOpenChange={(open) => setFieldOpen('status', open)}
+         />
+         <ComposerPriorityPill
+            className={pillClassName}
+            disabled={disabled}
+            open={openField === 'priority'}
+            priority={draftTask.priority}
+            onAfterChange={() => undefined}
+            onChange={(priority) => void applyPatch('priority', { priority })}
+            onOpenChange={(open) => setFieldOpen('priority', open)}
+         />
+         <ComposerAssigneePill
+            assignee={selectedAssignee}
+            className={pillClassName}
+            currentUserId={currentUserId}
+            disabled={disabled}
+            open={openField === 'assignee'}
+            users={users}
+            onAfterChange={() => undefined}
+            onChange={(assigneeId) => void applyPatch('assignee', { assigneeId: assigneeId || null })}
+            onOpenChange={(open) => setFieldOpen('assignee', open)}
+         />
+         <ComposerProjectPill
+            className={pillClassName}
+            disabled={disabled}
+            open={openField === 'project'}
+            project={selectedProject}
+            projects={projects}
+            onAfterChange={() => undefined}
+            onChange={(projectId) =>
+               void applyPatch('project', {
+                  projectId,
+                  ...(projectId === draftTask.project?.id ? {} : { milestoneId: null }),
+               })
+            }
+            onOpenChange={(open) => setFieldOpen('project', open)}
+         />
+         <TaskDueDateControl
+            className={cn(pillClassName, compact ? 'w-[118px]' : 'w-36')}
+            disabled={disabled}
+            dueAt={draftTask.dueAt}
+            iconClassName="text-zinc-500"
+            open={openField === 'dueAt'}
+            onAfterChange={() => undefined}
+            onChange={(dueAt) => void applyPatch('dueAt', { dueAt })}
+            onOpenChange={(open) => setFieldOpen('dueAt', open)}
+         />
+      </div>
+   );
+}
+
+function applyManagerTaskQuickEditPatch(
+   task: TaskaraTask,
+   patch: TaskUpdatePatch,
+   projects: ReturnType<typeof useWorkspaceTaskSync>['projects'],
+   users: ReturnType<typeof useWorkspaceTaskSync>['users']
+): TaskaraTask {
+   const has = (key: keyof TaskUpdatePatch) => Object.prototype.hasOwnProperty.call(patch, key);
+   const project = has('projectId')
+      ? projects.find((candidate) => candidate.id === patch.projectId) || null
+      : task.project;
+   const assignee = has('assigneeId')
+      ? users.find((candidate) => candidate.id === patch.assigneeId) || null
+      : task.assignee;
+
+   return {
+      ...task,
+      status: patch.status ?? task.status,
+      priority: patch.priority ?? task.priority,
+      dueAt: has('dueAt') ? patch.dueAt ?? null : task.dueAt,
+      project,
+      assignee,
+      milestoneId: has('milestoneId') ? patch.milestoneId ?? null : task.milestoneId,
+      milestone: has('milestoneId') && !patch.milestoneId ? null : task.milestone,
+   };
 }
 
 function AttentionReasonLabels({
@@ -518,6 +692,7 @@ function AttentionReasonLabels({
                   'rounded-full border border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/8 dark:bg-white/[0.025]',
                   compact ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]'
                )}
+               data-attention-reason={reason}
                key={reason}
             >
                {attentionReasonLabel(reason)}

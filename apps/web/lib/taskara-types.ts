@@ -8,7 +8,116 @@ export interface TaskaraProject {
    team?: { id: string; name: string; slug: string } | null;
    lead?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    healthUpdates?: TaskaraProjectHealthUpdate[];
-   _count?: { tasks?: number; subprojects?: number };
+   milestones?: TaskaraMilestone[];
+   _count?: { tasks?: number; subprojects?: number; milestones?: number };
+}
+
+export type TaskaraMilestoneKind = 'FEATURE' | 'PHASE' | 'OTHER';
+export type TaskaraMilestoneStatus = 'PLANNED' | 'ACTIVE' | 'COMPLETED' | 'CANCELED';
+export type TaskaraMilestoneHealth = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK';
+
+export interface TaskaraMilestoneProgress {
+   totalTasks: number;
+   eligibleTasks: number;
+   completedTasks: number;
+   canceledTasks: number;
+   blockedTasks: number;
+   overdueTasks: number;
+   totalWeight: number;
+   completedWeight: number;
+   percentage: number | null;
+}
+
+export interface TaskaraMilestoneAttention {
+   reason: string;
+   label?: string;
+   count?: number;
+}
+
+export interface TaskaraMilestone {
+   id: string;
+   workspaceId: string;
+   projectId: string;
+   ownerId?: string | null;
+   name: string;
+   description?: string | null;
+   kind: TaskaraMilestoneKind;
+   status: TaskaraMilestoneStatus;
+   health?: TaskaraMilestoneHealth | null;
+   startsOn?: string | null;
+   targetOn?: string | null;
+   position: number;
+   version: number;
+   completedAt?: string | null;
+   canceledAt?: string | null;
+   archivedAt?: string | null;
+   createdAt: string;
+   updatedAt: string;
+   project: {
+      id: string;
+      name: string;
+      keyPrefix: string;
+      teamId?: string | null;
+      leadId?: string | null;
+      team?: { id: string; name: string; slug: string } | null;
+      lead?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   };
+   owner?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
+   progress: TaskaraMilestoneProgress;
+   attentionReasons?: Array<string | TaskaraMilestoneAttention>;
+   readyToComplete?: boolean;
+   canManage?: boolean;
+   tasks?: TaskaraTask[];
+   activity?: TaskaraActivity[];
+   /** Present only while a local-first mutation is waiting for server acknowledgement. */
+   syncState?: 'pending';
+   syncMutationId?: string;
+}
+
+export interface TaskaraMilestoneCreateInput {
+   id?: string;
+   projectId: string;
+   name: string;
+   kind: TaskaraMilestoneKind;
+   status: 'PLANNED' | 'ACTIVE';
+   ownerId?: string | null;
+   description?: string | null;
+   health?: TaskaraMilestoneHealth | null;
+   startsOn?: string | null;
+   targetOn?: string | null;
+}
+
+export type TaskaraMilestoneUpdatePatch = Partial<
+   Pick<
+      TaskaraMilestone,
+      'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'
+   >
+>;
+
+export interface TaskaraMilestoneReorderInput {
+   beforeId?: string | null;
+   afterId?: string | null;
+}
+
+export type TaskaraMilestoneLifecycleAction =
+   | 'activate'
+   | 'complete'
+   | 'reopen'
+   | 'cancel'
+   | 'archive'
+   | 'restore';
+
+export interface TaskaraMilestoneLifecycleInput {
+   unfinishedTaskPolicy?: 'KEEP' | 'MOVE' | 'UNASSIGN';
+   targetMilestoneId?: string;
+   note?: string | null;
+}
+
+export interface TaskaraMilestoneListResponse {
+   items: TaskaraMilestone[];
+   total: number;
+   limit: number;
+   offset: number;
 }
 
 export type TaskaraProjectUpdateHealth = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK';
@@ -80,6 +189,15 @@ export interface TaskaraTask {
       name: string;
       keyPrefix: string;
       team?: { id: string; name: string; slug: string } | null;
+   } | null;
+   milestoneId?: string | null;
+   milestone?: {
+      id: string;
+      name: string;
+      kind: TaskaraMilestoneKind;
+      status: TaskaraMilestoneStatus;
+      archivedAt?: string | null;
+      projectId?: string;
    } | null;
    assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    reporter?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
@@ -394,7 +512,7 @@ export interface TaskaraKnowledgeReference {
 }
 
 export type TaskViewLayout = 'list' | 'board';
-export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'priority';
+export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'milestone' | 'priority';
 export type TaskViewSubGrouping = 'none' | TaskViewGrouping;
 export type TaskViewOrdering = 'priority' | 'updatedAt' | 'createdAt' | 'dueAt' | 'title';
 export type TaskViewCompletedIssues = 'all' | 'week' | 'month' | 'none';
@@ -420,6 +538,7 @@ export interface TaskaraTaskViewState {
    assigneeIds: string[];
    priority: string[];
    projectIds: string[];
+   milestoneIds: string[];
    labels: string[];
    layout: TaskViewLayout;
    groupBy: TaskViewGrouping;

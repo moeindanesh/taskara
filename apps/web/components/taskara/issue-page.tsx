@@ -30,12 +30,20 @@ import {
    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+   Dialog,
+   DialogContent,
+   DialogDescription,
+   DialogHeader,
+   DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { SmsConfirmDialog } from '@/components/taskara/sms-confirm-dialog';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import {
@@ -51,13 +59,14 @@ import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { editorValueToPlainText, suggestTaskText, type TaskTextSuggestionResult } from '@/lib/task-text-ai';
 import { taskaraRequest, uploadTaskAttachment, uploadTaskCommentAttachment } from '@/lib/taskara-client';
-import { sendTaskSyncMutation } from '@/lib/task-sync';
+import { sendTaskSyncMutation, type TaskUpdatePatch } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
 import type {
    PaginatedResponse,
    TaskaraActivity,
    TaskaraAttachment,
+   TaskaraMilestone,
    TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
@@ -67,17 +76,6 @@ import type {
 import { cn } from '@/lib/utils';
 import { selectIssueDetail } from '@/lib/workspace-data/selectors';
 import { useAuthSession } from '@/store/auth-store';
-
-type TaskUpdatePatch = {
-   title?: string;
-   description?: string | null;
-   status?: string;
-   priority?: string;
-   weight?: number | null;
-   assigneeId?: string | null;
-   projectId?: string | null;
-   dueAt?: string | null;
-};
 
 type IssueProjectOption = Pick<TaskaraProject, 'id' | 'name' | 'keyPrefix' | 'team'>;
 type SavingField = 'title' | 'description' | null;
@@ -140,9 +138,16 @@ function applyIssuePatch(
    task: TaskaraTask,
    patch: TaskUpdatePatch,
    users: TaskaraUser[],
-   projects: TaskaraProject[]
+   projects: TaskaraProject[],
+   milestones: TaskaraMilestone[]
 ): TaskaraTask {
-   const { assigneeId: _assigneeId, projectId: _projectId, ...scalarPatch } = patch;
+   const {
+      assigneeId: _assigneeId,
+      labels: _labels,
+      milestoneId: _milestoneId,
+      projectId: _projectId,
+      ...scalarPatch
+   } = patch;
    const next: TaskaraTask = { ...task, ...scalarPatch, updatedAt: new Date().toISOString() };
 
    if ('assigneeId' in patch) {
@@ -168,6 +173,33 @@ function applyIssuePatch(
               team: project.team || null,
            }
          : null;
+      if (!('milestoneId' in patch) && task.project?.id !== project?.id && (task.milestone?.id || task.milestoneId)) {
+         next.milestoneId = null;
+         next.milestone = null;
+      }
+   }
+
+   if ('milestoneId' in patch) {
+      const milestone = patch.milestoneId
+         ? milestones.find(
+              (item) => item.id === patch.milestoneId && item.projectId === (next.project?.id || task.project?.id)
+           ) || null
+         : null;
+      next.milestoneId = milestone?.id || null;
+      next.milestone = milestone
+         ? {
+              id: milestone.id,
+              name: milestone.name,
+              kind: milestone.kind,
+              status: milestone.status,
+              archivedAt: milestone.archivedAt,
+              projectId: milestone.projectId,
+           }
+         : null;
+   }
+
+   if (patch.labels) {
+      next.labels = patch.labels.map((name) => ({ label: { id: `local-${name}`, name } }));
    }
 
    if (patch.status) {
@@ -233,6 +265,7 @@ export function IssuePage() {
    const [selectedReviewerId, setSelectedReviewerId] = useState('');
    const [smsSending, setSmsSending] = useState<SmsSendingKind | null>(null);
    const [smsConfirmKind, setSmsConfirmKind] = useState<SmsSendingKind | null>(null);
+   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
    const titleFocusedRef = useRef(false);
    const descriptionFocusedRef = useRef(false);
    const descriptionFileInputRef = useRef<HTMLInputElement>(null);
@@ -415,7 +448,7 @@ export function IssuePage() {
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
       const previous = task;
-      const optimistic = applyIssuePatch(task, patch, users, projects);
+      const optimistic = applyIssuePatch(task, patch, users, projects, taskSync.milestones);
       setTask(optimistic);
       try {
          const updated = await taskSync.updateTask(task, patch);
@@ -433,6 +466,36 @@ export function IssuePage() {
          toast.error(err instanceof Error ? err.message : fa.issue.updateFailed);
          return null;
       }
+   }
+
+   async function applyIssueProjectChange(projectId: string) {
+      if (!task || task.project?.id === projectId) return;
+      const previousProjectId = task.project?.id || null;
+      const previousMilestoneId = task.milestone?.id || task.milestoneId || null;
+      const updated = await updateTask({ projectId });
+      if (!updated || !previousProjectId || !previousMilestoneId) return;
+
+      toast.success('پروژه تغییر کرد و مایلستون قبلی از کار برداشته شد.', {
+         action: {
+            label: 'بازگردانی',
+            onClick: () => {
+               setTask(updated);
+               void taskSync
+                  .updateTask(updated, { projectId: previousProjectId, milestoneId: previousMilestoneId })
+                  .then((restored) => setTask((current) => (current ? { ...current, ...restored } : restored)))
+                  .catch((err) => toast.error(err instanceof Error ? err.message : fa.issue.updateFailed));
+            },
+         },
+      });
+   }
+
+   function requestIssueProjectChange(projectId: string) {
+      if (!task || projectId === task.project?.id) return;
+      if (task.milestone?.id || task.milestoneId) {
+         setPendingProjectId(projectId);
+         return;
+      }
+      void applyIssueProjectChange(projectId);
    }
 
    async function saveTitleDraft() {
@@ -1274,13 +1337,63 @@ export function IssuePage() {
                      project={task.project}
                      projects={projectOptions}
                      onChange={(projectId) => {
-                        if (projectId === task.project?.id) return;
-                        void updateTask({ projectId });
+                        requestIssueProjectChange(projectId);
+                     }}
+                  />
+                  <MilestoneSelector
+                     className="h-9 rounded-lg border-transparent bg-transparent px-2 hover:bg-white/[0.04]"
+                     currentMilestone={
+                        task.milestone && task.project?.id
+                           ? { ...task.milestone, projectId: task.milestone.projectId || task.project.id }
+                           : null
+                     }
+                     disabled={!task.project?.id}
+                     milestones={taskSync.milestones}
+                     projectId={task.project?.id}
+                     value={task.milestone?.id || task.milestoneId || null}
+                     onChange={(milestoneId) => void updateTask({ milestoneId })}
+                     onCreate={(projectId) => {
+                        window.dispatchEvent(
+                           new CustomEvent('taskara:create-milestone', {
+                              detail: { projectId, assignTaskId: task.id, assignTaskKey: task.key },
+                           })
+                        );
                      }}
                   />
                </div>
             </SidebarSection>
          </aside>
+         <Dialog
+            open={Boolean(pendingProjectId)}
+            onOpenChange={(open) => {
+               if (!open) setPendingProjectId(null);
+            }}
+         >
+            <DialogContent className="max-w-md rounded-2xl border-white/10 bg-[#1d1d20] text-zinc-100">
+               <DialogHeader className="text-right">
+                  <DialogTitle>تغییر پروژه و برداشتن مایلستون؟</DialogTitle>
+                  <DialogDescription className="text-sm leading-6 text-zinc-400">
+                     این کار به مایلستون «{task.milestone?.name || 'فعلی'}» متصل است. مایلستون فقط می‌تواند در
+                     همان پروژه باشد و با این تغییر اتصال آن برداشته می‌شود.
+                  </DialogDescription>
+               </DialogHeader>
+               <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button variant="ghost" onClick={() => setPendingProjectId(null)}>
+                     انصراف
+                  </Button>
+                  <Button
+                     className="bg-indigo-500 text-white hover:bg-indigo-400"
+                     onClick={() => {
+                        const nextProjectId = pendingProjectId;
+                        setPendingProjectId(null);
+                        if (nextProjectId) void applyIssueProjectChange(nextProjectId);
+                     }}
+                  >
+                     تغییر پروژه
+                  </Button>
+               </div>
+            </DialogContent>
+         </Dialog>
          <SmsConfirmDialog
             confirmLabel={fa.app.confirm}
             description={fa.app.smsConfirmDescription}

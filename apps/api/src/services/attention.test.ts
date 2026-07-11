@@ -159,6 +159,7 @@ function candidateFromDueAt(dueAt: string) {
       workspaceId: 'workspace-1',
       projectId: 'project-1',
       cycleId: null,
+      milestoneId: null,
       parentId: null,
       key: 'OPS-1',
       sequence: 1,
@@ -183,6 +184,7 @@ function candidateFromDueAt(dueAt: string) {
         parentId: null,
         team: { id: 'team-1', name: 'Ops', slug: 'ops' }
       },
+      milestone: null,
       assignee: {
         id: 'user-1',
         name: 'Sara',
@@ -208,6 +210,7 @@ function decisionTask(
     workspaceId: 'workspace-1',
     projectId: null,
     cycleId: null,
+    milestoneId: null,
     parentId: null,
     key: 'OPS-1',
     sequence: 1,
@@ -227,6 +230,7 @@ function decisionTask(
     progressStartedAt: null,
     activeReviewRequest: null,
     project: null,
+    milestone: null,
     assignee: null,
     reporter: null,
     attachments: [],

@@ -180,7 +180,11 @@ test.describe('communications merged UX', () => {
     await gotoApp(page, `/${workspaceSlug}/team/all/all`);
 
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-    await page.locator('[cmdk-item][data-value="action-go-communications"]').click();
+    const command = page.getByRole('dialog', { name: 'منوی فرمان' });
+    const search = command.getByRole('combobox');
+    await search.fill('اعلان‌ها');
+    await expect(command.getByRole('option', { name: /اعلان‌ها/ }).first()).toBeVisible();
+    await search.press('Enter');
     await expect(page).toHaveURL(/\/communications$/);
   });
 });

@@ -223,6 +223,62 @@ describe('sync event scope mapping', () => {
     expect(mapped).toBeNull();
   });
 
+  test('upserts milestone events only when the parent project is accessible', () => {
+    const event = syncEvent(
+      {
+        after: {
+          id: 'milestone-1',
+          projectId: 'project-private',
+          project: { id: 'project-private', teamId: 'team-private', leadId: 'user-2' }
+        }
+      },
+      'updated',
+      'milestone'
+    );
+
+    const allowed = mapSyncEventForScope(
+      event,
+      syncQuery(),
+      actor,
+      memberAccess({ projectIds: ['project-private'] })
+    );
+    expect((allowed as { type?: string } | null)?.type).toBe('upsert');
+    expect((allowed as { entity?: { canManage?: boolean } } | null)?.entity?.canManage).toBe(false);
+
+    const adminAllowed = mapSyncEventForScope(
+      event,
+      syncQuery(),
+      { ...actor, role: 'ADMIN' },
+      workspaceWideAccess()
+    );
+    expect((adminAllowed as { entity?: { canManage?: boolean } } | null)?.entity?.canManage).toBe(true);
+
+    const denied = mapSyncEventForScope(
+      event,
+      syncQuery(),
+      actor,
+      memberAccess({ teamIds: ['team-public'] })
+    );
+    expect(denied).toBeNull();
+  });
+
+  test('maps an archived milestone tombstone to removal from the hot resource scope', () => {
+    const event = syncEvent(
+      {
+        before: {
+          id: 'milestone-1',
+          projectId: 'project-1',
+          project: { id: 'project-1', teamId: 'team-1', leadId: 'user-2' }
+        }
+      },
+      'archived',
+      'milestone'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess({ teamIds: ['team-1'] }));
+    expect((mapped as { type?: string } | null)?.type).toBe('removeFromScope');
+  });
+
   test('keeps meeting action items when the actor participates in the meeting', () => {
     const event = syncEvent(
       {

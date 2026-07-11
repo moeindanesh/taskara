@@ -20,9 +20,9 @@ export const taskPriorities = [
 export const taskWeights = [1, 2, 3, 4, 8] as const;
 
 export const taskViewLayouts = ['list', 'board'] as const;
-export const taskViewGroupings = ['status', 'assignee', 'project', 'priority'] as const;
+export const taskViewGroupings = ['status', 'assignee', 'project', 'milestone', 'priority'] as const;
 export const taskViewOrderings = ['priority', 'updatedAt', 'createdAt', 'dueAt', 'title'] as const;
-export const taskViewSubGroupings = ['none', 'status', 'assignee', 'project', 'priority'] as const;
+export const taskViewSubGroupings = ['none', 'status', 'assignee', 'project', 'milestone', 'priority'] as const;
 export const taskViewCompletedIssues = ['all', 'week', 'month', 'none'] as const;
 export const taskViewDisplayProperties = [
   'id',
@@ -41,6 +41,10 @@ export const taskViewDisplayProperties = [
 
 export const projectStatuses = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'] as const;
 export const projectUpdateHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
+export const milestoneKinds = ['FEATURE', 'PHASE', 'OTHER'] as const;
+export const milestoneStatuses = ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELED'] as const;
+export const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
+export const milestoneUnfinishedTaskPolicies = ['KEEP', 'UNASSIGN', 'MOVE'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
 export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
@@ -54,6 +58,10 @@ export const taskReviewStatuses = ['REQUESTED', 'CHANGES_REQUESTED', 'APPROVED',
 export type TaskStatusValue = (typeof taskStatuses)[number];
 export type TaskPriorityValue = (typeof taskPriorities)[number];
 export type ProjectUpdateHealthValue = (typeof projectUpdateHealthValues)[number];
+export type MilestoneKindValue = (typeof milestoneKinds)[number];
+export type MilestoneStatusValue = (typeof milestoneStatuses)[number];
+export type MilestoneHealthValue = (typeof milestoneHealthValues)[number];
+export type MilestoneUnfinishedTaskPolicyValue = (typeof milestoneUnfinishedTaskPolicies)[number];
 export type WorkspaceRoleValue = (typeof workspaceRoles)[number];
 export type AnnouncementStatusValue = (typeof announcementStatuses)[number];
 export type MeetingStatusValue = (typeof meetingStatuses)[number];
@@ -81,6 +89,10 @@ export const taskWeightSchema = z.union([
 ]);
 export const projectStatusSchema = z.enum(projectStatuses);
 export const projectUpdateHealthSchema = z.enum(projectUpdateHealthValues);
+export const milestoneKindSchema = z.enum(milestoneKinds);
+export const milestoneStatusSchema = z.enum(milestoneStatuses);
+export const milestoneHealthSchema = z.enum(milestoneHealthValues);
+export const milestoneUnfinishedTaskPolicySchema = z.enum(milestoneUnfinishedTaskPolicies);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
 export const announcementStatusSchema = z.enum(announcementStatuses);
 export const meetingStatusSchema = z.enum(meetingStatuses);
@@ -218,10 +230,139 @@ export const projectHealthUpdateListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0)
 });
 
+export const milestoneDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must use YYYY-MM-DD').refine(
+  (value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  },
+  'Date is not a valid calendar day'
+);
+
+const milestoneMetadataSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  kind: milestoneKindSchema,
+  ownerId: z.string().uuid().nullable().optional(),
+  description: z.string().trim().max(15000).nullable().optional(),
+  health: milestoneHealthSchema.nullable().optional(),
+  startsOn: milestoneDateSchema.nullable().optional(),
+  targetOn: milestoneDateSchema.nullable().optional()
+});
+
+function validateMilestoneDateRange(
+  value: { startsOn?: string | null; targetOn?: string | null },
+  ctx: z.RefinementCtx
+): void {
+  if (value.startsOn && value.targetOn && value.startsOn > value.targetOn) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetOn'],
+      message: 'Target date cannot precede start date'
+    });
+  }
+}
+
+export const createMilestoneSchema = milestoneMetadataSchema.extend({
+  // Sync clients allocate the UUID before enqueueing so later offline task
+  // mutations can safely reference the pending milestone.
+  id: z.string().uuid().optional(),
+  projectId: z.string().uuid(),
+  status: z.enum(['PLANNED', 'ACTIVE']).default('PLANNED')
+}).superRefine(validateMilestoneDateRange);
+
+export const updateMilestoneSchema = milestoneMetadataSchema.partial().extend({
+  version: z.number().int().min(1)
+}).superRefine((value, ctx) => {
+  validateMilestoneDateRange(value, ctx);
+  if (Object.keys(value).every((key) => key === 'version')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [],
+      message: 'At least one milestone field must be updated'
+    });
+  }
+});
+
+const strictQueryBooleanSchema = z.preprocess((value) => {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return value;
+}, z.boolean());
+
+const milestoneStatusFilterSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}, z.array(milestoneStatusSchema).min(1).max(milestoneStatuses.length));
+
+export const milestoneListQuerySchema = z.object({
+  projectId: z.string().uuid().optional(),
+  teamId: z.string().uuid().optional(),
+  ownerId: z.union([z.string().uuid(), z.literal('none')]).optional(),
+  kind: milestoneKindSchema.optional(),
+  status: milestoneStatusFilterSchema.optional(),
+  health: z.union([milestoneHealthSchema, z.literal('none')]).optional(),
+  overdue: strictQueryBooleanSchema.optional(),
+  q: z.string().trim().max(200).optional(),
+  includeArchived: strictQueryBooleanSchema.default(false),
+  archivedOnly: strictQueryBooleanSchema.default(false),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const milestoneOwnerCandidateQuerySchema = z.object({
+  projectId: z.string().uuid(),
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100)
+});
+
+export const reorderMilestoneSchema = z.object({
+  version: z.number().int().min(1),
+  beforeId: z.string().uuid().nullable().optional(),
+  afterId: z.string().uuid().nullable().optional()
+}).superRefine((value, ctx) => {
+  if (value.beforeId && value.afterId && value.beforeId === value.afterId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['afterId'],
+      message: 'Reorder neighbors must be different milestones'
+    });
+  }
+});
+
+export const milestoneTransitionSchema = z.object({
+  version: z.number().int().min(1).optional()
+});
+
+export const milestoneCompletionSchema = milestoneTransitionSchema.extend({
+  unfinishedTaskPolicy: milestoneUnfinishedTaskPolicySchema.optional(),
+  targetMilestoneId: z.string().uuid().optional(),
+  note: z.string().trim().max(5000).nullable().optional()
+}).superRefine((value, ctx) => {
+  if (value.unfinishedTaskPolicy === 'MOVE' && !value.targetMilestoneId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetMilestoneId'],
+      message: 'Moving unfinished tasks requires a target milestone'
+    });
+  }
+  if (value.unfinishedTaskPolicy !== 'MOVE' && value.targetMilestoneId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetMilestoneId'],
+      message: 'A target milestone is only valid with MOVE policy'
+    });
+  }
+});
+
 export const createTaskSchema = z.object({
   projectId: z.string().uuid(),
   parentId: z.string().uuid().optional(),
   cycleId: z.string().uuid().optional(),
+  milestoneId: z.string().uuid().optional(),
   title: z.string().min(1).max(300),
   description: z.string().max(15000).optional(),
   status: taskStatusSchema.default('TODO'),
@@ -243,6 +384,7 @@ export const updateTaskSchema = z.object({
   assigneeId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   cycleId: z.string().uuid().nullable().optional(),
+  milestoneId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   labels: z.array(z.string().min(1).max(40)).max(12).optional()
 });
@@ -350,6 +492,7 @@ export const triageSplitSchema = z.object({
 
 export const taskListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
+  milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   assigneeId: z.string().uuid().optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
@@ -655,6 +798,7 @@ export const taskViewStateSchema = z.object({
   assigneeIds: z.array(z.string().min(1)).max(100).default([]),
   priority: z.array(taskPrioritySchema).max(20).default([]),
   projectIds: z.array(z.string().uuid()).max(100).default([]),
+  milestoneIds: z.array(z.string()).max(100).default([]),
   labels: z.array(z.string().min(1).max(80)).max(100).default([]),
   layout: taskViewLayoutSchema.default('list'),
   groupBy: taskViewGroupingSchema.default('status'),

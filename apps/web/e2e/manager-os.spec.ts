@@ -155,11 +155,23 @@ test.describe('@manager-os manager surfaces', () => {
     await expectScreenCanVerticallyScroll(page, 'capacity-settings-screen');
   });
 
-  test('cockpit renders one manager queue while supporting diagnostics remain available', async ({ page }) => {
+  test('cockpit renders one manager queue while supporting diagnostics remain available', async ({ page }, testInfo) => {
     const requestedPaths: string[] = [];
     await setupManagerPage(page, { requestedPaths });
     await gotoApp(page, `/${workspaceSlug}/cockpit`);
     await expect(page.getByTestId('manager-cockpit-screen')).toBeVisible();
+    if (!testInfo.project.name.includes('mobile')) {
+      await expect(page.getByRole('link', { name: 'کارهای من' })).toHaveCount(1);
+    }
+    const taskQuickEdit = page.getByTestId('manager-task-quick-edit-task-blocked');
+    await expect(taskQuickEdit.getByRole('button', { name: 'وضعیت' })).toBeVisible();
+    await expect(taskQuickEdit.getByRole('button', { name: 'اولویت' })).toBeVisible();
+    await expect(taskQuickEdit.getByRole('button', { name: 'مسئول' })).toBeVisible();
+    await expect(taskQuickEdit.getByRole('button', { name: 'پروژه' })).toBeVisible();
+    await expect(taskQuickEdit.getByRole('button', { name: 'سررسید' })).toBeVisible();
+    await taskQuickEdit.getByRole('button', { name: 'اولویت' }).click();
+    await page.getByRole('button', { name: 'زیاد', exact: true }).click();
+    await expect(taskQuickEdit.getByText('زیاد', { exact: true })).toBeVisible();
     await expect(page.getByText('اقدام بعدی')).toBeVisible();
     await expect(page.getByText('۲ مورد باز')).toBeVisible();
     await expect(page.getByText('مانع فوری پرداخت')).toBeVisible();
@@ -172,9 +184,10 @@ test.describe('@manager-os manager surfaces', () => {
     expect(requestedPaths).not.toContain('/one-on-ones');
     await expectNoPageOverflow(page);
 
+    await expect(page.locator('[data-attention-reason="blocked_task"]')).toHaveCount(1);
     await page.getByRole('region', { name: 'اقدام بعدی' }).getByRole('button', { name: 'حل شد' }).click();
     await expect(page.getByText('عقب‌افتاده')).toBeVisible();
-    await expect(page.getByText('مسدود')).toHaveCount(0);
+    await expect(page.locator('[data-attention-reason="blocked_task"]')).toHaveCount(0);
 
     await page.keyboard.press('Control+k');
     await expect(page.getByTestId('command-menu')).toBeVisible();
@@ -440,7 +453,19 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
     if (request.method() === 'POST' && path === '/sync/push') {
       const body = request.postDataJSON() as {
         mutations?: Array<{
-          args?: { id?: string; projectId?: string; update?: Partial<(typeof projects)[number]['healthUpdates'][number]> };
+          args?: {
+            id?: string;
+            idOrKey?: string;
+            patch?: {
+              assigneeId?: string | null;
+              dueAt?: string | null;
+              priority?: string;
+              projectId?: string | null;
+              status?: string;
+            };
+            projectId?: string;
+            update?: Partial<(typeof projects)[number]['healthUpdates'][number]>;
+          };
           mutationId: string;
           name: string;
         }>;
@@ -450,6 +475,36 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
         results: (body.mutations || []).map((mutation) => {
           if (mutation.name === 'attention.resolve' && mutation.args?.id) {
             resolvedAttentionIds.add(mutation.args.id);
+          }
+          if (mutation.name === 'task.update' && mutation.args?.idOrKey) {
+            const taskIndex = fixture.tasks.findIndex(
+              (task) => task.id === mutation.args?.idOrKey || task.key === mutation.args?.idOrKey
+            );
+            const task = fixture.tasks[taskIndex];
+            const patch = mutation.args.patch || {};
+            if (task) {
+              const updatedTask = {
+                ...task,
+                ...patch,
+                assignee:
+                  Object.prototype.hasOwnProperty.call(patch, 'assigneeId')
+                    ? fixture.users.find((user) => user.id === patch.assigneeId) || null
+                    : task.assignee,
+                project:
+                  Object.prototype.hasOwnProperty.call(patch, 'projectId')
+                    ? fixture.projects.find((project) => project.id === patch.projectId) || null
+                    : task.project,
+                updatedAt: now,
+                version: (task.version || 0) + 1,
+              };
+              fixture.tasks[taskIndex] = updatedTask;
+              return {
+                mutationId: mutation.mutationId,
+                status: 'applied',
+                workspaceSeq: '16',
+                entity: updatedTask,
+              };
+            }
           }
           const summary = mutation.args?.update?.summary || '';
           if (mutation.name === 'project_health_update.create' && summary.includes('رد شود')) {

@@ -2,6 +2,7 @@ import type {
    TaskaraAttentionItem,
    TaskaraCheckInResponse,
    TaskaraMeetingActionItem,
+   TaskaraMilestone,
    TaskaraOneOnOneAgendaItem,
    TaskaraOneOnOneSeries,
    TaskaraProject,
@@ -27,13 +28,17 @@ export interface WorkspaceDataEntities {
 
 export interface WorkspaceDataState extends WorkspaceDataEntities {
    tasks: TaskaraTask[];
+   milestones: TaskaraMilestone[];
    projects: TaskaraProject[];
    teams: TaskaraTeam[];
    users: TaskaraUser[];
    views: TaskaraView[];
 }
 
-export type WorkspaceDataResources = Pick<WorkspaceDataState, 'tasks' | 'projects' | 'teams' | 'users' | 'views'>;
+export type WorkspaceDataResources = Pick<
+   WorkspaceDataState,
+   'tasks' | 'milestones' | 'projects' | 'teams' | 'users' | 'views'
+>;
 
 export function emptyWorkspaceDataEntities(): WorkspaceDataEntities {
    return {

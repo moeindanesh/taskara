@@ -10,6 +10,7 @@ import type {
 } from '@taskara/shared';
 import type { RequestActor } from './actor';
 import { HttpError } from './http';
+import { appendMilestoneProgressSyncEvents, lockMilestonesForUpdate } from './milestones';
 import { resolveWorkspaceAccess } from './team-access';
 import {
   addTaskComment,
@@ -146,8 +147,17 @@ export async function splitBacklogTask(actor: RequestActor, idOrKey: string, inp
   const createdTasks: Array<Awaited<ReturnType<typeof fetchTaskForTriageResponse>>> = [];
   let canceledTask: Awaited<ReturnType<typeof fetchTaskForTriageResponse>> | null = null;
   const syncEvents = await prisma.$transaction(async (tx) => {
+    await lockMilestonesForUpdate(tx, actor.workspace.id, [task.milestoneId]);
     const before = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    if (before.version !== task.version || before.milestoneId !== task.milestoneId) {
+      throw new HttpError(409, 'Task changed on another client');
+    }
     const events = [];
+    const inheritedMilestoneId = before.milestone &&
+      !before.milestone.archivedAt &&
+      (before.milestone.status === 'PLANNED' || before.milestone.status === 'ACTIVE')
+      ? before.milestoneId
+      : null;
 
     for (const item of input.items) {
       const { key, sequence } = await reserveSplitTaskKey(tx, task.projectId);
@@ -155,6 +165,7 @@ export async function splitBacklogTask(actor: RequestActor, idOrKey: string, inp
         data: {
           workspaceId: actor.workspace.id,
           projectId: task.projectId,
+          milestoneId: inheritedMilestoneId,
           parentId: task.id,
           key,
           sequence,
@@ -177,7 +188,14 @@ export async function splitBacklogTask(actor: RequestActor, idOrKey: string, inp
         actorId: actor.user.id,
         payload: {
           after: serializeTaskForResponse(created),
-          changedFields: ['title', 'description', 'status', 'parentId', 'source']
+          changedFields: [
+            'title',
+            'description',
+            'status',
+            'parentId',
+            'source',
+            ...(inheritedMilestoneId ? ['milestoneId'] : [])
+          ]
         }
       }));
     }
@@ -231,6 +249,12 @@ export async function splitBacklogTask(actor: RequestActor, idOrKey: string, inp
         after: serializeTaskForResponse(updated),
         changedFields: ['comments']
       }
+    }));
+
+    events.push(...await appendMilestoneProgressSyncEvents(tx, {
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      milestoneIds: [before.milestoneId, inheritedMilestoneId]
     }));
 
     return events;
