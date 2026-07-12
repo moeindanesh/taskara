@@ -171,7 +171,7 @@ export function MilestoneLifecycleDialog({
                                     </SelectContent>
                                  </Select>
                               ) : (
-                                 <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">مایلستون باز دیگری در این پروژه وجود ندارد.</p>
+                                 <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">گام باز دیگری در این پروژه وجود ندارد.</p>
                               )}
                            </div>
                         ) : null}
@@ -295,8 +295,8 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: isReactivate ? fa.milestone.reactivate : fa.milestone.activate,
          description: isReactivate
-            ? 'مایلستون به وضعیت فعال برمی‌گردد و تاریخ لغو پاک می‌شود.'
-            : 'مایلستون برای اجرای روزانه فعال می‌شود.',
+            ? 'گام به وضعیت فعال برمی‌گردد و تاریخ لغو پاک می‌شود.'
+            : 'گام برای اجرای روزانه فعال می‌شود.',
          icon: RotateCcw,
          title: isReactivate ? fa.milestone.reactivate : fa.milestone.activate,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
@@ -312,7 +312,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
       reopen: {
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: fa.milestone.reopen,
-         description: 'مایلستون تکمیل‌شده دوباره فعال می‌شود؛ پیوند کارها حفظ می‌شود.',
+         description: 'گام تکمیل‌شده دوباره فعال می‌شود؛ پیوند کارها حفظ می‌شود.',
          icon: RotateCcw,
          title: fa.milestone.reopen,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
@@ -336,7 +336,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
       restore: {
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: fa.milestone.restore,
-         description: 'مایلستون به فهرست بازمی‌گردد و وضعیت قبلی آن حفظ می‌شود.',
+         description: 'گام به فهرست بازمی‌گردد و وضعیت قبلی آن حفظ می‌شود.',
          icon: RotateCcw,
          title: fa.milestone.restore,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',

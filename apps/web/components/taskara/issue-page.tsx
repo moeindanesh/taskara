@@ -475,7 +475,7 @@ export function IssuePage() {
       const updated = await updateTask({ projectId });
       if (!updated || !previousProjectId || !previousMilestoneId) return;
 
-      toast.success('پروژه تغییر کرد و مایلستون قبلی از کار برداشته شد.', {
+      toast.success('پروژه تغییر کرد و گام قبلی از کار برداشته شد.', {
          action: {
             label: 'بازگردانی',
             onClick: () => {
@@ -1371,9 +1371,9 @@ export function IssuePage() {
          >
             <DialogContent className="max-w-md rounded-2xl border-white/10 bg-[#1d1d20] text-zinc-100">
                <DialogHeader className="text-right">
-                  <DialogTitle>تغییر پروژه و برداشتن مایلستون؟</DialogTitle>
+                  <DialogTitle>تغییر پروژه و برداشتن گام؟</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-zinc-400">
-                     این کار به مایلستون «{task.milestone?.name || 'فعلی'}» متصل است. مایلستون فقط می‌تواند در
+                     این کار به گام «{task.milestone?.name || 'فعلی'}» متصل است. گام فقط می‌تواند در
                      همان پروژه باشد و با این تغییر اتصال آن برداشته می‌شود.
                   </DialogDescription>
                </DialogHeader>

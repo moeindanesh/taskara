@@ -1702,7 +1702,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       } else if (draftView.groupBy === 'milestone') {
          pushGroup({
             key: 'no-milestone',
-            label: 'بدون مایلستون',
+            label: 'بدون گام',
             icon: <CircleDashed className="size-4 text-zinc-500" />,
             toneClassName: 'bg-white/[0.04]',
             tasks: filteredTasks.filter((task) => !task.milestone?.id && !task.milestoneId),
@@ -1786,7 +1786,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          } else if (draftView.subGroupBy === 'milestone') {
             pushSubgroup({
                key: 'no-milestone',
-               label: 'بدون مایلستون',
+               label: 'بدون گام',
                icon: <CircleDashed className="size-4 text-zinc-500" />,
                tasks: tasks.filter((task) => !task.milestone?.id && !task.milestoneId),
             });
@@ -2307,7 +2307,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       const updated = await updateTask(task, { projectId });
       if (!updated || !previousMilestoneId || !previousProjectId) return updated;
 
-      toast.success('پروژه تغییر کرد و مایلستون قبلی از کار برداشته شد.', {
+      toast.success('پروژه تغییر کرد و گام قبلی از کار برداشته شد.', {
          action: {
             label: 'بازگردانی',
             onClick: () => {
@@ -2397,7 +2397,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                   (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
             )
          ) {
-            toast.error('برای افزودن کار، مایلستون باید برنامه‌ریزی‌شده یا فعال باشد.');
+            toast.error('برای افزودن کار، گام باید برنامه‌ریزی‌شده یا فعال باشد.');
             return;
          }
          const patch = getGroupDropPatch(draftView.groupBy, draggedTask, groupKey);
@@ -2495,7 +2495,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                group.key !== 'no-milestone' &&
                (!milestone || milestone.archivedAt || (milestone.status !== 'PLANNED' && milestone.status !== 'ACTIVE'))
             ) {
-               toast.error('به مایلستون تکمیل‌شده یا لغوشده نمی‌توان کار تازه افزود.');
+               toast.error('به گام تکمیل‌شده یا لغوشده نمی‌توان کار تازه افزود.');
                return current;
             }
             return {
@@ -3007,10 +3007,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          >
             <DialogContent className="max-w-md rounded-2xl border-white/10 bg-[#1d1d20] text-zinc-100">
                <DialogHeader className="text-right">
-                  <DialogTitle>تغییر پروژه و برداشتن مایلستون؟</DialogTitle>
+                  <DialogTitle>تغییر پروژه و برداشتن گام؟</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-zinc-400">
-                     این کار اکنون به مایلستون «{pendingProjectChange?.task.milestone?.name || 'فعلی'}» متصل است.
-                     مایلستون فقط می‌تواند در همان پروژه باشد؛ با تغییر پروژه این اتصال برداشته می‌شود.
+                     این کار اکنون به گام «{pendingProjectChange?.task.milestone?.name || 'فعلی'}» متصل است.
+                     گام فقط می‌تواند در همان پروژه باشد؛ با تغییر پروژه این اتصال برداشته می‌شود.
                   </DialogDescription>
                </DialogHeader>
                <div className="flex items-center justify-end gap-2 pt-2">
@@ -4369,7 +4369,7 @@ function FilterSubmenu({
                  ? [
                       {
                          id: 'no-milestone',
-                         label: 'بدون مایلستون',
+                         label: 'بدون گام',
                          active: draftView.milestoneIds.includes('no-milestone'),
                          count: tasks.filter((task) => !task.milestone?.id && !task.milestoneId).length,
                          icon: <CircleDashed className="size-4 text-zinc-500" />,
@@ -5787,7 +5787,7 @@ function TaskIssueContextMenu({
                   <LinearContextItem
                      active={!task.milestone?.id && !task.milestoneId}
                      icon={<CircleDashed className="size-4 text-zinc-500" />}
-                     label="بدون مایلستون"
+                     label="بدون گام"
                      onSelect={() => onMilestoneChange(null)}
                   />
                   {task.milestone && !selectableMilestones.some((item) => item.id === task.milestone?.id) ? (
@@ -5809,7 +5809,7 @@ function TaskIssueContextMenu({
                   ))}
                   {!selectableMilestones.length && !task.milestone ? (
                      <ContextMenuItem disabled className="text-zinc-500">
-                        مایلستون بازی برای این پروژه وجود ندارد
+                        گام بازی برای این پروژه وجود ندارد
                      </ContextMenuItem>
                   ) : null}
                </div>

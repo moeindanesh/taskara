@@ -6,11 +6,9 @@ import {
    CheckCircle2,
    ChevronDown,
    Filter,
-   Layers3,
    Loader2,
    Plus,
    Search,
-   Sparkles,
    X,
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -378,7 +376,7 @@ export function MilestonesView() {
                               onClick={() => void load(true, loadedServerCount)}
                            >
                               {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
-                              نمایش مایلستون‌های بیشتر
+                              نمایش گام‌های بیشتر
                            </Button>
                         </div>
                      ) : null}
@@ -386,33 +384,11 @@ export function MilestonesView() {
                ) : (
                   <div className="p-2">
                      <MilestoneEmptyState
-                        action={
-                           hasFilters ? (
-                              <Button className="rounded-full" size="sm" variant="secondary" onClick={clearFilters}>
-                                 {fa.milestone.clearFilters}
-                              </Button>
-                           ) : (
-                              <>
-                                 <Button
-                                    className="rounded-full bg-indigo-500 text-white hover:bg-indigo-400"
-                                    size="sm"
-                                    onClick={() => openMilestoneCreate({ kind: 'FEATURE', navigateOnCreate: true })}
-                                 >
-                                    <Sparkles className="size-4" />
-                                    {fa.milestone.createFeature}
-                                 </Button>
-                                 <Button
-                                    className="rounded-full"
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => openMilestoneCreate({ kind: 'PHASE', navigateOnCreate: true })}
-                                 >
-                                    <Layers3 className="size-4" />
-                                    {fa.milestone.createPhase}
-                                 </Button>
-                              </>
-                           )
-                        }
+                        action={hasFilters ? (
+                           <Button className="rounded-full" size="sm" variant="secondary" onClick={clearFilters}>
+                              {fa.milestone.clearFilters}
+                           </Button>
+                        ) : undefined}
                         description={hasFilters ? undefined : fa.milestone.noMilestonesDescription}
                      >
                         {hasFilters ? fa.milestone.noFilteredResults : fa.milestone.noMilestones}

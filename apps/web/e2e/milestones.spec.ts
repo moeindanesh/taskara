@@ -44,13 +44,13 @@ test.describe('milestones premium workflow', () => {
 
     const screen = page.getByTestId('milestones-screen');
     await expect(screen).toBeVisible();
-    await expect(screen.getByRole('heading', { name: 'مایلستون‌ها' })).toBeVisible();
+    await expect(screen.getByRole('heading', { name: 'گام‌ها' })).toBeVisible();
     await expect(page.getByRole('button', { name: /آماده‌سازی نسخه ممتاز/ })).toBeVisible();
     expect(await screen.evaluate((element) => getComputedStyle(element).direction)).toBe('rtl');
     await expect(screen.getByRole('button', { name: /^$/ })).toHaveCount(0);
 
     if (!isMobile) {
-      await expect(page.getByRole('link', { name: /مایلستون‌ها/ })).toHaveAttribute('href', `/${workspaceSlug}/milestones`);
+      await expect(page.getByRole('link', { name: /گام‌ها/ })).toHaveAttribute('href', `/${workspaceSlug}/milestones`);
     }
 
     await page.getByRole('button', { name: /آماده‌سازی نسخه ممتاز/ }).focus();
@@ -63,7 +63,7 @@ test.describe('milestones premium workflow', () => {
     await expectNoPageOverflow(page);
 
     if (!isMobile) {
-      await page.getByRole('button', { name: 'اقدام‌های مایلستون' }).click();
+      await page.getByRole('button', { name: 'اقدام‌های گام' }).click();
       await page.getByRole('menuitem', { name: /انتقال یک جایگاه پایین‌تر/ }).click();
       await expect.poll(() => fixture.mutationNames()).toContain('milestone.reorder');
     }
@@ -91,14 +91,22 @@ test.describe('milestones premium workflow', () => {
     const fixture = await setupMilestonesPage(page);
     await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
 
-    await page.getByRole('button', { name: 'مایلستون جدید' }).click();
-    const dialog = page.getByRole('dialog', { name: 'مایلستون جدید' });
+    await page.getByRole('button', { name: 'گام جدید' }).click();
+    const dialog = page.getByRole('dialog', { name: 'گام جدید' });
     await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'تاریخ هدف', exact: true }).click();
+    const calendar = page.locator('[role="dialog"].taskara-jalali-calendar');
+    await expect(calendar).toBeVisible();
+    expect(await calendar.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+    })).toBe(true);
+    await dialog.getByRole('button', { name: 'تاریخ هدف', exact: true }).click();
     await dialog.getByPlaceholder('مثلاً آماده‌سازی نسخه عمومی').fill('فاز استقرار تدریجی');
     await dialog.getByRole('combobox').nth(1).click();
     await page.getByRole('option', { name: /فاز اجرا/ }).click();
     await dialog.getByRole('button', { name: 'فعال' }).click();
-    await dialog.getByRole('button', { name: 'ایجاد مایلستون' }).click();
+    await dialog.getByRole('button', { name: 'ایجاد گام' }).click();
 
     await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones/[0-9a-f-]{36}$`));
     await expect(page.locator('main').getByText('فاز استقرار تدریجی').first()).toBeVisible();
@@ -121,9 +129,9 @@ test.describe('milestones premium workflow', () => {
     await page.goto(`/${workspaceSlug}/milestones/${milestone.id}`, { waitUntil: 'domcontentloaded' });
 
     await page.getByRole('button', { name: 'تکمیل' }).click();
-    const completion = page.getByRole('dialog', { name: 'تکمیل مایلستون' });
+    const completion = page.getByRole('dialog', { name: 'تکمیل گام' });
     await expect(completion.getByRole('button', { name: 'تکمیل' })).toBeDisabled();
-    await completion.getByLabel(/نگه‌داشتن در این مایلستون/).check();
+    await completion.getByLabel(/نگه‌داشتن در این گام/).check();
     await completion.getByPlaceholder(/نتیجه، آموخته‌ها/).fill('خروجی فاز با موفقیت تحویل شد.');
     await completion.getByRole('button', { name: 'تکمیل' }).click();
 
@@ -138,17 +146,17 @@ test.describe('milestones premium workflow', () => {
       },
     });
 
-    await page.getByRole('button', { name: 'اقدام‌های مایلستون' }).click();
+    await page.getByRole('button', { name: 'اقدام‌های گام' }).click();
     await page.getByRole('menuitem', { name: 'آرشیو' }).click();
     const archive = page.getByRole('dialog', { name: 'آرشیو' });
     await archive.getByRole('button', { name: 'آرشیو' }).click();
-    await expect(page.getByText(/این مایلستون آرشیوشده/)).toBeVisible();
+    await expect(page.getByText(/این گام آرشیوشده/)).toBeVisible();
 
-    await page.getByRole('button', { name: 'اقدام‌های مایلستون' }).click();
+    await page.getByRole('button', { name: 'اقدام‌های گام' }).click();
     await page.getByRole('menuitem', { name: 'بازگردانی' }).click();
     const restore = page.getByRole('dialog', { name: 'بازگردانی' });
     await restore.getByRole('button', { name: 'بازگردانی' }).click();
-    await expect(page.getByText(/این مایلستون آرشیوشده/)).toBeHidden();
+    await expect(page.getByText(/این گام آرشیوشده/)).toBeHidden();
     await expect.poll(() => fixture.mutationNames()).toEqual(expect.arrayContaining([
       'milestone.complete',
       'milestone.archive',
@@ -162,10 +170,10 @@ test.describe('milestones premium workflow', () => {
     const pushesBeforeOffline = fixture.mutationNames().length;
     await page.context().setOffline(true);
 
-    await page.getByRole('button', { name: 'مایلستون جدید' }).click();
-    const dialog = page.getByRole('dialog', { name: 'مایلستون جدید' });
+    await page.getByRole('button', { name: 'گام جدید' }).click();
+    const dialog = page.getByRole('dialog', { name: 'گام جدید' });
     await dialog.getByPlaceholder('مثلاً آماده‌سازی نسخه عمومی').fill('ویژگی ساخته‌شده آفلاین');
-    await dialog.getByRole('button', { name: 'ایجاد مایلستون' }).click();
+    await dialog.getByRole('button', { name: 'ایجاد گام' }).click();
 
     await expect(page.locator('main').getByText('ویژگی ساخته‌شده آفلاین').first()).toBeVisible();
     await expect(page.getByText(/یک تغییر همگام‌نشده دارد/)).toBeVisible();

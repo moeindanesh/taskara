@@ -3,12 +3,14 @@ import { prisma, type Project, type SyncEvent } from '@taskara/db';
 import {
   createProjectHealthUpdateSchema,
   createProjectSchema,
+  mergeProjectsSchema,
   projectHealthUpdateListQuerySchema,
   updateProjectSchema
 } from '@taskara/shared';
-import { getRequestActor } from '../services/actor';
+import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
+import { mergeProjects } from '../services/project-merge';
 import {
   createProjectHealthUpdate,
   listProjectHealthUpdates,
@@ -94,6 +96,25 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     }).catch(() => undefined);
 
     return reply.code(201).send(project);
+  });
+
+  app.post('/projects/merge', async (request) => {
+    const actor = await requireWorkspaceAdmin(request);
+    const input = mergeProjectsSchema.parse(request.body);
+    const result = await mergeProjects(actor, input);
+
+    await logActivity({
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      actorType: actor.actorType,
+      entityType: 'project',
+      entityId: result.project.id,
+      action: 'merged',
+      after: result,
+      source: actor.source
+    }).catch(() => undefined);
+
+    return result;
   });
 
   app.get('/projects/:id/updates', async (request) => {

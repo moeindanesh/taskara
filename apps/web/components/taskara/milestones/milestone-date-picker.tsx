@@ -35,6 +35,7 @@ export function MilestoneDatePicker({
             editable={false}
             format="YYYY/MM/DD"
             locale={persianFa}
+            portal
             value={pickerValue}
             zIndex={90}
             onChange={(date) => onChange(dateObjectToDateOnly(date))}

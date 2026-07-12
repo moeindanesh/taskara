@@ -216,6 +216,27 @@ export const updateProjectSchema = createProjectSchema.partial().extend({
   status: projectStatusSchema.optional()
 });
 
+export const mergeProjectsSchema = z.object({
+  destinationProjectId: z.string().uuid(),
+  sourceProjectIds: z.array(z.string().uuid()).min(1).max(50)
+}).superRefine((input, context) => {
+  const uniqueSourceIds = new Set(input.sourceProjectIds);
+  if (uniqueSourceIds.size !== input.sourceProjectIds.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['sourceProjectIds'],
+      message: 'Source projects must be unique'
+    });
+  }
+  if (uniqueSourceIds.has(input.destinationProjectId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['sourceProjectIds'],
+      message: 'Destination project cannot also be a source project'
+    });
+  }
+});
+
 export const createProjectHealthUpdateSchema = z.object({
   health: projectUpdateHealthSchema,
   summary: z.string().trim().min(1).max(2000),

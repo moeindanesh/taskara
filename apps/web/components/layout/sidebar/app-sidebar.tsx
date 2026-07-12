@@ -316,13 +316,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         className={sidebarItemClassName}
                      >
                         <Link to={`/${orgId}/milestones`}>
-                           <Diamond className="text-indigo-400" />
-                           <span className="min-w-0 flex-1 truncate">{fa.nav.milestones}</span>
+                           <Diamond className="size-4 shrink-0 text-indigo-400" strokeWidth={1.75} />
+                           <span className="min-w-0 flex-1 truncate text-right">{fa.nav.milestones}</span>
                            {sidebarCounts.myOverdueMilestoneCount > 0 ? (
                               <span
-                                 aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} مایلستون عقب‌افتاده متعلق به شما`}
+                                 aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده متعلق به شما`}
                                  className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-400/12 px-1.5 text-[10px] tabular-nums text-rose-300"
-                                 title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} مایلستون عقب‌افتاده`}
+                                 title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده`}
                               >
                                  {sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')}
                               </span>

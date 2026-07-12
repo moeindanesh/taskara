@@ -58,9 +58,9 @@ export function MilestoneDialogHost() {
       if (task) {
          try {
             await taskSync.updateTask(task, { milestoneId: milestone.id });
-            toast.success('مایلستون ساخته و به کار متصل شد.');
+            toast.success('گام ساخته و به کار متصل شد.');
          } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'مایلستون ساخته شد، اما اتصال کار ناموفق بود.');
+            toast.error(error instanceof Error ? error.message : 'گام ساخته شد، اما اتصال کار ناموفق بود.');
          }
       } else if (request.assignTaskKey || request.assignTaskId) {
          try {
@@ -68,9 +68,9 @@ export function MilestoneDialogHost() {
                `/tasks/${encodeURIComponent(request.assignTaskKey || request.assignTaskId || '')}`,
                { method: 'PATCH', body: JSON.stringify({ milestoneId: milestone.id }) }
             );
-            toast.success('مایلستون ساخته و به کار متصل شد.');
+            toast.success('گام ساخته و به کار متصل شد.');
          } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'مایلستون ساخته شد، اما اتصال کار ناموفق بود.');
+            toast.error(error instanceof Error ? error.message : 'گام ساخته شد، اما اتصال کار ناموفق بود.');
          }
       }
 

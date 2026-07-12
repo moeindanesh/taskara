@@ -256,7 +256,7 @@ export function WorkspaceTaskComposer() {
          },
          {
             command: () => openComposerField('milestone'),
-            description: 'اتصال کار به یک مایلستون پروژه',
+            description: 'اتصال کار به یک گام پروژه',
             icon: <Diamond className="size-4 text-violet-300" />,
             key: 'taskara-milestone',
             keywords: ['milestone', 'goal', 'مایلستون', 'هدف', 'فاز', 'ویژگی'],
@@ -292,7 +292,7 @@ export function WorkspaceTaskComposer() {
          },
          {
             command: () => startSetupFlow(),
-            description: 'انتخاب اولویت، مسئول، پروژه، مایلستون، وزن و سررسید',
+            description: 'انتخاب اولویت، مسئول، پروژه، گام، وزن و سررسید',
             icon: <Check className="size-4" />,
             key: 'taskara-setup',
             keywords: ['setup', 'configure', 'تنظیم', 'پیکربندی'],

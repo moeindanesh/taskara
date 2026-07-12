@@ -276,7 +276,7 @@ export function MilestoneDetail({
          const index = ordered.findIndex((item) => item.id === current.id);
          const targetIndex = direction === 'up' ? index - 1 : index + 1;
          if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) {
-            toast.info(direction === 'up' ? 'این مایلستون در ابتدای ترتیب پروژه است.' : 'این مایلستون در انتهای ترتیب پروژه است.');
+            toast.info(direction === 'up' ? 'این گام در ابتدای ترتیب پروژه است.' : 'این گام در انتهای ترتیب پروژه است.');
             return;
          }
          const desired = [...ordered];
@@ -290,7 +290,7 @@ export function MilestoneDetail({
          milestoneRef.current = merged;
          onChanged(merged);
          if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
-         else toast.success('ترتیب مایلستون به‌روز شد.');
+         else toast.success('ترتیب گام به‌روز شد.');
          if (updated.syncState !== 'pending') void load(true);
       } catch (reorderError) {
          if (reorderError instanceof TaskSyncMutationError && reorderError.failure?.status === 'conflict') {
@@ -410,17 +410,17 @@ export function MilestoneDetail({
          ) : !canManage ? (
             <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                <ShieldAlert className="size-4 shrink-0" />
-               شما دسترسی مشاهده دارید؛ تغییر مایلستون به مجوز برنامه‌ریزی پروژه نیاز دارد.
+               شما دسترسی مشاهده دارید؛ تغییر گام به مجوز برنامه‌ریزی پروژه نیاز دارد.
             </div>
          ) : milestone.syncState === 'pending' ? (
             <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-indigo-400/20 bg-indigo-400/8 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-200" role="status">
                <ShieldAlert className="size-4 shrink-0" />
-               این مایلستون یک تغییر همگام‌نشده دارد؛ ویرایش شما امن است و پس از اتصال تأیید می‌شود.
+               این گام یک تغییر همگام‌نشده دارد؛ ویرایش شما امن است و پس از اتصال تأیید می‌شود.
             </div>
          ) : !online ? (
             <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-200" role="status">
                <ShieldAlert className="size-4 shrink-0" />
-               آفلاین هستید. تغییرهای مایلستون روی دستگاه ذخیره و پس از اتصال همگام می‌شوند.
+               آفلاین هستید. تغییرهای گام روی دستگاه ذخیره و پس از اتصال همگام می‌شوند.
             </div>
          ) : null}
 
@@ -519,7 +519,7 @@ export function MilestoneDetail({
                         <LatestActivity activity={milestone.activity || []} />
                      </div>
 
-                     <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های مایلستون">
+                     <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های گام">
                         <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/35">
                            <PropertyRow icon={ProjectGlyphProxy} label={fa.milestone.project}>
                               <Link className="truncate text-xs hover:text-indigo-600 dark:hover:text-indigo-300" to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}>
@@ -678,7 +678,7 @@ function LifecycleMenu({
    return (
       <DropdownMenu>
          <DropdownMenuTrigger asChild>
-            <button aria-label="اقدام‌های مایلستون" className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-indigo-400/60" type="button">
+            <button aria-label="اقدام‌های گام" className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-indigo-400/60" type="button">
                <MoreHorizontal className="size-4" />
             </button>
          </DropdownMenuTrigger>
@@ -964,28 +964,28 @@ function milestoneAttentionReasons(milestone: TaskaraMilestone) {
 
 function activityLabel(activity: TaskaraActivity) {
    const labels: Record<string, string> = {
-      CREATE: 'مایلستون را ساخت.',
-      CREATED: 'مایلستون را ساخت.',
-      UPDATE: `مایلستون را به‌روز کرد${changedFieldSummary(activity)}.`,
-      UPDATED: `مایلستون را به‌روز کرد${changedFieldSummary(activity)}.`,
-      ACTIVATE: 'مایلستون را فعال کرد.',
-      ACTIVATED: 'مایلستون را فعال کرد.',
-      COMPLETE: 'مایلستون را تکمیل کرد.',
-      COMPLETED: 'مایلستون را تکمیل کرد.',
-      REOPEN: 'مایلستون را بازگشایی کرد.',
-      REOPENED: 'مایلستون را بازگشایی کرد.',
-      CANCEL: 'مایلستون را لغو کرد.',
-      CANCELED: 'مایلستون را لغو کرد.',
-      ARCHIVE: 'مایلستون را آرشیو کرد.',
-      ARCHIVED: 'مایلستون را آرشیو کرد.',
-      RESTORE: 'مایلستون را بازگرداند.',
-      RESTORED: 'مایلستون را بازگرداند.',
-      REORDER: 'ترتیب مایلستون را تغییر داد.',
-      REORDERED: 'ترتیب مایلستون را تغییر داد.',
-      TASKS_UPDATED: 'دامنه کارهای مایلستون را تغییر داد.',
+      CREATE: 'گام را ساخت.',
+      CREATED: 'گام را ساخت.',
+      UPDATE: `گام را به‌روز کرد${changedFieldSummary(activity)}.`,
+      UPDATED: `گام را به‌روز کرد${changedFieldSummary(activity)}.`,
+      ACTIVATE: 'گام را فعال کرد.',
+      ACTIVATED: 'گام را فعال کرد.',
+      COMPLETE: 'گام را تکمیل کرد.',
+      COMPLETED: 'گام را تکمیل کرد.',
+      REOPEN: 'گام را بازگشایی کرد.',
+      REOPENED: 'گام را بازگشایی کرد.',
+      CANCEL: 'گام را لغو کرد.',
+      CANCELED: 'گام را لغو کرد.',
+      ARCHIVE: 'گام را آرشیو کرد.',
+      ARCHIVED: 'گام را آرشیو کرد.',
+      RESTORE: 'گام را بازگرداند.',
+      RESTORED: 'گام را بازگرداند.',
+      REORDER: 'ترتیب گام را تغییر داد.',
+      REORDERED: 'ترتیب گام را تغییر داد.',
+      TASKS_UPDATED: 'دامنه کارهای گام را تغییر داد.',
    };
    const normalized = activity.action.toUpperCase().replace(/^MILESTONE[._]/, '').replace(/[.]/g, '_');
-   return labels[normalized] || 'مایلستون را تغییر داد.';
+   return labels[normalized] || 'گام را تغییر داد.';
 }
 
 function changedFieldSummary(activity: TaskaraActivity) {

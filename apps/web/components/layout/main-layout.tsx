@@ -556,7 +556,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             <CommandInput
                value={commandQuery}
                onValueChange={setCommandQuery}
-               placeholder="دستور اجرا کن یا در کارها، مایلستون‌ها، دانش‌نامه، پروژه‌ها و اعضا جستجو کن..."
+               placeholder="دستور اجرا کن یا در کارها، گام‌ها، دانش‌نامه، پروژه‌ها و اعضا جستجو کن..."
             />
             <CommandList className="max-h-[520px] p-1.5" data-testid="command-menu">
                {!hasAnyCommandItem ? (

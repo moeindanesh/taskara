@@ -204,7 +204,7 @@ export function MilestoneCreateDialog({
             targetOn: form.targetOn || null,
          });
          rememberLastProjectId(form.projectId);
-         if (created.syncState === 'pending') toast.info('مایلستون ساخته شد و پس از اتصال همگام می‌شود.');
+         if (created.syncState === 'pending') toast.info('گام ساخته شد و پس از اتصال همگام می‌شود.');
          else toast.success(fa.milestone.created);
          onCreated(created);
          onOpenChange(false);
@@ -425,7 +425,7 @@ export function MilestoneCreateDialog({
                   ) : null}
                   {!online ? (
                      <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200" role="status">
-                        آفلاین هستید. مایلستون اکنون در دستگاه ساخته و پس از اتصال به‌طور خودکار همگام می‌شود.
+                        آفلاین هستید. گام اکنون در دستگاه ساخته و پس از اتصال به‌طور خودکار همگام می‌شود.
                      </p>
                   ) : null}
                   {selectedProject ? (

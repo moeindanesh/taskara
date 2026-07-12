@@ -9,6 +9,7 @@ import {
    ExternalLink,
    FolderKanban,
    ImageOff,
+   GitMerge,
    Loader2,
    Save,
    Type,
@@ -115,7 +116,7 @@ export function SettingsView() {
          {requestedSection === 'ai' ? <AiSettingsPage /> : null}
          {requestedSection === 'members' ? <EmbeddedExistingRoute><MembersView /></EmbeddedExistingRoute> : null}
          {requestedSection === 'teams' ? <EmbeddedExistingRoute><TeamsView /></EmbeddedExistingRoute> : null}
-         {requestedSection === 'projects' ? <EmbeddedExistingRoute><ProjectsView /></EmbeddedExistingRoute> : null}
+         {requestedSection === 'projects' ? <ProjectsSettingsPage /> : null}
       </SettingsChrome>
    );
 }
@@ -200,6 +201,188 @@ function SettingsChrome({
 
 function EmbeddedExistingRoute({ children }: { children: ReactNode }) {
    return <div dir="rtl" className="min-h-full bg-[#101011]">{children}</div>;
+}
+
+type MergeProjectsResponse = {
+   project: { id: string; name: string; keyPrefix: string };
+   mergedProjectIds: string[];
+   moved: { tasks: number; milestones: number; members: number };
+};
+
+function ProjectsSettingsPage() {
+   const [me, setMe] = useState<TaskaraMe | null>(null);
+   const [projects, setProjects] = useState<TaskaraProject[]>([]);
+   const [destinationProjectId, setDestinationProjectId] = useState('');
+   const [sourceProjectIds, setSourceProjectIds] = useState<string[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [merging, setMerging] = useState(false);
+   const [error, setError] = useState('');
+   const [notice, setNotice] = useState('');
+   const [projectsViewKey, setProjectsViewKey] = useState(0);
+   const isWorkspaceAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
+
+   async function loadMergeOptions() {
+      setLoading(true);
+      setError('');
+      try {
+         const [meResult, projectResult] = await Promise.all([
+            taskaraRequest<TaskaraMe>('/me'),
+            taskaraRequest<TaskaraProject[]>('/projects'),
+         ]);
+         setMe(meResult);
+         setProjects(projectResult);
+         setDestinationProjectId((current) => projectResult.some((project) => project.id === current) ? current : '');
+         setSourceProjectIds((current) => current.filter((id) => projectResult.some((project) => project.id === id)));
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'بارگذاری پروژه‌ها ناموفق بود.');
+      } finally {
+         setLoading(false);
+      }
+   }
+
+   useEffect(() => {
+      void loadMergeOptions();
+   }, []);
+
+   function toggleSourceProject(projectId: string) {
+      setSourceProjectIds((current) =>
+         current.includes(projectId) ? current.filter((id) => id !== projectId) : [...current, projectId]
+      );
+   }
+
+   async function handleMergeProjects() {
+      if (!destinationProjectId || sourceProjectIds.length === 0 || !isWorkspaceAdmin) return;
+      const destination = projects.find((project) => project.id === destinationProjectId);
+      const sources = projects.filter((project) => sourceProjectIds.includes(project.id));
+      const confirmed = window.confirm(
+         `${sources.map((project) => project.name).join('، ')} در «${destination?.name || ''}» ادغام شوند؟ پروژه‌های مبدأ پس از انتقال اطلاعات حذف می‌شوند و این عملیات قابل بازگشت نیست.`
+      );
+      if (!confirmed) return;
+
+      setMerging(true);
+      setError('');
+      setNotice('');
+      try {
+         const result = await taskaraRequest<MergeProjectsResponse>('/projects/merge', {
+            method: 'POST',
+            body: JSON.stringify({ destinationProjectId, sourceProjectIds }),
+         });
+         setNotice(
+            `${result.mergedProjectIds.length.toLocaleString('fa-IR')} پروژه در «${result.project.name}» ادغام شد؛ ${result.moved.tasks.toLocaleString('fa-IR')} تسک و ${result.moved.milestones.toLocaleString('fa-IR')} گام منتقل شد.`
+         );
+         setDestinationProjectId('');
+         setSourceProjectIds([]);
+         await loadMergeOptions();
+         setProjectsViewKey((current) => current + 1);
+      } catch (err) {
+         setError(err instanceof Error ? err.message : 'ادغام پروژه‌ها ناموفق بود.');
+      } finally {
+         setMerging(false);
+      }
+   }
+
+   const sourceOptions = projects.filter((project) => project.id !== destinationProjectId);
+
+   return (
+      <div dir="rtl" className="flex min-h-full flex-col bg-[#101011]">
+         <div className="mx-auto w-full max-w-[1180px] px-5 py-6 sm:px-7 lg:py-10">
+            <SettingsPageTitle title="پروژه‌ها" />
+            {error ? <SettingsMessage tone="error">{error}</SettingsMessage> : null}
+            {notice ? <SettingsMessage tone="success">{notice}</SettingsMessage> : null}
+
+            <SettingsPanel title={<span className="inline-flex items-center gap-2"><GitMerge className="size-4" />ادغام پروژه‌ها</span>}>
+               <SettingsField
+                  label="پروژه مقصد"
+                  description="این پروژه باقی می‌ماند و همه اطلاعات پروژه‌های مبدأ را دریافت می‌کند."
+               >
+                  <Select
+                     disabled={loading || merging || !isWorkspaceAdmin}
+                     value={destinationProjectId}
+                     onValueChange={(projectId) => {
+                        setDestinationProjectId(projectId);
+                        setSourceProjectIds((current) => current.filter((id) => id !== projectId));
+                     }}
+                  >
+                     <SelectTrigger className={selectClassName}>
+                        <SelectValue placeholder="انتخاب پروژه مقصد" />
+                     </SelectTrigger>
+                     <SelectContent className="border-white/10 bg-[#202023] text-zinc-100">
+                        {projects.map((project) => (
+                           <SelectItem key={project.id} value={project.id}>
+                              {project.name} ({project.keyPrefix})
+                           </SelectItem>
+                        ))}
+                     </SelectContent>
+                  </Select>
+               </SettingsField>
+
+               <SettingsField
+                  className="sm:items-start"
+                  label="پروژه‌های مبدأ"
+                  description="یک یا چند پروژه را برای انتقال کامل اطلاعات و حذف پس از ادغام انتخاب کنید."
+               >
+                  {!destinationProjectId ? (
+                     <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-zinc-500">
+                        ابتدا پروژه مقصد را انتخاب کنید.
+                     </div>
+                  ) : sourceOptions.length === 0 ? (
+                     <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-zinc-500">
+                        پروژه دیگری برای ادغام وجود ندارد.
+                     </div>
+                  ) : (
+                     <div className="grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">
+                        {sourceOptions.map((project) => {
+                           const checked = sourceProjectIds.includes(project.id);
+                           return (
+                              <label
+                                 key={project.id}
+                                 className={cn(
+                                    'flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 text-sm transition',
+                                    checked ? 'border-indigo-400/35 bg-indigo-400/10 text-zinc-100' : 'border-white/8 bg-black/15 text-zinc-400 hover:bg-white/5'
+                                 )}
+                              >
+                                 <input
+                                    checked={checked}
+                                    className="size-4 accent-indigo-500"
+                                    disabled={merging || !isWorkspaceAdmin}
+                                    type="checkbox"
+                                    onChange={() => toggleSourceProject(project.id)}
+                                 />
+                                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                                 <span className="ltr text-xs text-zinc-600">{project.keyPrefix}</span>
+                              </label>
+                           );
+                        })}
+                     </div>
+                  )}
+               </SettingsField>
+
+               {!isWorkspaceAdmin && !loading ? (
+                  <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-300">
+                     فقط مالک یا مدیر فضای کاری می‌تواند پروژه‌ها را ادغام کند.
+                  </div>
+               ) : null}
+
+               <div className="flex items-center justify-between gap-3 border-t border-white/7 px-4 py-3">
+                  <div className="text-xs text-zinc-500">کلید تسک‌های موجود حفظ می‌شود؛ تسک‌های جدید از شماره بعدی پروژه مقصد ادامه پیدا می‌کنند.</div>
+                  <Button
+                     className="shrink-0 border border-red-400/20 bg-red-500/15 text-red-200 hover:bg-red-500/25"
+                     disabled={loading || merging || !destinationProjectId || sourceProjectIds.length === 0 || !isWorkspaceAdmin}
+                     type="button"
+                     onClick={() => void handleMergeProjects()}
+                  >
+                     {merging ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
+                     ادغام {sourceProjectIds.length ? sourceProjectIds.length.toLocaleString('fa-IR') : ''} پروژه
+                  </Button>
+               </div>
+            </SettingsPanel>
+         </div>
+
+         <div className="min-h-[520px] flex-1 border-t border-white/7">
+            <ProjectsView key={projectsViewKey} />
+         </div>
+      </div>
+   );
 }
 
 function ProfileSettingsPage() {
