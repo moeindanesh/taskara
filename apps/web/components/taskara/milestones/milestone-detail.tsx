@@ -16,14 +16,12 @@ import {
    ListTodo,
    Loader2,
    MoreHorizontal,
-   Pencil,
    RotateCcw,
    Save,
    ShieldAlert,
    Sparkles,
    Unlink,
    UserRound,
-   X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -74,6 +72,9 @@ import { useOnlineStatus } from './use-online-status';
 
 type DetailTab = 'overview' | 'work' | 'activity';
 type OwnerCandidate = { avatarUrl?: string | null; email: string; id: string; name: string };
+type MilestoneMetadataPatch = Partial<
+   Pick<TaskaraMilestone, 'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'>
+>;
 
 export function MilestoneDetail({
    milestoneId,
@@ -103,10 +104,15 @@ export function MilestoneDetail({
    const [ownersLoading, setOwnersLoading] = useState(false);
    const [nameDraft, setNameDraft] = useState(milestoneSummary?.name || '');
    const [descriptionDraft, setDescriptionDraft] = useState(milestoneSummary?.description || '');
+   const [descriptionBaseline, setDescriptionBaseline] = useState(milestoneSummary?.description || '');
+   const descriptionTouchedRef = useRef(false);
    const [datesDraft, setDatesDraft] = useState({
       startsOn: milestoneSummary?.startsOn || '',
       targetOn: milestoneSummary?.targetOn || '',
    });
+   const [kindDraft, setKindDraft] = useState<TaskaraMilestoneKind>(milestoneSummary?.kind || 'FEATURE');
+   const [ownerIdDraft, setOwnerIdDraft] = useState(milestoneSummary?.ownerId || milestoneSummary?.owner?.id || '');
+   const [healthDraft, setHealthDraft] = useState<TaskaraMilestoneHealth | ''>(milestoneSummary?.health || '');
    const requestRef = useRef(0);
 
    useEffect(() => {
@@ -127,7 +133,17 @@ export function MilestoneDetail({
          const detail = { ...summary, activity };
          setMilestone(detail);
          milestoneRef.current = detail;
-         syncDrafts(detail, setNameDraft, setDescriptionDraft, setDatesDraft);
+         syncDrafts(
+            detail,
+            setNameDraft,
+            setDescriptionDraft,
+            setDescriptionBaseline,
+            descriptionTouchedRef,
+            setDatesDraft,
+            setKindDraft,
+            setOwnerIdDraft,
+            setHealthDraft
+         );
          onChanged(detail);
       } catch (loadError) {
          if (requestId !== requestRef.current) return;
@@ -143,7 +159,19 @@ export function MilestoneDetail({
    useEffect(() => {
       setMilestone(milestoneSummary);
       milestoneRef.current = milestoneSummary;
-      if (milestoneSummary) syncDrafts(milestoneSummary, setNameDraft, setDescriptionDraft, setDatesDraft);
+      if (milestoneSummary) {
+         syncDrafts(
+            milestoneSummary,
+            setNameDraft,
+            setDescriptionDraft,
+            setDescriptionBaseline,
+            descriptionTouchedRef,
+            setDatesDraft,
+            setKindDraft,
+            setOwnerIdDraft,
+            setHealthDraft
+         );
+      }
       setTab('overview');
       if (milestoneSummary?.syncState === 'pending' && !online) {
          setLoading(false);
@@ -187,7 +215,7 @@ export function MilestoneDetail({
    }, [milestone?.archivedAt, milestone?.canManage, milestone?.projectId]);
 
    const saveMetadata = useCallback(async (
-      patch: Partial<Pick<TaskaraMilestone, 'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'>>,
+      patch: MilestoneMetadataPatch,
       field: string
    ) => {
       const current = milestoneRef.current;
@@ -200,13 +228,22 @@ export function MilestoneDetail({
       }
 
       setSavingField(field);
-      setMilestone({ ...current, ...patch });
       try {
          const updated = await taskSync.updateMilestone(current, patch);
          const merged = mergeDetailResponse(current, updated);
          setMilestone(merged);
          milestoneRef.current = merged;
-         syncDrafts(merged, setNameDraft, setDescriptionDraft, setDatesDraft);
+         syncDrafts(
+            merged,
+            setNameDraft,
+            setDescriptionDraft,
+            setDescriptionBaseline,
+            descriptionTouchedRef,
+            setDatesDraft,
+            setKindDraft,
+            setOwnerIdDraft,
+            setHealthDraft
+         );
          onChanged(merged);
          if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
          else toast.success(fa.milestone.updated);
@@ -219,11 +256,27 @@ export function MilestoneDetail({
                   `/milestones/${encodeURIComponent(current.id)}`
                );
                const merged = mergeDetailResponse(current, latest);
-               setMilestone({ ...merged, ...patch });
+               setMilestone(merged);
                milestoneRef.current = merged;
-               syncDrafts(merged, setNameDraft, setDescriptionDraft, setDatesDraft);
+               syncDrafts(
+                  merged,
+                  setNameDraft,
+                  setDescriptionDraft,
+                  setDescriptionBaseline,
+                  descriptionTouchedRef,
+                  setDatesDraft,
+                  setKindDraft,
+                  setOwnerIdDraft,
+                  setHealthDraft
+               );
                if (patch.name !== undefined) setNameDraft(patch.name);
-               if (patch.description !== undefined) setDescriptionDraft(patch.description || '');
+               if (patch.description !== undefined) {
+                  descriptionTouchedRef.current = true;
+                  setDescriptionDraft(patch.description || '');
+               }
+               if (patch.kind !== undefined) setKindDraft(patch.kind);
+               if (patch.ownerId !== undefined) setOwnerIdDraft(patch.ownerId || '');
+               if (patch.health !== undefined) setHealthDraft(patch.health || '');
                if (patch.startsOn !== undefined || patch.targetOn !== undefined) {
                   setDatesDraft({
                      startsOn: patch.startsOn === undefined ? merged.startsOn || '' : patch.startsOn || '',
@@ -239,7 +292,7 @@ export function MilestoneDetail({
                   },
                });
             } catch {
-               setMilestone({ ...current, ...patch });
+               setMilestone(current);
                milestoneRef.current = current;
                toast.error(fa.milestone.versionConflict, {
                   description: fa.milestone.conflictDraftRetained,
@@ -326,19 +379,51 @@ export function MilestoneDetail({
    const canManage = milestone.canManage !== false;
    const readOnly = Boolean(milestone.archivedAt || !canManage);
    const nameChanged = nameDraft.trim() !== milestone.name;
-   const descriptionChanged = descriptionDraft !== (milestone.description || '');
+   const descriptionChanged = descriptionDraft !== descriptionBaseline;
    const datesChanged = datesDraft.startsOn !== (milestone.startsOn || '') || datesDraft.targetOn !== (milestone.targetOn || '');
+   const kindChanged = kindDraft !== milestone.kind;
+   const savedOwnerId = milestone.ownerId || milestone.owner?.id || '';
+   const ownerChanged = ownerIdDraft !== savedOwnerId;
+   const healthChanged = healthDraft !== (milestone.health || '');
+   const hasUnsavedChanges = nameChanged || descriptionChanged || datesChanged || kindChanged || ownerChanged || healthChanged;
    const invalidDates = Boolean(datesDraft.startsOn && datesDraft.targetOn && datesDraft.targetOn < datesDraft.startsOn);
+   const saveDisabled = !nameDraft.trim() || invalidDates || Boolean(savingField);
    const primaryAction = primaryLifecycleAction(milestone);
-   const kindMeta = milestoneKindMeta[milestone.kind];
+   const kindMeta = milestoneKindMeta[kindDraft];
    const statusMeta = milestoneStatusMeta[milestone.status];
-   const healthMeta = milestone.health ? milestoneHealthMeta[milestone.health] : null;
+   const healthMeta = healthDraft ? milestoneHealthMeta[healthDraft] : null;
+   const ownerDraft = owners.find((owner) => owner.id === ownerIdDraft) ||
+      (ownerIdDraft === savedOwnerId ? milestone.owner : null);
+
+   function handleSaveAll() {
+      const patch: MilestoneMetadataPatch = {};
+      if (nameChanged) patch.name = nameDraft.trim();
+      if (descriptionChanged) patch.description = descriptionDraft.trim() || null;
+      if (datesChanged) {
+         patch.startsOn = datesDraft.startsOn || null;
+         patch.targetOn = datesDraft.targetOn || null;
+      }
+      if (kindChanged) patch.kind = kindDraft;
+      if (ownerChanged) patch.ownerId = ownerIdDraft || null;
+      if (healthChanged) patch.health = healthDraft || null;
+      if (Object.keys(patch).length) void saveMetadata(patch, 'all');
+   }
 
    function handleLifecycleChanged(updated: TaskaraMilestone) {
       const merged = mergeDetailResponse(milestoneRef.current || updated, updated);
       setMilestone(merged);
       milestoneRef.current = merged;
-      syncDrafts(merged, setNameDraft, setDescriptionDraft, setDatesDraft);
+      syncDrafts(
+         merged,
+         setNameDraft,
+         setDescriptionDraft,
+         setDescriptionBaseline,
+         descriptionTouchedRef,
+         setDatesDraft,
+         setKindDraft,
+         setOwnerIdDraft,
+         setHealthDraft
+      );
       onChanged(merged);
       if (updated.syncState === 'pending') toast.info('تصمیم شما ذخیره شد و پس از اتصال همگام می‌شود.');
       else {
@@ -375,7 +460,19 @@ export function MilestoneDetail({
                {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-               {!readOnly && primaryAction ? (
+               {!readOnly && hasUnsavedChanges ? (
+                  <Button
+                     aria-label="ذخیره تغییرات"
+                     className="h-9 rounded-full bg-indigo-500 px-3 text-white hover:bg-indigo-400"
+                     disabled={saveDisabled}
+                     size="sm"
+                     onClick={handleSaveAll}
+                  >
+                     {savingField ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                     <span className="hidden sm:inline">{savingField ? fa.milestone.saving : 'ذخیره تغییرات'}</span>
+                  </Button>
+               ) : null}
+               {!readOnly && !hasUnsavedChanges && primaryAction && primaryAction !== 'complete' ? (
                   <Button
                      aria-label={lifecycleLabel(primaryAction, milestone)}
                      className="h-9 rounded-full"
@@ -388,6 +485,7 @@ export function MilestoneDetail({
                   </Button>
                ) : null}
                <LifecycleMenu
+                  disabled={hasUnsavedChanges || Boolean(savingField)}
                   milestone={milestone}
                   readOnly={!canManage}
                   reordering={reordering}
@@ -446,30 +544,17 @@ export function MilestoneDetail({
                                  {readOnly ? (
                                     <h1 className="break-words text-2xl font-semibold leading-9" id="milestone-title-heading">{milestone.name}</h1>
                                  ) : (
-                                    <div className="flex items-start gap-2">
-                                       <Input
-                                          aria-label={fa.milestone.name}
-                                          className="h-auto min-w-0 flex-1 border-transparent bg-transparent px-0 text-2xl font-semibold leading-9 shadow-none focus-visible:border-border focus-visible:px-2 focus-visible:ring-0"
-                                          maxLength={160}
-                                          value={nameDraft}
-                                          onChange={(event) => setNameDraft(event.target.value)}
-                                          onKeyDown={(event) => {
-                                             if (event.key === 'Enter' && nameChanged && nameDraft.trim()) {
-                                                event.preventDefault();
-                                                void saveMetadata({ name: nameDraft.trim() }, 'name');
-                                             }
-                                             if (event.key === 'Escape') setNameDraft(milestone.name);
-                                          }}
-                                       />
-                                       {nameChanged ? (
-                                          <InlineSaveControls
-                                             disabled={!nameDraft.trim() || savingField === 'name'}
-                                             saving={savingField === 'name'}
-                                             onCancel={() => setNameDraft(milestone.name)}
-                                             onSave={() => void saveMetadata({ name: nameDraft.trim() }, 'name')}
-                                          />
-                                       ) : null}
-                                    </div>
+                                    <Input
+                                       aria-label={fa.milestone.name}
+                                       className="h-auto min-w-0 border-transparent bg-transparent px-0 text-2xl font-semibold leading-9 shadow-none focus-visible:border-border focus-visible:px-2 focus-visible:ring-0"
+                                       disabled={Boolean(savingField)}
+                                       maxLength={160}
+                                       value={nameDraft}
+                                       onChange={(event) => setNameDraft(event.target.value)}
+                                       onKeyDown={(event) => {
+                                          if (event.key === 'Escape') setNameDraft(milestone.name);
+                                       }}
+                                    />
                                  )}
                                  <div className="mt-3 flex flex-wrap items-center gap-2">
                                     <MilestoneBadge {...kindMeta} />
@@ -487,17 +572,7 @@ export function MilestoneDetail({
                         </section>
 
                         <section aria-labelledby="milestone-description-heading">
-                           <div className="mb-2 flex items-center justify-between gap-3">
-                              <h2 className="text-sm font-semibold" id="milestone-description-heading">{fa.milestone.description}</h2>
-                              {!readOnly && descriptionChanged ? (
-                                 <InlineSaveControls
-                                    disabled={savingField === 'description'}
-                                    saving={savingField === 'description'}
-                                    onCancel={() => setDescriptionDraft(milestone.description || '')}
-                                    onSave={() => void saveMetadata({ description: descriptionDraft.trim() || null }, 'description')}
-                                 />
-                              ) : null}
-                           </div>
+                           <h2 className="mb-2 text-sm font-semibold" id="milestone-description-heading">{fa.milestone.description}</h2>
                            {readOnly ? (
                               <p className="min-h-20 whitespace-pre-wrap rounded-xl border border-border/60 bg-card/30 p-4 text-sm leading-7 text-muted-foreground">
                                  {descriptionToPlainText(milestone.description) || fa.milestone.descriptionPlaceholder}
@@ -510,7 +585,13 @@ export function MilestoneDetail({
                                  placeholder={fa.milestone.descriptionPlaceholder}
                                  showToolbar
                                  value={descriptionDraft}
-                                 onChange={setDescriptionDraft}
+                                 onChange={(value) => {
+                                    setDescriptionDraft(value);
+                                    if (!descriptionTouchedRef.current) setDescriptionBaseline(value);
+                                 }}
+                                 onFocus={() => {
+                                    descriptionTouchedRef.current = true;
+                                 }}
                               />
                            )}
                         </section>
@@ -533,8 +614,8 @@ export function MilestoneDetail({
                               ) : (
                                  <Select
                                     disabled={Boolean(savingField)}
-                                    value={milestone.kind}
-                                    onValueChange={(kind) => void saveMetadata({ kind: kind as TaskaraMilestoneKind }, 'kind')}
+                                    value={kindDraft}
+                                    onValueChange={(kind) => setKindDraft(kind as TaskaraMilestoneKind)}
                                  >
                                     <PropertySelectTrigger label={kindMeta.label} />
                                     <SelectContent className="[direction:rtl]">
@@ -554,10 +635,10 @@ export function MilestoneDetail({
                               ) : (
                                  <Select
                                     disabled={ownersLoading || Boolean(savingField)}
-                                    value={toSelectValue(milestone.ownerId || milestone.owner?.id || '')}
-                                    onValueChange={(value) => void saveMetadata({ ownerId: fromSelectValue(value) || null }, 'owner')}
+                                    value={toSelectValue(ownerIdDraft)}
+                                    onValueChange={(value) => setOwnerIdDraft(fromSelectValue(value))}
                                  >
-                                    <PropertySelectTrigger label={milestone.owner?.name || fa.milestone.noOwner} loading={ownersLoading} />
+                                    <PropertySelectTrigger label={ownerDraft?.name || fa.milestone.noOwner} loading={ownersLoading} />
                                     <SelectContent className="max-h-72 [direction:rtl]">
                                        <SelectItem value={EMPTY_SELECT_VALUE}>{fa.milestone.noOwner}</SelectItem>
                                        {owners.map((owner) => (
@@ -578,8 +659,8 @@ export function MilestoneDetail({
                               ) : (
                                  <Select
                                     disabled={Boolean(savingField)}
-                                    value={toSelectValue(milestone.health || '')}
-                                    onValueChange={(value) => void saveMetadata({ health: (fromSelectValue(value) || null) as TaskaraMilestoneHealth | null }, 'health')}
+                                    value={toSelectValue(healthDraft)}
+                                    onValueChange={(value) => setHealthDraft(fromSelectValue(value) as TaskaraMilestoneHealth | '')}
                                  >
                                     <PropertySelectTrigger label={healthMeta?.label || fa.milestone.noHealth} />
                                     <SelectContent className="[direction:rtl]">
@@ -594,20 +675,7 @@ export function MilestoneDetail({
                         </div>
 
                         <div className="rounded-2xl border border-border/70 bg-card/35 p-4">
-                           <div className="mb-3 flex items-center justify-between gap-2">
-                              <h2 className="text-xs font-semibold">زمان‌بندی</h2>
-                              {!readOnly && datesChanged ? (
-                                 <InlineSaveControls
-                                    disabled={invalidDates || Boolean(savingField)}
-                                    saving={savingField === 'dates'}
-                                    onCancel={() => setDatesDraft({ startsOn: milestone.startsOn || '', targetOn: milestone.targetOn || '' })}
-                                    onSave={() => void saveMetadata({
-                                       startsOn: datesDraft.startsOn || null,
-                                       targetOn: datesDraft.targetOn || null,
-                                    }, 'dates')}
-                                 />
-                              ) : null}
-                           </div>
+                           <h2 className="mb-3 text-xs font-semibold">زمان‌بندی</h2>
                            {readOnly ? (
                               <div className="space-y-3 text-xs">
                                  <DateReadOnly label={fa.milestone.startDate} value={milestone.startsOn} />
@@ -662,12 +730,14 @@ export function MilestoneDetail({
 }
 
 function LifecycleMenu({
+   disabled,
    milestone,
    readOnly,
    reordering,
    onAction,
    onReorder,
 }: {
+   disabled: boolean;
    milestone: TaskaraMilestone;
    readOnly: boolean;
    reordering: boolean;
@@ -679,7 +749,13 @@ function LifecycleMenu({
    return (
       <DropdownMenu>
          <DropdownMenuTrigger asChild>
-            <button aria-label="اقدام‌های گام" className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-indigo-400/60" type="button">
+            <button
+               aria-label="اقدام‌های گام"
+               className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+               disabled={disabled}
+               title={disabled ? 'ابتدا تغییرات را ذخیره کنید' : undefined}
+               type="button"
+            >
                <MoreHorizontal className="size-4" />
             </button>
          </DropdownMenuTrigger>
@@ -861,29 +937,7 @@ function PropertySelectTrigger({ label, loading = false }: { label: string; load
    return (
       <SelectTrigger className="h-8 w-full border-transparent bg-transparent px-1 text-xs shadow-none hover:bg-muted focus:ring-0">
          {loading ? <Loader2 className="size-3.5 animate-spin" /> : <span className="truncate">{label}</span>}
-         <ChevronDown className="size-3.5 text-muted-foreground" />
       </SelectTrigger>
-   );
-}
-
-function InlineSaveControls({
-   disabled,
-   saving,
-   onCancel,
-   onSave,
-}: {
-   disabled: boolean;
-   saving: boolean;
-   onCancel: () => void;
-   onSave: () => void;
-}) {
-   return (
-      <div className="flex shrink-0 items-center gap-1">
-         <button aria-label={fa.app.cancel} className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted" disabled={saving} type="button" onClick={onCancel}><X className="size-3.5" /></button>
-         <button aria-label={fa.milestone.saved} className="inline-flex size-8 items-center justify-center rounded-lg bg-indigo-500 text-white hover:bg-indigo-400 disabled:opacity-50" disabled={disabled} type="button" onClick={onSave}>
-            {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-         </button>
-      </div>
    );
 }
 
@@ -1041,11 +1095,22 @@ function syncDrafts(
    milestone: TaskaraMilestone,
    setName: (value: string) => void,
    setDescription: (value: string) => void,
-   setDates: (value: { startsOn: string; targetOn: string }) => void
+   setDescriptionBaseline: (value: string) => void,
+   descriptionTouchedRef: { current: boolean },
+   setDates: (value: { startsOn: string; targetOn: string }) => void,
+   setKind: (value: TaskaraMilestoneKind) => void,
+   setOwnerId: (value: string) => void,
+   setHealth: (value: TaskaraMilestoneHealth | '') => void
 ) {
+   const description = milestone.description || '';
    setName(milestone.name);
-   setDescription(milestone.description || '');
+   setDescription(description);
+   setDescriptionBaseline(description);
+   descriptionTouchedRef.current = false;
    setDates({ startsOn: milestone.startsOn || '', targetOn: milestone.targetOn || '' });
+   setKind(milestone.kind);
+   setOwnerId(milestone.ownerId || milestone.owner?.id || '');
+   setHealth(milestone.health || '');
 }
 
 function descriptionToPlainText(value?: string | null) {

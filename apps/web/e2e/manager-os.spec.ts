@@ -169,9 +169,16 @@ test.describe('@manager-os manager surfaces', () => {
     await expect(taskQuickEdit.getByRole('button', { name: 'مسئول' })).toBeVisible();
     await expect(taskQuickEdit.getByRole('button', { name: 'پروژه' })).toBeVisible();
     await expect(taskQuickEdit.getByRole('button', { name: 'سررسید' })).toBeVisible();
+    const pushesBeforeEdit = requestedPaths.filter((path) => path === '/sync/push').length;
     await taskQuickEdit.getByRole('button', { name: 'اولویت' }).click();
     await page.getByRole('button', { name: 'زیاد', exact: true }).click();
     await expect(taskQuickEdit.getByText('زیاد', { exact: true })).toBeVisible();
+    const saveTaskChanges = taskQuickEdit.getByRole('button', { name: 'ذخیره تغییرات' });
+    await expect(saveTaskChanges).toBeVisible();
+    expect(requestedPaths.filter((path) => path === '/sync/push')).toHaveLength(pushesBeforeEdit);
+    await saveTaskChanges.click();
+    await expect.poll(() => requestedPaths.filter((path) => path === '/sync/push').length).toBe(pushesBeforeEdit + 1);
+    await expect(saveTaskChanges).toBeHidden();
     await expect(page.getByText('اقدام بعدی')).toBeVisible();
     await expect(page.getByText('۲ مورد باز')).toBeVisible();
     await expect(page.getByText('مانع فوری پرداخت')).toBeVisible();

@@ -54,7 +54,7 @@ describe('milestone lifecycle presentation', () => {
       expect(allowedLifecycleActions(milestone({ status: 'COMPLETED', archivedAt: '2026-07-11T10:00:00.000Z' }))).toEqual(['restore']);
    });
 
-   test('chooses a reversible primary action without auto-completing', () => {
+   test('chooses the contextual lifecycle action without auto-completing', () => {
       expect(primaryLifecycleAction(milestone({ status: 'PLANNED', progress: { ...milestone().progress, percentage: 100 } }))).toBe('activate');
       expect(primaryLifecycleAction(milestone({ status: 'ACTIVE' }))).toBe('complete');
       expect(primaryLifecycleAction(milestone({ status: 'COMPLETED' }))).toBe('reopen');

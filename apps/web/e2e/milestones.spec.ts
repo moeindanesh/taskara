@@ -128,7 +128,9 @@ test.describe('milestones premium workflow', () => {
     const milestone = fixture.milestones[0];
     await page.goto(`/${workspaceSlug}/milestones/${milestone.id}`, { waitUntil: 'domcontentloaded' });
 
-    await page.getByRole('button', { name: 'تکمیل' }).click();
+    await expect(page.getByRole('button', { name: 'تکمیل', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'اقدام‌های گام' }).click();
+    await page.getByRole('menuitem', { name: 'تکمیل', exact: true }).click();
     const completion = page.getByRole('dialog', { name: 'تکمیل گام' });
     await expect(completion.getByRole('button', { name: 'تکمیل' })).toBeDisabled();
     await completion.getByLabel(/نگه‌داشتن در این گام/).check();
@@ -194,18 +196,25 @@ test.describe('milestones premium workflow', () => {
 
     fixture.conflictNextMetadataUpdate();
     const name = page.getByRole('textbox', { name: 'نام' });
+    const save = page.getByRole('button', { name: 'ذخیره تغییرات' });
+    await expect(save).toHaveCount(0);
     await name.fill('پیش‌نویس حفظ‌شده');
-    await name.press('Enter');
+    const properties = page.getByRole('complementary', { name: 'ویژگی‌های گام' });
+    await properties.getByRole('combobox').first().click();
+    await page.getByRole('option', { name: 'فاز اجرا' }).click();
+    await expect(save).toHaveCount(1);
+    await save.click();
 
     await expect(page.getByText(/پیش‌نویس شما حفظ شده است/)).toBeVisible();
     await expect(name).toHaveValue('پیش‌نویس حفظ‌شده');
+    await expect(properties.getByRole('combobox').first()).toContainText('فاز اجرا');
     await page.getByRole('button', { name: 'تلاش دوباره' }).click();
     await expect.poll(() => fixture.mutationNames().filter((item) => item === 'milestone.update').length).toBe(2);
     await expect(name).toHaveValue('پیش‌نویس حفظ‌شده');
     const updates = fixture.mutations().filter((mutation) => mutation.name === 'milestone.update');
     expect(updates[1]?.args).toMatchObject({
       id: milestone.id,
-      patch: { version: 2, name: 'پیش‌نویس حفظ‌شده' },
+      patch: { version: 2, name: 'پیش‌نویس حفظ‌شده', kind: 'PHASE' },
     });
   });
 });

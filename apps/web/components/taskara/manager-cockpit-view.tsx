@@ -10,8 +10,10 @@ import {
    Clock3,
    EyeOff,
    ListChecks,
+   Loader2,
    MessagesSquare,
    RefreshCw,
+   Save,
    TimerReset,
 } from 'lucide-react';
 import { LinearAvatar, LinearEmptyState, ProjectGlyph, StatusIcon } from '@/components/taskara/linear-ui';
@@ -227,38 +229,46 @@ export function ManagerCockpitView() {
 
    return (
       <div className="flex h-full flex-col bg-background dark:bg-[#101011]" data-testid="manager-cockpit-screen">
-         <div className="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
-            <main className="mx-auto max-w-[1040px]">
-               <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-300">
-                           <ListChecks className="size-3.5 text-indigo-300" />
-                           {fa.cockpit.queueCount(
-                              visibleItems.length,
-                              Boolean(attention && attention.total > attention.items.length)
-                           )}
+         <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6 sm:py-7">
+            <main className="mx-auto max-w-[1160px]">
+               <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/70 bg-card/55 p-4 sm:p-5">
+                  <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-32 rounded-full bg-indigo-400/10 blur-3xl" />
+                  <div className="relative flex flex-wrap items-start justify-between gap-4">
+                     <div className="flex min-w-0 items-start gap-3">
+                        <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl border border-indigo-400/20 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300">
+                           <ListChecks className="size-4" />
                         </span>
-                        {attention?.generatedAt ? (
-                           <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
-                              <Clock3 className="size-3.5" />
-                              {fa.cockpit.generatedAt}: {formatJalaliDateTime(attention.generatedAt)}
-                           </span>
-                        ) : null}
+                        <div className="min-w-0">
+                           <div className="flex flex-wrap items-center gap-2">
+                              <h2 className="text-base text-foreground">صف تصمیم مدیر</h2>
+                              <span className="inline-flex items-center rounded-full border border-border/70 bg-background/60 px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
+                                 {fa.cockpit.queueCount(
+                                    visibleItems.length,
+                                    Boolean(attention && attention.total > attention.items.length)
+                                 )}
+                              </span>
+                           </div>
+                           <p className="mt-1.5 max-w-2xl text-xs leading-6 text-muted-foreground">
+                              {fa.cockpit.singleQueueDescription}
+                           </p>
+                           {attention?.generatedAt ? (
+                              <span className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                 <Clock3 className="size-3.5" />
+                                 {fa.cockpit.generatedAt}: {formatJalaliDateTime(attention.generatedAt)}
+                              </span>
+                           ) : null}
+                        </div>
                      </div>
-                     <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-                        {fa.cockpit.singleQueueDescription}
-                     </p>
+                     <button
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-border/70 bg-background/60 px-3 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-45"
+                        disabled={refreshing}
+                        type="button"
+                        onClick={() => void loadAttention('refresh')}
+                     >
+                        <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
+                        {fa.cockpit.refresh}
+                     </button>
                   </div>
-                  <button
-                     className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-45 dark:border-white/8 dark:bg-white/[0.035] dark:text-zinc-300 dark:hover:bg-white/[0.06]"
-                     disabled={refreshing}
-                     type="button"
-                     onClick={() => void loadAttention('refresh')}
-                  >
-                     <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
-                     {fa.cockpit.refresh}
-                  </button>
                </div>
 
                {error ? (
@@ -272,11 +282,11 @@ export function ManagerCockpitView() {
                ) : error && !nextItem ? null : nextItem ? (
                   <>
                      <section aria-labelledby="next-manager-action">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                           <h2 id="next-manager-action" className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+                           <h2 id="next-manager-action" className="text-xs text-muted-foreground">
                               {fa.cockpit.nextAction}
                            </h2>
-                           <span className="text-[11px] text-zinc-600">
+                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
                               {fa.cockpit.itemProgress(1, visibleItems.length)}
                            </span>
                         </div>
@@ -285,17 +295,17 @@ export function ManagerCockpitView() {
 
                      {remainingItems.length ? (
                         <section className="mt-6" aria-labelledby="remaining-manager-actions">
-                           <div className="mb-2 flex items-center justify-between gap-3">
-                              <h2 id="remaining-manager-actions" className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                           <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+                              <h2 id="remaining-manager-actions" className="text-xs text-muted-foreground">
                                  {fa.cockpit.remainingActions}
                               </h2>
-                              <span className="text-[11px] text-zinc-600">
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
                                  {numberFormatter.format(remainingItems.length)}
                               </span>
                            </div>
-                           <ol className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-white/8 dark:bg-[#171719]">
+                           <ol className="grid gap-2.5">
                               {displayedRemainingItems.map((item, index) => (
-                                 <li className="border-b border-zinc-200 last:border-b-0 dark:border-white/7" key={item.id}>
+                                 <li key={item.id}>
                                     <AttentionQueueRow
                                        item={item}
                                        position={index + 2}
@@ -382,10 +392,11 @@ function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & At
    const payload = primary.payload || {};
    const title = payload.title || primary.reason;
    const description = payload.description || primary.reason;
+   const [hasTaskDraft, setHasTaskDraft] = useState(false);
 
    return (
-      <article className={cn('relative overflow-hidden rounded-2xl border bg-white p-5 shadow-sm dark:bg-[#18181a] sm:p-6', severityBorderClasses[item.severity])}>
-         <div className={cn('absolute inset-y-0 right-0 w-1', severityRailClasses[item.severity])} />
+      <article className={cn('relative overflow-hidden rounded-3xl border bg-card/65 p-5 sm:p-6', severityBorderClasses[item.severity])}>
+         <div className={cn('absolute inset-y-4 right-0 w-0.5 rounded-full', severityRailClasses[item.severity])} />
          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <AttentionEntityMark item={primary} featured />
             <div className="min-w-0 flex-1">
@@ -395,19 +406,21 @@ function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & At
                   </span>
                   <AttentionReasonLabels reasons={item.reasons} />
                </div>
-               <h3 className="mt-3 text-lg font-semibold leading-8 text-zinc-900 dark:text-zinc-100 sm:text-xl">
+               <h3 className="mt-3 text-lg leading-8 text-foreground sm:text-xl">
                   {title}
                </h3>
-               <p className="mt-1.5 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+               <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
                   {description}
                </p>
                <AttentionContext item={primary} className="mt-3" />
-               {payload.task ? <ManagerTaskQuickEdit item={primary} className="mt-4" /> : null}
+               {payload.task ? <ManagerTaskQuickEdit item={primary} className="mt-4" onDirtyChange={setHasTaskDraft} /> : null}
             </div>
          </div>
-         <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-4 dark:border-white/7">
+         <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4 dark:border-white/7">
             <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} featured />
-            <LifecycleControls {...actions} featured />
+            <div className="flex flex-wrap items-center gap-2">
+               <LifecycleControls {...actions} disabled={actions.disabled || hasTaskDraft} featured />
+            </div>
          </div>
       </article>
    );
@@ -425,29 +438,30 @@ function AttentionQueueRow({
 } & AttentionCardActions) {
    const primary = item.primary;
    const payload = primary.payload || {};
+   const [hasTaskDraft, setHasTaskDraft] = useState(false);
 
    return (
-      <article className="grid gap-3 p-4 transition hover:bg-zinc-50 dark:hover:bg-white/[0.02] md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+      <article className="grid gap-3 rounded-2xl border border-border/65 bg-card/45 p-4 transition hover:border-indigo-400/25 hover:bg-card/65 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
          <AttentionEntityMark item={primary} />
          <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-               <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-200">
+               <span className="truncate text-sm text-foreground">
                   {payload.title || primary.reason}
                </span>
                <AttentionReasonLabels compact reasons={item.reasons} />
             </div>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                {payload.description || primary.reason}
             </p>
             <AttentionContext item={primary} className="mt-1.5" />
-            {payload.task ? <ManagerTaskQuickEdit compact item={primary} className="mt-2.5" /> : null}
+            {payload.task ? <ManagerTaskQuickEdit compact item={primary} className="mt-2.5" onDirtyChange={setHasTaskDraft} /> : null}
          </div>
-         <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+         <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-transparent md:justify-end">
             <span className="me-1 hidden text-[10px] text-zinc-600 lg:inline">
                {fa.cockpit.itemProgress(position, total)}
             </span>
             <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} />
-            <LifecycleControls {...actions} />
+            <LifecycleControls {...actions} disabled={actions.disabled || hasTaskDraft} />
          </div>
       </article>
    );
@@ -489,8 +503,9 @@ function IconMark({ icon: Icon, className }: { icon: typeof CircleDot; className
 
 function AttentionContext({ item, className }: { item: TaskaraAttentionItem; className?: string }) {
    const payload = item.payload || {};
+   const taskKey = payload.task?.key;
    const context = [
-      payload.task?.key,
+      taskKey && !payload.title?.includes(taskKey) ? taskKey : null,
       payload.project?.teamName,
       payload.oneOnOne?.participantName,
       payload.actionItem?.meetingTitle,
@@ -517,10 +532,12 @@ function ManagerTaskQuickEdit({
    className,
    compact = false,
    item,
+   onDirtyChange,
 }: {
    className?: string;
    compact?: boolean;
    item: TaskaraAttentionItem;
+   onDirtyChange?: (dirty: boolean) => void;
 }) {
    const { projects, tasks, updateTask, users } = useWorkspaceTaskSync();
    const payloadTask = item.payload.task;
@@ -545,20 +562,30 @@ function ManagerTaskQuickEdit({
    }, [payloadTask, projects, tasks, users]);
    const [draftTask, setDraftTask] = useState<TaskaraTask | null>(sourceTask);
    const [openField, setOpenField] = useState<ManagerTaskQuickEditField | null>(null);
-   const [pendingField, setPendingField] = useState<ManagerTaskQuickEditField | null>(null);
+   const [saving, setSaving] = useState(false);
+   const draftPatch = useMemo(
+      () => sourceTask && draftTask ? buildManagerTaskQuickEditPatch(sourceTask, draftTask) : {},
+      [draftTask, sourceTask]
+   );
+   const hasChanges = Object.keys(draftPatch).length > 0;
 
    useEffect(() => {
-      if (!pendingField) setDraftTask(sourceTask);
-   }, [pendingField, sourceTask]);
+      if (!saving && !hasChanges) setDraftTask(sourceTask);
+   }, [hasChanges, saving, sourceTask]);
+
+   useEffect(() => {
+      onDirtyChange?.(hasChanges || saving);
+      return () => onDirtyChange?.(false);
+   }, [hasChanges, onDirtyChange, saving]);
 
    if (!draftTask || !payloadTask) return null;
 
    const selectedProject = projects.find((project) => project.id === draftTask.project?.id) || null;
    const selectedAssignee = users.find((user) => user.id === draftTask.assignee?.id) || draftTask.assignee || null;
-   const disabled = Boolean(pendingField);
+   const disabled = saving;
    const currentUserId = getAuthSession()?.user.id || null;
    const pillClassName = cn(
-      'border-zinc-200 bg-zinc-100 text-zinc-700 shadow-none hover:bg-zinc-200 hover:text-zinc-950 dark:border-white/8 dark:bg-[#2a2a2d] dark:text-zinc-300 dark:hover:bg-[#303033] dark:hover:text-zinc-100',
+      'border-border/70 bg-muted/70 text-foreground shadow-none hover:bg-muted dark:border-white/8 dark:bg-white/[0.055] dark:text-zinc-300 dark:hover:bg-white/[0.08]',
       compact ? 'h-6 max-w-[136px]' : 'h-7 max-w-[168px]'
    );
 
@@ -566,28 +593,32 @@ function ManagerTaskQuickEdit({
       setOpenField(open ? field : null);
    };
 
-   const applyPatch = async (field: ManagerTaskQuickEditField, patch: TaskUpdatePatch) => {
-      if (pendingField) return;
-      const previousTask = draftTask;
-      const optimisticTask = applyManagerTaskQuickEditPatch(previousTask, patch, projects, users);
-      setPendingField(field);
-      setDraftTask(optimisticTask);
+   const stagePatch = (patch: TaskUpdatePatch) => {
+      if (saving) return;
+      setDraftTask((current) => current ? applyManagerTaskQuickEditPatch(current, patch, projects, users) : current);
+   };
 
+   const saveDraft = async () => {
+      if (saving || !sourceTask || !Object.keys(draftPatch).length) return;
+      setSaving(true);
       try {
-         const updated = await updateTask(previousTask, patch);
+         const updated = await updateTask(sourceTask, draftPatch);
          setDraftTask(updated);
+         toast.success('تغییرات کار ذخیره شد.');
       } catch (updateError) {
-         setDraftTask(previousTask);
          toast.error(updateError instanceof Error ? updateError.message : fa.issue.updateFailed);
       } finally {
-         setPendingField(null);
+         setSaving(false);
       }
    };
 
    return (
       <div
          aria-label={`${fa.issue.properties}: ${draftTask.key}`}
-         className={cn('flex flex-wrap items-center gap-1.5', className)}
+         className={cn(
+            'flex flex-wrap items-center gap-1.5 rounded-xl border border-border/60 bg-background/55 p-2 dark:border-white/7 dark:bg-black/15',
+            className
+         )}
          data-testid={`manager-task-quick-edit-${draftTask.id}`}
       >
          <ComposerStatusPill
@@ -596,7 +627,7 @@ function ManagerTaskQuickEdit({
             open={openField === 'status'}
             status={draftTask.status}
             onAfterChange={() => undefined}
-            onChange={(status) => void applyPatch('status', { status })}
+            onChange={(status) => stagePatch({ status })}
             onOpenChange={(open) => setFieldOpen('status', open)}
          />
          <ComposerPriorityPill
@@ -605,7 +636,7 @@ function ManagerTaskQuickEdit({
             open={openField === 'priority'}
             priority={draftTask.priority}
             onAfterChange={() => undefined}
-            onChange={(priority) => void applyPatch('priority', { priority })}
+            onChange={(priority) => stagePatch({ priority })}
             onOpenChange={(open) => setFieldOpen('priority', open)}
          />
          <ComposerAssigneePill
@@ -616,7 +647,7 @@ function ManagerTaskQuickEdit({
             open={openField === 'assignee'}
             users={users}
             onAfterChange={() => undefined}
-            onChange={(assigneeId) => void applyPatch('assignee', { assigneeId: assigneeId || null })}
+            onChange={(assigneeId) => stagePatch({ assigneeId: assigneeId || null })}
             onOpenChange={(open) => setFieldOpen('assignee', open)}
          />
          <ComposerProjectPill
@@ -627,7 +658,7 @@ function ManagerTaskQuickEdit({
             projects={projects}
             onAfterChange={() => undefined}
             onChange={(projectId) =>
-               void applyPatch('project', {
+               stagePatch({
                   projectId,
                   ...(projectId === draftTask.project?.id ? {} : { milestoneId: null }),
                })
@@ -641,11 +672,39 @@ function ManagerTaskQuickEdit({
             iconClassName="text-zinc-500"
             open={openField === 'dueAt'}
             onAfterChange={() => undefined}
-            onChange={(dueAt) => void applyPatch('dueAt', { dueAt })}
+            onChange={(dueAt) => stagePatch({ dueAt })}
             onOpenChange={(open) => setFieldOpen('dueAt', open)}
          />
+         {hasChanges || saving ? (
+            <button
+               aria-label="ذخیره تغییرات"
+               className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-500 px-2.5 text-[11px] text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60',
+                  compact ? 'h-7' : 'h-8'
+               )}
+               disabled={saving}
+               type="button"
+               onClick={() => void saveDraft()}
+            >
+               {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+               ذخیره تغییرات
+            </button>
+         ) : null}
       </div>
    );
+}
+
+function buildManagerTaskQuickEditPatch(source: TaskaraTask, draft: TaskaraTask): TaskUpdatePatch {
+   const patch: TaskUpdatePatch = {};
+   if (draft.status !== source.status) patch.status = draft.status;
+   if (draft.priority !== source.priority) patch.priority = draft.priority;
+   if ((draft.assignee?.id || null) !== (source.assignee?.id || null)) patch.assigneeId = draft.assignee?.id || null;
+   if ((draft.project?.id || null) !== (source.project?.id || null)) {
+      patch.projectId = draft.project?.id || null;
+      patch.milestoneId = null;
+   }
+   if ((draft.dueAt || null) !== (source.dueAt || null)) patch.dueAt = draft.dueAt || null;
+   return patch;
 }
 
 function applyManagerTaskQuickEditPatch(
