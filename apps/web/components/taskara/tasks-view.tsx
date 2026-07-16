@@ -636,7 +636,7 @@ const defaultDisplayProperties: TaskViewDisplayProperty[] = [
    'status',
    'assignee',
    'priority',
-   'project',
+   'milestone',
    'dueAt',
    'labels',
    'createdAt',
@@ -647,7 +647,6 @@ const displayPropertyOptions: Array<{ value: TaskViewDisplayProperty; label: str
    { value: 'status', label: fa.issue.status },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'priority', label: fa.issue.priority },
-   { value: 'project', label: fa.issue.project },
    { value: 'milestone', label: fa.project.milestones },
    { value: 'dueAt', label: fa.issue.dueAt },
    { value: 'labels', label: fa.issue.labels },
@@ -752,8 +751,20 @@ function normalizeViewState(
       nestedSubIssues: state?.nestedSubIssues ?? false,
       orderCompletedByRecency: state?.orderCompletedByRecency ?? false,
       completedIssues: state?.completedIssues || 'all',
-      displayProperties: state?.displayProperties || [...defaultDisplayProperties],
+      displayProperties: normalizeDisplayProperties(state?.displayProperties),
    };
+}
+
+function normalizeDisplayProperties(
+   displayProperties: TaskViewDisplayProperty[] | undefined
+): TaskViewDisplayProperty[] {
+   if (!displayProperties) return [...defaultDisplayProperties];
+
+   // Replace the legacy project column in saved issue-list layouts so the new
+   // milestone-focused default is applied to existing system and saved views too.
+   return [...new Set(displayProperties.map((property) => (
+      property === 'project' ? 'milestone' : property
+   )))];
 }
 
 function viewBelongsToTaskPage(view: TaskaraView, currentTeamKey: string) {
@@ -5213,7 +5224,9 @@ function IssueRow({
                         </span>
                      ) : null}
                      {shows('milestone') && task.milestone ? (
-                        <TaskMilestoneBadge milestone={task.milestone} />
+                        <span className="lg:hidden">
+                           <TaskMilestoneBadge milestone={task.milestone} />
+                        </span>
                      ) : null}
                   </span>
                </span>
@@ -5221,8 +5234,10 @@ function IssueRow({
                   <span className="hidden min-w-0 xl:block">
                      {shows('labels') ? <TaskLabelSummary labels={task.labels || []} /> : null}
                   </span>
-                  <span className="hidden w-36 truncate text-xs text-zinc-500 lg:block">
-                     {shows('project') ? task.project?.name || fa.app.unknown : null}
+                  <span className="hidden min-w-0 lg:block">
+                     {shows('milestone') && task.milestone ? (
+                        <TaskMilestoneBadge milestone={task.milestone} />
+                     ) : null}
                   </span>
                   <span
                      className="hidden md:block"

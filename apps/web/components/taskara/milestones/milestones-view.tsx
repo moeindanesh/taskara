@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
-   Archive,
    CheckCircle2,
    ChevronDown,
    Filter,
@@ -33,8 +32,9 @@ import { MilestoneDetail } from './milestone-detail';
 import {
    isMilestoneOverdue,
    MilestoneEmptyState,
-   MilestoneListRow,
+   MilestoneGlyph,
    MilestoneListSkeleton,
+   MilestoneOverviewCard,
 } from './primitives';
 
 type HubSegment = 'open' | 'active' | 'planned' | 'completed' | 'all';
@@ -49,11 +49,11 @@ const segmentStatuses: Record<HubSegment, TaskaraMilestoneStatus[] | null> = {
 };
 
 const segmentOptions: Array<{ label: string; value: HubSegment }> = [
+   { label: fa.milestone.all, value: 'all' },
    { label: fa.milestone.open, value: 'open' },
    { label: fa.milestone.active, value: 'active' },
    { label: fa.milestone.planned, value: 'planned' },
    { label: fa.milestone.completed, value: 'completed' },
-   { label: fa.milestone.all, value: 'all' },
 ];
 
 export function MilestonesView() {
@@ -226,29 +226,46 @@ export function MilestonesView() {
       setSearchParams(new URLSearchParams(), { replace: true });
    }
 
+   if (milestoneId) {
+      return (
+         <section className="h-full min-h-0 bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
+            <main className="h-full min-h-0">
+               <MilestoneDetail
+                  key={milestoneId}
+                  milestoneId={milestoneId}
+                  milestoneSummary={selectedSummary}
+                  workspaceSlug={workspaceSlug}
+                  onBack={() => navigate(`/${workspaceSlug}/milestones?${searchParams.toString()}`)}
+                  onChanged={handleChanged}
+               />
+            </main>
+         </section>
+      );
+   }
+
    return (
-      <section className="flex h-full min-h-0 bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
-         <div
-            className={cn(
-               'flex min-h-0 w-full flex-col border-border/60 bg-card/30 md:w-[390px] md:min-w-[340px] md:max-w-[42vw] md:border-l',
-               milestoneId && 'hidden md:flex'
-            )}
-         >
-            <div className="shrink-0 border-b border-border/60 px-3 pb-3 pt-3">
-               <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                     <div className="flex items-center gap-2">
-                        <h1 className="text-sm font-semibold">{fa.milestone.title}</h1>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                           {displayedTotal.toLocaleString('fa-IR')}
-                        </span>
-                        {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
+      <section className="h-full min-h-0 overflow-y-auto overscroll-contain bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
+         <div className="mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-6 lg:px-10 lg:py-8">
+            <header className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/65 px-5 py-5 sm:px-6 sm:py-6">
+               <span aria-hidden="true" className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full bg-indigo-400/10 blur-3xl" />
+               <span aria-hidden="true" className="pointer-events-none absolute -bottom-28 left-1/4 size-48 rounded-full bg-violet-400/8 blur-3xl" />
+               <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                     <MilestoneGlyph className="mt-0.5 size-11 rounded-2xl" />
+                     <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                           <h1 className="text-xl leading-8">{fa.milestone.title}</h1>
+                           <span className="rounded-full border border-border/70 bg-background/60 px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
+                              {displayedTotal.toLocaleString('fa-IR')} گام
+                           </span>
+                           {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
+                        </div>
+                        <p className="mt-1.5 max-w-2xl text-xs leading-6 text-muted-foreground">{fa.pages.milestonesDescription}</p>
                      </div>
-                     <p className="mt-1 truncate text-[11px] text-muted-foreground">{fa.pages.milestonesDescription}</p>
                   </div>
                   <Button
                      aria-label={fa.milestone.newMilestone}
-                     className="h-9 shrink-0 rounded-full bg-indigo-500 px-3 text-white hover:bg-indigo-400"
+                     className="h-10 shrink-0 rounded-full bg-indigo-500 px-4 text-white hover:bg-indigo-400"
                      size="sm"
                      onClick={() => openMilestoneCreate({
                         navigateOnCreate: true,
@@ -256,16 +273,18 @@ export function MilestonesView() {
                      })}
                   >
                      <Plus className="size-4" />
-                     <span className="hidden sm:inline">{fa.milestone.newMilestone}</span>
+                     {fa.milestone.newMilestone}
                   </Button>
                </div>
+            </header>
 
-               <div className="mt-3 flex items-center gap-2">
+            <section className="mt-5 rounded-2xl border border-border/70 bg-card/45 p-2.5 sm:p-3" aria-label={fa.milestone.filters}>
+               <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
                   <div className="relative min-w-0 flex-1">
                      <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                      <Input
                         aria-label={fa.milestone.searchPlaceholder}
-                        className="h-9 border-border/70 bg-background/60 ps-9 pe-9 text-sm"
+                        className="h-10 border-border/70 bg-background/60 ps-10 pe-10 text-sm"
                         placeholder={fa.milestone.searchPlaceholder}
                         value={searchDraft}
                         onChange={(event) => setSearchDraft(event.target.value)}
@@ -285,39 +304,39 @@ export function MilestonesView() {
                      aria-expanded={showFilters}
                      aria-label={fa.milestone.filters}
                      className={cn(
-                        'relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 text-muted-foreground transition hover:bg-muted hover:text-foreground',
+                        'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-border/70 px-3 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground',
                         (showFilters || activeFilterCount > 0) && 'border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300'
                      )}
                      type="button"
                      onClick={() => setShowFilters((current) => !current)}
                   >
                      <Filter className="size-4" />
+                     <span>{fa.milestone.filters}</span>
                      {activeFilterCount > 0 ? (
-                        <span className="absolute -left-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[9px] leading-4 text-white">
+                        <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[9px] leading-4 text-white">
                            {activeFilterCount.toLocaleString('fa-IR')}
                         </span>
                      ) : null}
                   </button>
-               </div>
-
-               <div className="scrollbar-none mt-3 flex gap-1 overflow-x-auto" role="tablist" aria-label={fa.milestone.status}>
-                  {segmentOptions.map((option) => (
-                     <button
-                        aria-selected={segment === option.value}
-                        className={cn(
-                           'h-8 shrink-0 rounded-full px-3 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60',
-                           segment === option.value
-                              ? 'bg-foreground text-background shadow-sm'
-                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                        )}
-                        key={option.value}
-                        role="tab"
-                        type="button"
-                        onClick={() => updateParams({ view: option.value })}
-                     >
-                        {option.label}
-                     </button>
-                  ))}
+                  <div className="scrollbar-none flex min-w-0 gap-1 overflow-x-auto border-t border-border/60 pt-2 lg:border-t-0 lg:border-r lg:pr-2 lg:pt-0" role="tablist" aria-label={fa.milestone.status}>
+                     {segmentOptions.map((option) => (
+                        <button
+                           aria-selected={segment === option.value}
+                           className={cn(
+                              'h-9 shrink-0 rounded-full px-3 text-xs transition',
+                              segment === option.value
+                                 ? 'bg-indigo-500 text-white'
+                                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                           )}
+                           key={option.value}
+                           role="tab"
+                           type="button"
+                           onClick={() => updateParams({ view: option.value })}
+                        >
+                           {option.label}
+                        </button>
+                     ))}
+                  </div>
                </div>
 
                {showFilters ? (
@@ -342,10 +361,10 @@ export function MilestonesView() {
                      onClear={clearFilters}
                   />
                ) : null}
-            </div>
+            </section>
 
             {error ? (
-               <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
+               <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-xs text-destructive-foreground" role="alert">
                   <span className="min-w-0 leading-5">{error}</span>
                   <button className="shrink-0 underline underline-offset-2" type="button" onClick={() => void load(true)}>
                      {fa.milestone.retry}
@@ -353,82 +372,96 @@ export function MilestonesView() {
                </div>
             ) : null}
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" aria-busy={loading || refreshing}>
+            <MilestoneHubStats items={visibleItems} total={displayedTotal} />
+
+            <div className="mt-7 flex flex-wrap items-end justify-between gap-3">
+               <div>
+                  <h2 className="text-base">مرور اهداف</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">برای مشاهده جزئیات، برنامه‌ریزی و ویرایش، یک گام را باز کنید.</p>
+               </div>
+               <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
+                  {visibleItems.length.toLocaleString('fa-IR')} نمایش داده می‌شود
+               </span>
+            </div>
+
+            <div className="mt-3" aria-busy={loading || refreshing}>
                {loading && !items.length ? (
                   <MilestoneListSkeleton />
                ) : visibleItems.length ? (
-                  <div className="space-y-1" role="list" aria-label={fa.milestone.title}>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="list" aria-label={fa.milestone.title}>
                      {visibleItems.map((milestone) => (
                         <div key={milestone.id} role="listitem">
-                           <MilestoneListRow
-                              active={milestone.id === milestoneId}
-                              milestone={milestone}
-                              onSelect={() => selectMilestone(milestone.id)}
-                           />
+                           <MilestoneOverviewCard milestone={milestone} onSelect={() => selectMilestone(milestone.id)} />
                         </div>
                      ))}
-                     {loadedServerCount < total ? (
-                        <div className="flex justify-center py-3">
-                           <Button
-                              disabled={loadingMore}
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => void load(true, loadedServerCount)}
-                           >
-                              {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
-                              نمایش گام‌های بیشتر
-                           </Button>
-                        </div>
-                     ) : null}
                   </div>
                ) : (
-                  <div className="p-2">
-                     <MilestoneEmptyState
-                        action={hasFilters ? (
-                           <Button className="rounded-full" size="sm" variant="secondary" onClick={clearFilters}>
-                              {fa.milestone.clearFilters}
-                           </Button>
-                        ) : undefined}
-                        description={hasFilters ? undefined : fa.milestone.noMilestonesDescription}
-                     >
-                        {hasFilters ? fa.milestone.noFilteredResults : fa.milestone.noMilestones}
-                     </MilestoneEmptyState>
-                     {loadedServerCount < total ? (
-                        <div className="mt-3 flex justify-center">
-                           <Button disabled={loadingMore} size="sm" variant="secondary" onClick={() => void load(true, loadedServerCount)}>
-                              {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
-                              جستجو در نتایج بیشتر
-                           </Button>
-                        </div>
-                     ) : null}
-                  </div>
+                  <MilestoneEmptyState
+                     action={hasFilters ? (
+                        <Button className="rounded-full" size="sm" variant="secondary" onClick={clearFilters}>
+                           {fa.milestone.clearFilters}
+                        </Button>
+                     ) : undefined}
+                     description={hasFilters ? undefined : fa.milestone.noMilestonesDescription}
+                  >
+                     {hasFilters ? fa.milestone.noFilteredResults : fa.milestone.noMilestones}
+                  </MilestoneEmptyState>
                )}
             </div>
+
+            {loadedServerCount < total ? (
+               <div className="flex justify-center py-7">
+                  <Button
+                     className="rounded-full"
+                     disabled={loadingMore}
+                     size="sm"
+                     variant="secondary"
+                     onClick={() => void load(true, loadedServerCount)}
+                  >
+                     {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
+                     نمایش گام‌های بیشتر
+                  </Button>
+               </div>
+            ) : null}
             <div className="sr-only" aria-live="polite">
                {refreshing ? fa.app.loading : `${visibleItems.length.toLocaleString('fa-IR')} ${fa.milestone.title}`}
             </div>
          </div>
-
-         <main className={cn('min-h-0 min-w-0 flex-1', !milestoneId && 'hidden md:block')}>
-            {milestoneId ? (
-               <MilestoneDetail
-                  key={milestoneId}
-                  milestoneId={milestoneId}
-                  milestoneSummary={selectedSummary}
-                  workspaceSlug={workspaceSlug}
-                  onBack={() => navigate(`/${workspaceSlug}/milestones?${searchParams.toString()}`)}
-                  onChanged={handleChanged}
-               />
-            ) : (
-               <div className="flex h-full items-center justify-center p-6">
-                  <MilestoneEmptyState description={fa.milestone.createDescription}>
-                     {fa.milestone.selectMilestone}
-                  </MilestoneEmptyState>
-               </div>
-            )}
-         </main>
          {isNavigating ? <span className="sr-only" aria-live="polite">{fa.app.loading}</span> : null}
       </section>
+   );
+}
+
+function MilestoneHubStats({
+   items,
+   total,
+}: {
+   items: TaskaraMilestone[];
+   total: number;
+}) {
+   const attentionCount = items.filter(
+      (milestone) =>
+         isMilestoneOverdue(milestone) ||
+         milestone.health === 'AT_RISK' ||
+         milestone.health === 'OFF_TRACK' ||
+         milestone.progress.blockedTasks > 0
+   ).length;
+   const stats = [
+      { label: fa.milestone.all, value: total },
+      { label: fa.milestone.active, value: items.filter((milestone) => milestone.status === 'ACTIVE').length },
+      { label: fa.milestone.attention, value: attentionCount, tone: attentionCount ? 'text-amber-700 dark:text-amber-300' : undefined },
+      { label: fa.milestone.completed, value: items.filter((milestone) => milestone.status === 'COMPLETED').length, tone: 'text-emerald-700 dark:text-emerald-300' },
+   ];
+
+   return (
+      <dl className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="خلاصه گام‌ها">
+         {stats.map((stat) => (
+            <div className="rounded-2xl border border-border/65 bg-card/45 px-3 py-3" key={stat.label}>
+               <dt className="text-[11px] text-muted-foreground">{stat.label}</dt>
+               <dd className={cn('mt-1 text-lg tabular-nums text-foreground', stat.tone)}>{stat.value.toLocaleString('fa-IR')}</dd>
+            </div>
+         ))}
+      </dl>
    );
 }
 
@@ -461,7 +494,7 @@ function MilestoneFilters({
 }) {
    return (
       <div className="mt-3 rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm">
-         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2">
+         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <FilterSelect
                ariaLabel={fa.milestone.project}
                value={projectId}
@@ -582,7 +615,7 @@ function FilterSelect({
 function buildMilestoneListQuery(searchParams: URLSearchParams) {
    const segment = parseSegment(searchParams.get('view'));
    const archive = parseArchiveFilter(searchParams.get('archive'));
-   const params = new URLSearchParams({ limit: '50', offset: '0' });
+   const params = new URLSearchParams({ limit: '200', offset: '0' });
    const statuses = segmentStatuses[segment];
    if (statuses) params.set('status', statuses.join(','));
    for (const key of ['projectId', 'teamId', 'ownerId', 'kind', 'health', 'q'] as const) {
@@ -606,7 +639,7 @@ function normalizeMilestoneListResponse(
 }
 
 function parseSegment(value: string | null): HubSegment {
-   return value === 'active' || value === 'planned' || value === 'completed' || value === 'all' ? value : 'open';
+   return value === 'open' || value === 'active' || value === 'planned' || value === 'completed' || value === 'all' ? value : 'all';
 }
 
 function parseArchiveFilter(value: string | null): ArchiveFilter {
@@ -614,7 +647,7 @@ function parseArchiveFilter(value: string | null): ArchiveFilter {
 }
 
 function isDefaultQueryValue(key: string, value: string) {
-   return key === 'view' && value === 'open' || key === 'archive' && value === 'current';
+   return key === 'view' && value === 'all' || key === 'archive' && value === 'current';
 }
 
 function countActiveFilters(searchParams: URLSearchParams) {

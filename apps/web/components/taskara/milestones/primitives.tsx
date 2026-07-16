@@ -7,6 +7,7 @@ import {
    CalendarDays,
    Check,
    CheckCircle2,
+   ChevronLeft,
    CircleDot,
    CloudUpload,
    Diamond,
@@ -172,12 +173,15 @@ export function MilestoneProgress({
    );
 }
 
-export function MilestoneListRow({
-   active,
+/**
+ * The hub deliberately keeps a milestone's signal-rich information in one card.
+ * Opening a card is the only route into the full editing experience, so the
+ * collection view can stay easy to scan even when a workspace has many milestones.
+ */
+export function MilestoneOverviewCard({
    milestone,
    onSelect,
 }: {
-   active: boolean;
    milestone: TaskaraMilestone;
    onSelect: () => void;
 }) {
@@ -188,28 +192,23 @@ export function MilestoneListRow({
 
    return (
       <button
-         aria-current={active ? 'page' : undefined}
-         className={cn(
-            'group w-full rounded-xl border px-3 py-3 text-start outline-none transition focus-visible:border-indigo-400/70 focus-visible:bg-muted/70 focus-visible:ring-2 focus-visible:ring-indigo-400/30',
-            active
-               ? 'border-border bg-muted/80 shadow-sm'
-               : 'border-transparent hover:border-border/60 hover:bg-muted/45'
-         )}
+         className="group relative flex min-h-[248px] w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/60 p-4 text-start transition duration-200 hover:-translate-y-0.5 hover:border-indigo-400/40 hover:bg-card focus-visible:border-indigo-400/70 focus-visible:bg-card"
          type="button"
          onClick={onSelect}
       >
-         <div className="flex min-w-0 items-start gap-3">
-            <MilestoneGlyph className="mt-0.5 size-8" />
+         <span aria-hidden="true" className="pointer-events-none absolute -left-12 -top-12 size-28 rounded-full bg-indigo-400/10 blur-2xl transition group-hover:bg-indigo-400/15" />
+         <div className="relative flex min-w-0 items-start gap-3">
+            <MilestoneGlyph className="mt-0.5 size-10 rounded-xl" />
             <div className="min-w-0 flex-1">
-               <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-medium text-foreground">{milestone.name}</span>
+               <div className="flex min-w-0 items-start gap-2">
+                  <span className="line-clamp-2 text-sm leading-6 text-foreground">{milestone.name}</span>
                   {milestone.syncState === 'pending' ? (
                      <CloudUpload
                         aria-label={fa.sync.mutationQueued}
-                        className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-300"
+                        className="mt-1 size-3.5 shrink-0 text-indigo-600 dark:text-indigo-300"
                      />
                   ) : null}
-                  {milestone.archivedAt ? <Archive className="size-3.5 shrink-0 text-muted-foreground" aria-label={fa.milestone.archived} /> : null}
+                  {milestone.archivedAt ? <Archive className="mt-1 size-3.5 shrink-0 text-muted-foreground" aria-label={fa.milestone.archived} /> : null}
                </div>
                <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                   <ProjectGlyph name={milestone.project.name} className="size-4 rounded" iconClassName="size-3" />
@@ -223,22 +222,25 @@ export function MilestoneListRow({
                </div>
             </div>
             {milestone.owner ? (
-               <LinearAvatar className="size-6 shrink-0" name={milestone.owner.name} src={milestone.owner.avatarUrl} />
+               <LinearAvatar className="size-7 shrink-0 ring-2 ring-background" name={milestone.owner.name} src={milestone.owner.avatarUrl} />
             ) : (
-               <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground" title={fa.milestone.noOwner}>
+               <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground" title={fa.milestone.noOwner}>
                   <Minus className="size-3" />
                </span>
             )}
          </div>
-         <div className="mt-2.5 flex min-w-0 items-center gap-1.5 overflow-hidden">
+
+         <div className="relative mt-4 flex min-w-0 items-center gap-1.5 overflow-hidden">
             <MilestoneBadge {...kind} />
             <MilestoneBadge {...status} />
             {health ? <MilestoneBadge {...health} /> : null}
          </div>
-         <div className="mt-3">
+
+         <div className="relative mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
             <MilestoneProgress compact milestone={milestone} />
          </div>
-         <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-[11px]">
+
+         <div className="relative mt-auto flex min-w-0 items-center justify-between gap-3 border-t border-border/60 pt-3 text-[11px]">
             <span className={cn('flex min-w-0 items-center gap-1.5 truncate', attention.tone)}>
                <attention.icon className="size-3.5 shrink-0" />
                <span className="truncate">{attention.label}</span>
@@ -248,6 +250,10 @@ export function MilestoneListRow({
                {milestone.targetOn ? formatMilestoneDateOnly(milestone.targetOn) : fa.milestone.noTarget}
             </span>
          </div>
+         <span className="relative mt-3 flex items-center gap-1 text-[11px] text-muted-foreground transition group-hover:text-indigo-600 dark:group-hover:text-indigo-300">
+            جزئیات و ویرایش
+            <ChevronLeft className="size-3.5" />
+         </span>
       </button>
    );
 }
@@ -273,22 +279,26 @@ export function MilestoneEmptyState({
 
 export function MilestoneListSkeleton() {
    return (
-      <div className="space-y-2 p-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
          {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="rounded-xl border border-transparent px-3 py-3">
+            <div key={index} className="min-h-[248px] rounded-2xl border border-border/60 bg-card/45 p-4">
                <div className="flex gap-3">
-                  <Skeleton className="size-8 rounded-lg bg-muted" />
+                  <Skeleton className="size-10 rounded-xl bg-muted" />
                   <div className="min-w-0 flex-1 space-y-2">
                      <Skeleton className="h-4 w-3/4 bg-muted" />
                      <Skeleton className="h-3 w-1/2 bg-muted/70" />
                   </div>
-                  <Skeleton className="size-6 rounded-full bg-muted/70" />
+                  <Skeleton className="size-7 rounded-full bg-muted/70" />
                </div>
                <div className="mt-3 flex gap-2">
                   <Skeleton className="h-5 w-16 rounded-full bg-muted/70" />
                   <Skeleton className="h-5 w-20 rounded-full bg-muted/70" />
                </div>
-               <Skeleton className="mt-3 h-1.5 w-full rounded-full bg-muted/70" />
+               <div className="mt-4 rounded-xl border border-border/50 p-3">
+                  <Skeleton className="h-3 w-2/3 bg-muted/70" />
+                  <Skeleton className="mt-3 h-1.5 w-full rounded-full bg-muted/70" />
+               </div>
+               <Skeleton className="mt-5 h-3 w-1/2 bg-muted/70" />
             </div>
          ))}
       </div>

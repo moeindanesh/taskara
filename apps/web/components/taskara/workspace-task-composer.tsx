@@ -622,7 +622,7 @@ export function WorkspaceTaskComposer() {
          <DialogContent
             aria-label={fa.issue.newIssue}
             showCloseButton={false}
-            className="relative flex max-h-[calc(100svh-32px)] max-w-[860px] flex-col gap-0 overflow-hidden rounded-[18px] border-white/10 bg-[#1d1d20] p-0 text-zinc-100 shadow-[0_18px_70px_rgb(0_0_0/0.55)] sm:max-w-[860px]"
+            className="relative flex max-h-[calc(100svh-32px)] max-w-[946px] flex-col gap-0 overflow-hidden rounded-[18px] border-white/10 bg-[#1d1d20] p-0 text-zinc-100 shadow-[0_18px_70px_rgb(0_0_0/0.55)] sm:max-w-[946px]"
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}

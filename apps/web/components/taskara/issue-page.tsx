@@ -8,12 +8,10 @@ import {
    ArrowRight,
    Box,
    Check,
-   CheckCircle2,
    Copy,
    ExternalLink,
    FileArchive,
    FileText,
-   GitPullRequest,
    History,
    ImageIcon,
    Link2,
@@ -21,12 +19,10 @@ import {
    MessageSquareWarning,
    MoreHorizontal,
    Paperclip,
-   RotateCcw,
    Search,
    Send,
    Sparkles,
    Tag,
-   UserRoundCheck,
    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -70,12 +66,10 @@ import type {
    TaskaraProject,
    TaskaraTask,
    TaskaraTaskComment,
-   TaskaraTaskReview,
    TaskaraUser,
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { selectIssueDetail } from '@/lib/workspace-data/selectors';
-import { useAuthSession } from '@/store/auth-store';
 
 type IssueProjectOption = Pick<TaskaraProject, 'id' | 'name' | 'keyPrefix' | 'team'>;
 type SavingField = 'title' | 'description' | null;
@@ -228,22 +222,13 @@ function mergeIssueDetailTask(current: TaskaraTask | null, incoming: TaskaraTask
    };
 }
 
-function mergeReviews(current: TaskaraTaskReview[], incoming: TaskaraTaskReview[]): TaskaraTaskReview[] {
-   const byId = new Map<string, TaskaraTaskReview>();
-   for (const review of current) byId.set(review.id, review);
-   for (const review of incoming) byId.set(review.id, { ...byId.get(review.id), ...review });
-   return [...byId.values()].sort((left, right) => Date.parse(right.requestedAt) - Date.parse(left.requestedAt));
-}
-
 export function IssuePage() {
-   const { session } = useAuthSession();
    const location = useLocation();
    const navigate = useNavigate();
    const { orgId, taskKey } = useParams();
    const taskSync = useWorkspaceTaskSync();
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
-   const [reviews, setReviews] = useState<TaskaraTaskReview[]>([]);
    const [users, setUsers] = useState<TaskaraUser[]>([]);
    const [projects, setProjects] = useState<TaskaraProject[]>([]);
    const [titleDraft, setTitleDraft] = useState('');
@@ -260,9 +245,6 @@ export function IssuePage() {
    const [commentSubmitting, setCommentSubmitting] = useState(false);
    const [triageDraft, setTriageDraft] = useState('');
    const [triageSubmitting, setTriageSubmitting] = useState<'accept' | 'request-info' | 'decline' | null>(null);
-   const [reviewSubmitting, setReviewSubmitting] = useState(false);
-   const [reviewCommentDraft, setReviewCommentDraft] = useState('');
-   const [selectedReviewerId, setSelectedReviewerId] = useState('');
    const [smsSending, setSmsSending] = useState<SmsSendingKind | null>(null);
    const [smsConfirmKind, setSmsConfirmKind] = useState<SmsSendingKind | null>(null);
    const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
@@ -281,7 +263,6 @@ export function IssuePage() {
    const cachedTaskRef = useRef<TaskaraTask | null>(null);
    const syncUsersRef = useRef<TaskaraUser[]>([]);
    const loadRequestRef = useRef(0);
-   const reviewsRequestRef = useRef(0);
 
    const closeIssuePage = useCallback(() => {
       if (returnPath && returnPath !== currentPath) {
@@ -308,18 +289,6 @@ export function IssuePage() {
       }
    }, []);
 
-   const loadReviews = useCallback(async (idOrKey: string) => {
-      const requestId = ++reviewsRequestRef.current;
-      try {
-         const result = await taskaraRequest<TaskaraTaskReview[]>(
-            `/tasks/${encodeURIComponent(idOrKey)}/reviews`
-         );
-         if (requestId === reviewsRequestRef.current) setReviews(result);
-      } catch {
-         if (requestId === reviewsRequestRef.current) setReviews([]);
-      }
-   }, []);
-
    useEffect(() => {
       cachedTaskRef.current = cachedTask;
       if (!cachedTask) return;
@@ -335,11 +304,6 @@ export function IssuePage() {
       syncUsersRef.current = issueData.users;
       if (issueData.users.length) setUsers(issueData.users);
    }, [issueData.users]);
-
-   useEffect(() => {
-      if (!issueData.reviews.length) return;
-      setReviews((current) => mergeReviews(current, issueData.reviews));
-   }, [issueData.reviews]);
 
    const projectOptions = useMemo<IssueProjectOption[]>(() => {
       const options = issueData.projects.map((project) => ({
@@ -418,22 +382,6 @@ export function IssuePage() {
    useEffect(() => {
       void load();
    }, [load]);
-
-   useEffect(() => {
-      const idOrKey = task?.key || taskKey;
-      if (!idOrKey) {
-         reviewsRequestRef.current += 1;
-         setReviews([]);
-         return;
-      }
-      void loadReviews(idOrKey);
-   }, [loadReviews, task?.key, taskKey]);
-
-   useEffect(() => {
-      if (!selectedReviewerId) return;
-      if (users.some((user) => user.id === selectedReviewerId)) return;
-      setSelectedReviewerId('');
-   }, [selectedReviewerId, users]);
 
    useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
@@ -781,62 +729,6 @@ export function IssuePage() {
       }
    }
 
-   function mergeReviewResult(review: TaskaraTaskReview) {
-      setReviews((current) => [review, ...current.filter((item) => item.id !== review.id)]);
-      if (review.task) {
-         setTask((current) => mergeIssueDetailTask(current, review.task as TaskaraTask));
-      }
-   }
-
-   async function requestReview() {
-      if (!task || !selectedReviewerId || reviewSubmitting) return;
-
-      setReviewSubmitting(true);
-      try {
-         const review = await taskaraRequest<TaskaraTaskReview>(
-            `/tasks/${encodeURIComponent(task.key)}/reviews`,
-            {
-               method: 'POST',
-               body: JSON.stringify({
-                  reviewerId: selectedReviewerId,
-                  comment: reviewCommentDraft.trim() || undefined,
-               }),
-            }
-         );
-         mergeReviewResult(review);
-         setReviewCommentDraft('');
-         await Promise.all([loadActivity(task.key), loadReviews(task.key)]);
-         toast.success(fa.issue.reviewRequested);
-      } catch (err) {
-         toast.error(err instanceof Error ? err.message : fa.issue.reviewRequestFailed);
-      } finally {
-         setReviewSubmitting(false);
-      }
-   }
-
-   async function decideReview(review: TaskaraTaskReview, action: 'approve' | 'request-changes' | 'cancel') {
-      if (!task || reviewSubmitting) return;
-
-      setReviewSubmitting(true);
-      try {
-         const updated = await taskaraRequest<TaskaraTaskReview>(
-            `/reviews/${encodeURIComponent(review.id)}/${action}`,
-            {
-               method: 'POST',
-               body: JSON.stringify({ comment: reviewCommentDraft.trim() || undefined }),
-            }
-         );
-         mergeReviewResult(updated);
-         setReviewCommentDraft('');
-         await Promise.all([loadActivity(task.key), loadReviews(task.key)]);
-         toast.success(fa.issue.reviewDecisionSaved);
-      } catch (err) {
-         toast.error(err instanceof Error ? err.message : fa.issue.reviewDecisionFailed);
-      } finally {
-         setReviewSubmitting(false);
-      }
-   }
-
    async function copyIssueUrl() {
       if (typeof window === 'undefined' || !navigator.clipboard) return;
       try {
@@ -913,19 +805,6 @@ export function IssuePage() {
    const comments = task.comments || [];
    const attachments = task.attachments || [];
    const labels = task.labels || [];
-   const activeReview = reviews.find((review) => review.status === 'REQUESTED') || null;
-   const latestCompletedReview = reviews.find((review) => review.status !== 'REQUESTED') || null;
-   const currentUserId = session?.user.id || '';
-   const canCancelActiveReview = Boolean(
-      activeReview &&
-         (session?.role === 'OWNER' ||
-            session?.role === 'ADMIN' ||
-            activeReview.requesterId === currentUserId ||
-            activeReview.reviewerId === currentUserId ||
-            task.assignee?.id === currentUserId ||
-            task.reporter?.id === currentUserId)
-   );
-
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
          <main className="min-w-0 overflow-y-auto px-6 py-5">
@@ -1291,22 +1170,6 @@ export function IssuePage() {
                onRunAction={(action) => void runTriageAction(action)}
             />
 
-            <ReviewSidebarPanel
-               activeReview={activeReview}
-               canCancelActiveReview={canCancelActiveReview}
-               currentUserId={currentUserId}
-               latestCompletedReview={latestCompletedReview}
-               reviewCommentDraft={reviewCommentDraft}
-               reviewSubmitting={reviewSubmitting}
-               selectedReviewerId={selectedReviewerId}
-               task={task}
-               users={users}
-               onCommentChange={setReviewCommentDraft}
-               onDecideReview={(review, action) => void decideReview(review, action)}
-               onRequestReview={() => void requestReview()}
-               onReviewerChange={setSelectedReviewerId}
-            />
-
             <SidebarSection title={fa.issue.labels} className="mt-3">
                <div className="min-h-9 p-2">
                   {labels.length ? (
@@ -1478,240 +1341,6 @@ function TriageSidebarPanel({
       </SidebarSection>
    );
 }
-
-function ReviewSidebarPanel({
-   activeReview,
-   canCancelActiveReview,
-   currentUserId,
-   latestCompletedReview,
-   reviewCommentDraft,
-   reviewSubmitting,
-   selectedReviewerId,
-   task,
-   users,
-   onCommentChange,
-   onDecideReview,
-   onRequestReview,
-   onReviewerChange,
-}: {
-   activeReview: TaskaraTaskReview | null;
-   canCancelActiveReview: boolean;
-   currentUserId: string;
-   latestCompletedReview: TaskaraTaskReview | null;
-   reviewCommentDraft: string;
-   reviewSubmitting: boolean;
-   selectedReviewerId: string;
-   task: TaskaraTask;
-   users: TaskaraUser[];
-   onCommentChange: (value: string) => void;
-   onDecideReview: (review: TaskaraTaskReview, action: 'approve' | 'request-changes' | 'cancel') => void;
-   onRequestReview: () => void;
-   onReviewerChange: (userId: string) => void;
-}) {
-   const currentUserIsReviewer = activeReview?.reviewerId === currentUserId;
-   const canRequestReview = !activeReview && selectedReviewerId && !['DONE', 'CANCELED'].includes(task.status);
-
-   return (
-      <SidebarSection title={fa.issue.review} className="mt-3">
-         <div className="grid gap-2 p-2 text-sm">
-            {activeReview ? (
-               <div className="min-w-0 overflow-hidden rounded-lg border border-sky-400/15 bg-sky-400/8 p-2.5">
-                  <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-                     <LinearAvatar
-                        name={activeReview.reviewer?.name}
-                        src={activeReview.reviewer?.avatarUrl}
-                        className="size-6 shrink-0"
-                     />
-                     <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-zinc-100">
-                           {activeReview.reviewer?.name || fa.app.unknown}
-                        </div>
-                        <div className="truncate text-xs text-zinc-500">{fa.issue.reviewer}</div>
-                     </div>
-                     <ReviewStatusBadge status={activeReview.status} />
-                  </div>
-                  <div className="mt-2 grid min-w-0 gap-1 overflow-hidden text-xs text-zinc-500">
-                     <ReviewMetaRow label={fa.issue.requestedAt} value={formatJalaliDateTime(activeReview.requestedAt)} />
-                     {activeReview.dueAt ? (
-                        <ReviewMetaRow label={fa.issue.dueAt} value={formatJalaliDateTime(activeReview.dueAt)} />
-                     ) : null}
-                     {activeReview.comment ? (
-                        <p className="mt-1 whitespace-pre-wrap rounded-md border border-white/7 bg-black/15 px-2 py-1.5 text-xs leading-5 text-zinc-300">
-                           {activeReview.comment}
-                        </p>
-                     ) : null}
-                  </div>
-               </div>
-            ) : (
-               <ReviewReviewerPicker
-                  disabled={reviewSubmitting || ['DONE', 'CANCELED'].includes(task.status)}
-                  users={users}
-                  value={selectedReviewerId}
-                  onChange={onReviewerChange}
-               />
-            )}
-
-            <Textarea
-               className="min-h-16 resize-none border-white/8 bg-[#141416] text-xs leading-5 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-sky-400/25"
-               placeholder={fa.issue.reviewCommentPlaceholder}
-               value={reviewCommentDraft}
-               onChange={(event) => onCommentChange(event.target.value)}
-            />
-
-            {activeReview ? (
-               <div className="grid gap-1.5">
-                  {currentUserIsReviewer ? (
-                     <div className="grid grid-cols-2 gap-1.5">
-                        <button
-                           className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 text-xs font-medium text-emerald-100 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                           disabled={reviewSubmitting}
-                           type="button"
-                           onClick={() => onDecideReview(activeReview, 'approve')}
-                        >
-                           <CheckCircle2 className="size-3.5" />
-                           {fa.issue.approveReview}
-                        </button>
-                        <button
-                           className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 text-xs font-medium text-amber-100 hover:bg-amber-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                           disabled={reviewSubmitting}
-                           type="button"
-                           onClick={() => onDecideReview(activeReview, 'request-changes')}
-                        >
-                           <MessageSquareWarning className="size-3.5" />
-                           {fa.issue.requestChanges}
-                        </button>
-                     </div>
-                  ) : null}
-                  {canCancelActiveReview ? (
-                     <button
-                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.035] px-2 text-xs text-zinc-300 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={reviewSubmitting}
-                        type="button"
-                        onClick={() => onDecideReview(activeReview, 'cancel')}
-                     >
-                        <RotateCcw className="size-3.5" />
-                        {fa.issue.cancelReview}
-                     </button>
-                  ) : null}
-               </div>
-            ) : (
-               <button
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-sky-400/20 bg-sky-400/10 px-2 text-xs font-medium text-sky-100 hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!canRequestReview || reviewSubmitting}
-                  type="button"
-                  onClick={onRequestReview}
-               >
-                  {reviewSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <GitPullRequest className="size-3.5" />}
-                  {fa.issue.requestReview}
-               </button>
-            )}
-
-            {!activeReview && latestCompletedReview ? (
-               <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-white/7 bg-white/[0.02] px-2 py-1.5">
-                  <span className="min-w-0 truncate text-xs text-zinc-500">{formatJalaliDateTime(latestCompletedReview.updatedAt)}</span>
-                  <ReviewStatusBadge status={latestCompletedReview.status} />
-               </div>
-            ) : null}
-         </div>
-      </SidebarSection>
-   );
-}
-
-function ReviewReviewerPicker({
-   disabled,
-   users,
-   value,
-   onChange,
-}: {
-   disabled?: boolean;
-   users: TaskaraUser[];
-   value: string;
-   onChange: (userId: string) => void;
-}) {
-   const [open, setOpen] = useState(false);
-   const [query, setQuery] = useState('');
-   const selected = users.find((user) => user.id === value) || null;
-   const filteredUsers = useMemo(() => filterIssueAssigneeUsers(users, query), [query, users]);
-
-   const handleChange = (userId: string) => {
-      onChange(userId);
-      setOpen(false);
-   };
-
-   return (
-      <Popover open={open} onOpenChange={setOpen}>
-         <PopoverTrigger asChild>
-            <SidebarPickerTrigger
-               ariaLabel={fa.issue.reviewer}
-               disabled={disabled || !users.length}
-               muted={!selected}
-               icon={
-                  selected ? (
-                     <LinearAvatar name={selected.name} src={selected.avatarUrl} className="size-5" />
-                  ) : (
-                     <UserRoundCheck className="size-5 text-zinc-500" />
-                  )
-               }
-               label={selected?.name || fa.issue.reviewer}
-               open={open}
-            />
-         </PopoverTrigger>
-         <SidebarPickerContent className="w-80">
-            <PickerSearchField
-               value={query}
-               onChange={setQuery}
-               placeholder={assigneeSearchPlaceholder}
-            />
-            <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
-               {filteredUsers.length ? (
-                  filteredUsers.map((user) => (
-                     <SidebarPickerOption
-                        key={user.id}
-                        active={selected?.id === user.id}
-                        icon={<LinearAvatar name={user.name} src={user.avatarUrl} className="size-5" />}
-                        label={user.name}
-                        onClick={() => handleChange(user.id)}
-                     />
-                  ))
-               ) : (
-                  <div className="px-3 py-2 text-xs text-zinc-500">{noAssigneeSearchResult}</div>
-               )}
-            </div>
-         </SidebarPickerContent>
-      </Popover>
-   );
-}
-
-function ReviewMetaRow({ label, value }: { label: string; value: string }) {
-   return (
-      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden">
-         <span className="text-zinc-600">{label}</span>
-         <span className="min-w-0 truncate text-left text-zinc-400" dir="auto">{value}</span>
-      </div>
-   );
-}
-
-function ReviewStatusBadge({ status }: { status: TaskaraTaskReview['status'] }) {
-   return (
-      <span className={cn('max-w-24 shrink-0 truncate rounded-full border px-2 py-0.5 text-[11px]', reviewStatusClasses[status])}>
-         {reviewStatusLabels[status]}
-      </span>
-   );
-}
-
-const reviewStatusLabels = {
-   REQUESTED: 'در انتظار',
-   CHANGES_REQUESTED: 'نیازمند تغییر',
-   APPROVED: 'تایید شد',
-   CANCELED: 'لغو شد',
-};
-
-const reviewStatusClasses = {
-   REQUESTED: 'border-sky-400/20 bg-sky-400/10 text-sky-100',
-   CHANGES_REQUESTED: 'border-amber-400/20 bg-amber-400/10 text-amber-100',
-   APPROVED: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
-   CANCELED: 'border-zinc-400/15 bg-zinc-400/8 text-zinc-300',
-};
 
 type TimelineItem =
    | { id: string; createdAt: string; type: 'activity'; activity: TaskaraActivity }

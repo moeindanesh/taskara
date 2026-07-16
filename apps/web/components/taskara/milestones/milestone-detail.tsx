@@ -353,11 +353,12 @@ export function MilestoneDetail({
             <div className="flex min-w-0 items-center gap-2">
                <button
                   aria-label={fa.app.back}
-                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 px-2.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
                   type="button"
                   onClick={onBack}
                >
                   <ArrowRight className="size-4" />
+                  <span className="hidden sm:inline">{fa.milestone.title}</span>
                </button>
                <MilestoneGlyph className="size-8" />
                <div className="min-w-0">

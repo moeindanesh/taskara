@@ -235,15 +235,13 @@ test.describe('@manager-os manager surfaces', () => {
     await expectNoPageOverflow(page);
   });
 
-  test('issue detail review request starts without a default reviewer', async ({ page }) => {
+  test('issue detail does not show a review card', async ({ page }) => {
     await setupManagerPage(page);
     await gotoApp(page, `/${workspaceSlug}/issue/CORE-102`);
 
     await expect(page.getByTestId('issue-page')).toBeVisible();
-    const reviewSection = page.locator('aside section').filter({ hasText: 'بازبینی' });
-    await expect(reviewSection.getByRole('combobox', { name: 'بازبین' })).toContainText('بازبین');
-    await expect(reviewSection.getByText(users.reviewer.name)).toHaveCount(0);
-    await expect(reviewSection.getByRole('button', { name: 'درخواست بازبینی' })).toBeDisabled();
+    await expect(page.getByRole('combobox', { name: 'بازبین' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'درخواست بازبینی' })).toHaveCount(0);
     await expectNoPageOverflow(page);
   });
 
