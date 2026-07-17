@@ -91,6 +91,11 @@ type IssueLocationState = {
    from?: IssueReturnLocation | string;
 };
 
+type IssuePageProps = {
+   onClose?: () => void;
+   taskKey?: string;
+};
+
 const assigneeSearchPlaceholder = 'جستجو بین کارمندان...';
 const noAssigneeSearchResult = 'کارمندی پیدا نشد';
 const projectSearchPlaceholder = 'جستجو بین پروژه‌ها...';
@@ -222,10 +227,11 @@ function mergeIssueDetailTask(current: TaskaraTask | null, incoming: TaskaraTask
    };
 }
 
-export function IssuePage() {
+export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps = {}) {
    const location = useLocation();
    const navigate = useNavigate();
-   const { orgId, taskKey } = useParams();
+   const { orgId, taskKey: routeTaskKey } = useParams();
+   const taskKey = taskKeyOverride || routeTaskKey;
    const taskSync = useWorkspaceTaskSync();
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
@@ -265,6 +271,11 @@ export function IssuePage() {
    const loadRequestRef = useRef(0);
 
    const closeIssuePage = useCallback(() => {
+      if (onClose) {
+         onClose();
+         return;
+      }
+
       if (returnPath && returnPath !== currentPath) {
          navigate(returnPath);
          return;
@@ -276,7 +287,7 @@ export function IssuePage() {
       }
 
       navigate(fallbackIssuesPath);
-   }, [currentPath, fallbackIssuesPath, location.key, navigate, returnPath]);
+   }, [currentPath, fallbackIssuesPath, location.key, navigate, onClose, returnPath]);
 
    const loadActivity = useCallback(async (idOrKey: string) => {
       try {
@@ -384,6 +395,8 @@ export function IssuePage() {
    }, [load]);
 
    useEffect(() => {
+      if (onClose) return;
+
       const handleKeyDown = (event: KeyboardEvent) => {
          if (event.key !== 'Escape') return;
          closeIssuePage();
@@ -391,7 +404,7 @@ export function IssuePage() {
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-   }, [closeIssuePage]);
+   }, [closeIssuePage, onClose]);
 
    async function updateTask(patch: TaskUpdatePatch): Promise<TaskaraTask | null> {
       if (!task) return null;
@@ -402,7 +415,7 @@ export function IssuePage() {
          const updated = await taskSync.updateTask(task, patch);
          setTask((current) => (current ? { ...current, ...updated } : updated));
          await loadActivity(updated.key || task.key);
-         if (updated.key && updated.key !== task.key) {
+         if (!taskKeyOverride && updated.key && updated.key !== task.key) {
             navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(updated.key)}`, {
                replace: true,
                state: location.state,
@@ -816,8 +829,8 @@ export function IssuePage() {
                   variant="secondary"
                   onClick={closeIssuePage}
                >
-                  <ArrowRight className="size-4" />
-                  {fa.nav.issues}
+                  {onClose ? <X className="size-4" /> : <ArrowRight className="size-4" />}
+                  {onClose ? fa.app.close : fa.nav.issues}
                </Button>
                <span className="ltr text-sm font-medium text-zinc-500">{task.key}</span>
             </div>

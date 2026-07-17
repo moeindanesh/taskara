@@ -180,7 +180,7 @@ test.describe('@manager-os manager surfaces', () => {
     await expect.poll(() => requestedPaths.filter((path) => path === '/sync/push').length).toBe(pushesBeforeEdit + 1);
     await expect(saveTaskChanges).toBeHidden();
     await expect(page.getByText('اقدام بعدی')).toBeVisible();
-    await expect(page.getByText('۲ مورد باز')).toBeVisible();
+    await expect(page.getByText('۲ مورد باز')).toHaveCount(0);
     await expect(page.getByText('مانع فوری پرداخت')).toBeVisible();
     await expect(page.getByRole('link', { name: 'تصمیم تریاژ' })).toHaveAttribute('href', `/${workspaceSlug}/queues`);
     await expect(page.getByRole('link', { name: 'تصمیم‌های امروز' })).toHaveCount(0);
@@ -222,6 +222,83 @@ test.describe('@manager-os manager surfaces', () => {
     await expect(page.getByTestId('manager-cockpit-screen')).toBeVisible();
     await expect(page.getByText('Attention unavailable')).toBeVisible();
     await expect(page.getByText('صف توجه خالی است')).toHaveCount(0);
+  });
+
+  test('cockpit quick edit follows synced task updates without shifting its layout', async ({ page }) => {
+    await page.setViewportSize({ width: 760, height: 900 });
+    await setupManagerPage(page);
+    await gotoApp(page, `/${workspaceSlug}/cockpit`);
+
+    const taskQuickEdit = page.getByTestId('manager-task-quick-edit-task-blocked');
+    const status = taskQuickEdit.getByRole('button', { name: 'وضعیت' });
+    const priority = taskQuickEdit.getByRole('button', { name: 'اولویت' });
+    const assignee = taskQuickEdit.getByRole('button', { name: 'مسئول' });
+    const project = taskQuickEdit.getByRole('button', { name: 'پروژه' });
+    const dueAt = taskQuickEdit.getByRole('button', { name: 'سررسید' });
+    const saveTaskChanges = taskQuickEdit.getByRole('button', { name: 'ذخیره تغییرات' });
+    const initialDueAt = await dueAt.textContent();
+
+    await broadcastTaskSyncUpdate(page, {
+      ...tasks[3],
+      status: 'IN_PROGRESS',
+      priority: 'LOW',
+      assignee: users.reviewer,
+      project: null,
+      dueAt: '2026-07-09T10:00:00.000Z',
+      version: 2,
+    });
+
+    await expect(status).toContainText('در حال انجام');
+    await expect(priority).toContainText('کم');
+    await expect(assignee).toContainText(users.reviewer.name);
+    await expect(project).toContainText('پروژه');
+    await expect.poll(() => dueAt.textContent()).not.toBe(initialDueAt);
+    await expect(saveTaskChanges).toBeHidden();
+
+    const cleanHeight = await taskQuickEdit.evaluate((element) => element.getBoundingClientRect().height);
+    await priority.click();
+    await page.getByRole('button', { name: 'زیاد', exact: true }).click();
+    await expect(saveTaskChanges).toBeVisible();
+    await expect
+      .poll(() => taskQuickEdit.evaluate((element) => element.getBoundingClientRect().height))
+      .toBe(cleanHeight);
+
+    await broadcastTaskSyncUpdate(page, {
+      ...tasks[3],
+      status: 'IN_REVIEW',
+      priority: 'MEDIUM',
+      assignee: users.admin,
+      project: projects[0],
+      dueAt: '2026-07-10T10:00:00.000Z',
+      version: 3,
+    });
+
+    await expect(status).toContainText('در بازبینی');
+    await expect(priority).toContainText('زیاد');
+    await expect(assignee).toContainText(users.admin.name);
+    await expect(project).toContainText(projects[0].name);
+    await expect(saveTaskChanges).toBeVisible();
+  });
+
+  test('cockpit opens task issues in an escape-dismissed dialog without summary chrome', async ({ page }) => {
+    await setupManagerPage(page);
+    await gotoApp(page, `/${workspaceSlug}/cockpit`);
+
+    await expect(page.getByRole('heading', { name: 'صف تصمیم مدیر' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'به‌روزرسانی' })).toHaveCount(0);
+
+    const nextAction = page.getByRole('region', { name: 'اقدام بعدی' });
+    await nextAction.getByRole('button', { name: 'باز کردن', exact: true }).click();
+
+    const issueDialog = page.getByRole('dialog', { name: 'جزئیات کار CORE-104' });
+    await expect(issueDialog).toBeVisible();
+    await expect(issueDialog.getByTestId('issue-page')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/cockpit$`));
+
+    await page.keyboard.press('Escape');
+    await expect(issueDialog).toBeHidden();
+    await expect(page.getByTestId('manager-cockpit-screen')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/cockpit$`));
   });
 
   test('issue detail, inbox, and meetings routes render without horizontal overflow', async ({ page }) => {
@@ -399,6 +476,22 @@ type MockTaskaraOptions = {
 
 async function gotoApp(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
+}
+
+async function broadcastTaskSyncUpdate(page: Page, task: unknown) {
+  await page.evaluate(
+    ({ scopeKey, syncedTask }) => {
+      window.dispatchEvent(
+        new CustomEvent('taskara:task-sync-message', {
+          detail: { type: 'localTask', scopeKey, task: syncedTask },
+        })
+      );
+    },
+    {
+      scopeKey: `${workspaceSlug}:${users.admin.id}:all:all`,
+      syncedTask: task,
+    }
+  );
 }
 
 async function setupManagerPage(page: Page, options: MockTaskaraOptions = {}) {

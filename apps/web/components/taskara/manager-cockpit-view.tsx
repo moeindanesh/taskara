@@ -7,7 +7,6 @@ import {
    CalendarDays,
    CheckCircle2,
    CircleDot,
-   Clock3,
    EyeOff,
    ListChecks,
    Loader2,
@@ -17,6 +16,7 @@ import {
    TimerReset,
 } from 'lucide-react';
 import { LinearAvatar, LinearEmptyState, ProjectGlyph, StatusIcon } from '@/components/taskara/linear-ui';
+import { IssuePage } from '@/components/taskara/issue-page';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import {
    ComposerAssigneePill,
@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { fa } from '@/lib/fa-copy';
-import { formatJalaliDate, formatJalaliDateTime } from '@/lib/jalali';
+import { formatJalaliDate } from '@/lib/jalali';
 import { managerAttentionGroupKey } from '@/lib/manager-attention';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { isRetryableTaskSyncError, loadPendingTaskSyncMutations, sendTaskSyncMutation } from '@/lib/task-sync';
@@ -76,19 +76,18 @@ export function ManagerCockpitView() {
    const workspaceSlug = orgId || 'taskara';
    const [attention, setAttention] = useState<TaskaraAttentionResponse | null>(null);
    const [loading, setLoading] = useState(true);
-   const [refreshing, setRefreshing] = useState(false);
    const [error, setError] = useState<string | null>(null);
    const [pendingId, setPendingId] = useState<string | null>(null);
    const [dismissTarget, setDismissTarget] = useState<ManagerQueueItem | null>(null);
    const [dismissReason, setDismissReason] = useState('');
    const [agendaTarget, setAgendaTarget] = useState<TaskaraAttentionItem | null>(null);
+   const [issueTaskKey, setIssueTaskKey] = useState<string | null>(null);
    const [showAllActions, setShowAllActions] = useState(false);
    const loadRequestRef = useRef(0);
 
    const loadAttention = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
       const requestId = ++loadRequestRef.current;
       if (mode === 'initial') setLoading(true);
-      if (mode === 'refresh') setRefreshing(true);
       setError(null);
 
       try {
@@ -103,7 +102,6 @@ export function ManagerCockpitView() {
       } finally {
          if (requestId === loadRequestRef.current) {
             setLoading(false);
-            setRefreshing(false);
          }
       }
    }, []);
@@ -222,6 +220,9 @@ export function ManagerCockpitView() {
          setDismissReason('');
       },
       onOpenAgenda: item.primary.payload.oneOnOne ? () => setAgendaTarget(item.primary) : undefined,
+      onOpenIssue: attentionIssueTaskKey(item.primary)
+         ? () => setIssueTaskKey(attentionIssueTaskKey(item.primary))
+         : undefined,
       onResolve: () => void applyLifecycleAction(item, 'resolve'),
       onSnooze: () => void applyLifecycleAction(item, 'snooze'),
       orgId: workspaceSlug,
@@ -231,46 +232,6 @@ export function ManagerCockpitView() {
       <div className="flex h-full flex-col bg-background dark:bg-[#101011]" data-testid="manager-cockpit-screen">
          <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6 sm:py-7">
             <main className="mx-auto max-w-[1160px]">
-               <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/70 bg-card/55 p-4 sm:p-5">
-                  <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-32 rounded-full bg-indigo-400/10 blur-3xl" />
-                  <div className="relative flex flex-wrap items-start justify-between gap-4">
-                     <div className="flex min-w-0 items-start gap-3">
-                        <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl border border-indigo-400/20 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300">
-                           <ListChecks className="size-4" />
-                        </span>
-                        <div className="min-w-0">
-                           <div className="flex flex-wrap items-center gap-2">
-                              <h2 className="text-base text-foreground">صف تصمیم مدیر</h2>
-                              <span className="inline-flex items-center rounded-full border border-border/70 bg-background/60 px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
-                                 {fa.cockpit.queueCount(
-                                    visibleItems.length,
-                                    Boolean(attention && attention.total > attention.items.length)
-                                 )}
-                              </span>
-                           </div>
-                           <p className="mt-1.5 max-w-2xl text-xs leading-6 text-muted-foreground">
-                              {fa.cockpit.singleQueueDescription}
-                           </p>
-                           {attention?.generatedAt ? (
-                              <span className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                                 <Clock3 className="size-3.5" />
-                                 {fa.cockpit.generatedAt}: {formatJalaliDateTime(attention.generatedAt)}
-                              </span>
-                           ) : null}
-                        </div>
-                     </div>
-                     <button
-                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-border/70 bg-background/60 px-3 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-45"
-                        disabled={refreshing}
-                        type="button"
-                        onClick={() => void loadAttention('refresh')}
-                     >
-                        <RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />
-                        {fa.cockpit.refresh}
-                     </button>
-                  </div>
-               </div>
-
                {error ? (
                   <p className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
                      {error}
@@ -369,6 +330,17 @@ export function ManagerCockpitView() {
             </DialogContent>
          </Dialog>
 
+         <Dialog open={Boolean(issueTaskKey)} onOpenChange={(open) => !open && setIssueTaskKey(null)}>
+            <DialogContent
+               className="h-[calc(100svh-2rem)] max-h-[920px] max-w-[1280px] gap-0 overflow-hidden rounded-2xl border-white/10 bg-[#101011] p-0 text-zinc-100 [direction:rtl]"
+               showCloseButton={false}
+            >
+               <DialogTitle className="sr-only">جزئیات کار {issueTaskKey}</DialogTitle>
+               <DialogDescription className="sr-only">مشاهده و ویرایش جزئیات کار</DialogDescription>
+               {issueTaskKey ? <IssuePage taskKey={issueTaskKey} onClose={() => setIssueTaskKey(null)} /> : null}
+            </DialogContent>
+         </Dialog>
+
          <OneOnOneAgendaDialog
             item={agendaTarget}
             onClose={() => setAgendaTarget(null)}
@@ -382,6 +354,7 @@ interface AttentionCardActions {
    disabled: boolean;
    onDismiss: () => void;
    onOpenAgenda?: () => void;
+   onOpenIssue?: () => void;
    onResolve: () => void;
    onSnooze: () => void;
    orgId: string;
@@ -417,7 +390,13 @@ function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & At
             </div>
          </div>
          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4 dark:border-white/7">
-            <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} featured />
+            <AttentionOpenControl
+               item={primary}
+               onOpenAgenda={actions.onOpenAgenda}
+               onOpenIssue={actions.onOpenIssue}
+               orgId={actions.orgId}
+               featured
+            />
             <div className="flex flex-wrap items-center gap-2">
                <LifecycleControls {...actions} disabled={actions.disabled || hasTaskDraft} featured />
             </div>
@@ -460,7 +439,12 @@ function AttentionQueueRow({
             <span className="me-1 hidden text-[10px] text-zinc-600 lg:inline">
                {fa.cockpit.itemProgress(position, total)}
             </span>
-            <AttentionOpenControl item={primary} onOpenAgenda={actions.onOpenAgenda} orgId={actions.orgId} />
+            <AttentionOpenControl
+               item={primary}
+               onOpenAgenda={actions.onOpenAgenda}
+               onOpenIssue={actions.onOpenIssue}
+               orgId={actions.orgId}
+            />
             <LifecycleControls {...actions} disabled={actions.disabled || hasTaskDraft} />
          </div>
       </article>
@@ -560,9 +544,13 @@ function ManagerTaskQuickEdit({
          assignee,
       };
    }, [payloadTask, projects, tasks, users]);
-   const [draftTask, setDraftTask] = useState<TaskaraTask | null>(sourceTask);
+   const [stagedPatch, setStagedPatch] = useState<TaskUpdatePatch>({});
    const [openField, setOpenField] = useState<ManagerTaskQuickEditField | null>(null);
    const [saving, setSaving] = useState(false);
+   const draftTask = useMemo(
+      () => sourceTask ? applyManagerTaskQuickEditPatch(sourceTask, stagedPatch, projects, users) : null,
+      [projects, sourceTask, stagedPatch, users]
+   );
    const draftPatch = useMemo(
       () => sourceTask && draftTask ? buildManagerTaskQuickEditPatch(sourceTask, draftTask) : {},
       [draftTask, sourceTask]
@@ -570,8 +558,8 @@ function ManagerTaskQuickEdit({
    const hasChanges = Object.keys(draftPatch).length > 0;
 
    useEffect(() => {
-      if (!saving && !hasChanges) setDraftTask(sourceTask);
-   }, [hasChanges, saving, sourceTask]);
+      if (!saving && !hasChanges && Object.keys(stagedPatch).length) setStagedPatch({});
+   }, [hasChanges, saving, stagedPatch]);
 
    useEffect(() => {
       onDirtyChange?.(hasChanges || saving);
@@ -594,16 +582,19 @@ function ManagerTaskQuickEdit({
    };
 
    const stagePatch = (patch: TaskUpdatePatch) => {
-      if (saving) return;
-      setDraftTask((current) => current ? applyManagerTaskQuickEditPatch(current, patch, projects, users) : current);
+      if (saving || !sourceTask) return;
+      setStagedPatch((current) => {
+         const nextDraft = applyManagerTaskQuickEditPatch(sourceTask, { ...current, ...patch }, projects, users);
+         return buildManagerTaskQuickEditPatch(sourceTask, nextDraft);
+      });
    };
 
    const saveDraft = async () => {
       if (saving || !sourceTask || !Object.keys(draftPatch).length) return;
       setSaving(true);
       try {
-         const updated = await updateTask(sourceTask, draftPatch);
-         setDraftTask(updated);
+         await updateTask(sourceTask, draftPatch);
+         setStagedPatch({});
          toast.success('تغییرات کار ذخیره شد.');
       } catch (updateError) {
          toast.error(updateError instanceof Error ? updateError.message : fa.issue.updateFailed);
@@ -675,21 +666,22 @@ function ManagerTaskQuickEdit({
             onChange={(dueAt) => stagePatch({ dueAt })}
             onOpenChange={(open) => setFieldOpen('dueAt', open)}
          />
-         {hasChanges || saving ? (
-            <button
-               aria-label="ذخیره تغییرات"
-               className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-500 px-2.5 text-[11px] text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60',
-                  compact ? 'h-7' : 'h-8'
-               )}
-               disabled={saving}
-               type="button"
-               onClick={() => void saveDraft()}
-            >
-               {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-               ذخیره تغییرات
-            </button>
-         ) : null}
+         <button
+            aria-hidden={!hasChanges && !saving}
+            aria-label="ذخیره تغییرات"
+            className={cn(
+               'inline-flex w-28 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-2 text-[11px] text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60',
+               compact ? 'h-7' : 'h-8',
+               !hasChanges && !saving && 'invisible pointer-events-none'
+            )}
+            disabled={saving || !hasChanges}
+            tabIndex={hasChanges || saving ? 0 : -1}
+            type="button"
+            onClick={() => void saveDraft()}
+         >
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            ذخیره تغییرات
+         </button>
       </div>
    );
 }
@@ -768,11 +760,13 @@ function AttentionOpenControl({
    featured = false,
    item,
    onOpenAgenda,
+   onOpenIssue,
    orgId,
 }: {
    featured?: boolean;
    item: TaskaraAttentionItem;
    onOpenAgenda?: () => void;
+   onOpenIssue?: () => void;
    orgId: string;
 }) {
    const label = item.payload.actionLabel || fa.cockpit.openFocus;
@@ -784,6 +778,15 @@ function AttentionOpenControl({
       return (
          <button className={className} type="button" onClick={onOpenAgenda}>
             {label}
+            <ArrowUpRight className="size-3.5" />
+         </button>
+      );
+   }
+
+   if (item.payload.task?.key && onOpenIssue) {
+      return (
+         <button className={className} type="button" onClick={onOpenIssue}>
+            {fa.cockpit.openFocus}
             <ArrowUpRight className="size-3.5" />
          </button>
       );
@@ -803,7 +806,7 @@ function LifecycleControls({
    onDismiss,
    onResolve,
    onSnooze,
-}: Omit<AttentionCardActions, 'onOpenAgenda' | 'orgId'> & { featured?: boolean }) {
+}: Omit<AttentionCardActions, 'onOpenAgenda' | 'onOpenIssue' | 'orgId'> & { featured?: boolean }) {
    const buttonClassName = featured
       ? 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-white/8 dark:text-zinc-400 dark:hover:bg-white/[0.05]'
       : 'inline-flex size-8 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-white/[0.05]';
@@ -1240,6 +1243,11 @@ function attentionHref(item: TaskaraAttentionItem, orgId: string) {
    if (payload.actionItem) return `/${orgId}/meetings/${encodeURIComponent(payload.actionItem.meetingId)}`;
    if (payload.user) return `/${orgId}/people?person=${encodeURIComponent(payload.user.id)}`;
    return `/${orgId}/members`;
+}
+
+function attentionIssueTaskKey(item: TaskaraAttentionItem): string | null {
+   if (item.reason === 'backlog_triage') return null;
+   return item.payload.task?.key || null;
 }
 
 function attentionReasonLabel(reason: TaskaraAttentionItem['reason']) {
