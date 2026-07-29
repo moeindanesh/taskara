@@ -169,6 +169,27 @@ test.describe('@team-overview workspace graph', () => {
       await expect(arrival).not.toHaveAttribute('data-entering', 'true', { timeout: 4000 });
    });
 
+   test('sounds an issue creation once, without the graph chiming for it again', async ({ page }) => {
+      await page.addInitScript(recordOscillators);
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      // Clicking the person is both the gesture that unlocks audio and the way into the composer.
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      await expect(page.getByPlaceholder('عنوان کار')).toBeVisible();
+      const before = await countOscillators(page);
+
+      await page.getByPlaceholder('عنوان کار').fill('کار ساخته‌شده در تست');
+      await page.getByRole('button', { name: 'ایجاد کار', exact: true }).click();
+
+      // The new task really does reach the graph, so the arrival path runs...
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(4);
+      await page.waitForTimeout(1000);
+
+      // ...yet only the three voices of the creation sound played: the arrival chime stayed quiet.
+      expect(await countOscillators(page)).toBe(before + 3);
+   });
+
    test('keeps the sound toggle available and remembers the choice', async ({ page }) => {
       await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
 
@@ -183,6 +204,29 @@ test.describe('@team-overview workspace graph', () => {
       await expect(page.getByRole('button', { name: 'روشن کردن صدا' })).toBeVisible();
    });
 });
+
+/**
+ * Counts every oscillator the page starts. Sounds cannot be listened to from a test, but each
+ * distinct sound has a fixed number of voices, so the count tells us exactly which ones fired.
+ */
+function recordOscillators() {
+   const started: number[] = [];
+   (window as unknown as { __oscillators: number[] }).__oscillators = started;
+   const create = AudioContext.prototype.createOscillator;
+   AudioContext.prototype.createOscillator = function patched(this: AudioContext) {
+      const oscillator = create.call(this);
+      const start = oscillator.start.bind(oscillator);
+      oscillator.start = (when?: number) => {
+         started.push(when ?? 0);
+         start(when);
+      };
+      return oscillator;
+   };
+}
+
+function countOscillators(page: Page): Promise<number> {
+   return page.evaluate(() => (window as unknown as { __oscillators?: number[] }).__oscillators?.length ?? 0);
+}
 
 /** Injects a task the way the sync engine broadcasts one, as manager-os.spec.ts does. */
 async function addTaskViaSync(page: Page, task: unknown) {
@@ -239,7 +283,28 @@ async function mockTaskaraApi(page: Page) {
          });
       }
       if (path === '/sync/pull') return json(route, { cursor: query.get('cursor') || '1', events: [], hasMore: false });
-      if (path === '/sync/push') return json(route, { cursor: '2', results: [] });
+      if (path === '/sync/push') {
+         const body = request.postDataJSON() as { mutations?: Array<{ args: Record<string, unknown>; mutationId: string }> };
+         return json(route, {
+            cursor: '2',
+            results: (body.mutations || []).map((mutation) => ({
+               mutationId: mutation.mutationId,
+               status: 'applied',
+               workspaceSeq: '2',
+               entity: {
+                  ...taskBase,
+                  ...mutation.args,
+                  id: 'task-composed',
+                  key: 'CORE-300',
+                  createdAt: iso(0),
+                  updatedAt: iso(0),
+                  completedAt: null,
+                  progressStartedAt: null,
+                  assignee: taskaraUsers.find((user) => user.id === mutation.args?.assigneeId) || null,
+               },
+            })),
+         });
+      }
       if (path === '/me') return json(route, { workspace, user: people.admin, role: 'ADMIN', unreadNotifications: 0 });
       if (path === '/workspaces') {
          return json(route, {

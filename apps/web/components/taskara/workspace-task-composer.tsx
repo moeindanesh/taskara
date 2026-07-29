@@ -46,6 +46,7 @@ import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import type { TaskaraAttachment, TaskaraProject, TaskaraTask, TaskaraUser } from '@/lib/taskara-types';
 import { taskPriorities, taskStatuses, taskWeights } from '@/lib/taskara-presenters';
+import { bindSoundUnlock, playIssueCreated } from '@/lib/ui-sound';
 import { cn } from '@/lib/utils';
 import { useAuthSession } from '@/store/auth-store';
 
@@ -462,6 +463,10 @@ export function WorkspaceTaskComposer() {
       return () => window.removeEventListener('taskara:create-issue', handleCreateIssue);
    }, [openComposer]);
 
+   // The composer is mounted once for the whole workspace, so it is where the audio context gets
+   // its required first gesture — wherever in the app that gesture happens.
+   useEffect(() => bindSoundUnlock(), []);
+
    const openCreatedTask = useCallback(
       (task: TaskaraTask) => {
          navigate(`/${workspaceSlug}/issue/${encodeURIComponent(task.key)}`);
@@ -524,6 +529,9 @@ export function WorkspaceTaskComposer() {
 
       try {
          setSubmitting(true);
+         // Sounded on submit, not on the server's reply: the task is inserted optimistically, so the
+         // feedback should land with the user's action rather than with the network.
+         playIssueCreated();
          const createdTask = await createTask({
             projectId: form.projectId,
             title: form.title.trim(),

@@ -1,11 +1,11 @@
-// Sound for the Team Overview graph, synthesised with Web Audio rather than shipped as audio files:
-// a few oscillators weigh nothing, stay crisp at any volume, and can be detuned per arrival so a
-// burst of tasks lands as a chord instead of the same sample retriggered.
+// Interface sound, synthesised with Web Audio rather than shipped as audio files: a few oscillators
+// weigh nothing, stay crisp at any volume, and can be re-pitched per event so repeats land as a
+// phrase instead of the same sample retriggered.
 //
 // The tuning target is "a soft mallet on glass", not a game blip — short, warm, and quiet enough
 // that it reads as feedback rather than notification.
 
-const storageKey = 'taskara.team-overview.sound.v1';
+const storageKey = 'taskara.ui-sound.v1';
 
 let audioContext: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -141,6 +141,57 @@ export function playTaskArrival(index = 0): void {
          attack: 0.008,
          decay: 0.22,
          delay,
+      });
+   });
+}
+
+// Creating an issue plays its own sound, and the task then lands on the team overview graph, which
+// would chime again for the same event. The creator's sound wins: the graph stays silent for a beat
+// while still animating the arrival.
+let arrivalsSilentUntil = 0;
+
+export function suppressTaskArrivalSound(durationMs = 1500, now = Date.now()): void {
+   arrivalsSilentUntil = now + durationMs;
+}
+
+export function isTaskArrivalSoundSuppressed(now = Date.now()): boolean {
+   return now < arrivalsSilentUntil;
+}
+
+/**
+ * A new issue: a bright rising chirp — body, sub and a sparkle tail that lands late so the sound
+ * opens up rather than just stopping. Deliberately the most present sound in the set; creating work
+ * is the one moment worth celebrating.
+ */
+export function playIssueCreated(): void {
+   suppressTaskArrivalSound();
+   play((context, destination) => {
+      voice(context, destination, {
+         type: 'triangle',
+         fromFrequency: 659.26, // E5 sweeping to G6
+         toFrequency: 1567.98,
+         peak: 0.16,
+         attack: 0.014,
+         decay: 0.2,
+         delay: 0,
+      });
+      voice(context, destination, {
+         type: 'sine',
+         fromFrequency: 329.63,
+         toFrequency: 783.99,
+         peak: 0.1,
+         attack: 0.01,
+         decay: 0.26,
+         delay: 0,
+      });
+      voice(context, destination, {
+         type: 'sine',
+         fromFrequency: 1567.98,
+         toFrequency: 2093,
+         peak: 0.05,
+         attack: 0.02,
+         decay: 0.3,
+         delay: 0.06,
       });
    });
 }

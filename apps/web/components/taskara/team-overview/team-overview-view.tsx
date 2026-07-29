@@ -7,10 +7,10 @@ import { LinearEmptyState } from '@/components/taskara/linear-ui';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
+import { isSoundEnabled, playNodeOpen, playSoundEnabled, setSoundEnabled } from '@/lib/ui-sound';
 import { cn } from '@/lib/utils';
 import { GraphCanvas } from './graph-canvas';
 import { type GraphNode, taskNodeId } from './graph-model';
-import { bindSoundUnlock, isSoundEnabled, playNodeOpen, playSoundEnabled, setSoundEnabled } from './graph-sound';
 import { endOfWorkspaceDay } from './today-load';
 import { useTeamOverviewGraph } from './use-team-overview-graph';
 
@@ -24,10 +24,7 @@ export function TeamOverviewView() {
    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
    const [soundOn, setSoundOn] = useState(false);
 
-   useEffect(() => {
-      setSoundOn(isSoundEnabled());
-      return bindSoundUnlock();
-   }, []);
+   useEffect(() => setSoundOn(isSoundEnabled()), []);
 
    // Work created by other people should land on the graph on its own, so an arrival is something
    // you watch happen rather than something you find after a reload.

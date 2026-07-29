@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { isTaskArrivalSoundSuppressed, playTaskArrival } from '@/lib/ui-sound';
 import type { GraphNode, TeamOverviewGraph } from './graph-model';
-import { playTaskArrival } from './graph-sound';
 
 /** How long a node stays in its entrance animation; must match the keyframes in styles.css. */
 export const entranceDurationMs = 900;
@@ -64,7 +64,10 @@ export function useNodeEntrances(graph: TeamOverviewGraph): NodeEntrances {
       const byId = new Map(graph.nodes.map((node) => [node.id, node]));
       const arrivedTasks = entered.filter((id) => byId.get(id)?.kind === 'task');
 
-      arrivedTasks.slice(0, maxAnnouncedArrivals).forEach((_, index) => playTaskArrival(index));
+      // The composer already announced anything this tab just created.
+      if (!isTaskArrivalSoundSuppressed()) {
+         arrivedTasks.slice(0, maxAnnouncedArrivals).forEach((_, index) => playTaskArrival(index));
+      }
 
       if (reducedMotion) return;
 
