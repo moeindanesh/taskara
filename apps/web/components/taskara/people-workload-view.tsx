@@ -160,13 +160,23 @@ export function PeopleWorkloadView() {
       }
    }
 
+   // Delivered as a real notification now that there is a durable model for it; the clipboard
+   // fallback stays for the case where the request could not be sent.
    async function copyCheckInRequest(person: WorkHealthPerson) {
-      const text = fa.peopleWorkload.checkInRequestText(person.user.mattermostUsername ? `@${person.user.mattermostUsername}` : person.user.name);
       try {
-         await navigator.clipboard?.writeText(text);
-         toast.success(fa.peopleWorkload.copiedCheckInRequest);
+         await taskaraRequest('/check-ins/request', {
+            method: 'POST',
+            body: JSON.stringify({ userId: person.user.id }),
+         });
+         toast.success(fa.dailyReportsDigest.requested);
       } catch {
-         toast.message(text, { description: fa.peopleWorkload.checkInCopyFailed });
+         const text = fa.peopleWorkload.checkInRequestText(person.user.mattermostUsername ? `@${person.user.mattermostUsername}` : person.user.name);
+         try {
+            await navigator.clipboard?.writeText(text);
+            toast.success(fa.peopleWorkload.copiedCheckInRequest);
+         } catch {
+            toast.message(text, { description: fa.peopleWorkload.checkInCopyFailed });
+         }
       }
    }
 

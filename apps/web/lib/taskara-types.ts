@@ -312,14 +312,63 @@ export interface TaskaraCheckInResponse {
    userId: string;
    authorId?: string | null;
    completedText?: string | null;
+   unplannedText?: string | null;
    blockersText?: string | null;
    planText?: string | null;
    helpText?: string | null;
+   dateKey?: string | null;
    submittedFor: string;
    createdAt: string;
    updatedAt: string;
    user?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    author?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+}
+
+export interface TaskaraDailyReportCandidate {
+   taskId: string;
+   key: string;
+   title: string;
+   reason: 'completed' | 'created' | 'commented' | 'blocked' | 'focus';
+}
+
+export interface TaskaraDailyReportDraft {
+   dateKey: string;
+   existing: TaskaraCheckInResponse | null;
+   yesterday: TaskaraCheckInResponse | null;
+   completedCandidates: TaskaraDailyReportCandidate[];
+   unplannedCandidates: TaskaraDailyReportCandidate[];
+   blockedTasks: TaskaraDailyReportCandidate[];
+   planCandidates: TaskaraDailyReportCandidate[];
+}
+
+export interface TaskaraDailyReportDigestPerson {
+   id: string;
+   name: string;
+   email: string;
+   phone?: string | null;
+   avatarUrl?: string | null;
+}
+
+export interface TaskaraDailyReportDigest {
+   dateKey: string;
+   reports: TaskaraCheckInResponse[];
+   blockersFirst: TaskaraCheckInResponse[];
+   unplanned: TaskaraCheckInResponse[];
+   planVsDone: Array<{
+      userId: string;
+      user?: TaskaraDailyReportDigestPerson | null;
+      plannedYesterday: string | null;
+      completedToday: string | null;
+   }>;
+   missing: TaskaraDailyReportDigestPerson[];
+   stats: {
+      expected: number;
+      submitted: number;
+      missing: number;
+      participationRate: number;
+      blockerCount: number;
+      unplannedShare: number;
+   };
 }
 
 export interface TaskaraOneOnOneSeries {

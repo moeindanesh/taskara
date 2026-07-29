@@ -3,6 +3,8 @@ import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-r
 import MainLayout from '@/components/layout/main-layout';
 import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage } from '@/components/taskara/auth-pages';
 import { CommunicationsView } from '@/components/taskara/communications-view';
+import { DailyReportView } from '@/components/taskara/daily-report-view';
+import { DailyReportsDigestView } from '@/components/taskara/daily-reports-digest-view';
 import { HeartbeatView } from '@/components/taskara/heartbeat-view';
 import { InboxView } from '@/components/taskara/inbox-view';
 import { IssuePage } from '@/components/taskara/issue-page';
@@ -89,8 +91,12 @@ const pageMetaByRoute = {
     description: fa.pages.heartbeatDescription,
   },
   today: {
-    title: fa.nav.todayPlan,
-    description: fa.pages.todayPlanDescription,
+    title: fa.nav.dailyReport,
+    description: fa.pages.dailyReportDescription,
+  },
+  'daily-reports': {
+    title: fa.nav.dailyReportsDigest,
+    description: fa.pages.dailyReportsDigestDescription,
   },
   projects: {
     title: fa.nav.projects,
@@ -196,6 +202,8 @@ export function App() {
         <Route path="queues" element={<WorkspacePage><DecisionQueuesView /></WorkspacePage>} />
         <Route path="reviews" element={<WorkspacePage><ReviewsView /></WorkspacePage>} />
         <Route path="people" element={<WorkspacePage><PeopleWorkloadView /></WorkspacePage>} />
+        <Route path="today" element={<WorkspacePage><DailyReportView /></WorkspacePage>} />
+        <Route path="daily-reports" element={<WorkspacePage><DailyReportsDigestView /></WorkspacePage>} />
         <Route path="capacity" element={<WorkspacePage><CapacitySettingsView /></WorkspacePage>} />
         <Route path="inbox" element={<WorkspacePage><InboxView /></WorkspacePage>} />
         <Route path="communications" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />

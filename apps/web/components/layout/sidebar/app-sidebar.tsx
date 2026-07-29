@@ -42,9 +42,11 @@ import type { TaskaraMe, TaskaraWorkspaceMembership } from '@/lib/taskara-types'
 import { cn } from '@/lib/utils';
 import {
    ChevronDown,
+   ClipboardList,
    Diamond,
    Laptop,
    Moon,
+   NotebookPen,
    Plus,
    ScanEye,
    Search,
@@ -78,9 +80,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    );
 
    const currentRole = me?.role || getAuthSession()?.role;
-   const isManager = currentRole === 'OWNER';
+   // Matches the API's admin concept (isWorkspaceAdminRole), so manager surfaces in the sidebar and
+   // the routes behind them agree on who counts as a manager.
+   const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
    const cockpitHref = `/${orgId}/cockpit`;
    const myIssuesHref = `/${orgId}/team/all/all`;
+   const dailyReportHref = `/${orgId}/today`;
+   const dailyReportsDigestHref = `/${orgId}/daily-reports`;
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -297,6 +303,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         </SidebarMenuButton>
                      </SidebarMenuItem>
                   ) : null}
+                  {isManager ? (
+                     <SidebarMenuItem>
+                        <SidebarMenuButton
+                           asChild
+                           isActive={pathname === dailyReportsDigestHref}
+                           className={sidebarItemClassName}
+                        >
+                           <Link to={dailyReportsDigestHref}>
+                              <ClipboardList />
+                              <span>{fa.nav.dailyReportsDigest}</span>
+                           </Link>
+                        </SidebarMenuButton>
+                     </SidebarMenuItem>
+                  ) : null}
                   <SidebarMenuItem>
                      <SidebarMenuButton
                         asChild
@@ -306,6 +326,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         <Link to={myIssuesHref}>
                            <SidebarIssueIcon />
                            <span>{fa.nav.myIssues}</span>
+                        </Link>
+                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                     <SidebarMenuButton
+                        asChild
+                        isActive={pathname === dailyReportHref}
+                        className={sidebarItemClassName}
+                     >
+                        <Link to={dailyReportHref}>
+                           <NotebookPen />
+                           <span>{fa.nav.dailyReport}</span>
                         </Link>
                      </SidebarMenuButton>
                   </SidebarMenuItem>

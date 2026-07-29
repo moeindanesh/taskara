@@ -133,6 +133,7 @@ const taskSyncMutationActionLabels: Record<string, string> = {
    'attention.resolve': 'حل کردن مورد توجه',
    'attention.snooze': 'تعویق مورد توجه',
    'check_in.create': 'ثبت چک‌این',
+   'check_in.upsert': 'ثبت گزارش روزانه',
    'meeting_action_item.cancel': 'لغو کار خروجی جلسه',
    'meeting_action_item.carry_forward': 'انتقال کار خروجی به دستور جلسه',
    'meeting_action_item.complete': 'بستن کار خروجی جلسه',
