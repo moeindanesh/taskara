@@ -378,12 +378,18 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
 
   const blockersFirst = reports.filter((report) => report.blockersText || report.helpText);
   const unplanned = reports.filter((report) => report.unplannedText);
-  const planVsDone = reports.map((report) => ({
-    userId: report.userId,
-    user: report.user,
-    plannedYesterday: previousByUser.get(report.userId)?.planText ?? null,
-    completedToday: report.completedText
-  })).filter((entry) => entry.plannedYesterday);
+  const planVsDone = reports.map((report) => {
+    const plannedYesterday = previousByUser.get(report.userId)?.planText ?? null;
+    return {
+      userId: report.userId,
+      user: report.user,
+      plannedYesterday,
+      completedToday: report.completedText,
+      // Task keys make yesterday's plan machine-comparable to today's report, so a manager sees
+      // what slipped without reading two text blobs side by side.
+      tasks: diffPlannedTasks(plannedYesterday, report.completedText)
+    };
+  }).filter((entry) => entry.plannedYesterday);
 
   const expected = missing.expected;
   const submittedCount = reports.length;
@@ -404,6 +410,68 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
       // Share of the day's reports that included unexpected work — the team-health trend that
       // matters more than any single day's value.
       unplannedShare: submittedCount > 0 ? Math.round((unplanned.length / submittedCount) * 100) : 0
+    }
+  };
+}
+
+// Trends over a window. Direction matters far more than any single day: a rising unplanned-work
+// share is a process problem, and a falling participation rate means the ritual is dying.
+export async function buildDailyReportTrends(actor: RequestActor, days = 14, today = workspaceDateKey()) {
+  if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
+  const from = shiftDateKey(today, -(days - 1));
+
+  const [rows, members] = await Promise.all([
+    prisma.checkInResponse.findMany({
+      where: { workspaceId: actor.workspace.id, dateKey: { gte: from, lte: today } },
+      select: { userId: true, dateKey: true, unplannedText: true, blockersText: true, helpText: true }
+    }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      include: { user: { select: userSelect } }
+    })
+  ]);
+
+  const dayKeys: string[] = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) dayKeys.push(shiftDateKey(today, -offset));
+
+  const byDay = dayKeys.map((dateKey) => {
+    const dayRows = rows.filter((row) => row.dateKey === dateKey);
+    const withUnplanned = dayRows.filter((row) => row.unplannedText).length;
+    return {
+      dateKey,
+      submitted: dayRows.length,
+      expected: members.length,
+      unplanned: withUnplanned,
+      blockers: dayRows.filter((row) => row.blockersText || row.helpText).length,
+      unplannedShare: dayRows.length ? Math.round((withUnplanned / dayRows.length) * 100) : 0
+    };
+  });
+
+  const byPerson = members.map((member) => {
+    const personRows = rows.filter((row) => row.userId === member.userId);
+    return {
+      user: member.user,
+      submitted: personRows.length,
+      possible: days,
+      unplannedDays: personRows.filter((row) => row.unplannedText).length,
+      blockerDays: personRows.filter((row) => row.blockersText || row.helpText).length
+    };
+  }).sort((left, right) => right.submitted - left.submitted);
+
+  const totalSubmitted = rows.length;
+  return {
+    from,
+    to: today,
+    days,
+    byDay,
+    byPerson,
+    totals: {
+      submitted: totalSubmitted,
+      possible: members.length * days,
+      unplannedShare: totalSubmitted ? Math.round((rows.filter((row) => row.unplannedText).length / totalSubmitted) * 100) : 0,
+      blockerShare: totalSubmitted
+        ? Math.round((rows.filter((row) => row.blockersText || row.helpText).length / totalSubmitted) * 100)
+        : 0
     }
   };
 }
@@ -437,6 +505,20 @@ const taskKeyPattern = /\b[A-Z][A-Z0-9]*-\d+\b/g;
 
 function extractTaskKeys(text: string): Set<string> {
   return new Set(text.match(taskKeyPattern) ?? []);
+}
+
+export interface PlannedTaskDiff {
+  key: string;
+  status: 'done' | 'slipped';
+}
+
+// Compares the task keys someone planned against the ones they reported finishing. Keys only —
+// prose is left alone, because guessing intent from free text is how these features lose trust.
+export function diffPlannedTasks(planText: string | null, completedText: string | null): PlannedTaskDiff[] {
+  const planned = extractTaskKeys(planText ?? '');
+  if (!planned.size) return [];
+  const completed = extractTaskKeys(completedText ?? '');
+  return [...planned].map((key) => ({ key, status: completed.has(key) ? 'done' : 'slipped' }));
 }
 
 function taskFromActivitySnapshot(snapshot: unknown): { key: string; title: string } | null {

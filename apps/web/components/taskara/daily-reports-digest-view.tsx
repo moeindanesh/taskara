@@ -99,6 +99,8 @@ export function DailyReportsDigestView() {
             </div>
          ) : null}
 
+         <AiSummaryPanel dateKey={dateKey} hasReports={Boolean(digest?.reports.length)} />
+
          <LinearPanel title={fa.dailyReportsDigest.blockersTitle}>
             <p className="border-b border-white/7 px-4 py-2 text-xs text-white/50">
                {fa.dailyReportsDigest.blockersHint}
@@ -165,6 +167,25 @@ export function DailyReportsDigestView() {
                               value={entry.completedToday || '—'}
                            />
                         </div>
+                        {entry.tasks.length ? (
+                           <div className="mt-2 flex flex-wrap gap-1.5">
+                              {entry.tasks.map((task) => (
+                                 <span
+                                    key={task.key}
+                                    className={
+                                       task.status === 'done'
+                                          ? 'rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200'
+                                          : 'rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200'
+                                    }
+                                 >
+                                    {task.key} ·{' '}
+                                    {task.status === 'done'
+                                       ? fa.dailyReportsDigest.taskDone
+                                       : fa.dailyReportsDigest.taskSlipped}
+                                 </span>
+                              ))}
+                           </div>
+                        ) : null}
                      </article>
                   ))}
                </div>
@@ -197,6 +218,50 @@ export function DailyReportsDigestView() {
             )}
          </LinearPanel>
       </div>
+   );
+}
+
+// Opt-in, and never on the critical path: the raw reports render whether or not this succeeds.
+function AiSummaryPanel({ dateKey, hasReports }: { dateKey: string; hasReports: boolean }) {
+   const [summary, setSummary] = useState<string | null>(null);
+   const [busy, setBusy] = useState(false);
+
+   useEffect(() => {
+      setSummary(null);
+   }, [dateKey]);
+
+   if (!hasReports) return null;
+
+   const generate = async () => {
+      setBusy(true);
+      try {
+         const result = await taskaraRequest<{ summary: string | null }>('/check-ins/digest/summary', {
+            method: 'POST',
+            body: JSON.stringify({ dateKey }),
+         });
+         setSummary(result.summary);
+      } catch {
+         toast.error(fa.dailyReportsDigest.aiSummaryFailed);
+      } finally {
+         setBusy(false);
+      }
+   };
+
+   return (
+      <LinearPanel title={fa.dailyReportsDigest.aiSummaryTitle}>
+         <div className="flex flex-col gap-2 p-4">
+            {summary ? (
+               <>
+                  <p className="whitespace-pre-wrap text-sm text-white/85">{summary}</p>
+                  <span className="text-[11px] text-white/40">{fa.dailyReportsDigest.aiSummaryLabel}</span>
+               </>
+            ) : (
+               <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={() => void generate()}>
+                  {busy ? fa.dailyReportsDigest.aiSummaryGenerating : fa.dailyReportsDigest.aiSummaryGenerate}
+               </Button>
+            )}
+         </div>
+      </LinearPanel>
    );
 }
 

@@ -4,6 +4,7 @@ import {
   checkInDigestQuerySchema,
   checkInDraftQuerySchema,
   checkInListQuerySchema,
+  checkInTrendsQuerySchema,
   createCheckInResponseSchema,
   createMeetingActionItemSchema,
   createOneOnOneAgendaItemSchema,
@@ -20,6 +21,7 @@ import {
   addOneOnOneAgendaItem,
   buildCheckInDraft,
   buildDailyReportDigest,
+  buildDailyReportTrends,
   cancelMeetingActionItem,
   carryForwardMeetingActionItem,
   completeMeetingActionItem,
@@ -68,6 +70,12 @@ export async function registerCheckInRoutes(app: FastifyInstance): Promise<void>
     const actor = await getRequestActor(request);
     const query = checkInDigestQuerySchema.parse(request.query);
     return buildDailyReportDigest(actor, query.dateKey);
+  });
+
+  app.get('/check-ins/trends', async (request) => {
+    const actor = await getRequestActor(request);
+    const query = checkInTrendsQuerySchema.parse(request.query);
+    return buildDailyReportTrends(actor, query.days, query.dateKey);
   });
 
   app.post('/check-ins/request', async (request, reply) => {

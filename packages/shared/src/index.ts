@@ -682,6 +682,11 @@ export const checkInDigestQuerySchema = z.object({
   dateKey: dateKeySchema.optional()
 });
 
+export const checkInTrendsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(14),
+  dateKey: dateKeySchema.optional()
+});
+
 export const checkInDraftQuerySchema = z.object({
   dateKey: dateKeySchema.optional()
 });

@@ -50,6 +50,7 @@ import {
    Plus,
    ScanEye,
    Search,
+   Share2,
    Sun,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -83,6 +84,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    // Matches the API's admin concept (isWorkspaceAdminRole), so manager surfaces in the sidebar and
    // the routes behind them agree on who counts as a manager.
    const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
+   const teamOverviewHref = `/${orgId}/overview`;
    const cockpitHref = `/${orgId}/cockpit`;
    const myIssuesHref = `/${orgId}/team/all/all`;
    const dailyReportHref = `/${orgId}/today`;
@@ -289,6 +291,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {isManager ? fa.nav.managerLoop : fa.nav.workspace}
                </SidebarGroupLabel>
                <SidebarMenu>
+                  <SidebarMenuItem>
+                     <SidebarMenuButton
+                        asChild
+                        isActive={pathname === teamOverviewHref}
+                        className={sidebarItemClassName}
+                     >
+                        <Link to={teamOverviewHref}>
+                           <Share2 />
+                           <span>{fa.nav.teamOverview}</span>
+                        </Link>
+                     </SidebarMenuButton>
+                  </SidebarMenuItem>
                   {isManager ? (
                      <SidebarMenuItem>
                         <SidebarMenuButton

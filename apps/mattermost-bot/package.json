@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "daily-digest": "bun src/index.ts daily-digest",
+    "daily-report-digest": "bun src/index.ts daily-report-digest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit"
   },

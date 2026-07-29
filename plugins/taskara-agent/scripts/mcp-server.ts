@@ -480,6 +480,29 @@ registerTool('generate_daily_plan', {
   return api<JsonRecord>('/agent/daily-plan', { method: 'POST', body: {} });
 });
 
+registerTool('get_daily_report_draft', {
+  title: 'Get Taskara daily report draft',
+  description: "Fetch prefill material for today's daily report: completed/unexpected/plan candidates from real activity, plus yesterday's plan.",
+  inputSchema: { dateKey: z.string().optional() }
+}, async ({ dateKey }) => {
+  const query = dateKey ? `?dateKey=${encodeURIComponent(dateKey)}` : '';
+  return api<JsonRecord>(`/check-ins/draft${query}`, { method: 'GET' });
+});
+
+registerTool('submit_daily_report', {
+  title: 'Submit Taskara daily report',
+  description: "File or update the configured user's daily report for the current day. Draft the text with get_daily_report_draft and confirm it with the human before calling this.",
+  inputSchema: {
+    completedText: z.string().optional(),
+    unplannedText: z.string().optional(),
+    planText: z.string().optional(),
+    blockersText: z.string().optional(),
+    helpText: z.string().optional()
+  }
+}, async (input) => {
+  return api<JsonRecord>('/check-ins', { method: 'POST', body: input });
+});
+
 registerTool('plan_work', {
   title: 'Plan Taskara work',
   description: 'Rank open work by priority, due date, and blocker status for a project or the current user.',

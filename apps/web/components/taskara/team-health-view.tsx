@@ -24,6 +24,7 @@ import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDet
 import { taskaraRequest } from '@/lib/taskara-client';
 import type { TaskaraTask, WorkHealthPerson, WorkHealthProject, WorkHealthSummary } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
+import { DailyReportTrendsPanel } from './daily-report-trends';
 
 const statusOrder = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'] as const;
 const riskQueueOrder = ['overdue', 'blocked', 'review', 'stale', 'unassigned', 'backlog'] as const;
@@ -92,6 +93,8 @@ export function TeamHealthView() {
          </div>
 
          <main className="space-y-4 p-4 sm:p-6">
+            <DailyReportTrendsPanel />
+
             {error ? (
                <div className="rounded-md border border-red-400/25 bg-red-400/10 px-3 py-2 text-sm text-red-700 dark:text-red-200">
                   {error}

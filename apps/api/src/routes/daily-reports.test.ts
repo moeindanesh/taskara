@@ -220,6 +220,54 @@ describe('daily reports', () => {
     expect(body.planVsDone[0].completedToday).toBe('صفحه‌ی ورود تمام شد');
   });
 
+  test('trends report participation and unplanned-work share over a window', async () => {
+    const fixture = await createFixture();
+    const today = workspaceDateKey();
+
+    await prisma.checkInResponse.createMany({
+      data: [
+        { workspaceId: fixture.workspace.id, userId: fixture.users.member.id, dateKey: today, completedText: 'الف', unplannedText: 'وقفه' },
+        { workspaceId: fixture.workspace.id, userId: fixture.users.teammate.id, dateKey: today, completedText: 'ب' },
+        { workspaceId: fixture.workspace.id, userId: fixture.users.member.id, dateKey: shiftDateKey(today, -1), completedText: 'پ', blockersText: 'گیر' }
+      ]
+    });
+
+    const response = await injectAs(fixture, 'owner', { method: 'GET', url: '/check-ins/trends?days=7' });
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as {
+      days: number;
+      byDay: Array<{ dateKey: string; submitted: number; unplannedShare: number }>;
+      byPerson: Array<{ user: { id: string }; submitted: number; unplannedDays: number }>;
+      totals: { submitted: number; possible: number; unplannedShare: number; blockerShare: number };
+    };
+
+    expect(body.days).toBe(7);
+    expect(body.byDay).toHaveLength(7);
+    expect(body.byDay.at(-1)?.dateKey).toBe(today);
+    expect(body.byDay.at(-1)?.submitted).toBe(2);
+    // One of today's two reports carried unexpected work.
+    expect(body.byDay.at(-1)?.unplannedShare).toBe(50);
+
+    expect(body.totals.submitted).toBe(3);
+    // 4 reporting members over a 7-day window.
+    expect(body.totals.possible).toBe(28);
+    expect(body.totals.unplannedShare).toBe(33);
+    expect(body.totals.blockerShare).toBe(33);
+
+    const member = body.byPerson.find((entry) => entry.user.id === fixture.users.member.id);
+    expect(member?.submitted).toBe(2);
+    expect(member?.unplannedDays).toBe(1);
+  });
+
+  test('trends are admin-only', async () => {
+    const fixture = await createFixture();
+
+    const response = await injectAs(fixture, 'member', { method: 'GET', url: '/check-ins/trends' });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   test('digest is admin-only', async () => {
     const fixture = await createFixture();
 

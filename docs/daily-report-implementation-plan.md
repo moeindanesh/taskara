@@ -296,6 +296,45 @@ git diff --check
 
 Plus Playwright `@manager-os` e2e for PRs 2–4 and manual RTL/Jalali QA on the composer and digest.
 
+## Implementation Evidence — 2026-07-29
+
+All five phases shipped on branch `feat/daily-reports`. API suite grew from 123 to 156 tests, all passing.
+
+| Phase | State | Landed in |
+|---|---|---|
+| 1 — day semantics + API | Done | `feat(api): daily report day semantics, draft and digest` |
+| 2 — member composer | Done | `feat(web): daily report composer and manager digest` |
+| 3 — manager digest | Done | same commit as Phase 2 |
+| 4 — reminders & scheduler | Done | `feat(api): daily report reminders and morning digest job` |
+| 5 — insights, AI, channels | Done | `feat: daily report trends, AI summary and delivery channels` |
+
+Decisions taken during implementation (the four open questions in the section above):
+
+1. **Visibility** — went with peer-visible: OWNER/ADMIN/MEMBER read all reports; GUEST and AGENT stay scoped to their own rows (`listCheckIns`, `checkInEventVisible`).
+2. **Workdays & holidays** — Sat–Wed constant plus an empty in-code holiday set in `apps/api/src/services/workspace-time.ts`; no per-workspace settings model was introduced.
+3. **SMS escalation** — plumbing landed behind `TASKARA_DAILY_REPORT_SMS_ENABLED`, default off; the whole scheduler is behind `TASKARA_SCHEDULED_JOBS_ENABLED`, also default off.
+4. **Participation floor** — informational only. The digest and trends show a rate; nothing generates an attention item from low participation.
+
+Deviations from the plan as written:
+
+- `ScheduledJobRun` ships in Phase 4's migration (`20260729130000_scheduled_job_runs`), which also drops `SmsDailyReminderRun`. Phase 1's migration (`20260729120000_daily_report_fields`) touches only `CheckInResponse`.
+- The composer took the reserved `/:orgId/today` route, and the digest took a new `/:orgId/daily-reports`. The `todayPlan` copy keys were left alone because the heartbeat view still uses them; new `dailyReport` / `dailyReportsDigest` / `dailyReportTrends` copy sections were added instead.
+- Plan-vs-done comparison landed as task-key diffing (`diffPlannedTasks`) surfaced as done/slipped chips in the digest. It deliberately ignores prose — only keys the member actually wrote are compared.
+- The AI summary is a manual button rather than an automatic generation, so a summarizer failure can never delay or hide the raw reports.
+
+Local verification (2026-07-29):
+
+```bash
+bun run test:api                       # 156 pass, 0 fail
+bun run --filter @taskara/api typecheck
+bun run --filter @taskara/api lint
+bun run --filter @taskara/web typecheck
+bun run --filter @taskara/web lint
+bun run --filter @taskara/web build
+```
+
+Not yet done: Playwright `@manager-os` e2e coverage for the two new routes, and manual RTL/Jalali QA in a browser. The local dev database has a pre-existing failed migration (`20260429100000_user_phone_sms`) that blocks `prisma migrate deploy`; local schema was synced with `db push` instead. That failed-migration state predates this work and needs resolving before the next deploy.
+
 ## Research Sources
 
 Formats & practices: <https://martinfowler.com/articles/itsNotJustStandingUp.html> · <https://basecamp.com/guides/how-we-communicate> · <https://en.wikipedia.org/wiki/Progress,_plans,_problems> · <https://handbook.gitlab.com/handbook/company/culture/all-remote/asynchronous/> · <https://blog.idonethis.com/google-snippets-internal-tool/> · <https://mtlynch.io/status-updates-to-nobody/> · <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2414478> (end-of-day reflection improves performance) · <https://www.sciencedirect.com/science/article/abs/pii/S0164121216000066> (Stray et al., standup attitudes)

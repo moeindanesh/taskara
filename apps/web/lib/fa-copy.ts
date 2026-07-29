@@ -52,6 +52,7 @@ export const fa = {
       commandMenu: 'منوی فرمان',
       keyboardShortcuts: 'میانبرهای صفحه‌کلید',
       decisionQueues: 'تصمیم‌های امروز',
+      teamOverview: 'نمای تیم',
    },
    pages: {
       inboxDescription: 'اعلان‌های مرتبط با کارهای تسکارا و آخرین رویدادهای فضای کاری.',
@@ -77,6 +78,12 @@ export const fa = {
       reviewsDescription: 'صف بازبینی‌های سپرده‌شده به شما، با تصمیم مستقیم و لینک به کار اصلی.',
       peopleWorkloadDescription: 'نمای عملیاتی ظرفیت، فشار کاری، چک‌این، ۱:۱ و کارهای فعلی هر نفر.',
       capacitySettingsDescription: 'تنظیم ظرفیت افراد، WIP، SLA بازبینی، SLA انسداد و آستانه رکود برای سلامت کار.',
+      teamOverviewDescription: 'نقشه زنده تیم: هر نفر و بار امروزش، با رنگ وضعیت و اندازه وزن.',
+   },
+   teamOverview: {
+      loading: 'در حال ساخت نقشه تیم…',
+      emptyLoad: 'امروز هیچ کاری با سررسید امروز یا قبل‌تر روی کسی نیست.',
+      hint: 'روی هر کار بزنید تا باز شود، روی هر نفر بزنید تا کار تازه‌ای برایش بسازید.',
    },
    status: {
       BACKLOG: 'بک‌لاگ',
@@ -283,6 +290,21 @@ export const fa = {
          focus: 'باز',
       },
    },
+   dailyReportTrends: {
+      title: 'روند گزارش‌های روزانه',
+      subtitle: 'جهت روند مهم‌تر از عدد یک روز است.',
+      participation: 'مشارکت',
+      participationValue: (submitted: number, possible: number) =>
+         `${submitted.toLocaleString('fa-IR')} از ${possible.toLocaleString('fa-IR')} روزِ ممکن`,
+      unplannedShare: 'سهم کار غیرمنتظره',
+      blockerShare: 'سهم روزهای دارای گیر',
+      perPerson: 'به تفکیک افراد',
+      personDays: (submitted: number, possible: number) =>
+         `${submitted.toLocaleString('fa-IR')} از ${possible.toLocaleString('fa-IR')} روز`,
+      unplannedDays: (count: number) => `${count.toLocaleString('fa-IR')} روز کار غیرمنتظره`,
+      empty: 'هنوز داده‌ای برای این بازه ثبت نشده است.',
+      loadFailed: 'بارگذاری روند گزارش‌ها ناموفق بود.',
+   },
    dailyReportsDigest: {
       title: 'گزارش‌های روز',
       blockersTitle: 'گیرها و کمک‌خواسته‌ها',
@@ -312,6 +334,13 @@ export const fa = {
       blockersSection: 'گیر',
       helpSection: 'کمک لازم',
       byAuthor: (name: string) => `ثبت‌شده توسط ${name}`,
+      aiSummaryTitle: 'خلاصه‌ی هوش مصنوعی',
+      aiSummaryGenerate: 'ساخت خلاصه',
+      aiSummaryGenerating: 'در حال ساخت…',
+      aiSummaryLabel: 'تولیدشده توسط هوش مصنوعی — گزارش‌های اصلی پایین‌تر دست‌نخورده‌اند.',
+      aiSummaryFailed: 'ساخت خلاصه ناموفق بود.',
+      taskDone: 'انجام شد',
+      taskSlipped: 'عقب افتاد',
    },
    todayPlan: {
       capacityLabel: (limit: number) => `ظرفیت روزانه ${limit.toLocaleString('fa-IR')} وزن`,

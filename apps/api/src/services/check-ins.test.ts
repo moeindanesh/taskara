@@ -1,10 +1,33 @@
 import { describe, expect, test } from 'bun:test';
 import {
   dedupeAgendaCandidates,
+  diffPlannedTasks,
   latestCheckInByUser,
   taskTargetFromMeetingActionItem,
   type AgendaCandidate
 } from './check-ins';
+
+describe('plan versus done diffing', () => {
+  test('marks planned task keys as done or slipped based on what was reported', () => {
+    const diff = diffPlannedTasks('فردا TSK-1 و TSK-2 را تمام می‌کنم', 'TSK-1 تمام شد، روی چیز دیگری وقت گذاشتم');
+
+    expect(diff).toEqual([
+      { key: 'TSK-1', status: 'done' },
+      { key: 'TSK-2', status: 'slipped' }
+    ]);
+  });
+
+  test('stays empty when the plan named no task keys, rather than guessing from prose', () => {
+    expect(diffPlannedTasks('یک‌سری کار متفرقه', 'TSK-9 تمام شد')).toEqual([]);
+    expect(diffPlannedTasks(null, null)).toEqual([]);
+  });
+
+  test('ignores completed keys that were never planned', () => {
+    const diff = diffPlannedTasks('TSK-1', 'TSK-1 و TSK-5 تمام شدند');
+
+    expect(diff).toEqual([{ key: 'TSK-1', status: 'done' }]);
+  });
+});
 
 describe('check-in and one-on-one helpers', () => {
   test('keeps latest check-in by submitted date per user', () => {

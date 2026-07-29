@@ -349,6 +349,28 @@ export interface TaskaraDailyReportDigestPerson {
    avatarUrl?: string | null;
 }
 
+export interface TaskaraDailyReportTrends {
+   from: string;
+   to: string;
+   days: number;
+   byDay: Array<{
+      dateKey: string;
+      submitted: number;
+      expected: number;
+      unplanned: number;
+      blockers: number;
+      unplannedShare: number;
+   }>;
+   byPerson: Array<{
+      user: TaskaraDailyReportDigestPerson;
+      submitted: number;
+      possible: number;
+      unplannedDays: number;
+      blockerDays: number;
+   }>;
+   totals: { submitted: number; possible: number; unplannedShare: number; blockerShare: number };
+}
+
 export interface TaskaraDailyReportDigest {
    dateKey: string;
    reports: TaskaraCheckInResponse[];
@@ -359,6 +381,7 @@ export interface TaskaraDailyReportDigest {
       user?: TaskaraDailyReportDigestPerson | null;
       plannedYesterday: string | null;
       completedToday: string | null;
+      tasks: Array<{ key: string; status: 'done' | 'slipped' }>;
    }>;
    missing: TaskaraDailyReportDigestPerson[];
    stats: {
