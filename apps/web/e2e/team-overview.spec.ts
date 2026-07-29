@@ -136,7 +136,67 @@ test.describe('@team-overview workspace graph', () => {
       // The person that was clicked arrives preselected as the assignee.
       await expect(composer.getByText(people.member.name).first()).toBeVisible();
    });
+
+   test('pops in work that arrives while the graph is open', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+      // Nothing already on screen should be mid-entrance once the first layout is up.
+      await expect(page.locator('[data-entering="true"]')).toHaveCount(0);
+
+      await addTaskViaSync(page, {
+         ...taskBase,
+         id: 'task-arrived',
+         key: 'CORE-200',
+         title: 'کار تازه رسیده',
+         status: 'TODO',
+         priority: 'HIGH',
+         weight: 2,
+         dueAt: iso(0),
+         createdAt: iso(0),
+         updatedAt: iso(0),
+         completedAt: null,
+         progressStartedAt: null,
+         assignee: people.member,
+      });
+
+      const arrival = page.locator('[data-node-id="task:task-arrived"]');
+      await expect(arrival).toHaveCount(1);
+      // Caught mid-flight: the entrance marker is present while the pop plays.
+      await expect(arrival).toHaveAttribute('data-entering', 'true');
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(4);
+
+      // ...and clears once it has landed, so it animates exactly once.
+      await expect(arrival).not.toHaveAttribute('data-entering', 'true', { timeout: 4000 });
+   });
+
+   test('keeps the sound toggle available and remembers the choice', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+
+      const mute = page.getByRole('button', { name: 'خاموش کردن صدا' });
+      await expect(mute).toBeVisible();
+      await mute.click();
+
+      const unmute = page.getByRole('button', { name: 'روشن کردن صدا' });
+      await expect(unmute).toBeVisible();
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('button', { name: 'روشن کردن صدا' })).toBeVisible();
+   });
 });
+
+/** Injects a task the way the sync engine broadcasts one, as manager-os.spec.ts does. */
+async function addTaskViaSync(page: Page, task: unknown) {
+   await page.evaluate(
+      ({ scopeKey, syncedTask }) => {
+         window.dispatchEvent(
+            new CustomEvent('taskara:task-sync-message', {
+               detail: { type: 'localTask', scopeKey, task: syncedTask },
+            })
+         );
+      },
+      { scopeKey: `${workspaceSlug}:${people.admin.id}:all:all`, syncedTask: task }
+   );
+}
 
 async function seedAuth(page: Page) {
    await page.addInitScript(

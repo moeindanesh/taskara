@@ -8,6 +8,11 @@ import type { GraphNode, PersonGraphNode, TaskGraphNode, WorkspaceGraphNode } fr
 export interface GraphNodeShapeProps {
    node: GraphNode;
    dimmed: boolean;
+   /** Position in an arrival burst, or undefined when the node was already on the graph. */
+   entering?: number;
+   hovered: boolean;
+   pressed: boolean;
+   selected: boolean;
    /** Task titles are noise at a distance, so they appear on hover or once the view is zoomed in. */
    showTaskLabel: boolean;
    onActivate: (node: GraphNode) => void;
@@ -24,18 +29,18 @@ function initials(name: string): string {
    return parts.map((part) => Array.from(part)[0] ?? '').join('');
 }
 
+/** The colour a node paints with, as a Tailwind text class consumed through currentColor. */
+function nodeColorClassName(node: GraphNode): string {
+   if (node.kind === 'task') return (linearStatusMeta[node.status] || linearStatusMeta.TODO).iconClassName;
+   return 'text-primary';
+}
+
 function WorkspaceShape({ node }: { node: WorkspaceGraphNode }) {
    return (
       <>
+         <circle className="team-overview-aura pointer-events-none fill-primary/10" r={node.radius * 1.7} />
          <circle className="fill-primary/12 stroke-primary/50" r={node.radius} strokeWidth={1.5} />
          <circle className="fill-primary/70" r={node.radius * 0.34} />
-         <text
-            className="fill-foreground pointer-events-none text-[13px] font-medium"
-            textAnchor="middle"
-            y={node.radius + 18}
-         >
-            {truncate(node.label, 24)}
-         </text>
       </>
    );
 }
@@ -70,18 +75,11 @@ function PersonShape({ node }: { node: PersonGraphNode }) {
                {initials(node.label)}
             </text>
          )}
-         <text
-            className="fill-foreground pointer-events-none text-[11px]"
-            textAnchor="middle"
-            y={node.radius + 15}
-         >
-            {truncate(node.label, 18)}
-         </text>
       </>
    );
 }
 
-function TaskShape({ node, showLabel }: { node: TaskGraphNode; showLabel: boolean }) {
+function TaskShape({ node }: { node: TaskGraphNode }) {
    const meta = linearStatusMeta[node.status] || linearStatusMeta.TODO;
    const unestimated = node.weight === null;
 
@@ -97,15 +95,6 @@ function TaskShape({ node, showLabel }: { node: TaskGraphNode; showLabel: boolea
             strokeDasharray={unestimated ? '3 2.5' : undefined}
             strokeWidth={unestimated ? 1.75 : undefined}
          />
-         {showLabel ? (
-            <text
-               className="fill-muted-foreground pointer-events-none text-[9px]"
-               textAnchor="middle"
-               y={node.radius + 11}
-            >
-               {truncate(node.label, 26)}
-            </text>
-         ) : null}
       </>
    );
 }
@@ -113,20 +102,31 @@ function TaskShape({ node, showLabel }: { node: TaskGraphNode; showLabel: boolea
 export function GraphNodeShape({
    node,
    dimmed,
+   entering,
+   hovered,
+   pressed,
+   selected,
    showTaskLabel,
    onActivate,
    onHover,
    onPointerDown,
 }: GraphNodeShapeProps) {
    const isTask = node.kind === 'task';
+   const isWorkspace = node.kind === 'workspace';
+   const colorClassName = nodeColorClassName(node);
+   const arriving = entering !== undefined;
+   const animationDelay = arriving ? `${Math.min(entering, 6) * 70}ms` : undefined;
+   const scale = pressed ? 0.9 : hovered && !isWorkspace ? 1.16 : 1;
+   const labelOffset = node.radius + (isTask ? 11 : isWorkspace ? 18 : 15);
 
    return (
       <g
          className={cn(
-            'cursor-pointer transition-opacity duration-150',
+            'transition-opacity duration-150',
             dimmed ? 'opacity-20' : 'opacity-100',
-            node.kind === 'workspace' && 'cursor-default'
+            isWorkspace ? 'cursor-default' : 'cursor-pointer'
          )}
+         data-entering={arriving ? 'true' : undefined}
          data-node-id={node.id}
          data-node-kind={node.kind}
          data-node-label={node.label}
@@ -138,11 +138,58 @@ export function GraphNodeShape({
          onPointerLeave={() => onHover(null)}
          transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
       >
-         {/* A generous invisible target keeps small task nodes clickable. */}
-         <circle className="fill-transparent" r={Math.max(node.radius + 6, 12)} />
-         {node.kind === 'workspace' ? <WorkspaceShape node={node} /> : null}
-         {node.kind === 'person' ? <PersonShape node={node} /> : null}
-         {isTask ? <TaskShape node={node} showLabel={showTaskLabel} /> : null}
+         <g className={cn(arriving && 'team-overview-pop')} style={arriving ? { animationDelay } : undefined}>
+            {/* The shockwave marks where new work landed, then gets out of the way. */}
+            {arriving ? (
+               <circle
+                  className={cn('team-overview-shockwave pointer-events-none fill-none stroke-current', colorClassName)}
+                  r={node.radius}
+                  strokeWidth={2}
+                  style={{ animationDelay }}
+               />
+            ) : null}
+
+            {/* A generous invisible target keeps small task nodes clickable. */}
+            <circle className="fill-transparent" r={Math.max(node.radius + 6, 12)} />
+
+            <g className="team-overview-node" style={{ transform: `scale(${scale})` }}>
+               {hovered && !isWorkspace ? (
+                  <circle
+                     className={cn('pointer-events-none fill-current opacity-15', colorClassName)}
+                     r={node.radius * 2}
+                  />
+               ) : null}
+               {selected ? (
+                  <circle className="pointer-events-none fill-none stroke-primary" r={node.radius + 6} strokeWidth={2} />
+               ) : null}
+               {isWorkspace ? <WorkspaceShape node={node} /> : null}
+               {node.kind === 'person' ? <PersonShape node={node} /> : null}
+               {isTask ? <TaskShape node={node} /> : null}
+            </g>
+
+            {!isTask ? (
+               <text
+                  className={cn(
+                     'fill-foreground pointer-events-none',
+                     isWorkspace ? 'text-[13px] font-medium' : 'text-[11px]'
+                  )}
+                  textAnchor="middle"
+                  y={labelOffset}
+               >
+                  {truncate(node.label, isWorkspace ? 24 : 18)}
+               </text>
+            ) : null}
+
+            {isTask && showTaskLabel ? (
+               <text
+                  className="fill-muted-foreground pointer-events-none text-[9px]"
+                  textAnchor="middle"
+                  y={labelOffset}
+               >
+                  {truncate(node.label, 26)}
+               </text>
+            ) : null}
+         </g>
       </g>
    );
 }

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { GraphNodeShape } from './graph-nodes';
 import { type GraphNode, type TeamOverviewGraph, linkEndId } from './graph-model';
 import { useForceSimulation } from './use-force-simulation';
+import { useNodeEntrances } from './use-node-entrances';
 
 const minZoom = 0.35;
 const maxZoom = 3;
@@ -31,10 +32,12 @@ interface DragState {
 
 export interface GraphCanvasProps {
    graph: TeamOverviewGraph;
+   /** Node currently held open elsewhere, drawn with a persistent ring. */
+   selectedNodeId?: string | null;
    onSelectNode: (node: GraphNode) => void;
 }
 
-export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
+export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvasProps) {
    const containerRef = useRef<HTMLDivElement | null>(null);
    const svgRef = useRef<SVGSVGElement | null>(null);
    const dragRef = useRef<DragState | null>(null);
@@ -43,6 +46,7 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
    const [size, setSize] = useState({ width: 0, height: 0 });
    const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, k: 1 });
    const [hovered, setHovered] = useState<string | null>(null);
+   const [pressed, setPressed] = useState<string | null>(null);
    const nodesRef = useRef<GraphNode[]>([]);
    const sizeRef = useRef(size);
    sizeRef.current = size;
@@ -134,23 +138,15 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
       return () => svg.removeEventListener('wheel', handleWheel);
    }, []);
 
-   const toSimulationPoint = useCallback(
-      (clientX: number, clientY: number, transform: ViewTransform) => {
-         const rect = svgRef.current?.getBoundingClientRect();
-         return {
-            x: ((clientX - (rect?.left ?? 0)) - transform.x) / transform.k,
-            y: ((clientY - (rect?.top ?? 0)) - transform.y) / transform.k,
-         };
-      },
-      []
-   );
-
    const beginDrag = useCallback(
       (node: GraphNode | undefined, event: ReactPointerEvent<SVGElement>) => {
          if (event.button !== 0) return;
          event.currentTarget.setPointerCapture?.(event.pointerId);
          dragMovedRef.current = false;
-         if (node) startDrag(node);
+         if (node) {
+            startDrag(node);
+            setPressed(node.id);
+         }
          dragRef.current = {
             pointerId: event.pointerId,
             node,
@@ -187,6 +183,7 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
          if (drag.node) endDrag(drag.node);
          dragMovedRef.current = drag.moved;
          dragRef.current = null;
+         setPressed(null);
       },
       [endDrag]
    );
@@ -216,6 +213,7 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
    }, [hovered, links]);
 
    const showTaskLabels = view.k >= taskLabelZoom;
+   const { entering } = useNodeEntrances(graph);
 
    return (
       <div className="relative h-full w-full overflow-hidden" ref={containerRef}>
@@ -236,12 +234,25 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
                      const target = typeof link.target === 'string' ? undefined : link.target;
                      if (!source || !target) return null;
                      const faded = neighbours ? !neighbours.has(source.id) || !neighbours.has(target.id) : false;
+                     // A link to arriving work draws itself outward, so the task reads as pulled
+                     // out of the person rather than dropped next to them.
+                     const arriving = entering.get(target.id);
 
                      return (
                         <line
-                           className={cn('transition-opacity duration-150', faded ? 'opacity-10' : 'opacity-60')}
+                           className={cn(
+                              'transition-opacity duration-150',
+                              faded ? 'opacity-10' : 'opacity-60',
+                              arriving !== undefined && 'team-overview-link-draw'
+                           )}
                            key={link.id}
+                           pathLength={1}
                            strokeWidth={link.kind === 'membership' ? 1.25 : 0.85}
+                           style={
+                              arriving !== undefined
+                                 ? { animationDelay: `${Math.min(arriving, 6) * 70}ms` }
+                                 : undefined
+                           }
                            x1={source.x ?? 0}
                            x2={target.x ?? 0}
                            y1={source.y ?? 0}
@@ -253,11 +264,15 @@ export function GraphCanvas({ graph, onSelectNode }: GraphCanvasProps) {
                {nodes.map((node) => (
                   <GraphNodeShape
                      dimmed={neighbours ? !neighbours.has(node.id) : false}
+                     entering={entering.get(node.id)}
+                     hovered={hovered === node.id}
                      key={node.id}
                      node={node}
                      onActivate={handleActivate}
                      onHover={(next) => setHovered(next?.id ?? null)}
                      onPointerDown={beginDrag}
+                     pressed={pressed === node.id}
+                     selected={selectedNodeId === node.id}
                      showTaskLabel={showTaskLabels || hovered === node.id}
                   />
                ))}
