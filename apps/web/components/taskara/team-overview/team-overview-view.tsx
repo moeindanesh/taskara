@@ -10,8 +10,8 @@ import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { isSoundEnabled, playNodeOpen, playSoundEnabled, setSoundEnabled } from '@/lib/ui-sound';
 import { cn } from '@/lib/utils';
 import { GraphCanvas } from './graph-canvas';
-import { type GraphNode, taskNodeId } from './graph-model';
-import { endOfWorkspaceDay } from './today-load';
+import { type GraphNode, type PersonGraphNode, personNodeId, taskNodeId } from './graph-model';
+import { PersonSheet } from './person-sheet';
 import { useTeamOverviewGraph } from './use-team-overview-graph';
 
 /** The sync stream already pushes changes; this is the safety net for a dropped connection. */
@@ -22,6 +22,7 @@ export function TeamOverviewView() {
    const { refresh } = useWorkspaceTaskSync();
    const [issueTaskKey, setIssueTaskKey] = useState<string | null>(null);
    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
    const [soundOn, setSoundOn] = useState(false);
 
    useEffect(() => setSoundOn(isSoundEnabled()), []);
@@ -49,27 +50,27 @@ export function TeamOverviewView() {
       setSelectedTaskId(null);
    }, []);
 
-   const handleSelectNode = useCallback(
-      (node: GraphNode) => {
-         if (node.kind === 'task') {
-            playNodeOpen();
-            setSelectedTaskId(node.taskId);
-            setIssueTaskKey(node.taskKey);
-            return;
-         }
-
-         if (node.kind === 'person') {
-            playNodeOpen();
-            // Dating it today means the new task joins this person's load on the graph immediately.
-            window.dispatchEvent(
-               new CustomEvent('taskara:create-issue', {
-                  detail: { assigneeId: node.userId, dueAt: endOfWorkspaceDay(day).toISOString() },
-               })
-            );
-         }
-      },
-      [day]
+   const selectedPerson = useMemo(
+      () =>
+         (nodes.find((node) => node.kind === 'person' && node.userId === selectedPersonId) as
+            | PersonGraphNode
+            | undefined) ?? null,
+      [nodes, selectedPersonId]
    );
+
+   const handleSelectNode = useCallback((node: GraphNode) => {
+      if (node.kind === 'task') {
+         playNodeOpen();
+         setSelectedTaskId(node.taskId);
+         setIssueTaskKey(node.taskKey);
+         return;
+      }
+
+      if (node.kind === 'person') {
+         playNodeOpen();
+         setSelectedPersonId(node.userId);
+      }
+   }, []);
 
    const toggleSound = useCallback(() => {
       setSoundOn((current) => {
@@ -93,7 +94,13 @@ export function TeamOverviewView() {
                <GraphCanvas
                   graph={graph}
                   onSelectNode={handleSelectNode}
-                  selectedNodeId={selectedTaskId ? taskNodeId(selectedTaskId) : null}
+                  selectedNodeId={
+                     selectedTaskId
+                        ? taskNodeId(selectedTaskId)
+                        : selectedPersonId
+                          ? personNodeId(selectedPersonId)
+                          : null
+                  }
                />
             ) : null}
 
@@ -132,6 +139,15 @@ export function TeamOverviewView() {
                </>
             ) : null}
          </div>
+
+         <PersonSheet
+            day={day}
+            onOpenChange={(open) => {
+               if (!open) setSelectedPersonId(null);
+            }}
+            onOpenTask={setIssueTaskKey}
+            person={selectedPerson}
+         />
 
          <Dialog open={Boolean(issueTaskKey)} onOpenChange={(open) => !open && closeIssue()}>
             <DialogContent
