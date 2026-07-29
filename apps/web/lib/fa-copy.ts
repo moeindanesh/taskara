@@ -92,6 +92,7 @@ export const fa = {
       columnTask: 'کار',
       columnDue: 'سررسید',
       columnPriority: 'اولویت',
+      columnWeight: 'وزن',
       moveToToday: 'انتقال سررسید به امروز',
       assignToPerson: (name: string) => `سپردن به ${name} با سررسید امروز`,
       emptyPersonTasks: 'کار بازی برای این نفر نیست.',

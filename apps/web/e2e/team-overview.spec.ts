@@ -166,6 +166,31 @@ test.describe('@team-overview workspace graph', () => {
       await expect(undated.getByTestId('pull-into-today')).toHaveCount(0);
    });
 
+   test('edits weight and priority in place, and the graph resizes the node', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      // CORE-102 is weight 1 — the smallest a sized node can be.
+      const nodeCircle = page.locator('[data-node-id="task:task-today"] circle').nth(1);
+      const before = Number(await nodeCircle.getAttribute('r'));
+
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      const row = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-102' });
+
+      await row.getByRole('button', { name: 'وزن' }).click();
+      await page.getByRole('button', { name: 'وزن ۸' }).click();
+      await expect(row.getByRole('button', { name: 'وزن' })).toContainText('۸');
+
+      // Weight drives node size, so the edit is visible on the graph behind the sheet.
+      await expect
+         .poll(async () => Number(await nodeCircle.getAttribute('r')))
+         .toBeGreaterThan(before * 2.5);
+
+      await row.getByRole('button', { name: 'اولویت' }).click();
+      await page.getByRole('button', { name: 'فوری', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'اولویت' })).toContainText('فوری');
+   });
+
    test('assigns unowned work to the open person and dates it today', async ({ page }) => {
       await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
@@ -188,6 +213,17 @@ test.describe('@team-overview workspace graph', () => {
       // Nothing already on screen should be mid-entrance once the first layout is up.
       await expect(page.locator('[data-entering="true"]')).toHaveCount(0);
 
+      // The entrance lasts under a second, which a polling assertion can step straight over on a
+      // loaded machine. An in-page observer records that it happened at all.
+      await page.evaluate(() => {
+         const state = { seen: false };
+         (window as unknown as { __entrance: typeof state }).__entrance = state;
+         const check = () => {
+            if (document.querySelector('[data-node-id="task:task-arrived"][data-entering="true"]')) state.seen = true;
+         };
+         new MutationObserver(check).observe(document.body, { attributes: true, childList: true, subtree: true });
+      });
+
       await addTaskViaSync(page, {
          ...taskBase,
          id: 'task-arrived',
@@ -206,9 +242,12 @@ test.describe('@team-overview workspace graph', () => {
 
       const arrival = page.locator('[data-node-id="task:task-arrived"]');
       await expect(arrival).toHaveCount(1);
-      // Caught mid-flight: the entrance marker is present while the pop plays.
-      await expect(arrival).toHaveAttribute('data-entering', 'true');
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(4);
+
+      // It really did enter with the pop rather than simply appearing.
+      await expect
+         .poll(() => page.evaluate(() => (window as unknown as { __entrance: { seen: boolean } }).__entrance.seen))
+         .toBe(true);
 
       // ...and clears once it has landed, so it animates exactly once.
       await expect(arrival).not.toHaveAttribute('data-entering', 'true', { timeout: 4000 });

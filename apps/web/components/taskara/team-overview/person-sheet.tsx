@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { CalendarPlus, Plus, UserPlus } from 'lucide-react';
 import { LinearAvatar, StatusIcon } from '@/components/taskara/linear-ui';
-import { ComposerPriorityPill } from '@/components/taskara/workspace-task-composer';
+import { ComposerPriorityPill, ComposerWeightPill } from '@/components/taskara/workspace-task-composer';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDate } from '@/lib/jalali';
@@ -17,10 +17,14 @@ import { type WorkspaceDay, endOfWorkspaceDay } from './today-load';
 type SheetTab = 'person' | 'unassigned';
 
 /**
- * Task, due date, priority, action. Fixed tracks rather than intrinsic widths: the priority labels
- * range from «کم» to «بدون اولویت», so sizing to content leaves every column ragged.
+ * Task, due date, weight, priority, action. Fixed tracks rather than intrinsic widths: the priority
+ * labels range from «کم» to «بدون اولویت», so sizing to content leaves every column ragged.
+ *
+ * Five dense columns do not fit a phone, so below `sm` the title takes a line of its own and the
+ * controls share the next one — the alternative was 40px of horizontal overflow.
  */
-const rowGrid = 'grid grid-cols-[minmax(0,1fr)_6.5rem_9rem_1.75rem] items-center gap-2';
+const rowGrid =
+   'grid grid-cols-[repeat(3,minmax(0,1fr))_1.75rem] items-center gap-x-2 gap-y-1.5 sm:grid-cols-[minmax(0,1fr)_6.5rem_6.5rem_9rem_1.75rem] sm:gap-y-0';
 
 export interface PersonSheetProps {
    day: WorkspaceDay;
@@ -33,6 +37,7 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
    const { tasks, updateTask } = useWorkspaceTaskSync();
    const [tab, setTab] = useState<SheetTab>('person');
    const [openPriorityFor, setOpenPriorityFor] = useState<string | null>(null);
+   const [openWeightFor, setOpenWeightFor] = useState<string | null>(null);
    const [pending, setPending] = useState<Set<string>>(new Set());
 
    const personTasks = useMemo(
@@ -86,7 +91,8 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
    return (
       <Sheet open={Boolean(person)} onOpenChange={onOpenChange}>
          <SheetContent
-            className="w-full gap-0 border-white/10 bg-[#0b0b0c] p-0 text-zinc-100 sm:max-w-xl [direction:rtl]"
+            // Five columns need the room; at sm:max-w-xl the task title had nowhere left to go.
+            className="w-full gap-0 border-white/10 bg-[#0b0b0c] p-0 text-zinc-100 sm:max-w-2xl [direction:rtl]"
             side="left"
          >
             <SheetHeader className="gap-3 border-b border-white/6 px-5 py-4">
@@ -124,9 +130,16 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                      {tab === 'person' ? fa.teamOverview.emptyPersonTasks : fa.teamOverview.emptyUnassigned}
                   </p>
                ) : (
-                  <div className={cn(rowGrid, 'sticky top-0 z-10 bg-[#0b0b0c] px-3 py-2 text-[10px] text-zinc-600')}>
+                  <div
+                     className={cn(
+                        rowGrid,
+                        // The wrapped mobile row is self-describing; headers would only take space.
+                        'sticky top-0 z-10 hidden bg-[#0b0b0c] px-3 py-2 text-[10px] text-zinc-600 sm:grid'
+                     )}
+                  >
                      <span>{fa.teamOverview.columnTask}</span>
                      <span>{fa.teamOverview.columnDue}</span>
+                     <span>{fa.teamOverview.columnWeight}</span>
                      <span>{fa.teamOverview.columnPriority}</span>
                      <span />
                   </div>
@@ -144,7 +157,7 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                      key={task.id}
                   >
                      <button
-                        className="flex min-w-0 items-center gap-2 text-start"
+                        className="col-span-4 flex min-w-0 items-center gap-2 text-start sm:col-span-1"
                         onClick={() => onOpenTask(task.key)}
                         type="button"
                      >
@@ -161,6 +174,17 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                      >
                         {task.dueAt ? formatJalaliDate(task.dueAt) : fa.teamOverview.noDueDate}
                      </span>
+
+                     <ComposerWeightPill
+                        className="w-full max-w-none"
+                        disabled={pending.has(task.id)}
+                        onAfterChange={() => setOpenWeightFor(null)}
+                        // The menu speaks strings; the model stores a number, with '' meaning unestimated.
+                        onChange={(weight) => void mutate(task, { weight: weight === '' ? null : Number(weight) })}
+                        onOpenChange={(open) => setOpenWeightFor(open ? task.id : null)}
+                        open={openWeightFor === task.id}
+                        weight={task.weight === null || task.weight === undefined ? '' : String(task.weight)}
+                     />
 
                      <ComposerPriorityPill
                         className="w-full max-w-none"

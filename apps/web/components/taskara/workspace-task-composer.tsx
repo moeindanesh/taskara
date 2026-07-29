@@ -1277,13 +1277,17 @@ export function ComposerProjectPill({
    );
 }
 
-function ComposerWeightPill({
+export function ComposerWeightPill({
+   className,
+   disabled = false,
    open,
    weight,
    onAfterChange,
    onChange,
    onOpenChange,
 }: {
+   className?: string;
+   disabled?: boolean;
    open: boolean;
    weight: string;
    onAfterChange: () => void;
@@ -1300,7 +1304,9 @@ function ComposerWeightPill({
    return (
       <ComposerMenuPill
          ariaLabel={fa.issue.weight}
+         className={className}
          contentClassName="w-auto min-w-[11rem]"
+         disabled={disabled}
          icon={weight ? <Box className="size-3.5 text-zinc-500" /> : <XCircle className="size-3.5 text-zinc-500" />}
          label={weightLabel}
          open={open}
