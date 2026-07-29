@@ -893,9 +893,11 @@ model CheckInResponse {
   userId        String   @db.Uuid
   authorId      String?  @db.Uuid
   completedText String?
+  unplannedText String?
   blockersText  String?
   planText      String?
   helpText      String?
+  dateKey       String?
   submittedFor  DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -904,6 +906,8 @@ model CheckInResponse {
   user      User      @relation("CheckInUser", fields: [userId], references: [id], onDelete: Cascade)
   author    User?     @relation("CheckInAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
+  @@unique([workspaceId, userId, dateKey])
+  @@index([workspaceId, dateKey])
   @@index([workspaceId, userId, submittedFor])
   @@index([workspaceId, createdAt])
 }

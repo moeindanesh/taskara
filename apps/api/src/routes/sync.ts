@@ -497,7 +497,7 @@ async function applyMutation(
     return dismissAttentionItem(actor, input.id, input.reason, meta);
   }
 
-  if (name === 'check_in.create') {
+  if (name === 'check_in.create' || name === 'check_in.upsert') {
     const input = checkInCreateMutationArgsSchema.parse(args);
     return createCheckInResponse(actor, input, meta);
   }
@@ -858,6 +858,9 @@ function attentionEventVisible(attention: Record<string, unknown>, actor: Reques
 }
 
 function checkInEventVisible(checkIn: Record<string, unknown>, actor: RequestActor): boolean {
+  // Daily reports are peer-visible, so any full member sees the team's reports stream. Guests and
+  // agents stay limited to rows they are the subject or author of.
+  if (actor.role === 'MEMBER') return true;
   return checkIn.userId === actor.user.id || checkIn.authorId === actor.user.id;
 }
 

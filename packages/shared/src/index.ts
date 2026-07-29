@@ -640,15 +640,21 @@ export const createMeetingTasksSchema = z.object({
   })).min(1).max(50)
 });
 
+export const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date key');
+
 export const createCheckInResponseSchema = z.object({
   userId: z.string().uuid().optional(),
   completedText: z.string().trim().max(5000).nullable().optional(),
+  unplannedText: z.string().trim().max(5000).nullable().optional(),
   blockersText: z.string().trim().max(5000).nullable().optional(),
   planText: z.string().trim().max(5000).nullable().optional(),
   helpText: z.string().trim().max(5000).nullable().optional(),
+  dateKey: dateKeySchema.optional(),
   submittedFor: z.string().datetime().optional()
 }).superRefine((value, ctx) => {
-  if (!value.completedText?.trim() && !value.blockersText?.trim() && !value.planText?.trim() && !value.helpText?.trim()) {
+  const hasAnswer = [value.completedText, value.unplannedText, value.blockersText, value.planText, value.helpText]
+    .some((field) => Boolean(field?.trim()));
+  if (!hasAnswer) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['planText'],
@@ -660,12 +666,29 @@ export const createCheckInResponseSchema = z.object({
 export const checkInListQuerySchema = z.object({
   userId: z.string().uuid().optional(),
   since: z.string().datetime().optional(),
+  dateKey: dateKeySchema.optional(),
+  from: dateKeySchema.optional(),
+  to: dateKeySchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
 
 export const missingCheckInQuerySchema = z.object({
-  hours: z.coerce.number().int().min(1).max(720).default(24)
+  hours: z.coerce.number().int().min(1).max(720).default(24),
+  dateKey: dateKeySchema.optional()
+});
+
+export const checkInDigestQuerySchema = z.object({
+  dateKey: dateKeySchema.optional()
+});
+
+export const checkInDraftQuerySchema = z.object({
+  dateKey: dateKeySchema.optional()
+});
+
+export const requestCheckInSchema = z.object({
+  userId: z.string().uuid(),
+  message: z.string().trim().max(500).nullable().optional()
 });
 
 export const createOneOnOneSeriesSchema = z.object({
