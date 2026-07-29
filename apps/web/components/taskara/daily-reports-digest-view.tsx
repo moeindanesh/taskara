@@ -61,11 +61,9 @@ export function DailyReportsDigestView() {
 
    return (
       <div className="flex w-full flex-col gap-5 p-6">
+         {/* PageHeader already names the screen; this row only carries the day and its controls. */}
          <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-               <h1 className="text-lg font-semibold text-white">{fa.dailyReportsDigest.title}</h1>
-               <span className="text-xs text-white/50">{dayLabel}</span>
-            </div>
+            <span className="text-[13px] text-zinc-500 dark:text-zinc-400">{dayLabel}</span>
             <div className="flex items-center gap-2">
                <Button type="button" variant="ghost" size="sm" onClick={() => setDateKey(shiftDay(dateKey, -1))}>
                   {fa.dailyReportsDigest.previousDay}
@@ -86,14 +84,14 @@ export function DailyReportsDigestView() {
          </header>
 
          {stats ? (
-            <div className="flex flex-wrap gap-2 text-xs text-white/60">
-               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+               <span className="rounded-full border border-zinc-200 dark:border-white/8 bg-zinc-100 dark:bg-white/5 px-3 py-1">
                   {fa.dailyReportsDigest.submittedStat(stats.submitted, stats.expected)}
                </span>
-               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+               <span className="rounded-full border border-zinc-200 dark:border-white/8 bg-zinc-100 dark:bg-white/5 px-3 py-1">
                   {fa.dailyReportsDigest.blockerStat(stats.blockerCount)}
                </span>
-               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+               <span className="rounded-full border border-zinc-200 dark:border-white/8 bg-zinc-100 dark:bg-white/5 px-3 py-1">
                   {fa.dailyReportsDigest.unplannedStat(stats.unplannedShare)}
                </span>
             </div>
@@ -102,7 +100,7 @@ export function DailyReportsDigestView() {
          <AiSummaryPanel dateKey={dateKey} hasReports={Boolean(digest?.reports.length)} />
 
          <LinearPanel title={fa.dailyReportsDigest.blockersTitle}>
-            <p className="border-b border-white/7 px-4 py-2 text-xs text-white/50">
+            <p className="border-b border-zinc-200 dark:border-white/7 px-4 py-2 text-xs text-zinc-500 dark:text-zinc-400">
                {fa.dailyReportsDigest.blockersHint}
             </p>
             {digest?.blockersFirst.length ? (
@@ -128,7 +126,7 @@ export function DailyReportsDigestView() {
             {digest?.unplanned.length ? (
                <div className="flex flex-col gap-3 p-4">
                   {digest.unplanned.map((report) => (
-                     <article key={report.id} className="rounded-lg border border-white/10 bg-[#111113] p-3">
+                     <article key={report.id} className="rounded-lg border border-zinc-200 dark:border-white/8 bg-white dark:bg-[#161618] p-3">
                         <PersonLine user={report.user} />
                         <ReportField label={fa.dailyReportsDigest.unplannedSection} value={report.unplannedText || ''} />
                      </article>
@@ -155,7 +153,7 @@ export function DailyReportsDigestView() {
             <LinearPanel title={fa.dailyReportsDigest.planVsDoneTitle}>
                <div className="flex flex-col gap-3 p-4">
                   {digest.planVsDone.map((entry) => (
-                     <article key={entry.userId} className="rounded-lg border border-white/10 bg-[#111113] p-3">
+                     <article key={entry.userId} className="rounded-lg border border-zinc-200 dark:border-white/8 bg-white dark:bg-[#161618] p-3">
                         <PersonLine user={entry.user} />
                         <div className="mt-2 grid gap-3 sm:grid-cols-2">
                            <ReportField
@@ -174,8 +172,8 @@ export function DailyReportsDigestView() {
                                     key={task.key}
                                     className={
                                        task.status === 'done'
-                                          ? 'rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200'
-                                          : 'rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200'
+                                          ? 'rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-200'
+                                          : 'rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-200'
                                     }
                                  >
                                     {task.key} ·{' '}
@@ -198,7 +196,7 @@ export function DailyReportsDigestView() {
                   {digest.missing.map((person) => (
                      <div
                         key={person.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#111113] px-3 py-2"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 dark:border-white/8 bg-white dark:bg-[#161618] px-3 py-2"
                      >
                         <PersonLine user={person} />
                         <Button
@@ -252,8 +250,8 @@ function AiSummaryPanel({ dateKey, hasReports }: { dateKey: string; hasReports: 
          <div className="flex flex-col gap-2 p-4">
             {summary ? (
                <>
-                  <p className="whitespace-pre-wrap text-sm text-white/85">{summary}</p>
-                  <span className="text-[11px] text-white/40">{fa.dailyReportsDigest.aiSummaryLabel}</span>
+                  <p className="whitespace-pre-wrap text-sm text-zinc-800 dark:text-zinc-200">{summary}</p>
+                  <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{fa.dailyReportsDigest.aiSummaryLabel}</span>
                </>
             ) : (
                <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={() => void generate()}>
@@ -267,11 +265,11 @@ function AiSummaryPanel({ dateKey, hasReports }: { dateKey: string; hasReports: 
 
 function ReportCard({ report }: { report: TaskaraCheckInResponse }) {
    return (
-      <article className="rounded-lg border border-white/10 bg-[#111113] p-3">
+      <article className="rounded-lg border border-zinc-200 dark:border-white/8 bg-white dark:bg-[#161618] p-3">
          <div className="flex items-center justify-between gap-3">
             <PersonLine user={report.user} />
             {report.author && report.authorId !== report.userId ? (
-               <span className="text-[11px] text-white/40">{fa.dailyReportsDigest.byAuthor(report.author.name)}</span>
+               <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{fa.dailyReportsDigest.byAuthor(report.author.name)}</span>
             ) : null}
          </div>
          <div className="mt-2 flex flex-col gap-2">
@@ -292,8 +290,8 @@ function ReportCard({ report }: { report: TaskaraCheckInResponse }) {
 function ReportField({ label, value }: { label: string; value: string }) {
    return (
       <div className="flex flex-col gap-0.5">
-         <span className="text-[11px] uppercase tracking-wide text-white/40">{label}</span>
-         <p className="whitespace-pre-wrap text-sm text-white/85">{linkifyTaskKeys(value)}</p>
+         <span className="text-[11px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{label}</span>
+         <p className="whitespace-pre-wrap text-sm text-zinc-800 dark:text-zinc-200">{linkifyTaskKeys(value)}</p>
       </div>
    );
 }
@@ -303,7 +301,7 @@ function PersonLine({ user }: { user?: TaskaraDailyReportDigestPerson | null }) 
    return (
       <div className="flex items-center gap-2">
          <LinearAvatar name={user.name} src={user.avatarUrl} />
-         <span className="text-sm text-white/85">{user.name}</span>
+         <span className="text-sm text-zinc-800 dark:text-zinc-200">{user.name}</span>
       </div>
    );
 }
@@ -326,7 +324,7 @@ function linkifyTaskKeys(value: string) {
       typeof part === 'string' ? (
          <span key={index}>{part}</span>
       ) : (
-         <Link key={index} to={`../issue/${part.key}`} relative="path" className="text-sky-300 hover:underline">
+         <Link key={index} to={`../issue/${part.key}`} relative="path" className="text-sky-600 dark:text-sky-300 hover:underline">
             {part.key}
          </Link>
       )

@@ -33,7 +33,7 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
    return (
       <LinearPanel title={fa.dailyReportTrends.title}>
          <div className="flex flex-col gap-4 p-4">
-            <p className="text-xs text-white/50">{fa.dailyReportTrends.subtitle}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{fa.dailyReportTrends.subtitle}</p>
 
             <div className="grid gap-3 sm:grid-cols-3">
                <Stat
@@ -56,11 +56,11 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
                      <div key={day.dateKey} className="flex flex-1 flex-col items-center gap-1" title={day.dateKey}>
                         <div className="flex h-16 w-full items-end">
                            <div
-                              className="w-full rounded-sm bg-sky-400/40"
+                              className="w-full rounded-sm bg-sky-500/50 dark:bg-sky-400/40"
                               style={{ height: `${Math.round((day.submitted / maxSubmitted) * 100)}%` }}
                            />
                         </div>
-                        <span className="text-[10px] text-white/35">{day.dateKey.slice(8)}</span>
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{day.dateKey.slice(8)}</span>
                      </div>
                   ))}
                </div>
@@ -69,17 +69,17 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
             )}
 
             <div className="flex flex-col gap-2">
-               <span className="text-xs font-medium text-white/70">{fa.dailyReportTrends.perPerson}</span>
+               <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{fa.dailyReportTrends.perPerson}</span>
                {trends.byPerson.map((person) => (
                   <div key={person.user.id} className="flex items-center justify-between gap-3 text-xs">
                      <div className="flex items-center gap-2">
                         <LinearAvatar name={person.user.name} src={person.user.avatarUrl} />
-                        <span className="text-white/80">{person.user.name}</span>
+                        <span className="text-zinc-700 dark:text-zinc-300">{person.user.name}</span>
                      </div>
-                     <div className="flex items-center gap-3 text-white/50">
+                     <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400">
                         <span>{fa.dailyReportTrends.personDays(person.submitted, person.possible)}</span>
                         {person.unplannedDays ? (
-                           <span className="text-amber-200/70">
+                           <span className="text-amber-700 dark:text-amber-300/80">
                               {fa.dailyReportTrends.unplannedDays(person.unplannedDays)}
                            </span>
                         ) : null}
@@ -94,9 +94,9 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
    return (
-      <div className="rounded-lg border border-white/10 bg-[#111113] px-3 py-2">
-         <div className="text-[11px] text-white/45">{label}</div>
-         <div className="text-sm text-white/90">{value}</div>
+      <div className="rounded-lg border border-zinc-200 dark:border-white/8 bg-white dark:bg-[#161618] px-3 py-2">
+         <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{label}</div>
+         <div className="text-sm text-zinc-900 dark:text-zinc-100">{value}</div>
       </div>
    );
 }

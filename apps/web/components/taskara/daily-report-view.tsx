@@ -276,11 +276,17 @@ function ReportStep({
 }: ReportStepProps) {
    return (
       <section className="flex gap-3 px-5 py-4">
-         {step ? (
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-[10px] text-zinc-400 dark:border-white/10 dark:text-zinc-500">
-               {step.toLocaleString('fa-IR')}
-            </span>
-         ) : null}
+         {/* The gutter is reserved even when a step has no number, so every label in the card
+             shares one edge instead of the sub-questions hanging off it. */}
+         <span
+            aria-hidden={!step}
+            className={cn(
+               'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px]',
+               step && 'border border-zinc-200 text-zinc-400 dark:border-white/10 dark:text-zinc-500'
+            )}
+         >
+            {step ? step.toLocaleString('fa-IR') : null}
+         </span>
 
          <div className="min-w-0 flex-1">
             <label className="block text-[13px] font-medium text-zinc-900 dark:text-zinc-100">{label}</label>
@@ -322,8 +328,13 @@ function ReportStep({
    );
 }
 
-// The title is the only part a person can actually recognise, so it leads. The key stays as a small
-// muted anchor and the reason moves to the tooltip, since it repeats across every chip in a row.
+// Whole-key match, so TASKARA-7 is not reported as already added just because TASKARA-70 is there.
+function mentionsTaskKey(value: string, key: string): boolean {
+   return new RegExp(`(^|[^A-Z0-9-])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`).test(value);
+}
+
+// The title is the part a person can actually recognise, so it carries the chip. The reason repeats
+// across every chip in a row, so it stays in the tooltip and the accessible name instead.
 function CandidateChip({
    candidate,
    added,
@@ -336,7 +347,8 @@ function CandidateChip({
    return (
       <button
          type="button"
-         title={fa.dailyReport.reasonLabel[candidate.reason]}
+         title={`${fa.dailyReport.reasonLabel[candidate.reason]} · ${candidate.key} — ${candidate.title}`}
+         aria-label={`${candidate.key} — ${candidate.title} · ${fa.dailyReport.reasonLabel[candidate.reason]}`}
          disabled={added}
          onClick={() => onPick(`${candidate.key} — ${candidate.title}`)}
          className={cn(

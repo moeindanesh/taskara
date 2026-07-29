@@ -315,18 +315,19 @@ export async function buildCheckInDraft(actor: RequestActor, dateKey = workspace
     })
   ]);
 
-  const completedCandidates: DailyReportCandidate[] = [];
-  const seen = new Set<string>();
+  // One chip per task, not per task-and-reason: both chips would insert the same line, so a second
+  // one is pure noise. Where a task was touched several ways today, the most report-worthy wins.
+  const byTaskKey = new Map<string, DailyReportCandidate>();
   for (const row of activity) {
     const task = taskFromActivitySnapshot(row.after);
     if (!task) continue;
     const reason = candidateReason(row.action, row.after, row.before);
     if (!reason) continue;
-    const dedupeKey = `${task.key}:${reason}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    completedCandidates.push({ taskId: row.entityId, key: task.key, title: task.title, reason });
+    const existingCandidate = byTaskKey.get(task.key);
+    if (existingCandidate && candidateReasonRank(existingCandidate.reason) >= candidateReasonRank(reason)) continue;
+    byTaskKey.set(task.key, { taskId: row.entityId, key: task.key, title: task.title, reason });
   }
+  const completedCandidates: DailyReportCandidate[] = [...byTaskKey.values()];
 
   // Work that appeared today and was not on the plan is the raw material for "unexpected work".
   const plannedKeys = extractTaskKeys(yesterday?.planText ?? '');
@@ -528,6 +529,14 @@ function taskFromActivitySnapshot(snapshot: unknown): { key: string; title: stri
   const title = record.title;
   if (typeof key !== 'string' || typeof title !== 'string') return null;
   return { key, title };
+}
+
+// "I finished it" beats "I opened it" beats "I said something about it" when one task qualifies
+// under more than one of them.
+function candidateReasonRank(reason: DailyReportCandidate['reason']): number {
+  if (reason === 'completed') return 3;
+  if (reason === 'created') return 2;
+  return 1;
 }
 
 function candidateReason(

@@ -323,7 +323,9 @@ export const fa = {
       submittedStat: (submitted: number, expected: number) =>
          `${submitted.toLocaleString('fa-IR')} از ${expected.toLocaleString('fa-IR')} گزارش`,
       blockerStat: (count: number) => `${count.toLocaleString('fa-IR')} گیر`,
-      unplannedStat: (share: number) => `${share.toLocaleString('fa-IR')}٪ روزها کار غیرمنتظره داشت`,
+      // This is the share of a single day's reports, not a share of days — the trends panel is
+      // where the day-over-day figure lives.
+      unplannedStat: (share: number) => `${share.toLocaleString('fa-IR')}٪ گزارش‌ها کار غیرمنتظره داشت`,
       planVsDoneTitle: 'برنامه‌ی دیروز در برابر کار امروز',
       plannedYesterday: 'برنامه‌ی دیروز',
       completedToday: 'انجام‌شده‌ی امروز',

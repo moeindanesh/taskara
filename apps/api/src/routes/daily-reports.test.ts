@@ -220,6 +220,47 @@ describe('daily reports', () => {
     expect(body.planVsDone[0].completedToday).toBe('صفحه‌ی ورود تمام شد');
   });
 
+  test('a task touched several ways today yields one chip, at its strongest reason', async () => {
+    const fixture = await createFixture();
+
+    const project = await prisma.project.create({
+      data: {
+        workspaceId: fixture.workspace.id,
+        name: 'پروژه‌ی آزمون',
+        keyPrefix: `T${Math.floor(Math.random() * 9000 + 1000)}`
+      },
+      select: { id: true }
+    });
+
+    const created = await injectAs(fixture, 'member', {
+      method: 'POST',
+      url: '/tasks',
+      payload: { projectId: project.id, title: 'کار چندباره', assigneeId: fixture.users.member.id }
+    });
+    expect(created.statusCode).toBe(201);
+    const task = created.json() as { id: string; key: string };
+
+    // Same task: created earlier, then moved to DONE. Both actions qualify as candidates.
+    const done = await injectAs(fixture, 'member', {
+      method: 'PATCH',
+      url: `/tasks/${task.id}`,
+      payload: { status: 'DONE' }
+    });
+    expect(done.statusCode).toBe(200);
+
+    const draft = await injectAs(fixture, 'member', { method: 'GET', url: '/check-ins/draft' });
+    expect(draft.statusCode).toBe(200);
+
+    const body = draft.json() as {
+      completedCandidates: Array<{ key: string; reason: string }>;
+    };
+    const forTask = body.completedCandidates.filter((candidate) => candidate.key === task.key);
+
+    // One chip, not one per reason — two chips would insert the same line twice.
+    expect(forTask).toHaveLength(1);
+    expect(forTask[0].reason).toBe('completed');
+  });
+
   test('trends report participation and unplanned-work share over a window', async () => {
     const fixture = await createFixture();
     const today = workspaceDateKey();
