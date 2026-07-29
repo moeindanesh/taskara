@@ -345,6 +345,8 @@ export const fa = {
       aiSummaryFailed: 'ساخت خلاصه ناموفق بود.',
       taskDone: 'انجام شد',
       taskSlipped: 'عقب افتاد',
+      unplannedMarker: 'کار غیرمنتظره داشت',
+      requestAll: 'درخواست از همه',
    },
    todayPlan: {
       capacityLabel: (limit: number) => `ظرفیت روزانه ${limit.toLocaleString('fa-IR')} وزن`,
