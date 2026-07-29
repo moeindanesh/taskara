@@ -16,6 +16,12 @@ import { type WorkspaceDay, endOfWorkspaceDay } from './today-load';
 
 type SheetTab = 'person' | 'unassigned';
 
+/**
+ * Task, due date, priority, action. Fixed tracks rather than intrinsic widths: the priority labels
+ * range from «کم» to «بدون اولویت», so sizing to content leaves every column ragged.
+ */
+const rowGrid = 'grid grid-cols-[minmax(0,1fr)_6.5rem_9rem_1.75rem] items-center gap-2';
+
 export interface PersonSheetProps {
    day: WorkspaceDay;
    person: PersonGraphNode | null;
@@ -112,22 +118,33 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                </div>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" data-testid="person-sheet-list">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-testid="person-sheet-list">
                {visible.length === 0 ? (
                   <p className="px-3 py-10 text-center text-xs text-zinc-600">
                      {tab === 'person' ? fa.teamOverview.emptyPersonTasks : fa.teamOverview.emptyUnassigned}
                   </p>
-               ) : null}
+               ) : (
+                  <div className={cn(rowGrid, 'sticky top-0 z-10 bg-[#0b0b0c] px-3 py-2 text-[10px] text-zinc-600')}>
+                     <span>{fa.teamOverview.columnTask}</span>
+                     <span>{fa.teamOverview.columnDue}</span>
+                     <span>{fa.teamOverview.columnPriority}</span>
+                     <span />
+                  </div>
+               )}
 
                {visible.map((task) => (
                   <div
-                     className="group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-white/[0.04]"
+                     className={cn(
+                        rowGrid,
+                        'group rounded-lg px-3 py-1.5 transition-colors',
+                        'border-b border-white/[0.03] last:border-b-0 hover:bg-white/[0.04]'
+                     )}
                      data-task-key={task.key}
                      data-testid="person-sheet-row"
                      key={task.id}
                   >
                      <button
-                        className="flex min-w-0 flex-1 items-center gap-2 text-start"
+                        className="flex min-w-0 items-center gap-2 text-start"
                         onClick={() => onOpenTask(task.key)}
                         type="button"
                      >
@@ -138,7 +155,7 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
 
                      <span
                         className={cn(
-                           'shrink-0 text-[11px] tabular-nums',
+                           'truncate text-[11px] tabular-nums',
                            isOverdue(task, day) ? 'text-red-400' : 'text-zinc-600'
                         )}
                      >
@@ -146,7 +163,7 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                      </span>
 
                      <ComposerPriorityPill
-                        className="shrink-0"
+                        className="w-full max-w-none"
                         disabled={pending.has(task.id)}
                         onAfterChange={() => setOpenPriorityFor(null)}
                         onChange={(priority) => void mutate(task, { priority })}
@@ -155,23 +172,24 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                         priority={task.priority}
                      />
 
-                     {tab === 'person' ? (
-                        isDueToday(task, day) ? null : (
-                           <FastAction
-                              disabled={pending.has(task.id)}
-                              icon={<CalendarPlus className="size-3.5" />}
-                              label={fa.teamOverview.moveToToday}
-                              onClick={() => pullIntoToday(task)}
-                              testId="pull-into-today"
-                           />
-                        )
-                     ) : (
+                     {/* The cell is always rendered, so a row without an action still lines up. */}
+                     {tab === 'unassigned' ? (
                         <FastAction
                            disabled={pending.has(task.id)}
                            icon={<UserPlus className="size-3.5" />}
                            label={fa.teamOverview.assignToPerson(person?.label ?? '')}
                            onClick={() => claimForPerson(task)}
                            testId="claim-for-person"
+                        />
+                     ) : isDueToday(task, day) ? (
+                        <span />
+                     ) : (
+                        <FastAction
+                           disabled={pending.has(task.id)}
+                           icon={<CalendarPlus className="size-3.5" />}
+                           label={fa.teamOverview.moveToToday}
+                           onClick={() => pullIntoToday(task)}
+                           testId="pull-into-today"
                         />
                      )}
                   </div>
