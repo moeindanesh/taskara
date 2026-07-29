@@ -13,6 +13,7 @@ import {
    Loader2,
    Megaphone,
    MessageSquare,
+   NotebookPen,
    PencilLine,
    Users,
    UserPlus,
@@ -835,6 +836,13 @@ function notificationIcon(notification: TaskaraNotification) {
    if (notification.type === 'task_commented') return MessageSquare;
    if (notification.type === 'task_description_changed') return PencilLine;
    if (notification.type === 'task_created') return Circle;
+   if (
+      notification.type === 'daily_report_reminder' ||
+      notification.type === 'daily_report_requested' ||
+      notification.type === 'daily_report_digest_ready'
+   ) {
+      return NotebookPen;
+   }
    return Bell;
 }
 

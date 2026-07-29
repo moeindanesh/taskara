@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
    readonly VITE_TASKARA_API_URL?: string;
+   readonly VITE_TASKARA_WORKSPACE_TIMEZONE?: string;
    readonly VITE_TASKARA_CDN_UPLOAD_URL?: string;
    readonly VITE_TASKARA_CDN_MEDIA_BASE_URL?: string;
    readonly VITE_TASKARA_CDN_APP?: string;

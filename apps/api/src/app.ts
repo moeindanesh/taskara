@@ -28,6 +28,7 @@ import { registerViewRoutes } from './routes/views';
 import { registerWorkHealthRoutes } from './routes/work-health';
 import { resolveCorsOrigin } from './services/cors';
 import { errorMessage, statusCodeFromError } from './services/http';
+import { startScheduledJobs } from './services/scheduled-jobs';
 import { startSyncEventPoller } from './services/sync';
 
 export async function registerApp(app: FastifyInstance): Promise<void> {
@@ -80,4 +81,5 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerAiReportRoutes);
 
   startSyncEventPoller();
+  startScheduledJobs();
 }
