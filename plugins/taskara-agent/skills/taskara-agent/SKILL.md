@@ -37,6 +37,8 @@ The plugin exposes these MCP tools:
 - `propose_tasks_from_text`
 - `apply_agent_action`
 - `generate_daily_plan`
+- `get_daily_report_draft`
+- `submit_daily_report`
 - `plan_work`
 - `triage_backlog`
 - `detect_blockers`
@@ -53,6 +55,7 @@ The plugin exposes these MCP tools:
 - Assign tasks only to an open milestone in the same project; let the API enforce this invariant and report its error instead of retrying with a different milestone silently.
 - Use a milestone's returned `version` for metadata updates. On conflict, refetch and show the user what changed before retrying.
 - Use `propose_tasks_from_text` for long plans or discussions, then apply selected proposed actions with `apply_agent_action`.
+- Draft a daily report with `get_daily_report_draft` and show it to the user for edits; only call `submit_daily_report` once they confirm the wording. The report is their voice, not yours.
 - Include task keys in summaries after mutations.
 - User-management tools require `OWNER` or `ADMIN` in Taskara.
 

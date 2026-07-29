@@ -175,7 +175,8 @@ describe('sync event scope mapping', () => {
     expect((mapped as { type?: string } | null)?.type).toBe('upsert');
   });
 
-  test('filters another member check-in event', () => {
+  test('keeps another member check-in event for members', () => {
+    // Daily reports are peer-visible team communication, so members receive the whole team's stream.
     const event = syncEvent(
       { after: { id: 'check-in-1', userId: 'user-2', authorId: 'user-2' } },
       'created',
@@ -183,6 +184,18 @@ describe('sync event scope mapping', () => {
     );
 
     const mapped = mapSyncEventForScope(event, syncQuery(), actor, memberAccess());
+
+    expect((mapped as { type?: string } | null)?.type).toBe('upsert');
+  });
+
+  test('filters another member check-in event from guests', () => {
+    const event = syncEvent(
+      { after: { id: 'check-in-1', userId: 'user-2', authorId: 'user-2' } },
+      'created',
+      'check_in'
+    );
+
+    const mapped = mapSyncEventForScope(event, syncQuery(), { ...actor, role: 'GUEST' }, memberAccess());
 
     expect(mapped).toBeNull();
   });

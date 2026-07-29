@@ -10,6 +10,9 @@ export const TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE = 'task_review_requested';
 export const TASK_REVIEW_DECIDED_NOTIFICATION_TYPE = 'task_review_decided';
 export const ANNOUNCEMENT_PUBLISHED_NOTIFICATION_TYPE = 'announcement_published';
 export const MEETING_ASSIGNED_NOTIFICATION_TYPE = 'meeting_assigned';
+export const DAILY_REPORT_REMINDER_NOTIFICATION_TYPE = 'daily_report_reminder';
+export const DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE = 'daily_report_requested';
+export const DAILY_REPORT_DIGEST_NOTIFICATION_TYPE = 'daily_report_digest_ready';
 
 export type NotificationCursor = {
   createdAt: Date;

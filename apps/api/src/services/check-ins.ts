@@ -14,8 +14,10 @@ import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
+import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
+import { dateKeyRange, shiftDateKey, workspaceDateKey } from './workspace-time';
 
 type CreateCheckInInput = z.infer<typeof createCheckInResponseSchema>;
 type CreateOneOnOneInput = z.infer<typeof createOneOnOneSeriesSchema>;
@@ -91,49 +93,98 @@ export interface AgendaCandidate {
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 }
 
+// A daily report is one row per member per workspace day, so resubmitting edits today's report
+// instead of stacking duplicates. The day is always resolved on the server (see workspace-time).
 export async function createCheckInResponse(actor: RequestActor, input: CreateCheckInInput, syncMutation?: SyncMutationMeta) {
   const targetUserId = input.userId || actor.user.id;
-  if (targetUserId !== actor.user.id && !isWorkspaceAdminRole(actor.role)) {
+  const submittingForSelf = targetUserId === actor.user.id;
+  if (!submittingForSelf && !isWorkspaceAdminRole(actor.role)) {
     throw new HttpError(403, 'Only workspace admins can submit check-ins for another user');
   }
   await assertWorkspaceMember(actor.workspace.id, targetUserId);
 
-  const row = await prisma.checkInResponse.create({
-    data: {
-      workspaceId: actor.workspace.id,
-      userId: targetUserId,
-      authorId: actor.user.id,
-      completedText: input.completedText?.trim() || undefined,
-      blockersText: input.blockersText?.trim() || undefined,
-      planText: input.planText?.trim() || undefined,
-      helpText: input.helpText?.trim() || undefined,
-      submittedFor: input.submittedFor ? new Date(input.submittedFor) : undefined
-    },
+  const today = workspaceDateKey();
+  const requestedDateKey = input.dateKey
+    || (input.submittedFor ? workspaceDateKey(new Date(input.submittedFor)) : today);
+  if (requestedDateKey !== today && submittingForSelf) {
+    throw new HttpError(400, 'You can only file your own report for the current day');
+  }
+  if (requestedDateKey > today) {
+    throw new HttpError(400, 'Cannot file a report for a future day');
+  }
+
+  const existing = await prisma.checkInResponse.findUnique({
+    where: { workspaceId_userId_dateKey: { workspaceId: actor.workspace.id, userId: targetUserId, dateKey: requestedDateKey } },
     include: checkInInclude
   });
 
+  const fields = {
+    completedText: normalizeText(input.completedText),
+    unplannedText: normalizeText(input.unplannedText),
+    blockersText: normalizeText(input.blockersText),
+    planText: normalizeText(input.planText),
+    helpText: normalizeText(input.helpText)
+  };
+  const submittedFor = input.submittedFor ? new Date(input.submittedFor) : new Date();
+
+  const row = existing
+    ? await prisma.checkInResponse.update({
+      where: { id: existing.id },
+      data: { ...fields, authorId: actor.user.id, submittedFor },
+      include: checkInInclude
+    })
+    : await prisma.checkInResponse.create({
+      data: {
+        workspaceId: actor.workspace.id,
+        userId: targetUserId,
+        authorId: actor.user.id,
+        dateKey: requestedDateKey,
+        submittedFor,
+        ...fields
+      },
+      include: checkInInclude
+    });
+
+  const action = existing ? 'updated' : 'created';
   await logActivity({
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
     entityType: 'check_in',
     entityId: row.id,
-    action: 'created',
+    action,
+    before: existing ? serializeCheckIn(existing) : undefined,
     after: serializeCheckIn(row),
     source: actor.source
   }).catch(() => undefined);
-  await emitSyncEvent(actor, 'check_in', row.id, 'created', { after: serializeCheckIn(row) }, syncMutation);
+  await emitSyncEvent(actor, 'check_in', row.id, action, {
+    before: existing ? serializeCheckIn(existing) : undefined,
+    after: serializeCheckIn(row)
+  }, syncMutation);
 
   return serializeCheckIn(row);
 }
 
+// Daily reports are peer-visible team communication rather than a private manager inbox; only
+// guests and agents are held to their own rows.
+function canReadAllCheckIns(actor: RequestActor): boolean {
+  return actor.role === 'OWNER' || actor.role === 'ADMIN' || actor.role === 'MEMBER';
+}
+
 export async function listCheckIns(
   actor: RequestActor,
-  input: { userId?: string; since?: string; limit?: number; offset?: number } = {}
+  input: { userId?: string; since?: string; dateKey?: string; from?: string; to?: string; limit?: number; offset?: number } = {}
 ) {
+  const dateKeyFilter = input.dateKey
+    ? input.dateKey
+    : input.from || input.to
+      ? { gte: input.from, lte: input.to }
+      : undefined;
+
   const where: Prisma.CheckInResponseWhereInput = {
     workspaceId: actor.workspace.id,
-    userId: isWorkspaceAdminRole(actor.role) ? input.userId : actor.user.id,
+    userId: canReadAllCheckIns(actor) ? input.userId : actor.user.id,
+    dateKey: dateKeyFilter,
     submittedFor: input.since ? { gte: new Date(input.since) } : undefined
   };
 
@@ -154,6 +205,27 @@ export async function listCheckIns(
     limit: input.limit ?? 50,
     offset: input.offset ?? 0
   };
+}
+
+// Day-scoped counterpart of listMissingCheckIns: who owes a report for a specific workspace day.
+// The digest and the reminder job both need this exact answer.
+export async function listMissingForDay(actor: RequestActor, dateKey: string) {
+  if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
+  const [members, submitted] = await Promise.all([
+    prisma.workspaceMember.findMany({
+      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      include: { user: { select: userSelect } },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
+    }),
+    prisma.checkInResponse.findMany({
+      where: { workspaceId: actor.workspace.id, dateKey },
+      select: { userId: true }
+    })
+  ]);
+
+  const submittedIds = new Set(submitted.map((row) => row.userId));
+  const missing = members.filter((member) => !submittedIds.has(member.userId)).map((member) => member.user);
+  return { dateKey, items: missing, total: missing.length, expected: members.length };
 }
 
 export async function listMissingCheckIns(actor: RequestActor, hours = 24, now = new Date()) {
@@ -187,6 +259,298 @@ export async function listMissingCheckIns(actor: RequestActor, hours = 24, now =
     .filter((item): item is CheckInMissingPerson => Boolean(item));
 
   return { items: missing, total: missing.length, thresholdHours: hours, generatedAt: now.toISOString() };
+}
+
+export interface DailyReportCandidate {
+  taskId: string;
+  key: string;
+  title: string;
+  reason: 'completed' | 'created' | 'commented' | 'blocked' | 'focus';
+}
+
+// Prefill material for the composer. Everything here is a suggestion the member opts into with a
+// tap — nothing is written into their report automatically, because noisy auto-insertion is what
+// makes people stop trusting (and stop reading) these reports.
+export async function buildCheckInDraft(actor: RequestActor, dateKey = workspaceDateKey()) {
+  const { start, end } = dateKeyRange(dateKey);
+  const previousDateKey = shiftDateKey(dateKey, -1);
+
+  const [activity, createdToday, openTasks, existing, yesterday] = await Promise.all([
+    prisma.activityLog.findMany({
+      where: {
+        workspaceId: actor.workspace.id,
+        actorId: actor.user.id,
+        entityType: 'task',
+        createdAt: { gte: start, lt: end }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    }),
+    prisma.task.findMany({
+      where: {
+        workspaceId: actor.workspace.id,
+        assigneeId: actor.user.id,
+        createdAt: { gte: start, lt: end }
+      },
+      select: { id: true, key: true, title: true },
+      take: 25
+    }),
+    prisma.task.findMany({
+      where: {
+        workspaceId: actor.workspace.id,
+        assigneeId: actor.user.id,
+        status: { notIn: ['DONE', 'CANCELED'] }
+      },
+      include: { blockingDependencies: { select: { id: true } } },
+      orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+      take: 25
+    }),
+    prisma.checkInResponse.findUnique({
+      where: { workspaceId_userId_dateKey: { workspaceId: actor.workspace.id, userId: actor.user.id, dateKey } },
+      include: checkInInclude
+    }),
+    prisma.checkInResponse.findUnique({
+      where: { workspaceId_userId_dateKey: { workspaceId: actor.workspace.id, userId: actor.user.id, dateKey: previousDateKey } },
+      include: checkInInclude
+    })
+  ]);
+
+  // One chip per task, not per task-and-reason: both chips would insert the same line, so a second
+  // one is pure noise. Where a task was touched several ways today, the most report-worthy wins.
+  const byTaskKey = new Map<string, DailyReportCandidate>();
+  for (const row of activity) {
+    const task = taskFromActivitySnapshot(row.after);
+    if (!task) continue;
+    const reason = candidateReason(row.action, row.after, row.before);
+    if (!reason) continue;
+    const existingCandidate = byTaskKey.get(task.key);
+    if (existingCandidate && candidateReasonRank(existingCandidate.reason) >= candidateReasonRank(reason)) continue;
+    byTaskKey.set(task.key, { taskId: row.entityId, key: task.key, title: task.title, reason });
+  }
+  const completedCandidates: DailyReportCandidate[] = [...byTaskKey.values()];
+
+  // Work that appeared today and was not on the plan is the raw material for "unexpected work".
+  const plannedKeys = extractTaskKeys(yesterday?.planText ?? '');
+  const unplannedCandidates: DailyReportCandidate[] = createdToday
+    .filter((task) => !plannedKeys.has(task.key))
+    .map((task) => ({ taskId: task.id, key: task.key, title: task.title, reason: 'created' as const }));
+
+  const blockedTasks: DailyReportCandidate[] = openTasks
+    .filter((task) => task.status === 'BLOCKED' || task.blockingDependencies.length > 0)
+    .map((task) => ({ taskId: task.id, key: task.key, title: task.title, reason: 'blocked' as const }));
+
+  const planCandidates: DailyReportCandidate[] = openTasks
+    .filter((task) => task.status !== 'BLOCKED' && task.blockingDependencies.length === 0)
+    .slice(0, 5)
+    .map((task) => ({ taskId: task.id, key: task.key, title: task.title, reason: 'focus' as const }));
+
+  return {
+    dateKey,
+    existing: existing ? serializeCheckIn(existing) : null,
+    yesterday: yesterday ? serializeCheckIn(yesterday) : null,
+    completedCandidates,
+    unplannedCandidates,
+    blockedTasks,
+    planCandidates
+  };
+}
+
+// Manager morning artifact: blockers first, then the day's unexpected work, then everyone's report,
+// then who is missing. One request so the digest view never fans out.
+export async function buildDailyReportDigest(actor: RequestActor, dateKey = workspaceDateKey()) {
+  if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
+  const previousDateKey = shiftDateKey(dateKey, -1);
+
+  const [rows, previousRows, missing] = await Promise.all([
+    prisma.checkInResponse.findMany({
+      where: { workspaceId: actor.workspace.id, dateKey },
+      include: checkInInclude,
+      orderBy: { submittedFor: 'asc' }
+    }),
+    prisma.checkInResponse.findMany({
+      where: { workspaceId: actor.workspace.id, dateKey: previousDateKey },
+      include: checkInInclude
+    }),
+    listMissingForDay(actor, dateKey)
+  ]);
+
+  const reports = rows.map(serializeCheckIn);
+  const previousByUser = new Map(previousRows.map((row) => [row.userId, row]));
+
+  const blockersFirst = reports.filter((report) => report.blockersText || report.helpText);
+  const unplanned = reports.filter((report) => report.unplannedText);
+  const planVsDone = reports.map((report) => {
+    const plannedYesterday = previousByUser.get(report.userId)?.planText ?? null;
+    return {
+      userId: report.userId,
+      user: report.user,
+      plannedYesterday,
+      completedToday: report.completedText,
+      // Task keys make yesterday's plan machine-comparable to today's report, so a manager sees
+      // what slipped without reading two text blobs side by side.
+      tasks: diffPlannedTasks(plannedYesterday, report.completedText)
+    };
+  }).filter((entry) => entry.plannedYesterday);
+
+  const expected = missing.expected;
+  const submittedCount = reports.length;
+
+  return {
+    dateKey,
+    reports,
+    blockersFirst,
+    unplanned,
+    planVsDone,
+    missing: missing.items,
+    stats: {
+      expected,
+      submitted: submittedCount,
+      missing: missing.total,
+      participationRate: expected > 0 ? Math.round((submittedCount / expected) * 100) : 0,
+      blockerCount: blockersFirst.length,
+      // Share of the day's reports that included unexpected work — the team-health trend that
+      // matters more than any single day's value.
+      unplannedShare: submittedCount > 0 ? Math.round((unplanned.length / submittedCount) * 100) : 0
+    }
+  };
+}
+
+// Trends over a window. Direction matters far more than any single day: a rising unplanned-work
+// share is a process problem, and a falling participation rate means the ritual is dying.
+export async function buildDailyReportTrends(actor: RequestActor, days = 14, today = workspaceDateKey()) {
+  if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
+  const from = shiftDateKey(today, -(days - 1));
+
+  const [rows, members] = await Promise.all([
+    prisma.checkInResponse.findMany({
+      where: { workspaceId: actor.workspace.id, dateKey: { gte: from, lte: today } },
+      select: { userId: true, dateKey: true, unplannedText: true, blockersText: true, helpText: true }
+    }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      include: { user: { select: userSelect } }
+    })
+  ]);
+
+  const dayKeys: string[] = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) dayKeys.push(shiftDateKey(today, -offset));
+
+  const byDay = dayKeys.map((dateKey) => {
+    const dayRows = rows.filter((row) => row.dateKey === dateKey);
+    const withUnplanned = dayRows.filter((row) => row.unplannedText).length;
+    return {
+      dateKey,
+      submitted: dayRows.length,
+      expected: members.length,
+      unplanned: withUnplanned,
+      blockers: dayRows.filter((row) => row.blockersText || row.helpText).length,
+      unplannedShare: dayRows.length ? Math.round((withUnplanned / dayRows.length) * 100) : 0
+    };
+  });
+
+  const byPerson = members.map((member) => {
+    const personRows = rows.filter((row) => row.userId === member.userId);
+    return {
+      user: member.user,
+      submitted: personRows.length,
+      possible: days,
+      unplannedDays: personRows.filter((row) => row.unplannedText).length,
+      blockerDays: personRows.filter((row) => row.blockersText || row.helpText).length
+    };
+  }).sort((left, right) => right.submitted - left.submitted);
+
+  const totalSubmitted = rows.length;
+  return {
+    from,
+    to: today,
+    days,
+    byDay,
+    byPerson,
+    totals: {
+      submitted: totalSubmitted,
+      possible: members.length * days,
+      unplannedShare: totalSubmitted ? Math.round((rows.filter((row) => row.unplannedText).length / totalSubmitted) * 100) : 0,
+      blockerShare: totalSubmitted
+        ? Math.round((rows.filter((row) => row.blockersText || row.helpText).length / totalSubmitted) * 100)
+        : 0
+    }
+  };
+}
+
+// Turns the old copy-to-clipboard nudge into a real, delivered request.
+export async function requestCheckIn(actor: RequestActor, userId: string, message?: string | null) {
+  if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
+  await assertWorkspaceMember(actor.workspace.id, userId);
+  const notification = await prisma.notification.create({
+    data: {
+      workspaceId: actor.workspace.id,
+      userId,
+      type: DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE,
+      title: `${actor.user.name} گزارش روزانه‌ات را خواسته است`,
+      body: message?.trim() || 'لطفاً گزارش روزانه‌ی امروزت را ثبت کن.'
+    }
+  });
+  await logActivity({
+    workspaceId: actor.workspace.id,
+    actorId: actor.user.id,
+    actorType: actor.actorType,
+    entityType: 'check_in',
+    entityId: userId,
+    action: 'requested',
+    source: actor.source
+  }).catch(() => undefined);
+  return { requested: true, notificationId: notification?.id ?? null };
+}
+
+const taskKeyPattern = /\b[A-Z][A-Z0-9]*-\d+\b/g;
+
+function extractTaskKeys(text: string): Set<string> {
+  return new Set(text.match(taskKeyPattern) ?? []);
+}
+
+export interface PlannedTaskDiff {
+  key: string;
+  status: 'done' | 'slipped';
+}
+
+// Compares the task keys someone planned against the ones they reported finishing. Keys only —
+// prose is left alone, because guessing intent from free text is how these features lose trust.
+export function diffPlannedTasks(planText: string | null, completedText: string | null): PlannedTaskDiff[] {
+  const planned = extractTaskKeys(planText ?? '');
+  if (!planned.size) return [];
+  const completed = extractTaskKeys(completedText ?? '');
+  return [...planned].map((key) => ({ key, status: completed.has(key) ? 'done' : 'slipped' }));
+}
+
+function taskFromActivitySnapshot(snapshot: unknown): { key: string; title: string } | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const record = snapshot as Record<string, unknown>;
+  const key = record.key;
+  const title = record.title;
+  if (typeof key !== 'string' || typeof title !== 'string') return null;
+  return { key, title };
+}
+
+// "I finished it" beats "I opened it" beats "I said something about it" when one task qualifies
+// under more than one of them.
+function candidateReasonRank(reason: DailyReportCandidate['reason']): number {
+  if (reason === 'completed') return 3;
+  if (reason === 'created') return 2;
+  return 1;
+}
+
+function candidateReason(
+  action: string,
+  after: unknown,
+  before: unknown
+): DailyReportCandidate['reason'] | null {
+  if (action === 'commented') return 'commented';
+  if (action === 'created') return 'created';
+  if (action !== 'updated') return null;
+  const afterStatus = (after as Record<string, unknown> | null)?.status;
+  const beforeStatus = (before as Record<string, unknown> | null)?.status;
+  // Only a real transition into DONE counts as "I finished this today".
+  return afterStatus === 'DONE' && beforeStatus !== 'DONE' ? 'completed' : null;
 }
 
 export function latestCheckInByUser(rows: Array<{ userId: string; submittedFor: Date }>): Map<string, Date> {
@@ -711,6 +1075,11 @@ async function assertWorkspaceMember(workspaceId: string, userId: string): Promi
   if (!member) throw new HttpError(400, 'User must belong to this workspace');
 }
 
+function normalizeText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 function serializeCheckIn(row: CheckInWithRelations) {
   return {
     id: row.id,
@@ -718,9 +1087,11 @@ function serializeCheckIn(row: CheckInWithRelations) {
     userId: row.userId,
     authorId: row.authorId,
     completedText: row.completedText,
+    unplannedText: row.unplannedText,
     blockersText: row.blockersText,
     planText: row.planText,
     helpText: row.helpText,
+    dateKey: row.dateKey,
     submittedFor: row.submittedFor.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -27,7 +27,10 @@ const envSchema = z.object({
   MATTERMOST_WORKSPACE_SLUG: optionalString,
   SMS_KAVEH_KEY: optionalString,
   SMS_KAVEH_SENDER: optionalString,
-  TASKARA_AI_CREDENTIAL_SECRET: optionalString
+  TASKARA_AI_CREDENTIAL_SECRET: optionalString,
+  TASKARA_WORKSPACE_TIMEZONE: z.string().min(1).default('Asia/Tehran'),
+  TASKARA_SCHEDULED_JOBS_ENABLED: z.coerce.boolean().default(false),
+  TASKARA_DAILY_REPORT_SMS_ENABLED: z.coerce.boolean().default(false)
 });
 
 export const config = envSchema.parse(process.env);

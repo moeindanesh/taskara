@@ -51,6 +51,7 @@ import {
 } from '@/lib/workspace-data/pending';
 import type {
    TaskaraAttentionItem,
+   TaskaraDailyReportDigest,
    TaskaraAttentionResponse,
    TaskaraMeetingActionItem,
    TaskaraMeetingActionItemListResponse,
@@ -238,6 +239,8 @@ export function ManagerCockpitView() {
                   </p>
                ) : null}
 
+               <DailyReportSummaryRow orgId={workspaceSlug} />
+
                {loading && !attention ? (
                   <LinearEmptyState>{fa.app.loading}</LinearEmptyState>
                ) : error && !nextItem ? null : nextItem ? (
@@ -358,6 +361,41 @@ interface AttentionCardActions {
    onResolve: () => void;
    onSnooze: () => void;
    orgId: string;
+}
+
+// A one-line read on today's reports so the cockpit answers "did the team report, and is anyone
+// blocked?" before the manager goes looking for it.
+function DailyReportSummaryRow({ orgId }: { orgId: string }) {
+   const [stats, setStats] = useState<TaskaraDailyReportDigest['stats'] | null>(null);
+
+   useEffect(() => {
+      let cancelled = false;
+      taskaraRequest<TaskaraDailyReportDigest>('/check-ins/digest')
+         .then((digest) => {
+            if (!cancelled) setStats(digest.stats);
+         })
+         .catch(() => undefined);
+      return () => {
+         cancelled = true;
+      };
+   }, []);
+
+   if (!stats) return null;
+
+   return (
+      <Link
+         to={`/${orgId}/daily-reports`}
+         className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-xs text-zinc-600 transition hover:border-zinc-300 dark:border-white/8 dark:bg-[#19191b] dark:text-zinc-400 dark:hover:border-white/15"
+      >
+         <span className="font-medium text-zinc-800 dark:text-zinc-200">{fa.dailyReportsDigest.title}</span>
+         <span>{fa.dailyReportsDigest.submittedStat(stats.submitted, stats.expected)}</span>
+         {stats.blockerCount ? (
+            <span className="text-amber-600 dark:text-amber-300">
+               {fa.dailyReportsDigest.blockerStat(stats.blockerCount)}
+            </span>
+         ) : null}
+      </Link>
+   );
 }
 
 function NextAttentionCard({ item, ...actions }: { item: ManagerQueueItem } & AttentionCardActions) {

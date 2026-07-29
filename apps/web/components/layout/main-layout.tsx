@@ -30,7 +30,7 @@ import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraMilestone, Taskara
 import { cn } from '@/lib/utils';
 import { selectCommandSearchItems, selectTasksAssignedToUser } from '@/lib/workspace-data/selectors';
 import { useAuthSession } from '@/store/auth-store';
-import { Activity, Bell, BookOpen, CalendarCheck2, Diamond, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
+import { Activity, Bell, BookOpen, CalendarCheck2, ClipboardList, Diamond, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, NotebookPen, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -238,6 +238,22 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             defaultVisible: false,
             icon: Users,
             run: () => navigate(`/${orgId}/people`),
+         },
+         {
+            id: 'go-daily-report',
+            label: fa.command.goDailyReport,
+            description: fa.pages.dailyReportDescription,
+            defaultVisible: false,
+            icon: NotebookPen,
+            run: () => navigate(`/${orgId}/today`),
+         },
+         {
+            id: 'go-daily-reports-digest',
+            label: fa.command.goDailyReportsDigest,
+            description: fa.pages.dailyReportsDigestDescription,
+            defaultVisible: false,
+            icon: ClipboardList,
+            run: () => navigate(`/${orgId}/daily-reports`),
          },
          {
             id: 'go-projects',

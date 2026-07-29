@@ -893,9 +893,11 @@ model CheckInResponse {
   userId        String   @db.Uuid
   authorId      String?  @db.Uuid
   completedText String?
+  unplannedText String?
   blockersText  String?
   planText      String?
   helpText      String?
+  dateKey       String?
   submittedFor  DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -904,6 +906,8 @@ model CheckInResponse {
   user      User      @relation("CheckInUser", fields: [userId], references: [id], onDelete: Cascade)
   author    User?     @relation("CheckInAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
+  @@unique([workspaceId, userId, dateKey])
+  @@index([workspaceId, dateKey])
   @@index([workspaceId, userId, submittedFor])
   @@index([workspaceId, createdAt])
 }
@@ -1221,16 +1225,19 @@ model SmsDelivery {
   @@index([workspaceId, requestedById, createdAt])
 }
 
-model SmsDailyReminderRun {
-  id                String    @id @default(uuid()) @db.Uuid
-  dateKey           String    @unique
-  noPlanSent        Int       @default(0)
-  todayReminderSent Int       @default(0)
-  failed            Int       @default(0)
-  skipped           Int       @default(0)
-  error             String?
-  createdAt         DateTime  @default(now())
-  completedAt       DateTime?
+// One row per (job, workspace day). The unique constraint is the lock: a second API instance or a
+// restart inside the fire window loses the insert race and skips, so a job never double-sends.
+model ScheduledJobRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  jobKey      String
+  dateKey     String
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  error       String?
+  stats       Json?
+
+  @@unique([jobKey, dateKey])
+  @@index([jobKey, startedAt])
 }
 
 model WorkspaceSyncState {

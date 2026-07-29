@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   carryForwardMeetingActionItemSchema,
+  checkInDigestQuerySchema,
+  checkInDraftQuerySchema,
   checkInListQuerySchema,
+  checkInTrendsQuerySchema,
   createCheckInResponseSchema,
   createMeetingActionItemSchema,
   createOneOnOneAgendaItemSchema,
@@ -10,11 +13,15 @@ import {
   meetingActionItemListQuerySchema,
   missingCheckInQuerySchema,
   oneOnOneListQuerySchema,
+  requestCheckInSchema,
   updateMeetingActionItemSchema
 } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import {
   addOneOnOneAgendaItem,
+  buildCheckInDraft,
+  buildDailyReportDigest,
+  buildDailyReportTrends,
   cancelMeetingActionItem,
   carryForwardMeetingActionItem,
   completeMeetingActionItem,
@@ -26,7 +33,9 @@ import {
   listCheckIns,
   listMeetingActionItems,
   listMissingCheckIns,
+  listMissingForDay,
   listOneOnOnes,
+  requestCheckIn,
   updateMeetingActionItem
 } from '../services/check-ins';
 
@@ -47,7 +56,33 @@ export async function registerCheckInRoutes(app: FastifyInstance): Promise<void>
   app.get('/check-ins/missing', async (request) => {
     const actor = await getRequestActor(request);
     const query = missingCheckInQuerySchema.parse(request.query);
+    if (query.dateKey) return listMissingForDay(actor, query.dateKey);
     return listMissingCheckIns(actor, query.hours);
+  });
+
+  app.get('/check-ins/draft', async (request) => {
+    const actor = await getRequestActor(request);
+    const query = checkInDraftQuerySchema.parse(request.query);
+    return buildCheckInDraft(actor, query.dateKey);
+  });
+
+  app.get('/check-ins/digest', async (request) => {
+    const actor = await getRequestActor(request);
+    const query = checkInDigestQuerySchema.parse(request.query);
+    return buildDailyReportDigest(actor, query.dateKey);
+  });
+
+  app.get('/check-ins/trends', async (request) => {
+    const actor = await getRequestActor(request);
+    const query = checkInTrendsQuerySchema.parse(request.query);
+    return buildDailyReportTrends(actor, query.days, query.dateKey);
+  });
+
+  app.post('/check-ins/request', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const input = requestCheckInSchema.parse(request.body);
+    const result = await requestCheckIn(actor, input.userId, input.message);
+    return reply.code(201).send(result);
   });
 
   app.get('/one-on-ones', async (request) => {

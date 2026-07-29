@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { prisma, type IntegrationAccount, type Prisma } from '@taskara/db';
-import { priorityLabel, statusLabel } from '@taskara/shared';
+import { checkInDigestQuerySchema, priorityLabel, statusLabel } from '@taskara/shared';
 import { z } from 'zod';
 import { config } from '../config';
 import { getRequestActor, isWorkspaceAdminRole, requireWorkspaceAdmin } from '../services/actor';
 import { createAnnouncement } from '../services/announcements';
+import { buildDailyReportDigest } from '../services/check-ins';
 import { HttpError } from '../services/http';
 import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
 import {
@@ -2986,6 +2987,38 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
     };
   });
 
+  // Reads the day's reports and returns one short Persian paragraph. It sits above the raw reports
+  // in the digest and never replaces them, so a summarizer hiccup cannot hide what people wrote.
+  app.post('/check-ins/digest/summary', async (request) => {
+    const actor = await getRequestActor(request);
+    const input = checkInDigestQuerySchema.parse(request.body ?? {});
+    const digest = await buildDailyReportDigest(actor, input.dateKey);
+    if (!digest.reports.length) {
+      return { dateKey: digest.dateKey, summary: null, reason: 'no_reports' };
+    }
+
+    const accounts = await loadAiCredentialAccounts(actor.workspace.id);
+    const selectedCredential = resolveActiveCredential(accounts);
+    const storedApiKey = selectedCredential ? resolveStoredApiKey(selectedCredential) : null;
+    if (!selectedCredential || !storedApiKey) {
+      throw new HttpError(400, 'AI API key is not configured. Set it in settings first.');
+    }
+
+    const aiConfig = normalizeAiConfig(selectedCredential.config);
+    const effectiveModel = actor.user.aiModel ? normalizeOpenRouterModel(actor.user.aiModel) : aiConfig.model;
+
+    const analysis = await generateAnalysis(
+      aiConfig.provider,
+      storedApiKey,
+      effectiveModel,
+      buildDailyReportSummaryPrompt(digest),
+      null
+    );
+    if (analysis.usage) await recordUsageStats(selectedCredential.id, analysis.usage);
+
+    return { dateKey: digest.dateKey, summary: analysis.content, model: effectiveModel };
+  });
+
   app.post('/reports/tasks/analyze', async (request) => {
     const actor = await getRequestActor(request);
     const input = reportAnalyzeInputSchema.parse(request.body);
@@ -3233,4 +3266,38 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
       }
     };
   });
+}
+
+function buildDailyReportSummaryPrompt(digest: Awaited<ReturnType<typeof buildDailyReportDigest>>): string {
+  const lines = digest.reports.map((report) => {
+    const name = report.user?.name || 'نامشخص';
+    const parts = [
+      report.completedText ? `انجام‌شده: ${report.completedText}` : null,
+      report.unplannedText ? `کار غیرمنتظره: ${report.unplannedText}` : null,
+      report.planText ? `برنامه‌ی بعدی: ${report.planText}` : null,
+      report.blockersText ? `گیر: ${report.blockersText}` : null,
+      report.helpText ? `کمک لازم: ${report.helpText}` : null
+    ].filter(Boolean);
+    return `- ${name} — ${parts.join(' | ')}`;
+  });
+
+  const missing = digest.missing.map((user) => user.name).join('، ') || 'هیچ‌کس';
+
+  return [
+    'تو دستیار یک مدیر فنی هستی. گزارش‌های روزانه‌ی امروز تیم را بخوان و یک خلاصه‌ی کوتاه فارسی بنویس.',
+    '',
+    `تاریخ: ${digest.dateKey}`,
+    `${digest.stats.submitted} نفر از ${digest.stats.expected} نفر گزارش داده‌اند. ${digest.stats.blockerCount} نفر گیر دارند.`,
+    `کسانی که گزارش نداده‌اند: ${missing}`,
+    '',
+    'گزارش‌ها:',
+    ...lines,
+    '',
+    'خروجی را دقیقاً در همین چهار بند و حداکثر ۱۲۰ کلمه بنویس:',
+    '۱) مهم‌ترین پیشرفت امروز.',
+    '۲) چه چیزی همین امروز به تصمیم یا کمک مدیر نیاز دارد.',
+    '۳) منبع کارهای غیرمنتظره چه بوده و آیا الگوی تکرارشونده دارد.',
+    '۴) پیشنهاد تمرکز مدیر برای فردا.',
+    'اگر داده‌ای برای بندی نداری، همان را صریح بنویس و چیزی از خودت نساز.'
+  ].join('\n');
 }
