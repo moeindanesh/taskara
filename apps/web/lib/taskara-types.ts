@@ -353,8 +353,10 @@ export interface TaskaraDailyReportTrends {
    from: string;
    to: string;
    days: number;
+   workdays: number;
    byDay: Array<{
       dateKey: string;
+      workday: boolean;
       submitted: number;
       expected: number;
       unplanned: number;

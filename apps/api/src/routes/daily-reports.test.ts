@@ -278,7 +278,8 @@ describe('daily reports', () => {
 
     const body = response.json() as {
       days: number;
-      byDay: Array<{ dateKey: string; submitted: number; unplannedShare: number }>;
+      workdays: number;
+      byDay: Array<{ dateKey: string; workday: boolean; submitted: number; expected: number; unplannedShare: number }>;
       byPerson: Array<{ user: { id: string }; submitted: number; unplannedDays: number }>;
       totals: { submitted: number; possible: number; unplannedShare: number; blockerShare: number };
     };
@@ -291,10 +292,18 @@ describe('daily reports', () => {
     expect(body.byDay.at(-1)?.unplannedShare).toBe(50);
 
     expect(body.totals.submitted).toBe(3);
-    // 4 reporting members over a 7-day window.
-    expect(body.totals.possible).toBe(28);
+    // 4 reporting members over the workdays in the window — weekends are not counted, because
+    // nobody is asked for a report on them.
+    expect(body.workdays).toBeGreaterThan(0);
+    expect(body.workdays).toBeLessThan(7);
+    expect(body.totals.possible).toBe(4 * body.workdays);
     expect(body.totals.unplannedShare).toBe(33);
     expect(body.totals.blockerShare).toBe(33);
+
+    // A weekend day expects nothing, so an empty Thursday is not a participation failure.
+    const weekend = body.byDay.filter((day) => !day.workday);
+    expect(weekend.length).toBeGreaterThan(0);
+    for (const day of weekend) expect(day.expected).toBe(0);
 
     const member = body.byPerson.find((entry) => entry.user.id === fixture.users.member.id);
     expect(member?.submitted).toBe(2);

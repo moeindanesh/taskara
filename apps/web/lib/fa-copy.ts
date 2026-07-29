@@ -298,13 +298,17 @@ export const fa = {
       participation: 'مشارکت',
       participationValue: (submitted: number, possible: number) =>
          `${submitted.toLocaleString('fa-IR')} از ${possible.toLocaleString('fa-IR')} روزِ ممکن`,
-      unplannedShare: 'سهم کار غیرمنتظره',
-      blockerShare: 'سهم روزهای دارای گیر',
+      unplannedShare: 'گزارش با کار غیرمنتظره',
+      blockerShare: 'گزارش با گیر',
       perPerson: 'به تفکیک افراد',
       personDays: (submitted: number, possible: number) =>
          `${submitted.toLocaleString('fa-IR')} از ${possible.toLocaleString('fa-IR')} روز`,
       unplannedDays: (count: number) => `${count.toLocaleString('fa-IR')} روز کار غیرمنتظره`,
       empty: 'هنوز داده‌ای برای این بازه ثبت نشده است.',
+      participationValueShort: (submitted: number, possible: number) =>
+         `${submitted.toLocaleString('fa-IR')}/${possible.toLocaleString('fa-IR')}`,
+      weekend: 'تعطیل',
+      windowLabel: (workdays: number) => `${workdays.toLocaleString('fa-IR')} روز کاری اخیر`,
       loadFailed: 'بارگذاری روند گزارش‌ها ناموفق بود.',
    },
    dailyReportsDigest: {
