@@ -22,6 +22,7 @@ import { SettingsView } from '@/components/taskara/settings-view';
 import { TasksView } from '@/components/taskara/tasks-view';
 import { TaskReportsView } from '@/components/taskara/task-reports-view';
 import { TeamHealthView } from '@/components/taskara/team-health-view';
+import { TeamOverviewView } from '@/components/taskara/team-overview/team-overview-view';
 import { TeamsView } from '@/components/taskara/teams-view';
 import { fa } from '@/lib/fa-copy';
 import { WorkspaceInboxSyncProvider } from '@/lib/inbox-sync';
@@ -30,6 +31,10 @@ import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
 import { useAuthSession } from '@/store/auth-store';
 
 const pageMetaByRoute = {
+  overview: {
+    title: fa.nav.teamOverview,
+    description: fa.pages.teamOverviewDescription,
+  },
   cockpit: {
     title: fa.nav.cockpit,
     description: fa.pages.cockpitDescription,
@@ -181,7 +186,7 @@ function RootRedirect() {
 
   if (!session) return <Navigate replace to="/login" />;
   if (!session.workspace?.slug) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={defaultWorkspacePath(session.workspace.slug, session.role)} />;
+  return <Navigate replace to={defaultWorkspacePath(session.workspace.slug)} />;
 }
 
 function WorkspacePage({ children }: { children: ReactNode }) {
@@ -198,6 +203,7 @@ export function App() {
       <Route path="/" element={<RootRedirect />} />
       <Route path="/:orgId" element={<AuthenticatedWorkspaceShell />}>
         <Route index element={<WorkspaceRedirect />} />
+        <Route path="overview" element={<WorkspacePage><TeamOverviewView /></WorkspacePage>} />
         <Route path="cockpit" element={<WorkspacePage><ManagerCockpitView /></WorkspacePage>} />
         <Route path="queues" element={<WorkspacePage><DecisionQueuesView /></WorkspacePage>} />
         <Route path="reviews" element={<WorkspacePage><ReviewsView /></WorkspacePage>} />
@@ -238,12 +244,13 @@ export function App() {
 }
 
 function WorkspaceRedirect() {
-  const { session } = useAuthSession();
   const { orgId } = useParams();
   if (!orgId) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={defaultWorkspacePath(orgId, session?.role)} />;
+  return <Navigate replace to={defaultWorkspacePath(orgId)} />;
 }
 
-function defaultWorkspacePath(orgId: string, role?: string | null) {
-  return role === 'OWNER' || role === 'ADMIN' ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
+// The team overview is everyone's landing page; the cockpit and the personal list stay one click
+// away in the sidebar.
+function defaultWorkspacePath(orgId: string) {
+  return `/${orgId}/overview`;
 }

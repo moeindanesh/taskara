@@ -1,5 +1,9 @@
 # Team Overview (Obsidian-style graph) — Implementation Plan
 
+> **Status: implemented.** Deviations from the plan as written are listed under
+> [As built](#as-built) at the end.
+
+
 Make the workspace's main page a force-directed **Team Overview** graph: the workspace at the center, every member connected to it, and each member's **Today Load** (بار امروز) orbiting them as task nodes — color = status, size = weight. Clicking a task opens the issue overlay; clicking a person opens the composer preloaded for them.
 
 Vocabulary is pinned in [`CONTEXT.md`](../CONTEXT.md) (Today Load, Plan, Today, Team Overview). The engine decision is recorded in [ADR-0001](./adr/0001-hand-rolled-svg-force-graph.md).
@@ -105,6 +109,29 @@ Memoize on `(tasks, users, todayKey)`; recompute `todayKey` on a minute-level in
 4. **Click wiring** — IssuePage overlay + composer event.
 5. **Routing/nav/copy** — route, default landing for all roles, sidebar, Farsi labels.
 6. Playwright smoke, then ship.
+
+## As built
+
+What shipped matches the decisions above. Five things differ from the plan text:
+
+1. **No API change was needed.** `TaskaraUser` already carries the workspace `role`
+   (`apps/web/lib/taskara-types.ts`), so the GUEST/AGENT rule works off existing sync data. The
+   planned additive field in `apps/api/src/routes/sync.ts` was not required — the feature touches no
+   server code at all.
+2. **`graph-model.ts` was added** to the file list: node/link types plus the pure `taskNodeRadius`
+   sizing rule, so the selector, the simulation and the renderer share one definition without a cycle.
+3. **Fit-to-content on first settle.** The view starts centred on the origin and reframes around the
+   team's actual bounding box the first time the simulation settles (clamped to 1.15× so a small team
+   is centred rather than blown up). Later settles do not reframe — yanking the viewport after a drag
+   or a sync update would be hostile. Without this the graph sat in a small clump mid-canvas.
+4. **Task nodes carry `data-node-*` attributes** (`id`, `kind`, `label`, `status`, `overdue`) so the
+   graph is assertable from Playwright without reading SVG geometry.
+5. **The workspace timezone is read from `VITE_TASKARA_WORKSPACE_TIMEZONE`** (default `Asia/Tehran`),
+   mirroring the server's `TASKARA_WORKSPACE_TIMEZONE`. `apps/api/src/services/workspace-time.ts` was
+   deliberately left untouched.
+
+Verification: 22 new unit tests (61 across the web app, no regressions), 3 new Playwright tests
+passing on desktop and mobile viewports, full monorepo typecheck clean, production build clean.
 
 ## Ideas backlog (phase 2+ — not in v1)
 

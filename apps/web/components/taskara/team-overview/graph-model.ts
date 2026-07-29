@@ -54,6 +54,11 @@ export interface TeamOverviewGraph {
    links: GraphLink[];
 }
 
+/** d3 rewrites link endpoints from ids into node references once the simulation runs. */
+export function linkEndId(end: GraphLink['source']): string {
+   return typeof end === 'string' ? end : end.id;
+}
+
 export const workspaceNodeId = 'workspace';
 export const personNodeId = (userId: string) => `user:${userId}`;
 export const taskNodeId = (taskId: string) => `task:${taskId}`;
