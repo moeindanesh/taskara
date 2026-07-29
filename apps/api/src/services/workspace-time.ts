@@ -68,6 +68,15 @@ export function isWorkday(date: Date = new Date()): boolean {
   return workdays.has(workspaceClockParts(date).weekday) && !isHoliday(workspaceDateKey(date));
 }
 
+const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Same question as isWorkday, asked about a workspace day rather than an instant. Noon UTC keeps the
+// calendar date stable regardless of which side of the date line the offset falls on.
+export function isWorkdayKey(dateKey: string): boolean {
+  const weekday = weekdayNames[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
+  return workdays.has(weekday) && !isHoliday(dateKey);
+}
+
 // v1 keeps the holiday list in code; a per-workspace calendar is deliberately out of scope.
 const holidayDateKeys = new Set<string>([]);
 

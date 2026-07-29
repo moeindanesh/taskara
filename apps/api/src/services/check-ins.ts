@@ -17,7 +17,7 @@ import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } 
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
-import { dateKeyRange, shiftDateKey, workspaceDateKey } from './workspace-time';
+import { dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
 
 type CreateCheckInInput = z.infer<typeof createCheckInResponseSchema>;
 type CreateOneOnOneInput = z.infer<typeof createOneOnOneSeriesSchema>;
@@ -438,22 +438,29 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
   const byDay = dayKeys.map((dateKey) => {
     const dayRows = rows.filter((row) => row.dateKey === dateKey);
     const withUnplanned = dayRows.filter((row) => row.unplannedText).length;
+    const workday = isWorkdayKey(dateKey);
     return {
       dateKey,
+      workday,
       submitted: dayRows.length,
-      expected: members.length,
+      // Nobody is asked for a report on a weekend, so nobody is expected to have filed one.
+      expected: workday ? members.length : 0,
       unplanned: withUnplanned,
       blockers: dayRows.filter((row) => row.blockersText || row.helpText).length,
       unplannedShare: dayRows.length ? Math.round((withUnplanned / dayRows.length) * 100) : 0
     };
   });
 
+  // Participation is measured against the days the ritual actually asks for a report. Counting
+  // weekends in the denominator would cap a perfect team at roughly 71% and read as failure.
+  const workdayCount = dayKeys.filter(isWorkdayKey).length;
+
   const byPerson = members.map((member) => {
     const personRows = rows.filter((row) => row.userId === member.userId);
     return {
       user: member.user,
       submitted: personRows.length,
-      possible: days,
+      possible: workdayCount,
       unplannedDays: personRows.filter((row) => row.unplannedText).length,
       blockerDays: personRows.filter((row) => row.blockersText || row.helpText).length
     };
@@ -464,11 +471,12 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
     from,
     to: today,
     days,
+    workdays: workdayCount,
     byDay,
     byPerson,
     totals: {
       submitted: totalSubmitted,
-      possible: members.length * days,
+      possible: members.length * workdayCount,
       unplannedShare: totalSubmitted ? Math.round((rows.filter((row) => row.unplannedText).length / totalSubmitted) * 100) : 0,
       blockerShare: totalSubmitted
         ? Math.round((rows.filter((row) => row.blockersText || row.helpText).length / totalSubmitted) * 100)

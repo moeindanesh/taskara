@@ -120,21 +120,91 @@ test.describe('@team-overview workspace graph', () => {
       expect(heavy).toBeGreaterThan(light * 2.5);
    });
 
-   test('opens the issue from a task node and the composer from a person node', async ({ page }) => {
+   test('opens the issue from a task node', async ({ page }) => {
       await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
 
       await page.locator('[data-node-id="task:task-today"]').click();
       await expect(page.getByRole('dialog').getByText('CORE-102').first()).toBeVisible();
+   });
 
-      await page.keyboard.press('Escape');
-      await expect(page.getByRole('dialog')).toHaveCount(0);
+   test('opens a person’s open work in a sheet, whatever it is due', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
 
       await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
-      const composer = page.getByRole('dialog');
-      await expect(composer.getByPlaceholder('عنوان کار')).toBeVisible();
-      // The person that was clicked arrives preselected as the assignee.
-      await expect(composer.getByText(people.member.name).first()).toBeVisible();
+      await expect(page.getByRole('dialog', { name: people.member.name })).toBeVisible();
+
+      // The graph shows today; the sheet shows the pool, so future and undated work is here too.
+      const rows = page.getByTestId('person-sheet-row');
+      await expect(rows).toHaveCount(4);
+      await expect(rows.filter({ hasText: 'CORE-104' })).toBeVisible();
+      await expect(rows.filter({ hasText: 'CORE-105' })).toBeVisible();
+      // Finished and canceled work is not something to manage.
+      await expect(rows.filter({ hasText: 'CORE-106' })).toHaveCount(0);
+      await expect(rows.filter({ hasText: 'CORE-107' })).toHaveCount(0);
+
+      // Opening a row hands off to the issue page.
+      await rows.filter({ hasText: 'CORE-104' }).getByRole('button').first().click();
+      await expect(page.getByText('CORE-104').first()).toBeVisible();
+   });
+
+   test('pulls a dateless task into today from the person sheet', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      const undated = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-105' });
+
+      // Work already due today has nothing to pull, so it offers no button.
+      await expect(page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-102' }).getByTestId('pull-into-today')).toHaveCount(0);
+
+      await undated.getByTestId('pull-into-today').click();
+
+      // It joins the Today Load, which means it lands on the graph behind the sheet.
+      await expect(page.locator('[data-node-id="task:task-undated"]')).toHaveCount(1);
+      await expect(undated.getByTestId('pull-into-today')).toHaveCount(0);
+   });
+
+   test('edits weight and priority in place, and the graph resizes the node', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      // CORE-102 is weight 1 — the smallest a sized node can be.
+      const nodeCircle = page.locator('[data-node-id="task:task-today"] circle').nth(1);
+      const before = Number(await nodeCircle.getAttribute('r'));
+
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      const row = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-102' });
+
+      await row.getByRole('button', { name: 'وزن' }).click();
+      await page.getByRole('button', { name: 'وزن ۸' }).click();
+      await expect(row.getByRole('button', { name: 'وزن' })).toContainText('۸');
+
+      // Weight drives node size, so the edit is visible on the graph behind the sheet.
+      await expect
+         .poll(async () => Number(await nodeCircle.getAttribute('r')))
+         .toBeGreaterThan(before * 2.5);
+
+      await row.getByRole('button', { name: 'اولویت' }).click();
+      await page.getByRole('button', { name: 'فوری', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'اولویت' })).toContainText('فوری');
+   });
+
+   test('assigns unowned work to the open person and dates it today', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      await page.getByRole('button', { name: /بدون مسئول/ }).click();
+
+      const unowned = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-108' });
+      await expect(unowned).toBeVisible();
+      await unowned.getByTestId('claim-for-person').click();
+
+      // One click gives it an owner and a day, so it appears on that person's cluster.
+      await expect(page.locator('[data-node-id="task:task-unassigned"]')).toHaveCount(1);
+      await expect(page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-108' })).toHaveCount(0);
    });
 
    test('pops in work that arrives while the graph is open', async ({ page }) => {
@@ -142,6 +212,17 @@ test.describe('@team-overview workspace graph', () => {
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
       // Nothing already on screen should be mid-entrance once the first layout is up.
       await expect(page.locator('[data-entering="true"]')).toHaveCount(0);
+
+      // The entrance lasts under a second, which a polling assertion can step straight over on a
+      // loaded machine. An in-page observer records that it happened at all.
+      await page.evaluate(() => {
+         const state = { seen: false };
+         (window as unknown as { __entrance: typeof state }).__entrance = state;
+         const check = () => {
+            if (document.querySelector('[data-node-id="task:task-arrived"][data-entering="true"]')) state.seen = true;
+         };
+         new MutationObserver(check).observe(document.body, { attributes: true, childList: true, subtree: true });
+      });
 
       await addTaskViaSync(page, {
          ...taskBase,
@@ -161,9 +242,12 @@ test.describe('@team-overview workspace graph', () => {
 
       const arrival = page.locator('[data-node-id="task:task-arrived"]');
       await expect(arrival).toHaveCount(1);
-      // Caught mid-flight: the entrance marker is present while the pop plays.
-      await expect(arrival).toHaveAttribute('data-entering', 'true');
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(4);
+
+      // It really did enter with the pop rather than simply appearing.
+      await expect
+         .poll(() => page.evaluate(() => (window as unknown as { __entrance: { seen: boolean } }).__entrance.seen))
+         .toBe(true);
 
       // ...and clears once it has landed, so it animates exactly once.
       await expect(arrival).not.toHaveAttribute('data-entering', 'true', { timeout: 4000 });
@@ -174,8 +258,9 @@ test.describe('@team-overview workspace graph', () => {
       await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
 
-      // Clicking the person is both the gesture that unlocks audio and the way into the composer.
+      // Clicking the person is both the gesture that unlocks audio and the way to the composer.
       await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      await page.getByRole('button', { name: 'کار جدید' }).click();
       await expect(page.getByPlaceholder('عنوان کار')).toBeVisible();
       const before = await countOscillators(page);
 
@@ -260,6 +345,9 @@ async function seedAuth(page: Page) {
 }
 
 async function mockTaskaraApi(page: Page) {
+   // Cloned per test so one test's edits never leak into the next.
+   const state = tasks.map((task) => ({ ...task }));
+
    await page.route(`${apiOrigin}/**`, async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -274,8 +362,8 @@ async function mockTaskaraApi(page: Page) {
             serverTime: new Date(runAt).toISOString(),
             completedWindowDays: 5,
             omittedCompletedBefore: iso(-5),
-            tasks,
-            totalHotTasks: tasks.length,
+            tasks: state,
+            totalHotTasks: state.length,
             projects,
             teams,
             users: taskaraUsers,
@@ -284,14 +372,44 @@ async function mockTaskaraApi(page: Page) {
       }
       if (path === '/sync/pull') return json(route, { cursor: query.get('cursor') || '1', events: [], hasMore: false });
       if (path === '/sync/push') {
-         const body = request.postDataJSON() as { mutations?: Array<{ args: Record<string, unknown>; mutationId: string }> };
+         const body = request.postDataJSON() as {
+            mutations?: Array<{
+               args: Record<string, unknown> & { idOrKey?: string; patch?: Record<string, unknown> };
+               mutationId: string;
+               name: string;
+            }>;
+         };
+
          return json(route, {
             cursor: '2',
-            results: (body.mutations || []).map((mutation) => ({
-               mutationId: mutation.mutationId,
-               status: 'applied',
-               workspaceSeq: '2',
-               entity: {
+            results: (body.mutations || []).map((mutation) => {
+               const applied = (entity: unknown) => ({
+                  mutationId: mutation.mutationId,
+                  status: 'applied',
+                  workspaceSeq: '2',
+                  entity,
+               });
+
+               if (mutation.name === 'task.update') {
+                  const index = state.findIndex(
+                     (task) => task.id === mutation.args.idOrKey || task.key === mutation.args.idOrKey
+                  );
+                  const current = state[index];
+                  const patch = mutation.args.patch || {};
+                  const updated = {
+                     ...current,
+                     ...patch,
+                     assignee: Object.prototype.hasOwnProperty.call(patch, 'assigneeId')
+                        ? taskaraUsers.find((user) => user.id === patch.assigneeId) || null
+                        : current.assignee,
+                     updatedAt: iso(0),
+                     version: (current.version || 0) + 1,
+                  };
+                  state[index] = updated as (typeof state)[number];
+                  return applied(updated);
+               }
+
+               return applied({
                   ...taskBase,
                   ...mutation.args,
                   id: 'task-composed',
@@ -301,8 +419,8 @@ async function mockTaskaraApi(page: Page) {
                   completedAt: null,
                   progressStartedAt: null,
                   assignee: taskaraUsers.find((user) => user.id === mutation.args?.assigneeId) || null,
-               },
-            })),
+               });
+            }),
          });
       }
       if (path === '/me') return json(route, { workspace, user: people.admin, role: 'ADMIN', unreadNotifications: 0 });
