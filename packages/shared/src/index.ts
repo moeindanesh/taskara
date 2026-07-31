@@ -46,6 +46,7 @@ export const milestoneStatuses = ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELED'] 
 export const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
 export const milestoneUnfinishedTaskPolicies = ['KEEP', 'UNASSIGN', 'MOVE'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
+export const userKinds = ['HUMAN', 'AGENT'] as const;
 export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
 export const meetingActionItemStatuses = ['OPEN', 'DONE', 'CANCELED'] as const;
@@ -63,6 +64,7 @@ export type MilestoneStatusValue = (typeof milestoneStatuses)[number];
 export type MilestoneHealthValue = (typeof milestoneHealthValues)[number];
 export type MilestoneUnfinishedTaskPolicyValue = (typeof milestoneUnfinishedTaskPolicies)[number];
 export type WorkspaceRoleValue = (typeof workspaceRoles)[number];
+export type UserKindValue = (typeof userKinds)[number];
 export type AnnouncementStatusValue = (typeof announcementStatuses)[number];
 export type MeetingStatusValue = (typeof meetingStatuses)[number];
 export type MeetingActionItemStatusValue = (typeof meetingActionItemStatuses)[number];
@@ -94,6 +96,7 @@ export const milestoneStatusSchema = z.enum(milestoneStatuses);
 export const milestoneHealthSchema = z.enum(milestoneHealthValues);
 export const milestoneUnfinishedTaskPolicySchema = z.enum(milestoneUnfinishedTaskPolicies);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
+export const userKindSchema = z.enum(userKinds);
 export const announcementStatusSchema = z.enum(announcementStatuses);
 export const meetingStatusSchema = z.enum(meetingStatuses);
 export const meetingActionItemStatusSchema = z.enum(meetingActionItemStatuses);
@@ -129,7 +132,9 @@ export const createUserSchema = z.object({
   phone: optionalPhoneNumberSchema,
   mattermostUsername: z.string().trim().toLowerCase().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).optional(),
   avatarUrl: z.string().trim().url().optional(),
-  role: workspaceRoleSchema.default('MEMBER')
+  role: workspaceRoleSchema.default('MEMBER'),
+  kind: userKindSchema.optional(),
+  operatorId: z.string().uuid().optional()
 });
 
 export const updateUserSchema = z.object({

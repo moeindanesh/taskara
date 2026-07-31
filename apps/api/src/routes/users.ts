@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma, type Prisma, type SyncEvent, type WorkspaceRole } from '@taskara/db';
+import { prisma, type Prisma, type SyncEvent, type UserKind, type WorkspaceRole } from '@taskara/db';
 import {
   createUserSchema,
   createWorkspaceInviteSchema,
@@ -25,6 +25,8 @@ const userSelect = {
   id: true,
   email: true,
   name: true,
+  kind: true,
+  operatorId: true,
   phone: true,
   mattermostUserId: true,
   mattermostUsername: true,
@@ -267,20 +269,24 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const nature = await resolveUserNature(tx, actor.workspace.id, input.email, input.kind, input.operatorId);
+
       const user = await tx.user.upsert({
         where: { email: input.email },
         update: {
           name: input.name,
           phone: input.phone,
           mattermostUsername: input.mattermostUsername,
-          avatarUrl: input.avatarUrl
+          avatarUrl: input.avatarUrl,
+          ...nature.update
         },
         create: {
           email: input.email,
           name: input.name,
           phone: input.phone,
           mattermostUsername: input.mattermostUsername,
-          avatarUrl: input.avatarUrl
+          avatarUrl: input.avatarUrl,
+          ...nature.create
         },
         select: userSelect
       });
@@ -512,6 +518,69 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.code(204).send();
   });
+}
+
+type UserNature = { kind: UserKind; operatorId: string | null };
+
+// Resolves the kind/operatorId pair a provisioned User should carry, for the create and update halves
+// of the upsert separately — they differ, because an omitted operatorId means "null" on create but
+// "leave as it is" on update.
+//
+// The database enforces only the single-row half of the rule ("a HUMAN has no operator"). The other
+// half -- "an agent must not operate an agent" -- is a cross-row invariant that a plain CHECK cannot
+// see, so it is enforced here, and it takes TWO guards to close: reject attaching an operator that is
+// already an agent, AND reject turning a user that already operates agents into one. Blocking only the
+// first leaves promotion as an open back door to the same forbidden shape.
+//
+// Every read runs on `tx` so it sees the same snapshot as the write. Under READ COMMITTED two
+// concurrent promotions could still interleave; that race is left open deliberately, as this route is
+// workspace-admin-only and agent provisioning is rare.
+async function resolveUserNature(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  email: string,
+  kind: UserKind | undefined,
+  operatorId: string | undefined
+): Promise<{ create: UserNature | Record<string, never>; update: Partial<UserNature> }> {
+  if (kind === undefined && operatorId === undefined) return { create: {}, update: {} };
+
+  const subject = await tx.user.findUnique({
+    where: { email },
+    select: { id: true, kind: true, _count: { select: { agents: true } } }
+  });
+
+  const nextKind: UserKind = kind ?? subject?.kind ?? 'HUMAN';
+
+  if (nextKind !== 'AGENT') {
+    if (operatorId) throw new HttpError(400, 'Only an agent user can have an operator');
+    return { create: { kind: nextKind, operatorId: null }, update: { kind: nextKind, operatorId: null } };
+  }
+
+  // Becoming an agent is only legal for a user that operates nobody.
+  if (subject && subject.kind !== 'AGENT' && subject._count.agents > 0) {
+    throw new HttpError(400, 'A user that operates agents cannot become an agent');
+  }
+
+  if (operatorId === undefined) {
+    // Nature named, operator not: keep whatever link the row already has rather than silently detaching.
+    return { create: { kind: nextKind, operatorId: null }, update: { kind: nextKind } };
+  }
+
+  if (subject && operatorId === subject.id) {
+    throw new HttpError(400, 'A user cannot operate itself');
+  }
+
+  const operator = await tx.user.findFirst({
+    where: { id: operatorId, workspaces: { some: { workspaceId } } },
+    select: { id: true, kind: true }
+  });
+  if (!operator) throw new HttpError(400, 'Operator must be a user in this workspace');
+  if (operator.kind === 'AGENT') throw new HttpError(400, 'An agent cannot operate another agent');
+
+  return {
+    create: { kind: nextKind, operatorId: operator.id },
+    update: { kind: nextKind, operatorId: operator.id }
+  };
 }
 
 function assertOwnerRoleManageAllowed(actorRole: WorkspaceRole, currentRole: WorkspaceRole | undefined, nextRole: WorkspaceRole): void {

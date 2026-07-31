@@ -16,6 +16,11 @@ enum WorkspaceRole {
   AGENT
 }
 
+enum UserKind {
+  HUMAN
+  AGENT
+}
+
 enum ProjectRole {
   LEAD
   MEMBER
@@ -251,6 +256,8 @@ model User {
   id                    String    @id @default(uuid()) @db.Uuid
   email                 String    @unique
   name                  String
+  kind                  UserKind  @default(HUMAN)
+  operatorId            String?   @db.Uuid
   aiModel               String?
   phone                 String?   @unique
   passwordHash          String?
@@ -260,6 +267,9 @@ model User {
   onboardingCompletedAt DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+
+  operator User?  @relation("AgentOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  agents   User[] @relation("AgentOperator")
 
   workspaces                    WorkspaceMember[]
   authSessions                  AuthSession[]
@@ -308,6 +318,9 @@ model User {
   approvedActions               AgentAction[]
   sentInvites                   WorkspaceInvite[]           @relation("WorkspaceInviteInviter")
   acceptedInvites               WorkspaceInvite[]           @relation("WorkspaceInviteAccepter")
+
+  @@index([operatorId])
+  @@index([kind])
 }
 
 model AuthSession {
