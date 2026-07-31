@@ -15,3 +15,4 @@ apps/web/test-results
 packages/db/src/generated/client
 apps/web/dist
 apps/menubar/release
+.scratch
