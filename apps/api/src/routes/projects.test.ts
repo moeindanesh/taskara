@@ -5,7 +5,9 @@ import { registerApp } from '../app';
 
 let app: FastifyInstance;
 const cleanupWorkspaceIds: string[] = [];
-const cleanupUserIds: string[] = [];
+
+// Not the shared `example.test`: the sweep below must not reach another file's rows.
+const EMAIL_DOMAIN = 'project-merge.test';
 
 describe('project merge', () => {
   beforeAll(async () => {
@@ -17,8 +19,9 @@ describe('project merge', () => {
   afterEach(async () => {
     const workspaceIds = cleanupWorkspaceIds.splice(0);
     if (workspaceIds.length) await prisma.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
-    const userIds = cleanupUserIds.splice(0);
-    if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    // Tracking ids only cleans up runs that reach this hook. Sweeping by a domain
+    // unique to this file also reclaims rows stranded by an interrupted earlier run.
+    await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
   });
 
   afterAll(async () => {
@@ -77,10 +80,9 @@ describe('project merge', () => {
 async function createFixture() {
   const suffix = crypto.randomUUID().slice(0, 8);
   const [owner, member] = await Promise.all([
-    prisma.user.create({ data: { email: `project-merge-owner-${suffix}@example.test`, name: 'Owner' } }),
-    prisma.user.create({ data: { email: `project-merge-member-${suffix}@example.test`, name: 'Member' } })
+    prisma.user.create({ data: { email: `owner-${suffix}@${EMAIL_DOMAIN}`, name: 'Owner' } }),
+    prisma.user.create({ data: { email: `member-${suffix}@${EMAIL_DOMAIN}`, name: 'Member' } })
   ]);
-  cleanupUserIds.push(owner.id, member.id);
   const workspace = await prisma.workspace.create({ data: { name: 'Merge workspace', slug: `merge-${suffix}` } });
   cleanupWorkspaceIds.push(workspace.id);
   await prisma.workspaceMember.createMany({

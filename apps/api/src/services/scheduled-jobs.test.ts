@@ -11,18 +11,18 @@ import {
 import { shiftDateKey, workspaceDateKey } from './workspace-time';
 
 const cleanupWorkspaceIds: string[] = [];
-const cleanupUserIds: string[] = [];
 const cleanupJobKeys: string[] = [];
+
+const EMAIL_DOMAIN = 'jobs.test';
 
 afterEach(async () => {
   while (cleanupWorkspaceIds.length) {
     const workspaceId = cleanupWorkspaceIds.pop();
     if (workspaceId) await prisma.workspace.deleteMany({ where: { id: workspaceId } });
   }
-  while (cleanupUserIds.length) {
-    const userId = cleanupUserIds.pop();
-    if (userId) await prisma.user.deleteMany({ where: { id: userId } });
-  }
+  // Tracking ids only cleans up runs that reach this hook. Sweeping by a domain
+  // unique to this file also reclaims rows stranded by an interrupted earlier run.
+  await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
   while (cleanupJobKeys.length) {
     const jobKey = cleanupJobKeys.pop();
     if (jobKey) await prisma.scheduledJobRun.deleteMany({ where: { jobKey } });
@@ -187,10 +187,9 @@ async function createWorkspace() {
 
   const make = async (key: string, role: WorkspaceRole, kind: UserKind = 'HUMAN') => {
     const user = await prisma.user.create({
-      data: { email: `${key}-${suffix}@jobs.test`.toLowerCase(), name: key, kind },
+      data: { email: `${key}-${suffix}@${EMAIL_DOMAIN}`.toLowerCase(), name: key, kind },
       select: { id: true }
     });
-    cleanupUserIds.push(user.id);
     await prisma.workspaceMember.create({ data: { workspaceId: workspace.id, userId: user.id, role } });
     return user.id;
   };

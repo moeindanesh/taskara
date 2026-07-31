@@ -7,7 +7,8 @@ import { isWorkdayKey, shiftDateKey, workspaceDateKey } from '../services/worksp
 
 let app: FastifyInstance;
 const cleanupWorkspaceIds: string[] = [];
-const cleanupUserIds: string[] = [];
+
+const EMAIL_DOMAIN = 'daily-report.test';
 
 type Persona = 'owner' | 'admin' | 'member' | 'teammate' | 'guest' | 'agent';
 
@@ -30,11 +31,9 @@ describe('daily reports', () => {
       if (!workspaceId) continue;
       await prisma.workspace.deleteMany({ where: { id: workspaceId } });
     }
-    while (cleanupUserIds.length) {
-      const userId = cleanupUserIds.pop();
-      if (!userId) continue;
-      await prisma.user.deleteMany({ where: { id: userId } });
-    }
+    // Tracking ids only cleans up runs that reach this hook. Sweeping by a domain
+    // unique to this file also reclaims rows stranded by an interrupted earlier run.
+    await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
   });
 
   afterAll(async () => {
@@ -795,10 +794,9 @@ async function injectAs(fixture: Fixture, persona: Persona, options: InjectOptio
 
 async function createUser(key: string, name: string, kind: UserKind = 'HUMAN') {
   const user = await prisma.user.create({
-    data: { email: `${key}@daily-report.test`.toLowerCase(), name, kind },
+    data: { email: `${key}@${EMAIL_DOMAIN}`.toLowerCase(), name, kind },
     select: { id: true, email: true, name: true }
   });
-  cleanupUserIds.push(user.id);
   return user;
 }
 
