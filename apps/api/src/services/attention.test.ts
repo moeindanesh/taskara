@@ -165,6 +165,7 @@ function candidateFromDueAt(dueAt: string) {
       sequence: 1,
       title: 'Follow up',
       description: null,
+      kind: 'WORK',
       status: 'TODO',
       priority: 'HIGH',
       weight: 1,

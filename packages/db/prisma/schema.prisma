@@ -29,6 +29,11 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum TaskKind {
+  WORK
+  EFFORT
+}
+
 enum TaskStatus {
   BACKLOG
   TODO
@@ -512,6 +517,7 @@ model Task {
   sequence    Int
   title       String
   description String?
+  kind        TaskKind     @default(WORK)
   status      TaskStatus   @default(TODO)
   priority    TaskPriority @default(NO_PRIORITY)
   weight      Float?
@@ -550,6 +556,7 @@ model Task {
   @@index([workspaceId, assigneeId])
   @@index([workspaceId, dueAt])
   @@index([milestoneId, status])
+  @@index([workspaceId, kind, status])
 }
 
 model TaskTriageState {
