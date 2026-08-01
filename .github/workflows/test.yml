@@ -70,6 +70,16 @@ jobs:
       - name: Shared package tests
         run: bun test packages/shared
 
+      # A bare directory, not a glob: `bun run` executes scripts through the
+      # system shell, which has no globstar, so a pattern like
+      # `apps/web/**/*.test.ts` would quietly cover one directory level and
+      # report green for the rest. Bun's own recursive discovery has no such
+      # blind spot, so every future web test file is gated without anyone
+      # remembering to widen a pattern. The Playwright specs stay out because
+      # they are named `.e2e.ts`, which Bun does not recognise as a test.
+      - name: Web tests
+        run: bun run test:web
+
       # Runs before typecheck deliberately: Bun executes TypeScript without
       # checking it, so a type error rarely stops the suite. Tests first means
       # one run reports both.

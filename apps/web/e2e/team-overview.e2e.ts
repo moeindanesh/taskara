@@ -320,7 +320,7 @@ function countOscillators(page: Page): Promise<number> {
    return page.evaluate(() => (window as unknown as { __oscillators?: number[] }).__oscillators?.length ?? 0);
 }
 
-/** Injects a task the way the sync engine broadcasts one, as manager-os.spec.ts does. */
+/** Injects a task the way the sync engine broadcasts one, as manager-os.e2e.ts does. */
 async function addTaskViaSync(page: Page, task: unknown) {
    await page.evaluate(
       ({ scopeKey, syncedTask }) => {

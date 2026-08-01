@@ -6,6 +6,13 @@ const baseURL = `http://${host}:${port}`;
 
 export default defineConfig({
   testDir: './e2e',
+  // `.e2e.ts`, not Playwright's default `.spec.ts`/`.test.ts`. `bun test` only
+  // considers a file a test when its name contains `.test`, `_test_`, `.spec`
+  // or `_spec_`, so this suffix is what keeps these specs invisible to the Bun
+  // runner — they call `test.describe()` at import time and throw outside the
+  // Playwright runner. That in turn lets the Bun gate be a plain directory
+  // (`bun test apps/web`) with no pattern to keep in sync.
+  testMatch: '**/*.e2e.ts',
   timeout: 30_000,
   expect: {
     timeout: 5_000,
