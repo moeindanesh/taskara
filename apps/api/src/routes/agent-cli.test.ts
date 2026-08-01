@@ -31,6 +31,7 @@ interface Fixture {
   otherEmail: string;
   otherName: string;
   projectId: string;
+  projectKeyPrefix: string;
 }
 
 interface CliRun {
@@ -290,6 +291,87 @@ describe('taskara CLI', () => {
     });
   });
 
+  describe('the project noun', () => {
+    test('project list answers in a workspace holding no tasks at all', async () => {
+      // The bootstrap. `task create --project` needs a project, and until this verb existed the only
+      // shell-side source of one was an existing Task's `project.id` — so an empty workspace could
+      // not be started from a shell at all. This is the read that breaks the circle.
+      const listed = await run(['project', 'list']);
+
+      expect(listed.code).toBe(0);
+      const projects = listed.json.projects as Array<{ id: string; keyPrefix: string }>;
+      expect(projects.map((project) => project.keyPrefix)).toContain(fixture.projectKeyPrefix);
+      expect(projects.find((project) => project.keyPrefix === fixture.projectKeyPrefix)?.id)
+        .toBe(fixture.projectId);
+    });
+
+    test('project create mints one, and the task that could not exist before now lands in it', async () => {
+      const keyPrefix = `NEW${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+      const created = await run(['project', 'create', '--name', 'Freshly bootstrapped', '--key-prefix', keyPrefix]);
+
+      expect(created.code).toBe(0);
+      expect(created.json.keyPrefix).toBe(keyPrefix);
+      expect(created.stderr).toContain(keyPrefix);
+
+      // The whole point of the verb: the id it prints is the one `task create` was demanding.
+      const task = await run(['task', 'create', '--project', String(created.json.id), '--title', 'The first one']);
+      expect(task.code).toBe(0);
+      expect(task.json.key).toStartWith(`${keyPrefix}-`);
+    });
+
+    test('a key prefix already in use is a conflict, not a rejection', async () => {
+      // 5 rather than 6 because the caller's move differs: the request was well-formed and someone
+      // else holds the name, which is the same shape of answer a lost `task claim` gives.
+      const clash = await run(['project', 'create', '--name', 'Second claimant', '--key-prefix', fixture.projectKeyPrefix]);
+      expect(clash.code).toBe(5);
+    });
+  });
+
+  describe('--project takes the key prefix an agent already holds', () => {
+    test('task create and task list both accept it, and it means the same project as the uuid', async () => {
+      // `CORE` is the front half of every key in the project, so an agent reading CORE-123 in its own
+      // prompt is already holding the handle. #45 settled the same argument for `--parent`.
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix, '--title', 'Addressed by prefix'
+      ]);
+      expect(created.code).toBe(0);
+      expect((created.json.project as { id: string }).id).toBe(fixture.projectId);
+
+      const listed = await run(['task', 'list', '--project', fixture.projectKeyPrefix, '--query', 'Addressed by prefix']);
+      expect(listed.code).toBe(0);
+      expect((listed.json.tasks as Array<{ key: string }>).map((task) => task.key)).toContain(String(created.json.key));
+    });
+
+    test('it is case-insensitive, because the server uppercases the prefix it stores', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix.toLowerCase(), '--title', 'Lower-cased prefix'
+      ]);
+      expect(created.code).toBe(0);
+      expect((created.json.project as { id: string }).id).toBe(fixture.projectId);
+    });
+
+    test('an unknown prefix is 4, and the message names the prefixes that do exist', async () => {
+      const missing = await run(['task', 'create', '--project', 'NOSUCH', '--title', 'Nowhere to put it']);
+
+      expect(missing.code).toBe(4);
+      expect(missing.stderr).toContain('NOSUCH');
+      // The recovery is one line away and the shell already fetched it, so it says so rather than
+      // making the caller run `project list` to find out what it should have typed.
+      expect(missing.stderr).toContain(fixture.projectKeyPrefix);
+    });
+
+    test('project create --parent nests a subproject under a prefix', async () => {
+      const keyPrefix = `SUB${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+      const child = await run([
+        'project', 'create', '--name', 'A subproject', '--key-prefix', keyPrefix,
+        '--parent', fixture.projectKeyPrefix
+      ]);
+
+      expect(child.code).toBe(0);
+      expect(child.json.parentId).toBe(fixture.projectId);
+    });
+  });
+
   describe('identity', () => {
     test('the runtime is sent as itself, and the surface no longer claims to be CODEX', async () => {
       const created = await run(
@@ -417,6 +499,7 @@ async function createFixture(): Promise<Fixture> {
     ownerEmail,
     otherEmail,
     otherName,
-    projectId: project.id
+    projectId: project.id,
+    projectKeyPrefix: project.keyPrefix
   };
 }
