@@ -28,8 +28,9 @@ Missing or unusable configuration exits **2** before anything is sent.
 
 - **A key**, `CORE-123` — the project's key prefix and a per-project sequence number. This is the
   identity to write in prose, in commit messages, and in another Task's body.
-- **A UUID**, which every command accepts wherever it accepts a key. Some filters take only a UUID
-  (`--project`, `--assignee`, `--milestone`); `--parent` takes either, and resolves a key for you.
+- **A UUID**, which every command accepts wherever it accepts a key. Some filters take only a UUID —
+  `--project`, `--milestone`, and `--assignee` (which also takes `none` or `me`). `--parent` takes
+  either, and resolves a key for you.
 - **A URL**, `<web-origin>/<workspace-slug>/issue/CORE-123`. The `/issue/` segment is a naming
   leftover in the web app; the concept is still Task.
 
@@ -96,8 +97,11 @@ taskara task comment CORE-123 --body-file - <<'EOF'
 EOF
 ```
 
-The ceiling is the server's: **15,000 characters for a work Task, 60,000 for an Effort.** A refusal
-names the field and the limit and exits 6.
+The ceiling is the server's, and the shell carries none of its own: **15,000 characters for a work
+Task, 60,000 for an Effort.** A refusal names the field and the limit and exits 6.
+
+The 60,000 ceiling is reachable only through `task edit`, not through `task create`, because every
+row `task create` mints today is `WORK` — see the note under [Map](#wayfinding-operations).
 
 ### Labels
 
@@ -145,8 +149,12 @@ Create a Taskara Task in the project the work concerns:
 taskara task create --project <projectId> --title "..." --body-file -
 ```
 
-`--project` is required and takes a UUID. `taskara task list --limit 1` on a known Task, or the web
-UI, will give you one; resolve it once per session.
+`--project` is required and takes a UUID, not a key prefix. Every listed Task carries its project, so
+resolve one once per session:
+
+```bash
+taskara task list --limit 1 | jq -r '.tasks[0].project.id'
+```
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -159,19 +167,28 @@ taskara task view CORE-123 --comments
 Used by `/wayfinder`. The **map** is an **Effort** — one Task with `kind = EFFORT` — and its tickets
 are its **child** Tasks.
 
-- **Map**: `taskara task create --project <projectId> --title "<effort name>" --kind EFFORT --body-file -`,
-  the body holding Destination / Notes / Decisions-so-far / Not-yet-specified / Out-of-scope. An
-  Effort lives in the project it concerns, carries no assignee, due date, weight, milestone or parent,
-  and only ever sits in `IN_PROGRESS`, `DONE` or `CANCELED`. It is excluded from every list, count and
-  metric about work, so reach it deliberately by name:
+- **Map**:
+  ```bash
+  taskara task create --project <projectId> --title "<effort name>" --kind EFFORT --body-file -
+  ```
+  The body holds Destination / Notes / Decisions-so-far / Not-yet-specified / Out-of-scope. An Effort
+  lives in the project it concerns, carries no assignee, due date, weight, milestone or parent, and
+  only ever sits in `IN_PROGRESS`, `DONE` or `CANCELED`. It is excluded from every list, count and
+  metric about work — that is the point of the kind — so reach it deliberately by name:
   `taskara task list --kind EFFORT --query "<effort name>"`.
-  **No `wayfinder:map` label.** `kind = EFFORT` is the marker here, enforced by database constraints
-  rather than by convention, and a second marker that nothing checks is a second marker that can be
+
+  **Not yet true, and check rather than assume: `--kind EFFORT` is accepted on create and silently
+  produces a `WORK` row.** `POST /tasks` has no `kind` field, so the server strips it and the command
+  exits 0 on a Task that is not an Effort. That is
+  [The API cannot create an Effort](https://github.com/moeindanesh/taskara/issues/46). The command
+  above is the settled grammar and starts minting Efforts when that lands, with no change to this
+  file — until then, read `kind` out of the JSON you get back. Two consequences follow while it is
+  open: a map body over 15,000 characters is refused on create (the work ceiling binds), and the row
+  is visible in ordinary task lists and counts.
+
+  **No `wayfinder:map` label.** `kind = EFFORT` is the marker, enforced by database constraints
+  rather than by convention, and a second marker that nothing checks is a second marker that can go
   wrong. Tickets still carry `wayfinder:<type>`.
-  **Today `--kind EFFORT` on create is accepted and silently produces a `WORK` row** — `POST /tasks`
-  has no `kind` field yet. That is [The API cannot create an Effort](https://github.com/moeindanesh/taskara/issues/46);
-  the command above is the grammar and starts minting Efforts when it lands, with no change here.
-  Until then, check the `kind` in the JSON you get back rather than assuming.
 - **Child ticket**: `taskara task create --project <projectId> --title "..." --parent <effortKey> --label wayfinder:task --body-file -`.
   `--parent` takes the Effort's key and resolves it. The label is `wayfinder:<type>` — one of
   `research`, `prototype`, `grilling`, `task`. A ticket already created can be wired afterwards with
