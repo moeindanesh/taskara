@@ -86,6 +86,7 @@ export async function createTaskAttachment(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: commentId ? 'comment_attachment_added' : 'attachment_added',

@@ -1,5 +1,6 @@
 import type { Prisma, TaskStatus } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
+import type { ActorAttribution } from './actor-provenance';
 
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
@@ -250,6 +251,7 @@ export async function createTaskSubscriberNotifications(
   input: {
     workspaceId: string;
     actorUserId: string;
+    attribution: ActorAttribution;
     task: SubscriberNotificationTask;
     type: string;
     body: string;
@@ -272,6 +274,7 @@ export async function createTaskSubscriberNotifications(
     data: recipientIds.map((userId) => ({
       workspaceId: input.workspaceId,
       userId,
+      ...input.attribution,
       taskId: input.task.id,
       type: input.type,
       title: `${input.task.key}: ${input.task.title}`,
@@ -288,6 +291,7 @@ export async function createTaskMentionNotifications(
     workspaceId: string;
     actorUserId: string;
     actorName: string;
+    attribution: ActorAttribution;
     task: MentionNotificationTask;
     previousDescription?: string | null;
   }
@@ -316,6 +320,7 @@ export async function createTaskMentionNotifications(
     data: validUserIds.map((userId) => ({
       workspaceId: input.workspaceId,
       userId,
+      ...input.attribution,
       taskId: input.task.id,
       type: TASK_MENTIONED_NOTIFICATION_TYPE,
       title: `${input.task.key}: ${input.task.title}`,

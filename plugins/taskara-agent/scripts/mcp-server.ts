@@ -126,6 +126,21 @@ interface MilestoneListResponse {
 const apiUrl = requiredEnv('TASKARA_API_URL').replace(/\/$/, '');
 const userEmail = requiredEnv('TASKARA_USER_EMAIL');
 const workspaceSlug = requiredEnv('TASKARA_WORKSPACE_SLUG');
+// The same server binary runs under Claude Code, Codex, OpenClaw and Hermes, so which runtime this
+// is can only come from the per-runtime MCP config that launched it. Unset means undeclared, and
+// the API records no runtime -- better than the hardcoded 'CODEX' this replaces, which was a claim
+// the plugin was in no position to make. The API ignores it entirely unless the authenticated User
+// is an agent, so this header cannot promote anyone.
+const agentRuntime = process.env.TASKARA_AGENT_RUNTIME?.trim();
+
+function requestHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'x-user-email': userEmail,
+    'x-workspace-slug': workspaceSlug,
+    ...(agentRuntime ? { 'x-agent-runtime': agentRuntime } : {}),
+    ...extra
+  };
+}
 
 const server = new McpServer({ name: 'taskara-agent', version: '0.1.0' });
 
@@ -665,12 +680,7 @@ function registerTool<T extends z.ZodRawShape>(
 async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     method: options.method ?? 'GET',
-    headers: {
-      'content-type': 'application/json',
-      'x-user-email': userEmail,
-      'x-workspace-slug': workspaceSlug,
-      'x-actor-type': 'CODEX'
-    },
+    headers: requestHeaders({ 'content-type': 'application/json' }),
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   });
 
@@ -686,11 +696,7 @@ async function api<T>(path: string, options: { method?: string; body?: unknown }
 async function apiForm<T>(path: string, form: FormData): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     method: 'POST',
-    headers: {
-      'x-user-email': userEmail,
-      'x-workspace-slug': workspaceSlug,
-      'x-actor-type': 'CODEX'
-    },
+    headers: requestHeaders(),
     body: form
   });
 

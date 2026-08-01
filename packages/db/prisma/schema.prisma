@@ -74,6 +74,16 @@ enum ActorType {
   CODEX
 }
 
+/// Which agent runtime performed an action. One agent User serves all four runtimes, so the
+/// identity cannot carry this — it rides per-action and is snapshotted onto the row it produced.
+/// Client-asserted, unlike ActorType, which is derived from the authenticated User's kind.
+enum AgentRuntime {
+  CLAUDE_CODE
+  CODEX
+  OPENCLAW
+  HERMES
+}
+
 enum IntegrationProvider {
   MATTERMOST
   CODEX
@@ -305,7 +315,8 @@ model User {
   knowledgePageSubscriptions    KnowledgePageSubscription[]
   taskSubscriptions             TaskSubscription[]
   comments                      TaskComment[]
-  notifications                 Notification[]
+  notifications                 Notification[]              @relation("NotificationRecipient")
+  causedNotifications           Notification[]              @relation("NotificationActor")
   assignedAttentionItems        AttentionItem[]              @relation("AttentionAssignee")
   managedAttentionItems         AttentionItem[]              @relation("AttentionManager")
   requestedTaskReviews          TaskReviewRequest[]          @relation("TaskReviewRequester")
@@ -1198,6 +1209,12 @@ model Notification {
   id              String    @id @default(uuid()) @db.Uuid
   workspaceId     String    @db.Uuid
   userId          String    @db.Uuid
+  /// Who caused this notification, and what they were. Required on write so a new notification
+  /// site cannot silently ship without provenance; SYSTEM with a null actorId is the honest
+  /// answer for scheduled jobs, and is what rows written before this column carry.
+  actorId         String?   @db.Uuid
+  actorType       ActorType
+  actorRuntime    AgentRuntime?
   taskId          String?   @db.Uuid
   announcementId  String?   @db.Uuid
   meetingId       String?   @db.Uuid
@@ -1210,7 +1227,8 @@ model Notification {
   createdAt       DateTime  @default(now())
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User           @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor         User?          @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
   task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
   announcement  Announcement?  @relation(fields: [announcementId], references: [id], onDelete: SetNull)
   meeting       Meeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull)
@@ -1219,6 +1237,7 @@ model Notification {
   @@index([userId, readAt])
   @@index([userId, deliveredAt])
   @@index([userId, createdAt, id])
+  @@index([actorId])
   @@index([announcementId])
   @@index([meetingId])
   @@index([knowledgePageId])
@@ -1304,10 +1323,14 @@ model ClientMutation {
 }
 
 model ActivityLog {
-  id          String     @id @default(uuid()) @db.Uuid
-  workspaceId String     @db.Uuid
-  actorId     String?    @db.Uuid
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  actorId     String?       @db.Uuid
+  /// Snapshot of the author's nature at write time, derived from User.kind. Never re-joined:
+  /// kind carries no history, so a later identity change must not reinterpret this row.
   actorType   ActorType
+  /// Only ever set when actorType is AGENT — enforced by a CHECK constraint.
+  actorRuntime AgentRuntime?
   entityType  String
   entityId    String
   action      String

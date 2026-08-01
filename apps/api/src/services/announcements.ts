@@ -4,6 +4,7 @@ import type { announcementPollVoteSchema, createAnnouncementSchema, updateAnnoun
 import { config } from '../config';
 import type { RequestActor } from './actor';
 import { isWorkspaceAdminRole } from './actor';
+import { attributedTo, type ActorAttribution } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import {
@@ -107,6 +108,7 @@ export async function createAnnouncement(actor: RequestActor, input: CreateAnnou
       notificationRecipientIds = await createAnnouncementNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorName: actor.user.name,
+        attribution: attributedTo(actor),
         announcementId: announcement.id,
         title: announcement.title,
         userIds: recipientUsers.map((user) => user.id)
@@ -120,6 +122,7 @@ export async function createAnnouncement(actor: RequestActor, input: CreateAnnou
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'announcement',
     entityId: announcement.id,
     action: announcement.status === 'PUBLISHED' ? 'published' : 'created',
@@ -172,6 +175,7 @@ export async function updateAnnouncement(actor: RequestActor, announcementId: st
       notificationRecipientIds = await createAnnouncementNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorName: actor.user.name,
+        attribution: attributedTo(actor),
         announcementId: announcement.id,
         title: announcement.title,
         userIds: recipientUsers.map((user) => user.id)
@@ -185,6 +189,7 @@ export async function updateAnnouncement(actor: RequestActor, announcementId: st
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'announcement',
     entityId: announcement.id,
     action: 'updated',
@@ -276,6 +281,7 @@ export async function sendAnnouncementSms(actor: RequestActor, announcementId: s
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'announcement',
     entityId: announcement.id,
     action: 'sms_announcement_sent',
@@ -345,6 +351,7 @@ export async function voteAnnouncementPoll(actor: RequestActor, announcementId: 
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'announcement',
     entityId: announcement.id,
     action: 'poll_voted',
@@ -412,6 +419,7 @@ async function createAnnouncementNotifications(
   input: {
     workspaceId: string;
     actorName: string;
+    attribution: ActorAttribution;
     announcementId: string;
     title: string;
     userIds: string[];
@@ -437,6 +445,7 @@ async function createAnnouncementNotifications(
     data: missingUserIds.map((userId) => ({
       workspaceId: input.workspaceId,
       userId,
+      ...input.attribution,
       announcementId: input.announcementId,
       type: ANNOUNCEMENT_PUBLISHED_NOTIFICATION_TYPE,
       title: input.title,

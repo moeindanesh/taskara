@@ -14,6 +14,9 @@ The MCP server reads:
 - `TASKARA_API_URL`
 - `TASKARA_USER_EMAIL`
 - `TASKARA_WORKSPACE_SLUG`
+- `TASKARA_AGENT_RUNTIME` (optional) — `CLAUDE_CODE`, `CODEX`, `OPENCLAW` or `HERMES`. Set it in the
+  per-runtime MCP config, since the same server binary serves all four. It is recorded on the rows
+  an agent writes, and ignored when the configured identity is a human.
 
 ## Native Tools
 

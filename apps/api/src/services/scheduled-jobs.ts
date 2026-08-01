@@ -1,5 +1,6 @@
 import { prisma } from '@taskara/db';
 import { config } from '../config';
+import { SYSTEM_ATTRIBUTION } from './actor-provenance';
 import { measuredMemberWhere } from './measured-people';
 import { sendMessageSimple } from './sms';
 import {
@@ -119,6 +120,7 @@ export async function sendDailyReportReminders(dateKey: string): Promise<Record<
     data: pending.map((member) => ({
       workspaceId: member.workspaceId,
       userId: member.userId,
+      ...SYSTEM_ATTRIBUTION,
       type: DAILY_REPORT_REMINDER_NOTIFICATION_TYPE,
       title: 'گزارش روزانه‌ات را ثبت کن',
       body: 'سه خط کافی است: چه کردی، چه چیز غیرمنتظره‌ای پیش آمد و بعد چه می‌کنی.'
@@ -219,6 +221,7 @@ export async function notifyDigestReady(dateKey: string): Promise<Record<string,
       return {
         workspaceId: admin.workspaceId,
         userId: admin.userId,
+        ...SYSTEM_ATTRIBUTION,
         type: DAILY_REPORT_DIGEST_NOTIFICATION_TYPE,
         title: 'گزارش‌های دیروز آماده است',
         body: `${summary.submitted.toLocaleString('fa-IR')} گزارش، ${summary.blockers.toLocaleString('fa-IR')} گیر.`

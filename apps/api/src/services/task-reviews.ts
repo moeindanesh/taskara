@@ -6,6 +6,7 @@ import type {
   taskReviewDecisionSchema
 } from '@taskara/shared';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { appendMilestoneProgressSyncEvents, lockMilestonesForUpdate } from './milestones';
@@ -149,6 +150,7 @@ export async function requestTaskReview(actor: RequestActor, idOrKey: string, in
           data: {
             workspaceId: actor.workspace.id,
             userId: reviewer.userId,
+            ...attributedTo(actor),
             taskId: task.id,
             type: TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE,
             title: `${task.key}: ${task.title}`,
@@ -229,6 +231,7 @@ export async function reassignTaskReview(actor: RequestActor, reviewId: string, 
         data: {
           workspaceId: actor.workspace.id,
           userId: reviewer.userId,
+          ...attributedTo(actor),
           taskId: current.taskId,
           type: TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE,
           title: `${current.task.key}: ${current.task.title}`,
@@ -580,6 +583,7 @@ async function notifyRequesterOfDecision(
     data: recipientIds.map((userId) => ({
       workspaceId: actor.workspace.id,
       userId,
+      ...attributedTo(actor),
       taskId: review.taskId,
       type: TASK_REVIEW_DECIDED_NOTIFICATION_TYPE,
       title: `${review.task.key}: ${review.task.title}`,
@@ -598,6 +602,7 @@ async function logReviewActivity(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task_review',
     entityId: review.id,
     action,

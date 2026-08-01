@@ -89,6 +89,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'user',
       entityId: user.id,
       action: 'profile_updated',
