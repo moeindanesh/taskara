@@ -29,6 +29,7 @@ import {
    LayoutGrid,
    LayoutList,
    Loader2,
+   Lock,
    Maximize2,
    Minimize2,
    MoreHorizontal,
@@ -43,6 +44,7 @@ import {
    Star,
    Tag,
    Trash2,
+   Unlock,
    X,
    XCircle,
 } from 'lucide-react';
@@ -85,6 +87,7 @@ import {
 } from '@/components/taskara/linear-ui';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
+import { TaskBlockedBadge } from '@/components/taskara/task-dependencies';
 import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import {
    TaskDueDateControl,
@@ -100,9 +103,16 @@ import {
 } from '@/lib/task-text-ai';
 import type { TaskUpdatePatch } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
+import {
+   isTakeable,
+   matchesBlockersFilter,
+   openBlockerCount,
+   takeableStatuses,
+} from '@/lib/takeability';
 import { selectWorkTasks } from '@/lib/work-tasks';
 import { useAuthSession } from '@/store/auth-store';
 import type {
+   TaskBlockersFilter,
    TaskViewCompletedIssues,
    TaskViewDisplayProperty,
    TaskViewGrouping,
@@ -167,7 +177,7 @@ const initialTaskForm = {
    labels: '',
 };
 
-type SystemViewKey = 'all' | 'active';
+type SystemViewKey = 'all' | 'active' | 'takeable';
 type ActiveViewKey = `system:${SystemViewKey}` | string;
 type MenuAnchor = {
    bottom: number;
@@ -178,7 +188,14 @@ type MenuAnchor = {
    height: number;
 };
 
-type FilterSection = 'status' | 'assignee' | 'priority' | 'project' | 'milestone' | 'labels';
+type FilterSection =
+   | 'status'
+   | 'assignee'
+   | 'priority'
+   | 'project'
+   | 'milestone'
+   | 'labels'
+   | 'blockers';
 type FilterMenuSection = FilterSection | 'content';
 type FilterSubmenuSide = 'left' | 'right';
 
@@ -250,11 +267,16 @@ function getGroupDropPatch(
 const systemViewOrder: Array<{ key: SystemViewKey; label: string }> = [
    { key: 'all', label: fa.issue.all },
    { key: 'active', label: fa.issue.active },
+   // The frontier, as a built-in rather than something each workspace has to save for itself. The
+   // effort map's Destination requires it be readable without opening the map, and a view nobody
+   // has created yet is not readable.
+   { key: 'takeable', label: fa.blockers.takeableView },
 ];
 
 function getSystemViewKey(viewKey: ActiveViewKey): SystemViewKey | null {
    if (viewKey === 'system:all') return 'all';
    if (viewKey === 'system:active') return 'active';
+   if (viewKey === 'system:takeable') return 'takeable';
    return null;
 }
 
@@ -635,6 +657,10 @@ const completedIssueOptions: Array<{ value: TaskViewCompletedIssues; label: stri
 const defaultDisplayProperties: TaskViewDisplayProperty[] = [
    'id',
    'status',
+   // On by default, and it costs nothing: the badge draws only for a row with an open blocker, so
+   // on a workspace with no dependencies at all nothing changes. Off by default would mean the
+   // frontier is invisible until somebody knows to go looking for the toggle.
+   'blockers',
    'assignee',
    'priority',
    'milestone',
@@ -646,11 +672,18 @@ const defaultDisplayProperties: TaskViewDisplayProperty[] = [
 const displayPropertyOptions: Array<{ value: TaskViewDisplayProperty; label: string }> = [
    { value: 'id', label: 'شناسه' },
    { value: 'status', label: fa.issue.status },
+   { value: 'blockers', label: fa.blockers.filter },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'priority', label: fa.issue.priority },
    { value: 'milestone', label: fa.project.milestones },
    { value: 'dueAt', label: fa.issue.dueAt },
    { value: 'labels', label: fa.issue.labels },
+];
+
+const blockersFilterOptions: Array<{ value: TaskBlockersFilter; label: string }> = [
+   { value: 'all', label: fa.blockers.filterAll },
+   { value: 'none', label: fa.blockers.filterNone },
+   { value: 'any', label: fa.blockers.filterAny },
 ];
 
 const filterMenuCopy = {
@@ -689,6 +722,7 @@ function viewDisplayDefaults() {
       nestedSubIssues: false,
       orderCompletedByRecency: false,
       completedIssues: 'all' as const,
+      blockers: 'all' as const,
       displayProperties: [...defaultDisplayProperties],
    };
 }
@@ -710,6 +744,26 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
          orderBy: 'priority',
          showEmptyGroups: false,
          ...viewDisplayDefaults(),
+      };
+   }
+
+   if (key === 'takeable') {
+      return {
+         scope: 'tasks',
+         teamId,
+         query: '',
+         status: [...takeableStatuses],
+         assigneeIds: [],
+         priority: [],
+         projectIds: [],
+         milestoneIds: [],
+         labels: [],
+         layout: 'list',
+         groupBy: 'status',
+         orderBy: 'priority',
+         showEmptyGroups: false,
+         ...viewDisplayDefaults(),
+         blockers: 'none',
       };
    }
 
@@ -752,6 +806,7 @@ function normalizeViewState(
       nestedSubIssues: state?.nestedSubIssues ?? false,
       orderCompletedByRecency: state?.orderCompletedByRecency ?? false,
       completedIssues: state?.completedIssues || 'all',
+      blockers: state?.blockers || 'all',
       displayProperties: normalizeDisplayProperties(state?.displayProperties),
    };
 }
@@ -861,6 +916,7 @@ function makeStableTaskOrderKey(
    return JSON.stringify({
       activeViewKey,
       assigneeIds: draftView.assigneeIds,
+      blockers: draftView.blockers,
       completedIssues: draftView.completedIssues,
       groupBy: draftView.groupBy,
       hash,
@@ -999,6 +1055,7 @@ function matchesViewState(task: TaskaraTask, state: TaskaraTaskViewState) {
       !(task.labels || []).some((item) => state.labels.includes(item.label.id))
    )
       return false;
+   if (!matchesBlockersFilter(task, state.blockers)) return false;
    if (!matchesCompletedIssueSetting(task, state.completedIssues)) return false;
    return taskMatchesQuery(task, state.query);
 }
@@ -1629,6 +1686,10 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                ? (task.labels || []).some((item) => draftView.labels.includes(item.label.id))
                : true
          )
+         // `_count.blockingDependencies` is already the *open* blocker count — #24 filtered all
+         // three includes that feed the sync stream — so this is the same predicate the API's
+         // `?blockers=` applies, evaluated against the cache the list is drawn from.
+         .filter((task) => matchesBlockersFilter(task, draftView.blockers))
          .filter((task) => matchesCompletedIssueSetting(task, draftView.completedIssues))
          .filter((task) => taskMatchesQuery(task, draftView.query));
    }, [draftView, scopedTasks]);
@@ -1862,6 +1923,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       () => ({
          all: scopedTasks.length,
          active: scopedTasks.filter((task) => activeStatuses.includes(task.status)).length,
+         takeable: scopedTasks.filter(isTakeable).length,
       }),
       [scopedTasks]
    );
@@ -2458,6 +2520,16 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    }
 
    function toggleArrayFilter(key: FilterSection, value: string) {
+      // `blockers` is the one tri-state filter, so it toggles against a sentinel rather than in and
+      // out of an array: picking the value already selected clears it back to «همه».
+      if (key === 'blockers') {
+         setDraftView((current) => ({
+            ...current,
+            blockers: current.blockers === value ? 'all' : (value as TaskBlockersFilter),
+         }));
+         return;
+      }
+
       const property =
          key === 'status'
             ? 'status'
@@ -2490,6 +2562,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          projectIds: [],
          milestoneIds: [],
          labels: [],
+         blockers: 'all',
       }));
    }
 
@@ -2709,6 +2782,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       draftView.projectIds.length +
       draftView.milestoneIds.length +
       draftView.labels.length +
+      (draftView.blockers === 'all' ? 0 : 1) +
       (draftView.query.trim() ? 1 : 0);
    const composerProject =
       scopedProjects.find((project) => project.id === form.projectId) || scopedProjects[0] || null;
@@ -4134,6 +4208,13 @@ function TaskFilterPopover({
          count: draftView.milestoneIds.length,
       },
       {
+         key: 'blockers',
+         label: fa.blockers.filter,
+         icon: <Lock className="size-4 text-zinc-400" />,
+         section: 'blockers',
+         count: draftView.blockers === 'all' ? 0 : 1,
+      },
+      {
          key: 'content',
          label: filterMenuCopy.content,
          icon: <CaseSensitive className="size-4 text-zinc-400" />,
@@ -4285,6 +4366,7 @@ function FilterSubmenu({
       ? users.find((user) => user.id === currentUserId) || null
       : null;
    const priorityOrder = ['NO_PRIORITY', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
+   // Each submenu opens level with the row that summoned it; the rows are 36px apart.
    const topBySection: Record<FilterMenuSection, number> = {
       status: 48,
       assignee: 84,
@@ -4292,7 +4374,8 @@ function FilterSubmenu({
       labels: 156,
       project: 192,
       milestone: 228,
-      content: 264,
+      blockers: 264,
+      content: 300,
    };
 
    useEffect(() => {
@@ -4413,6 +4496,21 @@ function FilterSubmenu({
                       icon: <Tag className="size-4 text-zinc-400" />,
                       onClick: () => onToggle('labels', label.id),
                    }))
+                 : activeSection === 'blockers'
+                   ? blockersFilterOptions.map((option) => ({
+                        id: option.value,
+                        label: option.label,
+                        active: draftView.blockers === option.value,
+                        count: tasks.filter((task) => matchesBlockersFilter(task, option.value))
+                           .length,
+                        icon:
+                           option.value === 'any' ? (
+                              <Lock className="size-4 text-amber-300/80" />
+                           ) : (
+                              <Unlock className="size-4 text-zinc-400" />
+                           ),
+                        onClick: () => onToggle('blockers', option.value),
+                     }))
                  : [];
 
    const filteredOptions = options.filter((option) => matchesQuery(option.label));
@@ -5228,6 +5326,7 @@ function IssueRow({
                            <span>{task.weight.toLocaleString('fa-IR')}</span>
                         </span>
                      ) : null}
+                     {shows('blockers') ? <TaskBlockedBadge task={task} /> : null}
                      {shows('milestone') && task.milestone ? (
                         <span className="lg:hidden">
                            <TaskMilestoneBadge milestone={task.milestone} />
@@ -5378,6 +5477,7 @@ function IssueCard({
                         {shows('status') ? (
                            <StatusIcon status={task.status} className="size-3.5" />
                         ) : null}
+                        {shows('blockers') ? <TaskBlockedBadge task={task} /> : null}
                      </div>
                      <div className="mt-1 flex items-start gap-1.5">
                         <IssueTitleTooltip title={task.title}>

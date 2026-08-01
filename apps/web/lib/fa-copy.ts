@@ -510,6 +510,24 @@ export const fa = {
       currentUser: 'کاربر فعلی',
       noAssignee: 'بدون مسئول',
    },
+   // CONTEXT.md's word for a task that must finish first is «مسدودکننده» (Blocker); the edge itself
+   // is «وابستگی» and lives on fa.issue.dependencies. A blocker is *open* while it is unfinished,
+   // which is what «باز» means in every string here — never "the edge exists".
+   blockers: {
+      blockedBy: 'مسدود شده توسط',
+      blocks: 'مسدود می‌کند',
+      noBlockers: 'مسدودکننده‌ای ندارد',
+      blocksNothing: 'کاری را مسدود نمی‌کند',
+      takeState: 'وضعیت برداشت',
+      takeable: 'آماده برداشت',
+      openCount: (count: number) => `${count.toLocaleString('fa-IR')} مسدودکنندهٔ باز`,
+      blockedBadge: 'مسدود',
+      filter: 'مسدودکننده‌ها',
+      filterAll: 'همه',
+      filterNone: 'بدون مسدودکنندهٔ باز',
+      filterAny: 'دارای مسدودکنندهٔ باز',
+      takeableView: 'آماده برداشت',
+   },
    sync: {
       mutationQueued: 'تغییر ذخیره شد و پس از اتصال دوباره اعمال می‌شود.',
       mutationConflict: (action: string) =>
