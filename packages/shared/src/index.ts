@@ -708,6 +708,19 @@ export const taskStatusFilterSchema = z.union(
 export const taskBlockerFilterSchema = z.enum(['none', 'any']);
 
 /**
+ * The caller's own relationship to the task — the one filter here that is about *you* rather than
+ * about the row.
+ *
+ * Three-valued rather than a `subscribed` boolean, because the model has three states and the two
+ * that matter are both deliberate. `watching` is a task you are notified about; `muted` is one you
+ * decided to stop being notified about. There is deliberately no value for the third state, "nobody
+ * has decided anything" — that is almost every task in the workspace, and a filter for it would be
+ * a slower way of asking for the list you already have.
+ */
+export const taskSubscriptionFilterSchema = z.enum(['watching', 'muted']);
+export type TaskSubscriptionFilterValue = z.infer<typeof taskSubscriptionFilterSchema>;
+
+/**
  * A closed set rather than a free `field:direction` parser: every value here has to stay cheap to
  * order by, and an open parser invites sorts with no index behind them.
  */
@@ -736,6 +749,7 @@ export const taskListQuerySchema = z.object({
   priority: taskPrioritySchema.optional(),
   label: z.string().trim().max(80).optional(),
   blockers: taskBlockerFilterSchema.optional(),
+  subscription: taskSubscriptionFilterSchema.optional(),
   sort: taskSortSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),

@@ -21,7 +21,7 @@ import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-
 import { workTaskWhere } from '../services/measured-work';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
-import { unsubscribeFromTask } from '../services/task-subscriptions';
+import { subscribeToTask, unsubscribeFromTask } from '../services/task-subscriptions';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -76,6 +76,23 @@ function taskStatusWhere(filter: TaskListQuery['status']): Prisma.TaskWhereInput
 function taskLabelWhere(label: TaskListQuery['label']): Prisma.TaskWhereInput['labels'] {
   if (!label) return undefined;
   return label === 'none' ? { none: {} } : { some: { label: { name: label } } };
+}
+
+/**
+ * "What am I watching" and "what did I mute", as a filter on the list everybody already reads.
+ *
+ * #21's shape, not a `/subscriptions` endpoint: the answer wants a status filter, a project filter
+ * and the effort exclusion the moment anybody looks at it, and a parallel endpoint would restate all
+ * three. Scoped to the caller because a subscription is a relationship rather than a property —
+ * there is no workspace-wide answer to give.
+ */
+function taskSubscriptionWhere(
+  filter: TaskListQuery['subscription'],
+  userId: string
+): Pick<Prisma.TaskWhereInput, 'subscriptions' | 'mutes'> {
+  if (!filter) return {};
+  if (filter === 'muted') return { mutes: { some: { userId } } };
+  return { subscriptions: { some: { userId } } };
 }
 
 const taskSortOrderBy = {
@@ -256,7 +273,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       status: taskStatusWhere(query.status),
       priority: query.priority,
       labels: taskLabelWhere(query.label),
-      blockingDependencies: openBlockersWhere(query.blockers)
+      blockingDependencies: openBlockersWhere(query.blockers),
+      ...taskSubscriptionWhere(query.subscription, actor.user.id)
     };
 
     if (query.teamId !== 'all') {
@@ -489,6 +507,33 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
     await deleteTask(actor, existing.id);
     return reply.code(204).send();
+  });
+
+  // Watching a task, as a thing you choose rather than a thing that happens to you.
+  //
+  // A subresource rather than a flag on PATCH, because it is the caller's own relationship to the
+  // task and not a property of the task: two people can hold different answers at the same moment,
+  // and PATCH bodies describe one shared row.
+  app.post('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    // #39 settled that an agent is not an audience for notifications: it has no inbox and never
+    // polls one, so a subscription for one is a row that is written, never read and never cleared.
+    // Refused rather than quietly accepted, because a surface that reports success for something it
+    // did not do is one a caller routes around later.
+    if (actor.user.kind === 'AGENT') {
+      return reply.code(400).send({
+        message: 'Agents receive no notifications, so they cannot watch a task. Find work by querying'
+          + ' the frontier instead.'
+      });
+    }
+
+    await subscribeToTask(actor, existing.id);
+    return { state: 'watching' };
   });
 
   app.delete('/tasks/:idOrKey/subscription', async (request, reply) => {

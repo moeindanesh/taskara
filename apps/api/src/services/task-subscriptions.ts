@@ -54,6 +54,25 @@ export async function unsubscribeFromTask(actor: RequestActor, taskId: string): 
 }
 
 /**
+ * Start watching, deliberately — and withdraw any earlier decision not to.
+ *
+ * The mute is deleted rather than left beside the new subscription: two rows saying opposite things
+ * would oblige every later reader to know which one wins, and there is no good answer to give them.
+ *
+ * The counterpart of the automatic path, and unlike it this one does not care whether the person was
+ * ever a participant — asking to watch is the whole justification.
+ */
+export async function subscribeToTask(actor: RequestActor, taskId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
+    await tx.taskSubscription.createMany({
+      data: [{ workspaceId: actor.workspace.id, taskId, userId: actor.user.id }],
+      skipDuplicates: true
+    });
+  });
+}
+
+/**
  * Which of these people have decided not to watch this task.
  *
  * The one read of `TaskMute` on the automatic path. Returns a Set rather than a filtered list so the

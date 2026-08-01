@@ -463,6 +463,13 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       const taskSubscriptions = await tx.taskSubscription.deleteMany({
         where: { workspaceId: actor.workspace.id, userId: id }
       });
+      // Both halves of the person's watching state leave with them, for the same reason. A mute
+      // that outlives the membership is a decision about a workspace they had left, and it silently
+      // comes back into force if they are re-added — keeping them quiet on tasks they would have no
+      // memory of having muted, with no row anywhere they could see to explain it.
+      const taskMutes = await tx.taskMute.deleteMany({
+        where: { workspaceId: actor.workspace.id, userId: id }
+      });
 
       const ownedMilestones = await tx.milestone.findMany({
         where: { workspaceId: actor.workspace.id, ownerId: id },
@@ -522,7 +529,8 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         assignedTasks: assignedTasks.count,
         ownedMilestones: ownedMilestones.length,
         notifications: notifications.count,
-        taskSubscriptions: taskSubscriptions.count
+        taskSubscriptions: taskSubscriptions.count,
+        taskMutes: taskMutes.count
       };
     });
 

@@ -25,6 +25,12 @@ interface Fixture {
   reporterId: string;
   watcherEmail: string;
   watcherId: string;
+  agentEmail: string;
+  agentId: string;
+  /** Agent Users cannot authenticate by email — #29 requires a credential, so the fixture mints one. */
+  agentToken: string;
+  /** Added, removed and re-added by one test; named here only so the teardown can find the row. */
+  leaverEmail: string;
   projectId: string;
 }
 
@@ -39,7 +45,9 @@ describe('task subscription', () => {
   afterAll(async () => {
     await prisma.workspace.deleteMany({ where: { id: fixture.workspaceId } });
     await prisma.user.deleteMany({
-      where: { email: { in: [fixture.reporterEmail, fixture.watcherEmail] } }
+      where: {
+        email: { in: [fixture.reporterEmail, fixture.watcherEmail, fixture.agentEmail, fixture.leaverEmail] }
+      }
     });
     await app.close();
   });
@@ -54,7 +62,7 @@ describe('task subscription', () => {
     await comment(task.key, fixture.reporterEmail, 'while they were still watching');
     expect(await notificationCount(task.id, 'task_commented')).toBe(1);
 
-    const response = await unsubscribe(task.key, fixture.watcherEmail);
+    const response = await unsubscribe(task.key, { email: fixture.watcherEmail });
 
     expect(response.statusCode).toBe(204);
     expect(await subscriptionCount(task.id)).toBe(0);
@@ -65,7 +73,7 @@ describe('task subscription', () => {
 
   test('the next assignment does not re-subscribe somebody who unsubscribed', async () => {
     const task = await createTask('handed back and forth', { assigneeId: fixture.watcherId });
-    expect((await unsubscribe(task.key, fixture.watcherEmail)).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
 
     // Away and back again, so this is unambiguously "the next time they are assigned" and not one
     // PATCH that happened to restate the assignee it already had.
@@ -76,14 +84,134 @@ describe('task subscription', () => {
     await comment(task.key, fixture.reporterEmail, 'and still they hear nothing');
     expect(await notificationCount(task.id, 'task_commented')).toBe(0);
   });
+
+  test('subscribing again is the way back, and it clears the decision not to watch', async () => {
+    const task = await createTask('muted, then wanted again', { assigneeId: fixture.watcherId });
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect(await muteCount(task.id)).toBe(1);
+
+    const response = await subscribe(task.key, { email: fixture.watcherEmail });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ state: 'watching' });
+    // The mute is gone rather than shadowed. A mute left behind would be a row saying the opposite
+    // of the subscription beside it, and the next reader would have to know which one wins.
+    expect(await muteCount(task.id)).toBe(0);
+    expect(await subscriptionCount(task.id)).toBe(1);
+
+    await comment(task.key, fixture.reporterEmail, 'and they hear it again');
+    expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+  });
+
+  test('the list answers both questions: what am I watching, and what did I mute', async () => {
+    const watched = await createTask('still watching this one', { assigneeId: fixture.watcherId });
+    const muted = await createTask('muted this one', { assigneeId: fixture.watcherId });
+    // Never touched by this person at all — the third state, and the one that must appear in
+    // neither list. Without it both filters could be returning "every task" and still look right.
+    const untouched = await createTask('nothing to do with them');
+    expect((await unsubscribe(muted.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+
+    const watching = await listKeys('subscription=watching', fixture.watcherEmail);
+    expect(watching).toContain(watched.key);
+    expect(watching).not.toContain(muted.key);
+    expect(watching).not.toContain(untouched.key);
+
+    // Not an exact list: earlier tests in this file share the fixture and left their own mutes
+    // behind, and asserting the whole set would be asserting the order this file happens to run in.
+    const silenced = await listKeys('subscription=muted', fixture.watcherEmail);
+    expect(silenced).toContain(muted.key);
+    expect(silenced).not.toContain(watched.key);
+    expect(silenced).not.toContain(untouched.key);
+
+    // Per caller, not per task. The reporter watches everything they filed, and none of it is
+    // theirs to have muted — including the row the watcher just muted.
+    expect(await listKeys('subscription=muted', fixture.reporterEmail)).toEqual([]);
+    expect(await listKeys('subscription=watching', fixture.reporterEmail)).toContain(untouched.key);
+  });
+
+  test('the filter composes with the rest of the query rather than replacing it', async () => {
+    const open = await createTask('watched and unfinished', { assigneeId: fixture.watcherId });
+    const done = await createTask('watched and finished', { assigneeId: fixture.watcherId });
+    await patch(done.key, { status: 'DONE' });
+
+    const keys = await listKeys('subscription=watching&status=unfinished', fixture.watcherEmail);
+
+    expect(keys).toContain(open.key);
+    expect(keys).not.toContain(done.key);
+  });
+
+  test('a member who leaves and comes back is not still silently muted', async () => {
+    const leaver = await addMember(fixture.leaverEmail);
+    const task = await createTask('muted by somebody on their way out', { assigneeId: leaver.id });
+    expect((await unsubscribe(task.key, { email: leaver.email })).statusCode).toBe(204);
+
+    await removeMember(leaver.id);
+    await addMember(leaver.email);
+
+    // The same reasoning that already deleted their subscriptions on the way out. A mute that
+    // outlives the membership is a decision about a workspace they had left, and it comes back into
+    // force against tasks they would have no memory of having muted.
+    await patch(task.key, { assigneeId: fixture.reporterId });
+    await patch(task.key, { assigneeId: leaver.id });
+    expect(await prisma.taskSubscription.count({ where: { taskId: task.id, userId: leaver.id } })).toBe(1);
+  });
+
+  /**
+   * #39 settled that an agent is not an audience for notifications. That does not make the verb a
+   * special case at the call site — an agent tidying up runs the same command a person does — but it
+   * does decide what the two writes are allowed to leave behind.
+   */
+  describe('an agent, which is not an audience', () => {
+    test('cannot start watching, and is told why rather than quietly succeeding', async () => {
+      const task = await createTask('not for an agent to watch');
+
+      const response = await subscribe(task.key, { token: fixture.agentToken });
+
+      expect(response.statusCode).toBe(400);
+      expect((response.json() as { message: string }).message).toContain('no notifications');
+      expect(await prisma.taskSubscription.count({ where: { taskId: task.id, userId: fixture.agentId } })).toBe(0);
+    });
+
+    test('unsubscribing succeeds and writes no mute, because there is nothing to keep quiet', async () => {
+      const task = await createTask('an agent tidying up after itself');
+
+      const response = await unsubscribe(task.key, { token: fixture.agentToken });
+
+      // The verb works, so a script does not need to know who is running it.
+      expect(response.statusCode).toBe(204);
+      // And leaves nothing behind. `subscribeUsersToTask` already refuses to subscribe an agent, so
+      // a mute for one would be a row that can never change any outcome — the bookkeeping #39
+      // removed, reintroduced one table over.
+      expect(await prisma.taskMute.count({ where: { taskId: task.id, userId: fixture.agentId } })).toBe(0);
+    });
+  });
 });
 
-function unsubscribe(idOrKey: string, email: string) {
+function unsubscribe(idOrKey: string, who: Identity) {
   return app.inject({
     method: 'DELETE',
     url: `/tasks/${idOrKey}/subscription`,
-    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email }
+    headers: identify(who)
   });
+}
+
+function subscribe(idOrKey: string, who: Identity) {
+  return app.inject({
+    method: 'POST',
+    url: `/tasks/${idOrKey}/subscription`,
+    headers: identify(who),
+    payload: {}
+  });
+}
+
+/** An email for a person, a bearer token for an agent — the two ways to be somebody here. */
+type Identity = { email: string } | { token: string };
+
+function identify(who: Identity): Record<string, string> {
+  const headers: Record<string, string> = { 'x-workspace-slug': fixture.workspaceSlug };
+  if ('token' in who) headers.authorization = `Bearer ${who.token}`;
+  else headers['x-user-email'] = who.email;
+  return headers;
 }
 
 async function comment(idOrKey: string, email: string, body: string): Promise<void> {
@@ -94,6 +222,36 @@ async function comment(idOrKey: string, email: string, body: string): Promise<vo
     payload: { body }
   });
   expect(response.statusCode).toBe(201);
+}
+
+async function addMember(email: string): Promise<{ id: string; email: string }> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/users',
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.reporterEmail },
+    payload: { email, name: 'Leaver' }
+  });
+  expect([200, 201]).toContain(response.statusCode);
+  return { id: (response.json() as { id: string }).id, email };
+}
+
+async function removeMember(userId: string): Promise<void> {
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/users/${userId}/membership`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.reporterEmail }
+  });
+  expect(response.statusCode).toBe(204);
+}
+
+async function listKeys(query: string, email: string): Promise<string[]> {
+  const response = await app.inject({
+    method: 'GET',
+    url: `/tasks?${query}`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email }
+  });
+  expect(response.statusCode).toBe(200);
+  return (response.json() as { items: Array<{ key: string }> }).items.map((item) => item.key);
 }
 
 async function patch(idOrKey: string, body: Record<string, unknown>): Promise<void> {
@@ -108,6 +266,10 @@ async function patch(idOrKey: string, body: Record<string, unknown>): Promise<vo
 
 function subscriptionCount(taskId: string): Promise<number> {
   return prisma.taskSubscription.count({ where: { taskId, userId: fixture.watcherId } });
+}
+
+function muteCount(taskId: string): Promise<number> {
+  return prisma.taskMute.count({ where: { taskId, userId: fixture.watcherId } });
 }
 
 /**
@@ -138,20 +300,36 @@ async function createFixture(): Promise<Fixture> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const reporterEmail = `sub-reporter-${suffix}@example.test`;
   const watcherEmail = `sub-watcher-${suffix}@example.test`;
+  const agentEmail = `sub-agent-${suffix}@example.test`;
   const reporter = await prisma.user.create({ data: { email: reporterEmail, name: 'Reporter' } });
   const watcher = await prisma.user.create({ data: { email: watcherEmail, name: 'Watcher' } });
+  // An ordinary MEMBER, marked as an agent by kind. Role says what it may do; kind says what it is.
+  const agent = await prisma.user.create({
+    data: { email: agentEmail, name: 'Claude', kind: 'AGENT', operatorId: reporter.id }
+  });
   const workspace = await prisma.workspace.create({
     data: { name: 'Subscription workspace', slug: `sub-${suffix}` }
   });
   await prisma.workspaceMember.createMany({
     data: [
       { workspaceId: workspace.id, userId: reporter.id, role: 'OWNER' },
-      { workspaceId: workspace.id, userId: watcher.id, role: 'MEMBER' }
+      { workspaceId: workspace.id, userId: watcher.id, role: 'MEMBER' },
+      { workspaceId: workspace.id, userId: agent.id, role: 'MEMBER' }
     ]
   });
   const project = await prisma.project.create({
     data: { workspaceId: workspace.id, name: 'Subs', keyPrefix: `SB${suffix.slice(0, 3).toUpperCase()}` }
   });
+
+  // Minted through the route an operator uses, so these tests authenticate the way an agent really
+  // does rather than through a hand-built row that skips the check under test.
+  const issued = await app.inject({
+    method: 'POST',
+    url: '/agent-credentials',
+    headers: { 'x-workspace-slug': workspace.slug, 'x-user-email': reporterEmail },
+    payload: { userId: agent.id, name: 'Subscription test' }
+  });
+  expect(issued.statusCode).toBe(201);
 
   return {
     workspaceSlug: workspace.slug,
@@ -160,6 +338,10 @@ async function createFixture(): Promise<Fixture> {
     reporterId: reporter.id,
     watcherEmail,
     watcherId: watcher.id,
+    agentEmail,
+    agentId: agent.id,
+    agentToken: (issued.json() as { token: string }).token,
+    leaverEmail: `sub-leaver-${suffix}@example.test`,
     projectId: project.id
   };
 }
