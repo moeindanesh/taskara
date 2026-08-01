@@ -7,6 +7,7 @@ import {
    applyOptimisticMilestoneReorder,
    applyOptimisticTaskPatch,
    buildOptimisticMilestone,
+   buildOptimisticTask,
    reconcileBootstrappedTasksAfterSyncGap,
    normalizeMilestoneResources,
    mutationBelongsToAuthIdentity,
@@ -206,6 +207,24 @@ describe('milestone local-first mutations', () => {
       }],
       views: [],
    };
+
+   test('stamps an offline task create as work rather than leaving its kind to be inferred', () => {
+      const optimistic = buildOptimisticTask(
+         'local-1',
+         {
+            projectId: baseProject.id,
+            title: 'Written while offline',
+            status: 'TODO',
+            priority: 'NO_PRIORITY',
+            labels: [],
+            source: 'WEB',
+         },
+         resources,
+         'mutation-create-task'
+      );
+
+      expect(optimistic.kind).toBe('WORK');
+   });
 
    test('builds a stable client-id create that later offline task mutations can reference', () => {
       const optimistic = buildOptimisticMilestone(

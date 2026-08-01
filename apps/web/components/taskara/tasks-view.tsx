@@ -100,6 +100,7 @@ import {
 } from '@/lib/task-text-ai';
 import type { TaskUpdatePatch } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
+import { selectWorkTasks } from '@/lib/work-tasks';
 import { useAuthSession } from '@/store/auth-store';
 import type {
    TaskViewCompletedIssues,
@@ -1457,7 +1458,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             const result = await taskaraRequest<ArchivedTasksResponse>(`/tasks/archive?${query.toString()}`);
             setTaskArchive((current) => {
                if (current.requestKey !== archiveRequestKey) return current;
-               const items = appendUniqueTasks(existingItems, result.items);
+               // The archive is the one task list this view assembles itself, outside the sync
+               // cache and therefore outside its gate. A canceled effort carries no completedAt,
+               // which is precisely what the archive query selects on, so it arrives here and then
+               // merges into the same array the assignee and milestone groupings read.
+               const items = appendUniqueTasks(existingItems, selectWorkTasks(result.items));
                return {
                   requestKey: archiveRequestKey,
                   items,
