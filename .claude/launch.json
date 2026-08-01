@@ -11,7 +11,7 @@
       "name": "api",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev:api"],
-      "port": 4000
+      "port": 4002
     }
   ]
 }
