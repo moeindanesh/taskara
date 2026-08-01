@@ -29,10 +29,10 @@ Missing or unusable configuration exits **2** before anything is sent.
 - **A key**, `CORE-123` — the project's key prefix and a per-project sequence number. This is the
   identity to write in prose, in commit messages, and in another Task's body.
 - **A UUID**, which every command accepts wherever it accepts a key. `--parent` takes either, and
-  resolves a key for you. Two flags still take **only** a UUID: `--assignee` (which also takes `none`
-  or `me`) and `--milestone`, which exists on `task create` and `task edit` and **not** on
-  `task list` — asking for it there is exit 1, `Unknown flag`. Anything but a UUID on either is exit
-  6, `Validation failed`, with no clue which field it meant.
+  resolves a key for you. One flag still takes **only** a UUID: `--milestone`, which exists on
+  `task create` and `task edit` and **not** on `task list` — asking for it there is exit 1,
+  `Unknown flag`, and anything but a UUID on it is exit 6, `Validation failed`, with no clue which
+  field it meant. For `--assignee`, see [Identifying a person](#identifying-a-person).
 - **A URL**, `<web-origin>/<workspace-slug>/issue/CORE-123`. The `/issue/` segment is a naming
   leftover in the web app; the concept is still Task.
 
@@ -50,8 +50,60 @@ Pass the whole key by mistake and it is exit **4** — and because the message n
 do exist, `No project with key prefix "CORE-3". Known prefixes: BILL, CORE.` tells you what to type
 without a second command.
 
+## Identifying a person
+
+Tasks are assignable to people as well as to agents, and work that a session surfaces routinely lands
+on a colleague. Two handles reach one, and a third deliberately does not:
+
+- **A UUID.** Accepted everywhere, and printed beside every assignee.
+- **An email address.** Accepted by `--assignee` and `--add-assignee`. It is the only handle that is
+  both unique in Taskara and the kind of thing a human writes in prose.
+- **A name — never.** `User.name` carries no unique constraint, so two colleagues may share one.
+  Passing one is exit **1**, before anything is sent, and the message says to look the person up.
+
+`taskara user list` is the roster, and the only way to reach somebody who **holds no Task**: their
+UUID appears in no key, no URL and no prose, and the only other place the shell prints one is beside
+an assignee on work they already have.
+
+```bash
+taskara user list
+taskara user list --query "Robin"
+taskara user list --kind HUMAN
+```
+
+Each row is `id`, `name`, `email`, `kind`, `operatorId` and `role` — enough to address somebody and
+no more. The answer is always a list with a `total`, however specific the query, because a name can
+match more than one person. Pick the row by **email**, never by position:
+
+```bash
+taskara user list --query "Robin" | jq -r '.users[] | "\(.email)\t\(.kind)\t\(.id)"'
+```
+
+Then hand the work over, by email or by the id you just read:
+
+```bash
+taskara task edit CORE-123 --add-assignee robin.example@example.test
+```
+
+An email nobody in this workspace holds is exit **4**. The match is exact, so an address that is a
+substring of a colleague's does not resolve to theirs.
+
+**Agents are in the roster, and marked.** They are teammates here, not hidden machinery, so they are
+listed and they are assignable — but `kind` is `"AGENT"` and `operatorId` names the human they act
+for, and a human reading your summary should be told when work went to a machine. `--kind HUMAN`
+narrows the roster to people; `--kind AGENT` to agents.
+
+`user list` is the whole noun. Creating a person and changing their role are workspace-admin
+operations, and an agent credential can never perform one whatever role its agent holds — so those
+have no command here rather than a command that always exits 3.
+
+**To take a task yourself, use `taskara task claim`**, not an assignee flag. `--add-assignee me` is
+exit 1: a credential never learns its own user id, and claiming is atomic where assigning is not.
+`taskara task list --assignee me` does work — the server answers "mine" without needing an id.
+
 ## Conventions
 
+- **List people**: `taskara user list` — see [Identifying a person](#identifying-a-person).
 - **List projects**: `taskara project list` — the one read that works in an empty workspace.
 - **Create a task**: `taskara task create --project CORE --title "..." --body "..."`. Use
   `--body-file -` for anything multi-line; see [Bodies](#bodies-longer-than-a-line).
@@ -67,7 +119,8 @@ without a second command.
 - **Set a blocker** (`CORE-9` blocks `CORE-123`): `taskara task edit CORE-123 --add-blocker CORE-9`
 - **Remove a blocker**: `taskara task edit CORE-123 --remove-blocker CORE-9`
 - **Claim**: `taskara task claim CORE-123` — atomic; see [Claiming](#claiming).
-- **Assign to someone**: `taskara task edit CORE-123 --add-assignee <userId>`
+- **Assign to someone**: `taskara task edit CORE-123 --add-assignee robin.example@example.test`
+  (a UUID works too; a name does not — see [Identifying a person](#identifying-a-person)).
 - **Re-parent**: `taskara task edit CORE-123 --parent CORE-1`, or `--parent none` to detach.
 - **Close**: `taskara task close CORE-123 --reason completed` (or `--reason canceled`).
   `completed` → `DONE`, `canceled` → `CANCELED`. Taskara has no "not planned".

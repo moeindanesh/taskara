@@ -35,8 +35,19 @@ interface Fixture {
   idleEmail: string;
   idleName: string;
   idlePhone: string;
-  /** An address the idle one's is a substring of, so an inexact match would pick the wrong person. */
-  lookalikeEmail: string;
+  /**
+   * Two addresses the idle one is a substring of, one at each end, plus a mixed-case row.
+   *
+   * The pair is not decoration: a prepended lookalike catches a resolver that takes `items[0]` or
+   * matches with `endsWith`, and an appended one catches `startsWith`. Their memberships are dated
+   * so the wanted row sorts **last**, so no relaxation of the comparison can be accidentally right.
+   */
+  prefixedEmail: string;
+  suffixedEmail: string;
+  /** Written straight through Prisma in mixed case, the way a row predating the schema would be. */
+  shoutedEmail: string;
+  /** A real User row with no membership here. Resolution is workspace-scoped and must say so. */
+  outsiderEmail: string;
   /** An agent User, in the roster and marked, operated by the owner. */
   agentEmail: string;
   agentToken: string;
@@ -71,7 +82,10 @@ describe('taskara CLI', () => {
             fixture.ownerEmail,
             fixture.otherEmail,
             fixture.idleEmail,
-            fixture.lookalikeEmail,
+            fixture.prefixedEmail,
+            fixture.suffixedEmail,
+            fixture.shoutedEmail,
+            fixture.outsiderEmail,
             fixture.agentEmail
           ]
         }
@@ -652,16 +666,58 @@ describe('taskara CLI', () => {
       expect(missing.stderr).toContain('user list');
     });
 
-    test('resolution is exact, so an email that is a substring of another lands on neither by accident', async () => {
-      // `GET /users?q=` matches with `contains`, so a search for `dana@…` also returns `xdana@…`.
-      // Picking the first row would assign the wrong person, silently and plausibly.
-      const task = await createTaskViaApi('exactly one of two similar addresses');
+    test('resolution is exact, so a lookalike address never gets the work by accident', async () => {
+      // `GET /users?q=` matches with `contains`, so searching for `dana@…` also returns the two
+      // addresses that extend it. Every relaxation of `===` has a wrong answer waiting here:
+      // `items[0]` and `endsWith` reach the prefixed row, `startsWith` the suffixed one.
+      //
+      // **The precondition is asserted, not assumed.** An earlier version of this test passed with
+      // the resolver taking `items[0]`, because the memberships were written by one `createMany`
+      // and the `createdAt` tie happened to order the wanted row first — the fixture was deciding
+      // the answer. If that ordering ever changes, this line fails instead of the test going quiet.
+      const search = await run(['user', 'list', '--query', fixture.idleEmail]);
+      const found = (search.json.users as Array<{ email: string }>).map((user) => user.email);
+      expect(found).toEqual([fixture.suffixedEmail, fixture.prefixedEmail, fixture.idleEmail]);
 
-      const assigned = await run(['task', 'edit', task.key, '--add-assignee', fixture.idleEmail]);
+      for (const email of [fixture.idleEmail, fixture.prefixedEmail, fixture.suffixedEmail]) {
+        const task = await createTaskViaApi(`addressed to ${email}`);
+        const assigned = await run(['task', 'edit', task.key, '--add-assignee', email]);
 
-      expect(assigned.code).toBe(0);
-      expect((assigned.json.assignee as { email: string }).email).toBe(fixture.idleEmail);
-      expect((assigned.json.assignee as { email: string }).email).not.toBe(fixture.lookalikeEmail);
+        expect(assigned.code).toBe(0);
+        expect((assigned.json.assignee as { email: string }).email).toBe(email);
+      }
+    });
+
+    test('case is folded on both sides, so a mixed-case row is still reachable', async () => {
+      // The input half is obvious. The stored half is not: `createUserSchema` lowercases on write,
+      // but a row written any other way — a migration, a direct Prisma call, this fixture — keeps
+      // whatever case it was given, and without folding the stored side it can never be addressed.
+      const shouted = await createTaskViaApi('handed to a mixed-case row');
+      const byLower = await run([
+        'task', 'edit', shouted.key, '--add-assignee', fixture.shoutedEmail.toLowerCase()
+      ]);
+      expect(byLower.code).toBe(0);
+      expect((byLower.json.assignee as { email: string }).email).toBe(fixture.shoutedEmail);
+
+      const plain = await createTaskViaApi('shouted at in capitals');
+      const byUpper = await run([
+        'task', 'edit', plain.key, '--add-assignee', fixture.idleEmail.toUpperCase()
+      ]);
+      expect(byUpper.code).toBe(0);
+      expect((byUpper.json.assignee as { email: string }).email).toBe(fixture.idleEmail);
+    });
+
+    test('a real user who is not a member of this workspace does not resolve', async () => {
+      // `GET /users` is workspace-scoped, and resolution inherits that rather than working around
+      // it. An address that exists in the database but not in this workspace is a 4, not a silent
+      // assignment across a boundary.
+      const task = await createTaskViaApi('addressed outside the workspace');
+
+      const outside = await run(['task', 'edit', task.key, '--add-assignee', fixture.outsiderEmail]);
+
+      expect(outside.code).toBe(4);
+      const untouched = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+      expect(untouched.assigneeId).toBeNull();
     });
 
     test('task create and task list take the same email, so one flag means one thing', async () => {
@@ -826,22 +882,36 @@ async function createFixture(): Promise<Fixture> {
   const idleEmail = `dana-${suffix}@example.test`;
   const idleName = 'Dana Idle';
   const idlePhone = `+1555${suffix.replace(/\D/g, '').padEnd(6, '0').slice(0, 6)}`;
-  // The idle address is a proper substring of this one, so `q=dana-…` returns both and an inexact
-  // resolver would have a choice to get wrong.
-  const lookalikeEmail = `x${idleEmail}`;
+  // The idle address is a proper substring of both of these — one extends it at the front, one at
+  // the back — so `q=dana-…` returns three rows and every loose comparison has something to get
+  // wrong: `items[0]` and `endsWith` reach for the prefixed one, `startsWith` for the suffixed one.
+  const prefixedEmail = `x${idleEmail}`;
+  const suffixedEmail = `${idleEmail}.example`;
+  const shoutedEmail = `CLI-Shouted-${suffix}@Example.Test`;
   const agentEmail = `cli-agent-${suffix}@example.test`;
+  const outsiderEmail = `cli-outsider-${suffix}@example.test`;
 
   const owner = await prisma.user.create({ data: { email: ownerEmail, name: 'CLI owner' } });
   const other = await prisma.user.create({ data: { email: otherEmail, name: otherName } });
   const idle = await prisma.user.create({
     data: { email: idleEmail, name: idleName, phone: idlePhone }
   });
-  const lookalike = await prisma.user.create({
-    data: { email: lookalikeEmail, name: 'Dana Lookalike' }
+  const prefixed = await prisma.user.create({
+    data: { email: prefixedEmail, name: 'Dana Prefixed' }
+  });
+  const suffixed = await prisma.user.create({
+    data: { email: suffixedEmail, name: 'Dana Suffixed' }
+  });
+  // Written straight through Prisma, so the schema's `.toLowerCase()` never sees it — the shape a
+  // row predating that rule would have. Resolution folds both sides or this one is unreachable.
+  const shouted = await prisma.user.create({
+    data: { email: shoutedEmail, name: 'Shouted Row' }
   });
   const agent = await prisma.user.create({
     data: { email: agentEmail, name: 'Claude', kind: 'AGENT', operatorId: owner.id }
   });
+  // Never given a membership below: a real row this workspace cannot reach.
+  await prisma.user.create({ data: { email: outsiderEmail, name: 'Outsider' } });
   const workspace = await prisma.workspace.create({
     data: { name: 'CLI workspace', slug: `cli-${suffix}` }
   });
@@ -849,12 +919,26 @@ async function createFixture(): Promise<Fixture> {
     data: [
       { workspaceId: workspace.id, userId: owner.id, role: 'OWNER' },
       { workspaceId: workspace.id, userId: other.id, role: 'MEMBER' },
-      { workspaceId: workspace.id, userId: idle.id, role: 'MEMBER' },
-      { workspaceId: workspace.id, userId: lookalike.id, role: 'MEMBER' },
+      { workspaceId: workspace.id, userId: shouted.id, role: 'MEMBER' },
       // An ordinary MEMBER role rather than WorkspaceRole.AGENT: #20 settled that nothing may infer
       // agent-ness from the role, so the roster must mark this row from `kind` alone.
       { workspaceId: workspace.id, userId: agent.id, role: 'MEMBER' }
     ]
+  });
+
+  // The three lookalikes are dated by hand rather than left to a shared `createMany` timestamp.
+  // `GET /users` orders by role then `createdAt: 'desc'`, so this puts the wanted row **last** of
+  // the three — and an earlier version of the exactness test passed against `items[0]` precisely
+  // because a tie had put it first. A fixture that decides the answer proves nothing.
+  const base = Date.parse('2026-01-01T00:00:00.000Z');
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: idle.id, role: 'MEMBER', createdAt: new Date(base) }
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: prefixed.id, role: 'MEMBER', createdAt: new Date(base + 60_000) }
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: suffixed.id, role: 'MEMBER', createdAt: new Date(base + 120_000) }
   });
   const project = await prisma.project.create({
     data: { workspaceId: workspace.id, name: 'CLI', keyPrefix: `CL${suffix.slice(0, 3).toUpperCase()}` }
@@ -880,7 +964,10 @@ async function createFixture(): Promise<Fixture> {
     idleEmail,
     idleName,
     idlePhone,
-    lookalikeEmail,
+    prefixedEmail,
+    suffixedEmail,
+    shoutedEmail,
+    outsiderEmail,
     agentEmail,
     agentToken: (issued.json() as { token: string }).token,
     projectId: project.id,
