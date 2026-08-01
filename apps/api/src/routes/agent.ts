@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@taskara/db';
 import { proposeThreadTasksSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
+import { workTaskWhere } from '../services/measured-work';
 import { createTask, ensureDefaultProject } from '../services/tasks';
 
 interface ProposedTaskPayload {
@@ -60,8 +61,12 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/agent/daily-plan', async (request) => {
     const actor = await getRequestActor(request);
+    // WORK LIST — effort excluded. The focus/blocked lists an agent is handed as its day's work.
+    // Unreachable today (an effort cannot hold an assignee), and written for the same reason as the
+    // assignment slice: so the guard has nothing here to excuse.
     const tasks = await prisma.task.findMany({
       where: {
+        ...workTaskWhere,
         workspaceId: actor.workspace.id,
         assigneeId: actor.user.id,
         status: { notIn: ['DONE', 'CANCELED'] }

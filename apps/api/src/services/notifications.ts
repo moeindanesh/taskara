@@ -1,5 +1,6 @@
 import type { Prisma, TaskStatus } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
+import { workTaskWhere } from './measured-work';
 
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
@@ -91,7 +92,17 @@ export function taskInboxNotificationWhere(
     userId,
     OR: [
       { taskId: null, announcementId: null, meetingId: null },
-      { task: { is: { workspaceId } } },
+      // MEASUREMENT — effort excluded. Not a Task query, which is why it is easy to miss and why no
+      // Task-level mechanism reaches it: this is the ONE gate behind the inbox list, the unread
+      // badge, `/notifications/sync`, `GET /me` and `PATCH /me`, all five of which read through it.
+      //
+      // The write side is untouched deliberately. `subscribeTaskParticipants` subscribes the
+      // reporter and everyone named in the body, permanently — the API has no unsubscribe path at
+      // all — and an effort's body IS the living document, so every revision fans out to all of
+      // them. Gating the fan-out would mean reasoning about subscription rows that already exist;
+      // filtering the read is complete, reversible, and leaves the rows there if an effort surface
+      // ever wants its own feed.
+      { task: { is: { workspaceId, ...workTaskWhere } } },
       { announcement: { is: { workspaceId } } },
       { meeting: { is: { workspaceId } } },
       { knowledgePage: { is: { workspaceId } } }

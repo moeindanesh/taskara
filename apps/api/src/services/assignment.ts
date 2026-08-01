@@ -9,6 +9,7 @@ import {
   taskWhereForAccess
 } from './team-access';
 import { isMeasuredMember } from './measured-people';
+import { workTaskWhere } from './measured-work';
 import { findTaskByIdOrKey } from './tasks';
 
 type AssignmentRecommendationInput = z.infer<typeof assignmentRecommendationSchema>;
@@ -184,9 +185,19 @@ export async function recommendAssignment(
     prisma.userCapacity.findMany({
       where: { workspaceId: actor.workspace.id }
     }),
+    // MEASUREMENT — effort excluded. This slice becomes every candidate's activeCount, activeWeight
+    // and loadRatio, and `normalizeAssignmentWeight` coerces a null weight to 1, so an effort would
+    // count as a full unit of load and cost 45 points in the score.
+    //
+    // Unreachable today: `assigneeId: { not: null }` cannot match an effort, because
+    // `Task_effort_has_no_work_fields` forbids one from holding an assignee. Written anyway so the
+    // runtime guard has nothing to excuse here — a reviewed entry reading "safe because of a
+    // constraint in another file" is a claim every future reader has to re-verify, and this clause
+    // costs a line.
     prisma.task.findMany({
       where: {
         ...taskWhereForAccess(access),
+        ...workTaskWhere,
         status: { in: [...assignmentActiveStatuses] },
         assigneeId: { not: null }
       },

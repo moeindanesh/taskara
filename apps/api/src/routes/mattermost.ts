@@ -4,6 +4,7 @@ import { normalizeTaskStatus } from '@taskara/shared';
 import { config } from '../config';
 import { ensureWorkspaceMember, getMattermostActor, upsertUserByEmail } from '../services/actor';
 import { parseHumanDueDate } from '../services/dates';
+import { workTaskWhere } from '../services/measured-work';
 import { createTask, ensureDefaultProject, findTaskByIdOrKey, updateTask } from '../services/tasks';
 
 type MattermostResponseType = 'ephemeral' | 'in_channel';
@@ -90,8 +91,11 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
     if (command === 'list') {
       const scope = restParts[0] || 'mine';
       if (scope !== 'mine') return mm('Only `/task list mine` is implemented in this MVP.');
+      // WORK LIST — effort excluded. `/task list mine` in a Mattermost channel. Unreachable today
+      // for the same reason as the two above, and written for the same reason.
       const tasks = await prisma.task.findMany({
         where: {
+          ...workTaskWhere,
           workspaceId: actor.workspace.id,
           assigneeId: actor.user.id,
           status: { notIn: ['DONE', 'CANCELED'] }
