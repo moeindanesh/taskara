@@ -5,17 +5,20 @@ import {
   addTaskBlocker,
   claimTask,
   commentOnTask,
+  createProject,
   createTask,
   getTask,
+  listProjects,
   listTasks,
   removeTaskBlocker,
   resolveTaskId,
   updateTask,
+  type CreateProjectInput,
   type CreateTaskInput,
   type TaskListFilters,
   type UpdateTaskInput
 } from '../core/operations';
-import type { Task } from '../core/types';
+import type { Project, Task } from '../core/types';
 import { Flags, parseArgs, readBody, splitValues } from './args';
 
 export interface CommandResult {
@@ -37,8 +40,14 @@ const taskVerbs: Record<string, Handler> = {
   close: taskClose
 };
 
+const projectVerbs: Record<string, Handler> = {
+  list: projectList,
+  create: projectCreate
+};
+
 const nouns: Record<string, Record<string, Handler>> = {
-  task: taskVerbs
+  task: taskVerbs,
+  project: projectVerbs
 };
 
 export const usage = `taskara <noun> <verb> [arguments]
@@ -56,6 +65,10 @@ export const usage = `taskara <noun> <verb> [arguments]
   task claim    <key|id>
   task comment  <key|id> [--body <s> | --body-file <path|->]
   task close    <key|id> [--reason completed|canceled]
+
+  project list  [--include-archived]
+  project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
+                [--parent <keyPrefix|id>]
 
 Exit codes: 0 ok, 1 usage, 2 config, 3 auth, 4 not found, 5 conflict, 6 rejected,
             7 server error, 8 unreachable.`;
@@ -228,6 +241,45 @@ async function taskClose(client: TaskaraClient, flags: Flags, positionals: strin
   return { data: taskSummary(task), note: `Closed ${task.key} as ${reason}` };
 }
 
+/**
+ * The read that breaks the bootstrap circle.
+ *
+ * `task create --project` needs a project, and before this verb the only shell-side source of one
+ * was an existing Task's `project.id` — so an agent needed a project to create a task and a task to
+ * learn a project, and an empty workspace could not be started from a shell at all.
+ */
+async function projectList(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const includeArchived = flags.bool('include-archived');
+  flags.assertNoUnknown();
+
+  const projects = await listProjects(client);
+  const items = includeArchived ? projects : projects.filter((project) => project.status !== 'ARCHIVED');
+  return { data: { total: items.length, projects: items.map(projectSummary) } };
+}
+
+/**
+ * The write that breaks it in a workspace holding no project either.
+ *
+ * `--team` and `--lead` are deliberately absent. `createProjectSchema.teamId` is a uuid while
+ * `task list --team` takes a **slug**, and one flag name meaning two different things across two
+ * commands of one grammar is the drift #25 was written to stop. A project created without a team is
+ * visible workspace-wide, which is the right default for an agent bootstrapping one; MCP's
+ * `project_create` still carries both for a human in conversation who holds the ids.
+ */
+async function projectCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const input: CreateProjectInput = {
+    name: flags.require('name'),
+    // Uppercased here so `--key-prefix core` and `--key-prefix CORE` are the same request. The
+    // server's schema does the same, but the shell has to agree with it to resolve `--parent core`.
+    keyPrefix: flags.require('key-prefix').trim().toUpperCase(),
+    description: await readBody(flags)
+  };
+
+  flags.assertNoUnknown();
+  const project = await createProject(client, dropUndefined(input));
+  return { data: projectSummary(project), note: `Created project ${project.keyPrefix}` };
+}
+
 /** A lost claim: a failure with a payload, because the holder is the point of the failure. */
 export class ClaimLostError extends Error {
   constructor(message: string, readonly task: unknown) {
@@ -248,6 +300,19 @@ function optionalList(values: string[]): string[] | undefined {
 
 function dropUndefined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
+}
+
+export function projectSummary(project: Project): Record<string, unknown> {
+  return {
+    id: project.id,
+    keyPrefix: project.keyPrefix,
+    name: project.name,
+    status: project.status,
+    description: project.description ?? null,
+    parentId: project.parentId ?? null,
+    taskCount: project._count?.tasks ?? project.tasks?.length ?? 0,
+    subprojectCount: project._count?.subprojects ?? project.subprojects?.length ?? 0
+  };
 }
 
 export function taskSummary(task: Task): Record<string, unknown> {
