@@ -272,9 +272,10 @@ async function projectList(client: TaskaraClient, flags: Flags): Promise<Command
 async function projectCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
   const input: CreateProjectInput = {
     name: flags.require('name'),
-    // Uppercased here so `--key-prefix core` and `--key-prefix CORE` are the same request. The
-    // server's schema does the same, but the shell has to agree with it to resolve `--parent core`.
-    keyPrefix: flags.require('key-prefix').trim().toUpperCase(),
+    // Sent as written. `createProjectSchema` trims and uppercases it, so `--key-prefix core` and
+    // `--key-prefix CORE` are already the same request and a second normalisation here would only
+    // be a copy of the server's rule that could drift from it.
+    keyPrefix: flags.require('key-prefix'),
     description: await readBody(flags)
   };
 
