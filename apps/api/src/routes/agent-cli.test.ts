@@ -137,15 +137,23 @@ describe('taskara CLI', () => {
 
   describe('the tracker contract', () => {
     test('task create accepts --kind, and rejects a kind that is not one', async () => {
-      // The grammar #25 specifies, shipped now so the tracker doc has no gap to apologise for.
-      // It does not yet produce an effort: `createTaskSchema` has no `kind` field, so the server
-      // strips it and creates WORK. That is issue #46, deliberately not fixed here — building it
-      // twice in parallel is the failure this whole effort keeps hitting.
+      // The grammar #25 specifies. Since #46 it produces a real effort end to end, which is the
+      // command #31 has to run to put the map in Taskara at all.
       const effort = await run([
-        'task', 'create', '--project', fixture.projectId, '--title', 'A map of the work', '--kind', 'EFFORT'
+        'task', 'create', '--project', fixture.projectId, '--title', 'A map of the work',
+        '--kind', 'EFFORT', '--status', 'IN_PROGRESS'
       ]);
       expect(effort.code).toBe(0);
-      expect(effort.json.kind).toBe('WORK');
+      expect(effort.json.kind).toBe('EFFORT');
+
+      // `--status` is not optional decoration here, and the shell does not supply it: `status`
+      // defaults to TODO server-side and an effort may not be TODO, so omitting it is a refusal —
+      // one that has to name the fix, because it is the first thing anyone minting a map will hit.
+      const noStatus = await run([
+        'task', 'create', '--project', fixture.projectId, '--title', 'A map with no status', '--kind', 'EFFORT'
+      ]);
+      expect(noStatus.code).toBe(6);
+      expect(noStatus.stderr).toContain('IN_PROGRESS');
 
       // What the shell does own is refusing a kind that is not one, before anything is sent.
       const nonsense = await run([

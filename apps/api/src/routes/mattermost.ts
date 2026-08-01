@@ -79,6 +79,7 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
       const task = await createTask(actor, {
         projectId: project.id,
         title: rest,
+        kind: 'WORK',
         labels: [],
         status: 'TODO',
         priority: 'NO_PRIORITY',

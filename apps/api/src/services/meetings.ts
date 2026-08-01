@@ -256,6 +256,7 @@ export async function createTasksFromMeeting(actor: RequestActor, meetingId: str
     const task = await createTask(actor, {
       projectId: input.projectId,
       title: item.title,
+      kind: 'WORK',
       description: item.description,
       assigneeId: item.assigneeId,
       status: item.status,

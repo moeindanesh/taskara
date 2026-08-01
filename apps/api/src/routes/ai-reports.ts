@@ -1744,6 +1744,7 @@ async function executeCreateTaskPlan(
   const task = await createTask(actor, {
     projectId: project.id,
     title: draft.title,
+    kind: 'WORK',
     description: draft.description || undefined,
     assigneeId: assignee?.id,
     status: draft.status || 'TODO',
