@@ -41,6 +41,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { SmsConfirmDialog } from '@/components/taskara/sms-confirm-dialog';
+import {
+   TaskDependenciesSection,
+   TaskTakeabilityProperty,
+} from '@/components/taskara/task-dependencies';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import {
    LinearAvatar,
@@ -1041,6 +1045,9 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                <AttachmentList attachments={attachments} className="mt-3" />
             </section>
 
+            {/* Silent on a task with neither blockers nor blocked tasks — see #26. */}
+            <TaskDependenciesSection className="mt-6" orgId={orgId || 'taskara'} task={task} />
+
             <section className="mt-8 border-t border-white/8 pt-5 pb-6">
                <div className="mb-4 flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold text-zinc-100">{fa.issue.activity}</h2>
@@ -1172,6 +1179,9 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                      iconClassName="size-5 text-zinc-500"
                      onChange={(dueAt) => void updateTask({ dueAt })}
                   />
+                  {/* Read-only, and unconditional: the section below the fold answers "what is in
+                      the way", this answers "can I take it" without scrolling. */}
+                  <TaskTakeabilityProperty task={task} />
                </div>
             </SidebarSection>
 
