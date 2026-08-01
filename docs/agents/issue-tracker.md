@@ -386,3 +386,43 @@ They coexist and mean different things. Do not reason from one to another.
   client header. This is the one that means "an agent did this".
 - **`TaskSource.AGENT`** — set when a **human** uses the in-app assistant dock. It describes the
   surface a row came through, not who wrote it.
+
+## Pointing another repo at Taskara
+
+This file is Taskara's own copy. To make a *different* repository's skills read Taskara instead of
+GitHub, four things have to be true in that repo.
+
+**1. The binary is on `$PATH`.** Until it is published, the honest instruction is a path:
+
+```bash
+alias taskara='bun /absolute/path/to/taskara/plugins/taskara-agent/src/cli.ts'
+```
+
+**2. The agent has a credential.** One agent User per human operator, shared across every runtime.
+Minting the first one is an admin act and is not self-service — a workspace owner runs:
+
+```bash
+taskara user list --kind AGENT     # find or confirm the agent User
+# then POST /agent-credentials as an admin; the plaintext is returned exactly once.
+```
+
+Put it in the environment, never in a file the repo tracks:
+
+```bash
+export TASKARA_API_URL=https://taskara.example
+export TASKARA_WORKSPACE_SLUG=<slug>
+export TASKARA_AGENT_TOKEN=<the token, shown once>
+export TASKARA_AGENT_RUNTIME=CLAUDE_CODE   # or CODEX / OPENCLAW / HERMES
+```
+
+**3. The repo has a project to write into.** `taskara project list`, or `taskara project create`
+if it is a fresh workspace. Its **key prefix** — not its UUID — is what every later command takes.
+
+**4. The repo has these three files and an `## Agent skills` block.** Copy `docs/agents/` from here
+into the new repo and change only what is repo-specific: the project key prefix in the examples, and
+`domain.md`, which points at *that* repo's own vocabulary. Then add the `## Agent skills` block to
+its `AGENTS.md` — `CLAUDE.md` names one runtime in a filename the other three have to read.
+
+A repo is correctly pointed when `taskara task list --parent <effortKey> --status unfinished
+--assignee none --blockers none --sort createdAt:asc` returns that effort's frontier, and
+`taskara task claim <key>` exits **5** when somebody already holds it.
