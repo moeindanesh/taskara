@@ -17,6 +17,7 @@ type WorkspaceMemberFindManyArgs = Parameters<Prisma.TransactionClient['workspac
 type NotificationCreateManyArgs = Parameters<Prisma.TransactionClient['notification']['createMany']>[0];
 type TaskSubscriptionCreateManyArgs = Parameters<Prisma.TransactionClient['taskSubscription']['createMany']>[0];
 type TaskSubscriptionFindManyArgs = Parameters<Prisma.TransactionClient['taskSubscription']['findMany']>[0];
+type TaskMuteFindManyArgs = Parameters<Prisma.TransactionClient['taskMute']['findMany']>[0];
 
 type CreatedNotification = {
   workspaceId: string;
@@ -61,7 +62,11 @@ function humanAttribution(actorId: string): ActorAttribution {
   return { actorId, actorType: 'USER', actorRuntime: null };
 }
 
-function mockMentionTransaction(validWorkspaceUserIds: string[], subscribedUserIds: string[] = []) {
+function mockMentionTransaction(
+  validWorkspaceUserIds: string[],
+  subscribedUserIds: string[] = [],
+  mutedUserIds: string[] = []
+) {
   let createdNotifications: CreatedNotification[] = [];
   let createdSubscriptions: CreatedSubscription[] = [];
   let createManyCalls = 0;
@@ -98,6 +103,15 @@ function mockMentionTransaction(validWorkspaceUserIds: string[], subscribedUserI
         const where = args?.where as { userId?: { notIn?: string[] } } | undefined;
         const excludedUserIds = new Set(where?.userId?.notIn || []);
         return subscribedUserIds.filter((userId) => !excludedUserIds.has(userId)).map((userId) => ({ userId }));
+      }
+    },
+    taskMute: {
+      findMany: async (args: TaskMuteFindManyArgs) => {
+        const where = args?.where as { userId?: { in?: string[] } } | undefined;
+        const requestedUserIds = where?.userId?.in || [];
+        return mutedUserIds
+          .filter((userId) => requestedUserIds.includes(userId))
+          .map((userId) => ({ userId }));
       }
     }
   } as unknown as Prisma.TransactionClient;
@@ -233,6 +247,23 @@ describe('task mention notifications', () => {
       { workspaceId, taskId: 'task-1', userId: 'user-actor' },
       { workspaceId, taskId: 'task-1', userId: 'user-assignee' }
     ]);
+  });
+
+  test('a member who muted the task is not subscribed to it again', async () => {
+    const workspaceId = 'workspace-1';
+    const mock = mockMentionTransaction(['user-actor', 'user-quiet'], [], ['user-quiet']);
+
+    const subscribedUserIds = await subscribeUsersToTask(mock.tx, {
+      workspaceId,
+      taskId: 'task-1',
+      userIds: ['user-actor', 'user-quiet']
+    });
+
+    // Skipped, not written-and-ignored. #54's whole point is that the automatic path stops offering
+    // the row, so the returned list — which callers read to decide who was reached — must not name
+    // somebody who was filtered out one line later.
+    expect(subscribedUserIds).toEqual(['user-actor']);
+    expect(mock.createdSubscriptions).toEqual([{ workspaceId, taskId: 'task-1', userId: 'user-actor' }]);
   });
 
   test('creates subscriber notifications except for the actor and excluded users', async () => {

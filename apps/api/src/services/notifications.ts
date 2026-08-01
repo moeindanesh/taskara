@@ -2,6 +2,7 @@ import type { Prisma, TaskStatus } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
+import { mutedUserIds } from './task-subscriptions';
 
 /**
  * Who a notification can be delivered to: a person.
@@ -254,7 +255,15 @@ export async function subscribeUsersToTask(
     },
     select: { userId: true }
   });
-  const validUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  const memberUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  if (!memberUserIds.length) return [];
+
+  // #54: a person who unsubscribed is not offered again. This is the ONE place the automatic path
+  // consults a mute, and it is what turns unsubscribe from a button into a decision — without it,
+  // the next mention or assignment silently re-adds them. Everything that auto-subscribes anybody
+  // funnels through this function, which is why one check is enough.
+  const muted = await mutedUserIds(tx, { taskId: input.taskId, userIds: memberUserIds });
+  const validUserIds = memberUserIds.filter((userId) => !muted.has(userId));
   if (!validUserIds.length) return [];
 
   await tx.taskSubscription.createMany({

@@ -21,6 +21,7 @@ import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-
 import { workTaskWhere } from '../services/measured-work';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
+import { unsubscribeFromTask } from '../services/task-subscriptions';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -487,6 +488,17 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
     await deleteTask(actor, existing.id);
+    return reply.code(204).send();
+  });
+
+  app.delete('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    await unsubscribeFromTask(actor, existing.id);
     return reply.code(204).send();
   });
 
