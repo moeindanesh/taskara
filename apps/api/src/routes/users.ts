@@ -12,6 +12,7 @@ import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity, snapshot } from '../services/audit';
 import { buildInviteUrl, createRawToken, hashToken, normalizeEmail } from '../services/auth';
 import { HttpError } from '../services/http';
+import { workTaskWhere } from '../services/measured-work';
 import {
   lockMilestonesForUpdate,
   milestoneInclude,
@@ -84,10 +85,17 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
           user: {
             select: {
               ...userSelect,
+              // MEASUREMENT — effort excluded from `reportedTasks`. createTask force-sets
+              // reporterId, and this count is lifetime and unfiltered, so whoever files an effort
+              // is permanently +1 in the Members table's "reported tasks" column.
+              //
+              // `assignedTasks` is deliberately left alone: an EFFORT cannot hold an assigneeId
+              // (CHECK Task_effort_has_no_work_fields), so filtering it would change no row and
+              // would read as distrust of the constraint.
               _count: {
                 select: {
                   assignedTasks: true,
-                  reportedTasks: true,
+                  reportedTasks: { where: workTaskWhere },
                   comments: true
                 }
               }

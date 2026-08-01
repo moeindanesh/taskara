@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@taskara/db';
-import { createCommentSchema, createTaskSchema, taskListQuerySchema, updateTaskSchema } from '@taskara/shared';
+import { createCommentSchema, createTaskSchema, taskKindSchema, taskListQuerySchema, updateTaskSchema } from '@taskara/shared';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
 import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-people';
+import { workTaskWhere } from '../services/measured-work';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import {
   assertActorCanAccessTeamSlug,
@@ -35,6 +36,7 @@ const taskArchiveQuerySchema = z.object({
   milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   assigneeId: z.string().uuid().optional(),
   priority: z.enum(['NO_PRIORITY', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  kind: taskKindSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
   mine: z.coerce.boolean().optional(),
@@ -153,8 +155,13 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const actor = await getRequestActor(request);
     const query = taskListQuerySchema.parse(request.query);
     const access = await resolveWorkspaceAccess(actor);
+    // WORK LIST by default, READ PATH on request. Unqualified, this is the issue list, the
+    // milestone "add existing tasks" picker and the assistant's task search, none of which is
+    // asking about an agent's map. `?kind=EFFORT` is how an effort surface lists efforts, and it
+    // is the only reason "excluded" here does not amount to "deleted".
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
+      ...(query.kind ? { kind: query.kind } : workTaskWhere),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       assigneeId: query.mine ? actor.user.id : query.assigneeId,
@@ -206,8 +213,13 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const completedBefore = query.completedBefore
       ? new Date(query.completedBefore)
       : completedArchiveCutoff();
+    // WORK LIST by default — the archive is presented to a human as finished and abandoned WORK.
+    // This is a live leak rather than a latent one: `Task_effort_status` permits DONE and CANCELED
+    // for an EFFORT, and the DONE path writes a real completedAt. Same `kind` escape hatch as the
+    // list above, so a future effort surface can show its own archive.
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
+      ...(query.kind ? { kind: query.kind } : workTaskWhere),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       assigneeId: query.mine ? actor.user.id : query.assigneeId,

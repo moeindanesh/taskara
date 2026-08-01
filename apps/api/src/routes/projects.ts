@@ -10,6 +10,7 @@ import {
 import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
+import { workTaskWhere } from '../services/measured-work';
 import { mergeProjects } from '../services/project-merge';
 import {
   createProjectHealthUpdate,
@@ -40,7 +41,9 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         parent: { select: { id: true, name: true, keyPrefix: true } },
         lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
         healthUpdates: { take: 1, orderBy: { createdAt: 'desc' }, include: projectHealthUpdateInclude },
-        _count: { select: { tasks: true, subprojects: true, milestones: true } }
+        // MEASUREMENT — effort excluded. Rendered as the "<N> issues" label on every project card.
+        // A relation count is not narrowed by the outer `where`, so the filter belongs inside it.
+        _count: { select: { tasks: { where: workTaskWhere }, subprojects: true, milestones: true } }
       }
     });
   });
@@ -148,10 +151,18 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         id,
       },
       include: {
-        subprojects: { orderBy: { updatedAt: 'desc' }, include: { _count: { select: { tasks: true } } } },
-        tasks: { take: 50, orderBy: { updatedAt: 'desc' } },
+        // MEASUREMENT — effort excluded from the nested subproject count too. Easy to miss: it is
+        // a second `_count` a level deeper than the project's own, on a different line.
+        subprojects: {
+          orderBy: { updatedAt: 'desc' },
+          include: { _count: { select: { tasks: { where: workTaskWhere } } } }
+        },
+        // WORK LIST — effort excluded. A relation LIST, so unlike the counts around it this takes
+        // an ordinary `where`. An effort is edited constantly while it is being planned, so it
+        // sorts to the top of the 50 most-recently-updated tasks and dominates the preview.
+        tasks: { where: workTaskWhere, take: 50, orderBy: { updatedAt: 'desc' } },
         healthUpdates: { take: 5, orderBy: { createdAt: 'desc' }, include: projectHealthUpdateInclude },
-        _count: { select: { tasks: true, subprojects: true, milestones: true } }
+        _count: { select: { tasks: { where: workTaskWhere }, subprojects: true, milestones: true } }
       }
     });
     if (!project) return reply.code(404).send({ message: 'Project not found' });

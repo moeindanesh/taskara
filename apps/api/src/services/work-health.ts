@@ -1,6 +1,7 @@
 import { prisma, type Prisma } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { measuredMemberWhere } from './measured-people';
+import { workTaskWhere } from './measured-work';
 import {
   projectWhereForAccess,
   resolveWorkspaceAccess,
@@ -182,15 +183,29 @@ export interface WorkHealthUser {
 
 export async function getWorkHealthSummary(actor: RequestActor, now = new Date()): Promise<WorkHealthSummary> {
   const access = await resolveWorkspaceAccess(actor);
+  // MEASUREMENT — effort excluded. This one predicate feeds the count, the findMany and the status
+  // groupBy below, and every number downstream of them: the unassigned and stale queues, the status
+  // distribution, overview.activeTasks, the per-project unassignedCount and health badge, the
+  // reporter-pull that decides who a scoped viewer sees in the people panel, and the whole of
+  // attention.ts, which is nothing but a persisted view of this summary. An EFFORT is IN_PROGRESS
+  // for weeks and holds no assignee by construction, so without this clause it is permanently a
+  // stale, unassigned, at-risk item on a manager's queue.
   const activeWhere = {
     AND: [
       taskWhereForAccess(access),
+      workTaskWhere,
       { status: { in: [...activeStatuses] } }
     ]
   } satisfies Prisma.TaskWhereInput;
+  // MEASUREMENT — effort excluded, though not because one could get here: `Task_effort_status`
+  // already forbids an EFFORT from being BACKLOG, so this clause changes no row today. It is
+  // written anyway because the runtime guard keys its exceptions on `<file>#<function>
+  // <model>.<operation>`, and these two queries share that identity with the ACTIVE ones above.
+  // Reviewing this pair as "sees everything" would silently excuse the active pair as well.
   const backlogWhere = {
     AND: [
       taskWhereForAccess(access),
+      workTaskWhere,
       { status: 'BACKLOG' },
       {
         OR: [

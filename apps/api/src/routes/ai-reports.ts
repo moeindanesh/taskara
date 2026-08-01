@@ -9,6 +9,7 @@ import { createAnnouncement } from '../services/announcements';
 import { buildDailyReportDigest } from '../services/check-ins';
 import { HttpError } from '../services/http';
 import { isMeasuredMember } from '../services/measured-people';
+import { workTaskWhere } from '../services/measured-work';
 import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
 import {
   projectWhereForAccess,
@@ -1568,8 +1569,11 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
         where: { projectId: { in: access.projectIds } },
         select: { projectId: true, userId: true }
       }),
+    // WORK LIST — effort excluded. 80 slots of task context the assistant reasons over and offers
+    // back to the user as real tasks. An effort is among the most frequently updated rows in a
+    // workspace, so it reliably occupies one.
     prisma.task.findMany({
-      where: taskWhereForAccess(access),
+      where: { ...taskWhereForAccess(access), ...workTaskWhere },
       orderBy: [{ updatedAt: 'desc' }],
       take: 80,
       select: { id: true, key: true, title: true, projectId: true }
@@ -1826,7 +1830,11 @@ async function executeQueryTasksPlan(
   const limit = safeQuery.limit;
   const resolvedProject = resolveAssistantProject(safeQuery.projectId || undefined, safeQuery.projectHint || undefined, context);
   const resolvedAssignee = resolveOptionalAssistantUser(safeQuery.assigneeId, safeQuery.assigneeHint, context);
-  const baseWhere: Prisma.TaskWhereInput = taskWhereForAccess(context.access);
+  // WORK LIST — effort excluded. `search_tasks` is satisfied by a single filter (one project, one
+  // keyword) and renders a Persian task list straight to a human. The done-tasks branch that also
+  // composes this base is already assignee-gated and structurally safe; filtering the base is one
+  // edit instead of two.
+  const baseWhere: Prisma.TaskWhereInput = { ...taskWhereForAccess(context.access), ...workTaskWhere };
   const andFilters: Prisma.TaskWhereInput[] = [];
   if (resolvedProject) andFilters.push({ projectId: resolvedProject.id });
   if (safeQuery.statuses.length > 0) andFilters.push({ status: { in: safeQuery.statuses } });
@@ -1991,8 +1999,14 @@ async function executeBulkUpdateTasksPlan(
   const resolvedProject = resolveAssistantProject(input.projectId || undefined, input.projectHint || undefined, context);
   const resolvedAssignee = resolveOptionalAssistantUser(input.assigneeId, input.assigneeHint, context);
   const targetAssignee = resolveOptionalAssistantUser(input.setAssigneeId, input.setAssigneeHint, context);
+  // WORK LIST — effort excluded, and this is the highest-risk of the assistant's task queries: it
+  // is not a read, it loops updateTask over up to 30 keyword-matched rows. An effort caught by a
+  // keyword would be bulk status-flipped, or — if the plan sets an assignee or a due date — would
+  // raise the Postgres CHECK constraint and 500 halfway through the loop. Excluding it at selection
+  // is both the exclusion and the crash guard.
   const where: Prisma.TaskWhereInput = {
     ...taskWhereForAccess(context.access),
+    ...workTaskWhere,
     ...(resolvedProject ? { projectId: resolvedProject.id } : {}),
     ...(resolvedAssignee ? { assigneeId: resolvedAssignee.id } : {}),
     ...(input.statuses.length ? { status: { in: input.statuses } } : {}),
@@ -3070,9 +3084,15 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
       guidance: planner.plan.guidance || input.request
     };
 
+    // MEASUREMENT — effort excluded. This one query produces statusCounts, priorityCounts,
+    // doneCount, completionRate, the task samples and the per-person topAssignees table that are
+    // shipped into the management-analysis prompt. An effort is always in the denominator (any
+    // updatedAt in the window qualifies) and only in doneCount if it was closed, so leaving it in
+    // permanently distorts the narrative a manager reads.
     const where: Prisma.TaskWhereInput = {
       AND: [
         taskWhereForAccess(access),
+        workTaskWhere,
         {
           OR: [
             { createdAt: { gte: range.startsAt, lt: range.endsAt } },

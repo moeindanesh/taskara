@@ -1,4 +1,4 @@
-import { prisma, type Prisma, type UserKind } from '@taskara/db';
+import { prisma, type Prisma, type TaskKind, type UserKind } from '@taskara/db';
 import type { z } from 'zod';
 import type {
   carryForwardMeetingActionItemSchema,
@@ -15,6 +15,7 @@ import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
 import { measuredMemberWhere } from './measured-people';
+import { isWorkTask } from './measured-work';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
@@ -633,6 +634,13 @@ function taskFromActivitySnapshot(snapshot: unknown): { key: string; title: stri
   const key = record.key;
   const title = record.title;
   if (typeof key !== 'string' || typeof title !== 'string') return null;
+  // WORK LIST — effort excluded. These become "what I did today" chips in someone's daily report,
+  // and from there a task key in the manager's digest; an agent's map is not a person's day's work.
+  //
+  // Filtered here rather than at the query because ActivityLog has no `kind` column — logActivity
+  // snapshots the whole task into JSON, so `kind` is only readable once the rows are materialised.
+  // A snapshot written before the column existed carries none, and every one of those is WORK.
+  if (typeof record.kind === 'string' && !isWorkTask({ kind: record.kind as TaskKind })) return null;
   return { key, title };
 }
 

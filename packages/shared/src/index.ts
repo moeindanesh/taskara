@@ -18,6 +18,7 @@ export const taskPriorities = [
   'URGENT'
 ] as const;
 export const taskWeights = [1, 2, 3, 4, 8] as const;
+export const taskKinds = ['WORK', 'EFFORT'] as const;
 
 export const taskViewLayouts = ['list', 'board'] as const;
 export const taskViewGroupings = ['status', 'assignee', 'project', 'milestone', 'priority'] as const;
@@ -58,6 +59,7 @@ export const taskReviewStatuses = ['REQUESTED', 'CHANGES_REQUESTED', 'APPROVED',
 
 export type TaskStatusValue = (typeof taskStatuses)[number];
 export type TaskPriorityValue = (typeof taskPriorities)[number];
+export type TaskKindValue = (typeof taskKinds)[number];
 export type ProjectUpdateHealthValue = (typeof projectUpdateHealthValues)[number];
 export type MilestoneKindValue = (typeof milestoneKinds)[number];
 export type MilestoneStatusValue = (typeof milestoneStatuses)[number];
@@ -82,6 +84,7 @@ export type TaskViewDisplayPropertyValue = (typeof taskViewDisplayProperties)[nu
 
 export const taskStatusSchema = z.enum(taskStatuses);
 export const taskPrioritySchema = z.enum(taskPriorities);
+export const taskKindSchema = z.enum(taskKinds);
 export const taskWeightSchema = z.union([
   z.literal(1),
   z.literal(2),
@@ -520,6 +523,10 @@ export const taskListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
   milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   assigneeId: z.string().uuid().optional(),
+  // Omitted means WORK: the task list is the issue list a human reads, and an EFFORT is not an
+  // issue. Passing it explicitly is how an effort surface lists efforts — the read half of the
+  // property, without which "excluded" and "deleted" become the same thing.
+  kind: taskKindSchema.optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
   teamId: z.string().min(1).default('all'),

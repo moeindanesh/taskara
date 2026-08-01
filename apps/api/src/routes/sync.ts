@@ -46,6 +46,7 @@ import {
   restoreMilestone,
   updateMilestone
 } from '../services/milestones';
+import { workTaskWhere } from '../services/measured-work';
 import { createProjectHealthUpdate } from '../services/project-health';
 import {
   assertActorCanAccessTeamSlug,
@@ -570,8 +571,18 @@ function taskWhereForScope(
   query: z.infer<typeof syncScopeQuerySchema>,
   access: WorkspaceAccess
 ): Prisma.TaskWhereInput {
+  // WORK LIST — effort excluded. This array IS the workspace's work list: the board, the issue list,
+  // the command palette, Today Load, the person sheet and the heartbeat are all client-side filters
+  // over it. Excluding EFFORT once here is what keeps that from becoming twelve independent
+  // predicates in the web app, which is the shape that rotted on the people side.
+  //
+  // Consequence, stated rather than discovered: the web issue page reads task detail out of this
+  // cache, so an effort has no web page until an effort surface is built that fetches
+  // `GET /tasks/:idOrKey` directly. That route is untouched and returns efforts — see the read-path
+  // note in services/measured-work.ts.
   const where: Prisma.TaskWhereInput = {
     ...taskWhereForAccess(access),
+    ...workTaskWhere,
     assigneeId: query.mine ? actor.user.id : undefined
   };
 
@@ -600,7 +611,11 @@ async function listProjects(access: WorkspaceAccess) {
       team: { select: { id: true, name: true, slug: true } },
       parent: { select: { id: true, name: true, keyPrefix: true } },
       lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
-      _count: { select: { tasks: true, subprojects: true, milestones: true } }
+      // MEASUREMENT — effort excluded. This number is rendered as "<N> issues" on every project
+      // card, and a relation count cannot be narrowed by a where on the outer query, so the filter
+      // has to sit inside the count itself. This is the copy the offline client renders; fixing
+      // only routes/projects.ts would leave the number wrong everywhere it is actually seen.
+      _count: { select: { tasks: { where: workTaskWhere }, subprojects: true, milestones: true } }
     }
   });
 }
@@ -634,7 +649,12 @@ async function listUsers(workspaceId: string) {
           avatarUrl: true,
           createdAt: true,
           updatedAt: true,
-          _count: { select: { assignedTasks: true, reportedTasks: true, comments: true } }
+          // MEASUREMENT — effort excluded from `reportedTasks`. createTask force-sets reporterId,
+          // and this count is lifetime and unfiltered, so whoever files an effort is permanently
+          // +1 in the Members table's "reported tasks" column. `assignedTasks` is deliberately NOT
+          // filtered: an EFFORT cannot hold an assigneeId at all (CHECK Task_effort_has_no_work_
+          // fields), so a filter there would change no row and imply the constraint is not trusted.
+          _count: { select: { assignedTasks: true, reportedTasks: { where: workTaskWhere }, comments: true } }
         }
       }
     }
@@ -945,6 +965,17 @@ function taskVisibleInScope(
   actor: RequestActor,
   access: string[] | WorkspaceAccess | null
 ): boolean {
+  // WORK LIST — effort excluded, and this MUST stay in step with `taskWhereForScope`. This is the
+  // in-memory twin used by the live `/sync/pull` stream: if only the bootstrap query filtered,
+  // the very next edit to an effort would upsert it straight back into every client cache, and an
+  // exclusion that quietly undoes itself is worse than none.
+  //
+  // A snapshot with no `kind` at all is WORK: sync events written before the column existed are
+  // still replayable from an old cursor, and reading their silence as EFFORT would empty every
+  // returning client's cache.
+  const kind = stringValue(task.kind);
+  if (kind && kind !== 'WORK') return false;
+
   if (query.mine) {
     const assignee = task.assignee as { id?: string } | null | undefined;
     if (assignee?.id !== actor.user.id) return false;
