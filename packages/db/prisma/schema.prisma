@@ -21,6 +21,11 @@ enum UserKind {
   AGENT
 }
 
+enum AgentCredentialScope {
+  READ_ONLY
+  READ_WRITE
+}
+
 enum ProjectRole {
   LEAD
   MEMBER
@@ -250,6 +255,7 @@ model Workspace {
   mattermostBindings     MattermostBinding[]
   agentRuns              AgentRun[]
   invites                WorkspaceInvite[]
+  agentCredentials       AgentCredential[]
 }
 
 model User {
@@ -318,7 +324,13 @@ model User {
   approvedActions               AgentAction[]
   sentInvites                   WorkspaceInvite[]           @relation("WorkspaceInviteInviter")
   acceptedInvites               WorkspaceInvite[]           @relation("WorkspaceInviteAccepter")
+  agentCredentials              AgentCredential[]           @relation("AgentCredentialAgent")
+  issuedAgentCredentials        AgentCredential[]           @relation("AgentCredentialIssuer")
+  revokedAgentCredentials       AgentCredential[]           @relation("AgentCredentialRevoker")
 
+  // Lets AgentCredential carry a composite foreign key to (id, kind), which is what makes
+  // "a credential can only ever belong to an AGENT" a database fact rather than a convention.
+  @@unique([id, kind])
   @@index([operatorId])
   @@index([kind])
 }
@@ -335,6 +347,40 @@ model AuthSession {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// A long-lived, non-expiring-by-default, revocable secret that lets one agent User act in exactly
+/// one Workspace. Only `tokenHash` is ever stored; the plaintext is returned once, at creation.
+model AgentCredential {
+  id          String               @id @default(uuid()) @db.Uuid
+  workspaceId String               @db.Uuid
+  userId      String               @db.Uuid
+  /// Pinned to AGENT by a CHECK constraint and carried into the composite FK on (userId, userKind).
+  userKind    UserKind             @default(AGENT)
+  name        String
+  /// The public half of the token. Safe to display and to log; it identifies the row so the secret
+  /// half can be compared in constant time instead of being looked up by its own hash.
+  lookupId    String               @unique
+  tokenHash   String
+  scope       AgentCredentialScope @default(READ_WRITE)
+  createdById String?              @db.Uuid
+  revokedById String?              @db.Uuid
+  lastUsedAt  DateTime?
+  rotatedAt   DateTime?
+  /// Null means never expires. That is the point of the primitive: a headless agent on a bearer
+  /// session silently 401s once TASKARA_SESSION_TTL_DAYS elapses.
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     User      @relation("AgentCredentialAgent", fields: [userId, userKind], references: [id, kind], onDelete: Cascade)
+  createdBy User?     @relation("AgentCredentialIssuer", fields: [createdById], references: [id], onDelete: SetNull)
+  revokedBy User?     @relation("AgentCredentialRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([userId])
 }
 
 model WorkspaceInvite {
