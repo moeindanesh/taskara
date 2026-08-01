@@ -1129,8 +1129,23 @@ function writeSse(reply: FastifyReply, id: string | undefined, event: string, da
   reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+/**
+ * A push answers 200 with a per-mutation verdict, so this string is the *entire* diagnosis a
+ * rejected mutation ever gets — the REST handler's `{ message, issues }` shape has no equivalent
+ * here, and the issues were previously dropped on the floor. That made every schema failure
+ * indistinguishable: an over-long description and a malformed uuid both came back as "Validation
+ * failed", and a caller could not learn what the limit it had just exceeded actually was. The
+ * issues are folded into the message instead, and capped at five so a batch rejection cannot turn
+ * one bad field into an unbounded string.
+ */
 function mutationErrorMessage(error: unknown): string {
-  if (error instanceof ZodError) return 'Validation failed';
+  if (error instanceof ZodError) {
+    const named = error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
+    return named ? `Validation failed — ${named}` : 'Validation failed';
+  }
   if (error instanceof Error && error.message) return error.message;
   return 'Mutation failed';
 }

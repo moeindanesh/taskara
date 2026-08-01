@@ -419,13 +419,51 @@ export const milestoneCompletionSchema = milestoneTransitionSchema.extend({
   }
 });
 
+/**
+ * How much prose a Task description may hold, per `kind`, in UTF-16 code units.
+ *
+ * **The unit is code units, and it is the only unit that binds.** `z.string().max()` counts
+ * `String.length`; the column is Postgres `text` (`description String?`, no `@db.VarChar`), so
+ * bytes never bind; and Fastify's body limit is 25 MB, four orders of magnitude away. That makes
+ * the number below the whole of the bound, and it makes it a *character* bound rather than a
+ * storage one — deliberately. Persian runs about 1.9 UTF-8 bytes per code unit, so a Persian body
+ * costs roughly twice the bytes of an English one at the same ceiling. Counting bytes instead
+ * would invert that into the wrong asymmetry for a Persian-speaking workspace: the same document
+ * would be refused in Persian and accepted in English. In bytes the ceilings below are therefore
+ * "up to" figures — about 15 KB and 60 KB in English, about 29 KB and 116 KB in Persian.
+ */
+export const WORK_DESCRIPTION_MAX_CHARS = 15_000;
+
+/**
+ * An Effort's description *is* the wayfinder map — Destination, Notes, and a Decisions-so-far
+ * index that grows by a line every time one of its tickets closes. 15,000 does not hold one: the
+ * map this model was built for measured 22,535 code units with nine of its twenty-five tickets
+ * still open.
+ *
+ * Only efforts are widened, and the reason is not symmetry-breaking for its own sake. The
+ * local-first bootstrap ships up to 500 work descriptions to every client on every cold start
+ * (`sync.ts`, `take: 500`) and there is no payload budget anywhere else in the stack, so the work
+ * ceiling is the only bound on how large that download can get. Efforts are excluded from that
+ * payload at the server — in the bootstrap query *and* in the live stream's in-memory twin — so
+ * widening theirs costs the bootstrap exactly nothing, while widening work's would multiply the
+ * one bound it has.
+ */
+export const EFFORT_DESCRIPTION_MAX_CHARS = 60_000;
+
+export function taskDescriptionMaxChars(kind: TaskKindValue): number {
+  return kind === 'EFFORT' ? EFFORT_DESCRIPTION_MAX_CHARS : WORK_DESCRIPTION_MAX_CHARS;
+}
+
 export const createTaskSchema = z.object({
   projectId: z.string().uuid(),
   parentId: z.string().uuid().optional(),
   cycleId: z.string().uuid().optional(),
   milestoneId: z.string().uuid().optional(),
   title: z.string().min(1).max(300),
-  description: z.string().max(15000).optional(),
+  // The work ceiling, not the wider one, because this schema has no `kind` field: POST /tasks
+  // cannot mint an effort at all, so every row it creates is WORK. Whoever adds `kind` here must
+  // widen this to `taskDescriptionMaxChars(input.kind)` in the same change.
+  description: z.string().max(WORK_DESCRIPTION_MAX_CHARS).optional(),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('NO_PRIORITY'),
   weight: taskWeightSchema.nullable().optional(),
@@ -437,7 +475,10 @@ export const createTaskSchema = z.object({
 
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(300).optional(),
-  description: z.string().max(15000).nullable().optional(),
+  // The widest ceiling any task may hold, because a patch body cannot tell WORK from EFFORT — the
+  // kind lives on the row being patched, not in the request. This is the transport bound; the
+  // narrower per-kind one is applied in `updateTask()`, once the row has been read.
+  description: z.string().max(EFFORT_DESCRIPTION_MAX_CHARS).nullable().optional(),
   projectId: z.string().uuid().optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
