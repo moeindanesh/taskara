@@ -11,6 +11,7 @@ import {
   taskKindSchema,
   taskPrioritySchema,
   taskStatusSchema,
+  userKindSchema,
   workspaceRoleSchema
 } from '@taskara/shared';
 import { z } from 'zod';
@@ -556,15 +557,24 @@ registerTool('report_weekly', {
 
 /* ------------------------------------------------------------------ users */
 
+// The description used to say "Admin-only … not reachable with an agent credential", and it was
+// simply wrong: `GET /users` goes through `getRequestActor`, not `requireWorkspaceAdmin`, so any
+// member reads it and always could. Its two neighbours below are genuinely admin-only, which is how
+// the mistake spread across all three. A tool that understates its own reach is a tool a caller
+// routes around.
 registerTool('user_list', {
   title: 'List Taskara users',
-  description: 'Admin-only: list users in the current workspace. Not reachable with an agent credential.',
+  description:
+    'List the members of the current workspace, agents included and marked by `kind`. Readable by '
+    + 'any member, including an agent credential. This is how you find the id or email of somebody '
+    + 'who holds no task. A name is not an identifier — `User.name` has no unique constraint.',
   inputSchema: {
     query: z.string().max(200).optional(),
+    kind: userKindSchema.optional(),
     role: workspaceRoleSchema.optional(),
     limit: z.number().int().min(1).max(200).default(100)
   }
-}, async ({ query, role, limit }) => api.listUsers(client, dropUndefined({ q: query, role, limit })));
+}, async ({ query, kind, role, limit }) => api.listUsers(client, dropUndefined({ q: query, kind, role, limit })));
 
 registerTool('user_create', {
   title: 'Create a Taskara user',

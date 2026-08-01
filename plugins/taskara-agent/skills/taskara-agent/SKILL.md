@@ -36,14 +36,15 @@ Both surfaces read:
 ```
 taskara task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                       [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
-                      [--label a,b] [--assignee <id>] [--due-at <iso>] [--milestone <id>]
+                      [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]
 taskara task view     <key|id> [--comments]
-taskara task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assignee <id>|none|me]
+taskara task list     [--parent <key|id|none>] [--status unfinished|S,S]
+                      [--assignee <id|email>|none|me]
                       [--blockers none|any] [--label <name>|none] [--project <keyPrefix|id>]
                       [--kind WORK|EFFORT] [--sort createdAt:asc] [--query <s>] [--limit n]
 taskara task edit     <key|id> [--add-label L] [--remove-label L]
-                      [--add-blocker K] [--remove-blocker K] [--add-assignee <id>] [...fields]
-                      [--base-version n]
+                      [--add-blocker K] [--remove-blocker K] [--add-assignee <id|email>]
+                      [...fields] [--base-version n]
 taskara task claim    <key|id>
 taskara task comment  <key|id> [--body <s> | --body-file <path|->]
 taskara task close    <key|id> [--reason completed|canceled]
@@ -51,12 +52,21 @@ taskara task close    <key|id> [--reason completed|canceled]
 taskara project list  [--include-archived]
 taskara project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
                       [--parent <keyPrefix|id>]
+
+taskara user list     [--query <s>] [--kind HUMAN|AGENT] [--role R] [--limit n] [--offset n]
 ```
 
 `--project` takes a **key prefix** — `CORE`, the front half of every key in that project — or a UUID.
 A prefix has no hyphen and a UUID always does, so the two never collide. `project list` is the read
 that works in a workspace holding nothing at all; without it, the only shell-side source of a project
 was an existing Task, and an empty workspace could not be started from a script.
+
+`--assignee` and `--add-assignee` take a **UUID or an email address**, and never a name: `User.name`
+carries no unique constraint, so a name is exit **1** before anything is sent. `user list` is the
+read that finds either handle, and it is the only way to reach somebody who holds no Task — their
+UUID appears in no key, no URL and no prose. Agents are in that roster too, marked `kind: "AGENT"`
+with `operatorId` naming the human they act for; they are teammates, and assignable, but tell the
+user when you are handing work to one.
 
 **stdout is always JSON**, the result on success and `{ "error": ... }` on failure. **stderr is
 always the human line.** The exit code is what you branch on.
@@ -131,7 +141,8 @@ Same `noun_verb` grammar as the CLI.
 | `task_propose` `agent_action_apply` | Turning a discussion into proposed tasks, then applying them |
 | `plan_daily` `plan_work` `backlog_triage` `blocker_detect` | Planning |
 | `report_daily_draft` `report_daily_submit` `report_weekly` | Reports |
-| `user_list` `user_create` `user_set_role` | Admin-only; not reachable with an agent credential |
+| `user_list` | The workspace roster, readable by any member including an agent credential. Agents are in it, marked by `kind` |
+| `user_create` `user_set_role` | Admin-only; not reachable with an agent credential |
 
 `task_search` carries the whole query vocabulary, so the frontier is one call:
 `parentId`, `status: 'unfinished'`, `assigneeId: 'none'`, `blockers: 'none'`, `sort: 'createdAt:asc'`.
