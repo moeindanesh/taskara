@@ -26,8 +26,18 @@ Missing or unusable configuration exits **2** before anything is sent.
 
 ## Identifying a task
 
-- **A key**, `CORE-123` — the project's key prefix and a per-project sequence number. This is the
-  identity to write in prose, in commit messages, and in another Task's body.
+- **A key**, `CORE-123` — the project's key prefix and a sequence number. This is the identity to
+  write in prose, in commit messages, and in another Task's body.
+
+  **A key is permanent.** It is issued once, when the Task is created, and no later change can
+  revoke it — not a move to another project, not a project merge. So a key written into a commit
+  message today still resolves next year, and that is the whole reason to prefer it over a UUID.
+
+  The consequence to expect rather than report as a bug: the prefix records where a Task was
+  **created**, not where it lives now. `CORE-42` may sit in project `PLAT` after a move, and its
+  sequence within `PLAT` will not be 42 — the sequence is re-assigned on a move because a project
+  cannot hold two of the same, while the key is not. Read the prefix as part of a name, never as a
+  claim about the current project. To learn a Task's project, read it: `taskara task view CORE-42`.
 - **A UUID**, which every command accepts wherever it accepts a key. `--parent` takes either, and
   resolves a key for you. One flag still takes **only** a UUID: `--milestone`, which exists on
   `task create` and `task edit` and **not** on `task list` — asking for it there is exit 1,

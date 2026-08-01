@@ -409,14 +409,34 @@ export async function updateTask(
         throw new HttpError(409, 'Task changed on another client');
       }
     }
-    const reservedKey = isProjectChange ? await reserveTaskKey(tx, targetProjectId) : null;
+    // A key is issued once and never again. Only the sequence moves with the task.
+    //
+    // Moving a task used to re-issue its key, so CORE-42 became PLAT-7 and every reference anybody
+    // had written down -- in a commit message, a branch name, another task's body, a Mattermost
+    // post, a bookmarked /issue/CORE-42 URL -- silently stopped resolving. Nothing announced it and
+    // nothing redirected. An identifier that a move can revoke is not an identifier.
+    //
+    // Taskara had in fact already decided this, in the other direction, on the other path:
+    // mergeProjects moves tasks between projects and deliberately keeps their keys, under a test
+    // named for it. That shipped, and nothing broke, because uniqueness is [workspaceId, key] and
+    // no code anywhere reads a project out of a prefix. This makes the two paths agree.
+    //
+    // An alias table was the alternative and it is worse rather than merely larger: it does not
+    // stop the rename, so both names circulate forever and every reader has to know they are the
+    // same task.
+    //
+    // The sequence still has to be re-reserved -- @@unique([projectId, sequence]) means a task
+    // carrying 42 cannot enter a project that already has one. So after a move `key` is a name and
+    // `sequence` is an ordinal in the current project, and the `prefix-sequence` equality that
+    // holds at creation stops holding. Nothing reads sequence, so nothing observes it; merge has
+    // behaved this way all along.
+    const reservedSequence = isProjectChange ? (await reserveTaskKey(tx, targetProjectId)).sequence : null;
 
     const updated = await tx.task.update({
       where: { id: taskId },
       data: {
         projectId: isProjectChange ? targetProjectId : undefined,
-        key: reservedKey?.key,
-        sequence: reservedKey?.sequence,
+        sequence: reservedSequence ?? undefined,
         title: input.title,
         description: input.description === undefined ? undefined : input.description,
         status: input.status,
