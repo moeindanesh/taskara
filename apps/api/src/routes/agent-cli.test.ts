@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
+import { findMentionAttempts } from '../../../../plugins/taskara-agent/src/core/mentions';
 
 /**
  * The `taskara` CLI, driven as a process against a live API.
@@ -742,6 +743,66 @@ describe('taskara CLI', () => {
 
       const mine = await run(['task', 'list', '--assignee', 'me', '--limit', '5']);
       expect(mine.code).toBe(0);
+    });
+  });
+
+  /**
+   * Issue #53 — a mention is a web-editor affordance, and a markdown body carries none.
+   *
+   * The extractor on the server reads mention **nodes**, so a body written here notifies nobody
+   * however it spells a person. The decision is that this stays so; what changes is that the
+   * surface says it out loud instead of accepting the body and dropping the intent.
+   */
+  describe('an @-mention in a body', () => {
+    test('a handle written in prose is found, name or address alike', () => {
+      expect(findMentionAttempts('@Robin please look at this')).toEqual(['@Robin']);
+      expect(findMentionAttempts('ping @robin@example.test when the build is green'))
+        .toEqual(['@robin@example.test']);
+      expect(findMentionAttempts('cc **@robin** and (@sara), then @robin again'))
+        .toEqual(['@robin', '@sara']);
+    });
+
+    test('the shapes that merely contain an @ are left alone', () => {
+      // The whole value of this warning is that it is rare. One that fires on `@types/node` is one
+      // an agent learns to ignore, and then the real one goes past unread too. Every string here is
+      // something a session genuinely writes into a task body.
+      const quiet = [
+        'bun add @types/node @modelcontextprotocol/sdk',
+        'mail robin@example.test about it',
+        'the reflog entry is HEAD@{1}',
+        'reach us at <ops@example.test>',
+        'see https://example.test/@robin for the thread',
+        'an @ on its own, and @ robin with a space',
+        'inline `@media (min-width: 40rem)` and `@param` in a doc comment',
+        ['```css', '@media (min-width: 40rem) { .a { color: red } }', '```'].join('\n'),
+        ['~~~python', '@pytest.mark.parametrize("x", [1])', 'def t(x): ...', '~~~'].join('\n')
+      ];
+
+      for (const body of quiet) {
+        expect({ body, found: findMentionAttempts(body) }).toEqual({ body, found: [] });
+      }
+    });
+
+    test('a body that came back from `task view` is not second-guessed', () => {
+      // A session that appends to an existing body reads it first, and a body the web editor wrote
+      // is Lexical JSON whose mention nodes carry their own `@Sara` text. Those mentions **work**;
+      // warning about them would be false and would teach a caller to strip a live mention out.
+      const fromTheEditor = JSON.stringify({
+        root: {
+          type: 'root',
+          children: [
+            {
+              type: 'paragraph',
+              children: [
+                { type: 'mention', text: '@Sara', mentionName: 'Sara', mentionUserId: 'user-sara' },
+                { type: 'text', text: ' please look at this' }
+              ]
+            }
+          ]
+        }
+      });
+
+      expect(findMentionAttempts(fromTheEditor)).toEqual([]);
     });
   });
 

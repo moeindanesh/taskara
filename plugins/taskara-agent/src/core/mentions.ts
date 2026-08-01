@@ -1,0 +1,64 @@
+/**
+ * What in a body looks like an attempt to address a person — and never does.
+ *
+ * An @-mention in Taskara is a **mention node** in the rich-text body the web editor writes. The
+ * server reads those nodes and nothing else, so a markdown body — which is every body this surface
+ * sends — notifies nobody, whatever it says. #53 settled that this stays true: a text spelling
+ * would be a second addressing form that only one client can write and no client renders.
+ *
+ * So this module exists to end the *silence*, not the rule. A body that reads as if it addressed
+ * somebody gets said back to the caller, who can then reach the person by a means that works.
+ *
+ * The bar for firing is deliberately high. A warning that goes off on `@types/node` is one a caller
+ * learns to ignore, and an ignored warning is worse than none — it costs a line of stderr on every
+ * write and still lets the real case through. So code spans are removed before looking, an `@`
+ * glued to the end of a word is an address rather than a handle, and a scoped package name is not a
+ * person.
+ */
+
+/**
+ * A handle: `@` at a word boundary, then a name, optionally an address.
+ *
+ * The lookbehind is what tells `@robin` from `robin@example.test` — a plain email in prose is not
+ * somebody being addressed, it is a line of text with an address in it, and the reflog's `HEAD@{1}`
+ * is not even that. `/` excludes a URL's `…/@robin`; the scoped-package case is the character
+ * *after* the match and is checked below.
+ */
+const MENTION_PATTERN = /(?<![\w@/])@([A-Za-z][\w.+-]*(?:@[A-Za-z0-9][\w-]*(?:\.[A-Za-z0-9][\w-]*)+)?)/g;
+
+/** ```lang … ``` and ~~~ … ~~~, closed or left open by a truncated paste. */
+const FENCED_BLOCK = /^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^[ \t]*\1[^\n]*$|[\s\S]*$)/gm;
+const INLINE_CODE = /`[^`\n]*`/g;
+
+/** Every distinct handle the body appears to address, in the order it first writes them. */
+export function findMentionAttempts(body: string | null | undefined): string[] {
+  if (!body || !body.includes('@')) return [];
+  // A body that came back from `task view` is Lexical JSON, and its mention nodes carry their own
+  // `@Sara` text. Those mentions work. Warning about them would be false, and a caller acting on it
+  // would strip a live mention out of a body it was only appending to.
+  if (isSerializedEditorValue(body)) return [];
+
+  const prose = body.replace(FENCED_BLOCK, '').replace(INLINE_CODE, '');
+  const found = new Set<string>();
+
+  for (const match of prose.matchAll(MENTION_PATTERN)) {
+    // `@types/node`, `@taskara/db`: a scope, not a colleague.
+    if (prose[match.index + match[0].length] === '/') continue;
+    // A sentence ends in a full stop and a handle does not, but `@robin.example` is one name.
+    const handle = match[1].replace(/[.+-]+$/, '');
+    if (handle) found.add(`@${handle}`);
+  }
+
+  return [...found];
+}
+
+function isSerializedEditorValue(body: string): boolean {
+  if (!body.trimStart().startsWith('{')) return false;
+
+  try {
+    const parsed = JSON.parse(body) as { root?: { type?: unknown; children?: unknown } } | null;
+    return Boolean(parsed?.root && parsed.root.type === 'root' && Array.isArray(parsed.root.children));
+  } catch {
+    return false;
+  }
+}
