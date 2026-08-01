@@ -229,8 +229,25 @@ export interface TaskaraTask {
    attachments?: TaskaraAttachment[];
    comments?: TaskaraTaskComment[];
    subtasks?: Array<{ id: string; key: string; title: string; status: string }>;
-   blockingDependencies?: Array<{ id: string; blockedByTask?: { id: string; key: string; title: string } }>;
-   blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string } }>;
+   /**
+    * The dependency edges, both directions, delivered only by `GET /tasks/:idOrKey`.
+    *
+    * `status` is the load-bearing field and it has always been on the wire — the route includes the
+    * whole blocking Task — but this declaration used to stop at `{ id, key, title }`, which is the
+    * only reason no component could render takeability. See
+    * https://github.com/moeindanesh/taskara/issues/26.
+    *
+    * The arrays are **unfiltered on purpose** (#24: "the count is the predicate, the list is the
+    * record"), so a finished blocker is still a member. Ask `lib/takeability.ts` whether a blocker is
+    * open; never infer it from membership, or a blocker that was finished last month reads as still
+    * in the way. `_count.blockingDependencies` below is the opposite — it *is* filtered to open
+    * blockers server-side, which is why the list badge can trust it.
+    */
+   blockingDependencies?: Array<{
+      id: string;
+      blockedByTask?: { id: string; key: string; title: string; status: string };
+   }>;
+   blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string; status: string } }>;
    labels?: Array<{ label: { id: string; name: string; color?: string } }>;
    _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
 }
