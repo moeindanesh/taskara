@@ -807,7 +807,9 @@ export const createOneOnOneSeriesSchema = z.object({
 
 export const oneOnOneListQuerySchema = z.object({
   participantId: z.string().uuid().optional(),
-  active: z.coerce.boolean().optional(),
+  // Handed straight to Prisma as a `where` clause, so a misread here inverts the answer rather than
+  // widening it.
+  active: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });

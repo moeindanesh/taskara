@@ -108,7 +108,30 @@ describe('boolean query parameters read the word they were given', () => {
       expect((await get('/knowledge/pages', { mine: 'no' })).statusCode).toBe(400);
     });
   });
+
+  /**
+   * `active` is handed straight to Prisma as a `where` clause, so the coercion did not merely ignore
+   * `false` — it inverted it, answering "the retired series" with the running ones.
+   */
+  describe('GET /one-on-ones?active', () => {
+    test('active=false selects the retired series, not the running one', async () => {
+      expect(await seriesTitles({ active: 'false' })).toEqual(['Retired series']);
+    });
+
+    test('active=true still selects the running one', async () => {
+      expect(await seriesTitles({ active: 'true' })).toEqual(['Running series']);
+    });
+
+    test('an unparseable active is a 400', async () => {
+      expect((await get('/one-on-ones', { active: 'banana' })).statusCode).toBe(400);
+    });
+  });
 });
+
+async function seriesTitles(query: Record<string, string>): Promise<string[]> {
+  const body = await getJson('/one-on-ones', query);
+  return body.items.map((item: { title: string | null }) => item.title ?? '').sort();
+}
 
 async function pageTitles(query: Record<string, string>): Promise<string[]> {
   const body = await getJson('/knowledge/pages', query);
@@ -223,6 +246,25 @@ async function createFixture(): Promise<Fixture> {
       contentText: '',
       status: 'PUBLISHED'
     }
+  });
+
+  await prisma.oneOnOneSeries.createMany({
+    data: [
+      {
+        workspaceId: workspace.id,
+        managerId: owner.id,
+        participantId: other.id,
+        title: 'Running series',
+        active: true
+      },
+      {
+        workspaceId: workspace.id,
+        managerId: owner.id,
+        participantId: owner.id,
+        title: 'Retired series',
+        active: false
+      }
+    ]
   });
 
   return {
