@@ -98,10 +98,7 @@ EOF
 ```
 
 The ceiling is the server's, and the shell carries none of its own: **15,000 characters for a work
-Task, 60,000 for an Effort.** A refusal names the field and the limit and exits 6.
-
-The 60,000 ceiling is reachable only through `task edit`, not through `task create`, because every
-row `task create` mints today is `WORK` — see the note under [Map](#wayfinding-operations).
+Task, 60,000 for an Effort.** A refusal names the count, the limit and the kind, and exits 6.
 
 ### Labels
 
@@ -174,30 +171,41 @@ are its **child** Tasks.
 
 - **Map**:
   ```bash
-  taskara task create --project <projectId> --title "<effort name>" --kind EFFORT --body-file -
+  taskara task create --project <projectId> --title "<effort name>" \
+                      --kind EFFORT --status IN_PROGRESS --body-file -
   ```
-  The body holds Destination / Notes / Decisions-so-far / Not-yet-specified / Out-of-scope. An Effort
-  lives in the project it concerns, carries no assignee, due date, weight, milestone or parent, and
-  only ever sits in `IN_PROGRESS`, `DONE` or `CANCELED`. It is excluded from every list, count and
-  metric about work — that is the point of the kind — so reach it deliberately by name:
+  **`--status IN_PROGRESS` is not optional.** `status` defaults to `TODO` for every Task, and an
+  Effort may never be `TODO` — a charted effort has already begun. Omit it and every create fails
+  with a 400 that names the fix, exit 6. Pass `DONE` or `CANCELED` instead for an effort that is
+  already over.
+
+  The body holds Destination / Notes / Decisions-so-far / Not-yet-specified / Out-of-scope, and may
+  run to 60,000 characters. An Effort lives in the project it concerns and carries **no assignee, due
+  date, weight, milestone, cycle or parent** — passing any of them is a 400 naming the field. It is
+  excluded from every list, count and metric about work — that is the point of the kind — so reach it
+  deliberately by name:
   `taskara task list --kind EFFORT --query "<effort name>"`.
 
-  **Not yet true, and check rather than assume: `--kind EFFORT` is accepted on create and silently
-  produces a `WORK` row.** `POST /tasks` has no `kind` field, so the server strips it and the command
-  exits 0 on a Task that is not an Effort. That is
-  [The API cannot create an Effort](https://github.com/moeindanesh/taskara/issues/46). The command
-  above is the settled grammar and starts minting Efforts when that lands, with no change to this
-  file — until then, read `kind` out of the JSON you get back. Two consequences follow while it is
-  open: a map body over 15,000 characters is refused on create (the work ceiling binds), and the row
-  is visible in ordinary task lists and counts.
+  Those readable refusals cover **create**. A `task edit` that pushes an existing Effort into an
+  illegal shape — giving it an assignee, or a status of `TODO` — still hits the database constraint
+  directly and comes back as a 500, exit 7. Do not expect the error to tell you which field was
+  wrong on that path; do not do it.
 
   **No `wayfinder:map` label.** `kind = EFFORT` is the marker, enforced by database constraints
   rather than by convention, and a second marker that nothing checks is a second marker that can go
   wrong. Tickets still carry `wayfinder:<type>`.
-- **Child ticket**: `taskara task create --project <projectId> --title "..." --parent <effortKey> --label wayfinder:task --body-file -`.
+- **Child ticket**:
+  ```bash
+  taskara task create --project <projectId> --title "..." \
+                      --parent <effortKey> --label wayfinder:task --body-file -
+  ```
   `--parent` takes the Effort's key and resolves it. The label is `wayfinder:<type>` — one of
   `research`, `prototype`, `grilling`, `task`. A ticket already created can be wired afterwards with
   `taskara task edit CORE-123 --parent <effortKey>`.
+
+  **A ticket must be in the same project as its map.** The parent is resolved within the child's
+  project, so a mismatch is `Parent task not found in this project`, exit 6 — which reads like a bad
+  key and is usually a wrong `--project`. A whole effort therefore lands in one project.
 - **Blocking**: Taskara's **native dependency edge** — the canonical, UI-visible representation, so
   the human sees what is takeable without opening the Effort.
   `taskara task edit CORE-123 --add-blocker CORE-9` means *CORE-9 blocks CORE-123*; remove with
