@@ -310,6 +310,7 @@ async function reserveSplitTaskKey(tx: Prisma.TransactionClient, projectId: stri
     select: { keyPrefix: true, nextTaskNumber: true }
   });
   const reservedSequence = incrementedProject.nextTaskNumber - 1;
+  // measured-people:allow — Same key reservation for a split task. Nothing about people.
   const highestTaskSequence = await tx.task.aggregate({
     where: { projectId },
     _max: { sequence: true }

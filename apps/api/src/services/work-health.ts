@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from '@taskara/db';
 import type { RequestActor } from './actor';
+import { measuredMemberWhere } from './measured-people';
 import {
   projectWhereForAccess,
   resolveWorkspaceAccess,
@@ -209,6 +210,7 @@ export async function getWorkHealthSummary(actor: RequestActor, now = new Date()
       orderBy: [{ dueAt: 'asc' }, { priority: 'desc' }, { updatedAt: 'desc' }],
       take: activeTaskLimit
     }),
+    // measured-people:allow — Active work counted by status. Grouped on the task's own column, not on an assignee.
     prisma.task.groupBy({
       by: ['status'],
       where: activeWhere,
@@ -221,8 +223,11 @@ export async function getWorkHealthSummary(actor: RequestActor, now = new Date()
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       take: queueLimit
     }),
+    // Everything people-shaped in this payload — workload, overload, idle people, the attention
+    // cards and the persisted AttentionItem rows — is computed from this one roster, so this is the
+    // single place work health decides who is a person being measured.
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: {
         user: {

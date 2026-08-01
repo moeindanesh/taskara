@@ -614,6 +614,7 @@ async function listTeams(access: WorkspaceAccess) {
 }
 
 async function listUsers(workspaceId: string) {
+  // measured-people:allow — Bootstrap roster behind the graph and every picker.
   const members = await prisma.workspaceMember.findMany({
     where: { workspaceId },
     orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
@@ -625,6 +626,9 @@ async function listUsers(workspaceId: string) {
           email: true,
           name: true,
           phone: true,
+          // Deliberately unfiltered above: this roster backs the graph and every picker, and agents
+          // are teammates who must appear in it. `kind` is what lets the client tell them apart.
+          kind: true,
           mattermostUserId: true,
           mattermostUsername: true,
           avatarUrl: true,

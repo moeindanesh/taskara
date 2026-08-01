@@ -3,6 +3,7 @@ import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, resolveMeetingAccessScope } from './meetings';
+import { measuredMemberWhere } from './measured-people';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import {
   getWorkHealthSummary,
@@ -404,9 +405,10 @@ async function buildCadenceAttentionCandidates(actor: RequestActor, now: Date): 
 async function buildMissingCheckInAttentionCandidates(actor: RequestActor, now: Date): Promise<AttentionCandidate[]> {
   const [members, recent, scheduled] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } }
     }),
+    // measured-people:allow — Intersected against the filtered roster above it.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: { submittedFor: 'desc' },

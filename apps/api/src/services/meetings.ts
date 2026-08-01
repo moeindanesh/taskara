@@ -461,6 +461,7 @@ async function assertWorkspaceUsers(
   userIds: string[]
 ): Promise<Array<{ id: string; name: string; email: string; phone: string | null; avatarUrl: string | null }>> {
   const requestedUserIds = [...new Set(userIds.filter(Boolean))];
+  // measured-people:allow — Validates named meeting participants belong to the workspace; an agent can be invited like any teammate.
   const members = await tx.workspaceMember.findMany({
     where: { workspaceId, userId: { in: requestedUserIds } },
     include: { user: { select: userSelect } }

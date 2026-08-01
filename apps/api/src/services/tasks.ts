@@ -71,7 +71,9 @@ export const taskInclude = {
       projectId: true
     }
   },
-  assignee: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
+  // `kind` travels with the assignee because clients derive people lists from tasks when the roster
+  // is unavailable, and a person-shaped object with no `kind` reads as HUMAN everywhere it lands.
+  assignee: { select: { id: true, name: true, email: true, kind: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
@@ -210,6 +212,7 @@ async function reserveTaskKey(
   });
   const reservedSequence = incrementedProject.nextTaskNumber - 1;
 
+  // measured-people:allow — Reserves the next task key from the highest sequence in the project. Nothing about people.
   const highestTaskSequence = await tx.task.aggregate({
     where: { projectId },
     _max: { sequence: true }

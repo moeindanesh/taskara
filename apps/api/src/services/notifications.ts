@@ -202,6 +202,7 @@ export async function subscribeUsersToTask(
   const requestedUserIds = [...new Set(input.userIds.filter((userId): userId is string => Boolean(userId)))];
   if (!requestedUserIds.length) return [];
 
+  // measured-people:allow — Task watchers: a delivery list. An agent assigned to a task is told about it like anyone else.
   const workspaceMembers = await tx.workspaceMember.findMany({
     where: {
       workspaceId: input.workspaceId,
@@ -300,6 +301,7 @@ export async function createTaskMentionNotifications(
   );
   if (!mentionedUserIds.length) return [];
 
+  // measured-people:allow — Resolves @-mentions to real members before notifying them; mentioning an agent has to reach it.
   const workspaceMembers = await tx.workspaceMember.findMany({
     where: {
       workspaceId: input.workspaceId,

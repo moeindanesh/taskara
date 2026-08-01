@@ -46,6 +46,7 @@ export async function ensureWorkspaceMember(workspaceId: string, userId: string)
     where: { workspaceId_userId: { workspaceId, userId } }
   });
   if (existing) {
+    // measured-people:allow — Owner invariant. A workspace needs an owner whoever that is.
     const ownerCount = await prisma.workspaceMember.count({ where: { workspaceId, role: 'OWNER' } });
     if (ownerCount === 0) {
       return prisma.workspaceMember.update({ where: { id: existing.id }, data: { role: 'OWNER' } });
@@ -53,6 +54,7 @@ export async function ensureWorkspaceMember(workspaceId: string, userId: string)
     return existing;
   }
 
+  // measured-people:allow — First-member bootstrap check, not a measurement.
   const memberCount = await prisma.workspaceMember.count({ where: { workspaceId } });
   if (memberCount > 0) {
     throw new HttpError(403, 'User is not a member of this workspace');

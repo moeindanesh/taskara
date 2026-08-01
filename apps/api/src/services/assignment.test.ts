@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { WorkspaceRole } from '@taskara/db';
+import type { UserKind, WorkspaceRole } from '@taskara/db';
 import {
   buildAssignmentRecommendations,
   eligibleAssignmentCandidates,
@@ -26,6 +26,22 @@ describe('assignment recommendation rules', () => {
       unsupportedRole: 1,
       outsideProjectMembership: 1
     });
+  });
+
+  test('never recommends an agent, whatever membership role it holds', () => {
+    const result = eligibleAssignmentCandidates(
+      [
+        candidate('human', { teamIds: ['team-1'] }),
+        // Role MEMBER on purpose: agent-ness lives on the user, not on the membership role, so a
+        // role-only check would recommend this one.
+        candidate('agent', { userKind: 'AGENT', teamIds: ['team-1'] })
+      ],
+      { projectId: 'project-1', projectTeamId: 'team-1' }
+    );
+
+    expect(result.candidates.map((item) => item.user.id)).toEqual(['human']);
+    // Counted, not silently dropped — the reason is shown to whoever asked for a recommendation.
+    expect(result.excluded.unsupportedRole).toBe(1);
   });
 
   test('keeps overloaded candidates visible with warning reasons', () => {
@@ -98,6 +114,7 @@ function candidate(id: string, overrides: Partial<AssignmentCandidateFacts> = {}
       avatarUrl: null
     },
     workspaceRole: 'MEMBER' as WorkspaceRole,
+    userKind: 'HUMAN' as UserKind,
     teamIds: [],
     projectIds: [],
     capacity: 8,

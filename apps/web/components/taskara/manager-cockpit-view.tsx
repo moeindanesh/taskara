@@ -380,7 +380,9 @@ function DailyReportSummaryRow({ orgId }: { orgId: string }) {
       };
    }, []);
 
-   if (!stats) return null;
+   // `expected` is 0 on a day nobody was asked for a report, and "۰ از ۰ گزارش" in a queue of
+   // things needing action reads as a team that failed to report. There is nothing to act on.
+   if (!stats || stats.expected === 0) return null;
 
    return (
       <Link

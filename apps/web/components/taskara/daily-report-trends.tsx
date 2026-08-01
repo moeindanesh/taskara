@@ -29,7 +29,8 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
    }, [days]);
 
    // Bars are read against the number of people expected that day, so a full day is a full bar
-   // whatever the team's size — and a weekend is not a hole in the chart.
+   // whatever the team's size — and a weekend is not a hole in the chart: it has no expectation, so
+   // its bar is simply the reports filed anyway, which is why `submitted` is in the peak at all.
    const peak = useMemo(
       () => Math.max(1, ...(trends?.byDay ?? []).map((day) => Math.max(day.expected, day.submitted))),
       [trends]
@@ -118,9 +119,13 @@ export function DailyReportTrendsPanel({ days = 14 }: { days?: number }) {
 
 function DayBar({ day, peak }: { day: TaskaraDailyReportTrends['byDay'][number]; peak: number }) {
    const label = formatJalaliDate(`${day.dateKey}T12:00:00.000Z`);
-   const height = Math.round((day.submitted / peak) * 100);
+   // A workday's bar is read against the expectation drawn behind it, so it has to be the counted
+   // value — the one comparable to `expected`. A weekend has no expectation and no counted set, so
+   // its bar is what was filed anyway: grey, off the rate, but visible.
+   const value = day.workday ? day.counted : day.submitted;
+   const height = Math.round((value / peak) * 100);
    const title = day.workday
-      ? `${label} — ${fa.dailyReportTrends.participationValueShort(day.submitted, day.expected)}`
+      ? `${label} — ${fa.dailyReportTrends.participationValueShort(day.counted, day.expected)}`
       : `${label} — ${fa.dailyReportTrends.weekend}`;
 
    return (
@@ -134,7 +139,7 @@ function DayBar({ day, peak }: { day: TaskaraDailyReportTrends['byDay'][number];
                   day.workday ? 'bg-zinc-100 dark:bg-white/[0.04]' : 'bg-transparent'
                )}
             />
-            {day.submitted ? (
+            {value ? (
                <div
                   className={cn(
                      'relative w-full rounded-[3px]',

@@ -190,6 +190,9 @@ function candidateFromDueAt(dueAt: string) {
         id: 'user-1',
         name: 'Sara',
         email: 'sara@example.test',
+        // Assignees carry their kind on the wire, so anything deriving people from tasks can tell
+        // a teammate from a process without a second round trip.
+        kind: 'HUMAN',
         phone: null,
         mattermostUsername: null,
         avatarUrl: null

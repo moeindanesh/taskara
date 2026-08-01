@@ -66,6 +66,7 @@ export async function mergeProjects(actor: RequestActor, input: MergeProjectsInp
         orderBy: [{ projectId: 'asc' }, { sequence: 'asc' }, { id: 'asc' }],
         select: { id: true }
       }),
+      // measured-people:allow — Highest task number in the destination project, so merged keys do not collide. Nothing about people.
       tx.task.aggregate({ where: { projectId: destination.id }, _max: { sequence: true } }),
       tx.projectMember.findMany({ where: { projectId: { in: sourceIds } } }),
       tx.projectMember.findMany({ where: { projectId: destination.id } }),

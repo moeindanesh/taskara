@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from '@taskara/db';
+import { prisma, type Prisma, type UserKind } from '@taskara/db';
 import type { z } from 'zod';
 import type {
   carryForwardMeetingActionItemSchema,
@@ -14,6 +14,7 @@ import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
+import { measuredMemberWhere } from './measured-people';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
@@ -98,10 +99,21 @@ export interface AgendaCandidate {
 export async function createCheckInResponse(actor: RequestActor, input: CreateCheckInInput, syncMutation?: SyncMutationMeta) {
   const targetUserId = input.userId || actor.user.id;
   const submittingForSelf = targetUserId === actor.user.id;
+  // The daily report is a human ritual, and participation is measured against the people who were
+  // asked for one. An agent filing a report puts a row in the numerator that no denominator counts,
+  // so the gate sits on the write rather than on the reads that would have to keep apologising for
+  // it. Not a role check: an agent may legitimately hold MEMBER or ADMIN.
+  if (actor.user.kind === 'AGENT') {
+    throw new HttpError(403, 'Agents do not file daily reports');
+  }
   if (!submittingForSelf && !isWorkspaceAdminRole(actor.role)) {
     throw new HttpError(403, 'Only workspace admins can submit check-ins for another user');
   }
-  await assertWorkspaceMember(actor.workspace.id, targetUserId);
+  const targetKind = await assertWorkspaceMember(actor.workspace.id, targetUserId);
+  // Closes the backfill door too: an admin cannot file one on an agent's behalf either.
+  if (targetKind === 'AGENT') {
+    throw new HttpError(403, 'Agents do not file daily reports');
+  }
 
   const today = workspaceDateKey();
   const requestedDateKey = input.dateKey
@@ -189,6 +201,8 @@ export async function listCheckIns(
   };
 
   const [items, total] = await Promise.all([
+    // measured-people:allow — listCheckIns is a visibility read: an agent report already filed stays readable.
+
     prisma.checkInResponse.findMany({
       where,
       include: checkInInclude,
@@ -196,6 +210,7 @@ export async function listCheckIns(
       take: input.limit ?? 50,
       skip: input.offset ?? 0
     }),
+    // measured-people:allow — That list's total, over the same where.
     prisma.checkInResponse.count({ where })
   ]);
 
@@ -210,13 +225,21 @@ export async function listCheckIns(
 // Day-scoped counterpart of listMissingCheckIns: who owes a report for a specific workspace day.
 // The digest and the reminder job both need this exact answer.
 export async function listMissingForDay(actor: RequestActor, dateKey: string) {
+  const { measuredUserIds: _measuredUserIds, ...response } = await collectMissingForDay(actor, dateKey);
+  return response;
+}
+
+// Same answer, plus the measured population itself. Kept off the wire shape because it exists to
+// let the digest prove its numerator and denominator describe the same people, not to be rendered.
+async function collectMissingForDay(actor: RequestActor, dateKey: string) {
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const [members, submitted] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
     }),
+    // measured-people:allow — Only ever intersected against an already-filtered roster, so it cannot leak into a count.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey },
       select: { userId: true }
@@ -225,7 +248,15 @@ export async function listMissingForDay(actor: RequestActor, dateKey: string) {
 
   const submittedIds = new Set(submitted.map((row) => row.userId));
   const missing = members.filter((member) => !submittedIds.has(member.userId)).map((member) => member.user);
-  return { dateKey, items: missing, total: missing.length, expected: members.length };
+  // measuredUserIds is the denominator's population, handed to the caller so a numerator can be
+  // proven to come from the same set of people instead of from a second, separately written filter.
+  return {
+    dateKey,
+    items: missing,
+    total: missing.length,
+    expected: members.length,
+    measuredUserIds: new Set(members.map((member) => member.userId))
+  };
 }
 
 export async function listMissingCheckIns(actor: RequestActor, hours = 24, now = new Date()) {
@@ -233,10 +264,11 @@ export async function listMissingCheckIns(actor: RequestActor, hours = 24, now =
   const since = new Date(now.getTime() - hours * 60 * 60 * 1000);
   const [members, recent] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
     }),
+    // measured-people:allow — Same: intersected against the filtered roster in listMissingCheckIns.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: { submittedFor: 'desc' },
@@ -361,19 +393,28 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const previousDateKey = shiftDateKey(dateKey, -1);
 
+  // The digest answers two different questions and must not conflate them. What a manager READS is
+  // every report filed that day, whoever filed it — filtering the read is how a GUEST human, a real
+  // contributor the ritual simply does not score, vanished from the digest along with their
+  // blockers. What a manager is SCORED BY is the measured roster only. So the rows are fetched
+  // unfiltered and narrowed once, in memory, for the stats.
   const [rows, previousRows, missing] = await Promise.all([
+    // measured-people:allow — Every report filed that day, for a manager to read. Nothing is counted off this list; stats below are drawn from the measured subset of it.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey },
       include: checkInInclude,
       orderBy: { submittedFor: 'asc' }
     }),
+    // measured-people:allow — Yesterday's plans, used as a per-author lookup to pair against today's report. Never counted.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey: previousDateKey },
       include: checkInInclude
     }),
-    listMissingForDay(actor, dateKey)
+    collectMissingForDay(actor, dateKey)
   ]);
 
+  // VISIBILITY — reports, blockersFirst, unplanned and planVsDone are what the manager sees. Every
+  // row filed today appears in them, including a guest's and including a legacy agent row.
   const reports = rows.map(serializeCheckIn);
   const previousByUser = new Map(previousRows.map((row) => [row.userId, row]));
 
@@ -392,25 +433,44 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
     };
   }).filter((entry) => entry.plannedYesterday);
 
-  const expected = missing.expected;
-  const submittedCount = reports.length;
+  // MEASUREMENT — everything in `stats`. The counted set comes from the denominator's own member
+  // ids rather than from a second, separately written filter, so numerator and denominator are
+  // provably one population. One report row per person per day makes `submitted <= expected` true
+  // by construction, and every ratio below divides one counted quantity by another.
+  //
+  // The second axis is the day itself, and the digest used to have no opinion about it while trends
+  // did — so on a Thursday the two endpoints described the same workspace differently: trends said
+  // the day asks for nothing, the digest said 0 of N and named every human as missing. Nobody is
+  // asked for a report on a weekend, so on a non-workday there is no denominator, nothing counted
+  // against it, and nobody owes anything. The reports filed anyway are still read above.
+  const workday = isWorkdayKey(dateKey);
+  const countedReports = workday ? reports.filter((report) => missing.measuredUserIds.has(report.userId)) : [];
+  const countedBlockers = countedReports.filter((report) => report.blockersText || report.helpText);
+  const countedUnplanned = countedReports.filter((report) => report.unplannedText);
+
+  const expected = workday ? missing.expected : 0;
+  const missingItems = workday ? missing.items : [];
+  const submittedCount = countedReports.length;
 
   return {
     dateKey,
+    workday,
     reports,
     blockersFirst,
     unplanned,
     planVsDone,
-    missing: missing.items,
+    missing: missingItems,
     stats: {
       expected,
       submitted: submittedCount,
-      missing: missing.total,
+      missing: missingItems.length,
       participationRate: expected > 0 ? Math.round((submittedCount / expected) * 100) : 0,
-      blockerCount: blockersFirst.length,
-      // Share of the day's reports that included unexpected work — the team-health trend that
-      // matters more than any single day's value.
-      unplannedShare: submittedCount > 0 ? Math.round((unplanned.length / submittedCount) * 100) : 0
+      blockerCount: countedBlockers.length,
+      // Share of the day's counted reports that included unexpected work — the team-health trend
+      // that matters more than any single day's value. Both sides of the division come from
+      // countedReports; mixing an all-rows numerator with a measured denominator is the same class
+      // of bug as counting an agent in a human's participation rate.
+      unplannedShare: submittedCount > 0 ? Math.round((countedUnplanned.length / submittedCount) * 100) : 0
     }
   };
 }
@@ -421,33 +481,67 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const from = shiftDateKey(today, -(days - 1));
 
-  const [rows, members] = await Promise.all([
+  // Same two-sided rule as the digest, for the same reason: what the chart SHOWS and what the rates
+  // COUNT are different questions, and answering both from one filtered list is what made people
+  // disappear. Rows arrive unfiltered and are narrowed once, in memory, for the counted set.
+  const [allRows, members] = await Promise.all([
+    // measured-people:allow — Every report filed in the window, for the per-day display counts. Narrowed against the measured roster below before any of it becomes a rate.
     prisma.checkInResponse.findMany({
-      where: { workspaceId: actor.workspace.id, dateKey: { gte: from, lte: today } },
+      where: {
+        workspaceId: actor.workspace.id,
+        dateKey: { gte: from, lte: today }
+      },
       select: { userId: true, dateKey: true, unplannedText: true, blockersText: true, helpText: true }
     }),
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } }
     })
   ]);
+
+  // Two axes have to agree with the denominator before any of these numbers mean anything, and
+  // they are independent: WHO is counted, and WHICH DAYS are counted.
+  //   - WHO: `members` is the measured roster, so a report by a guest or an agent is not a
+  //     submission against it. Every rate below is over that roster.
+  //   - WHICH DAYS: `expected` is `members.length` on workdays and 0 otherwise, and `possible` is
+  //     roster × workdays. A report filed on a weekend therefore has no matching slot in any
+  //     denominator here, and counting it produced submitted > expected on that day and a totals
+  //     rate above 100% for a team that simply worked a Friday.
+  // `rows` is that counted set. It feeds every rate — and only the rates. Narrowing what the chart
+  // DISPLAYS to it as well is how a member who filed on a Thursday vanished from their own trends:
+  // the day still had their report, the chart just had nothing left to draw. The per-day display
+  // counts below therefore come from `allRows`, which is why the bar chart bothers to size itself
+  // to `max(expected, submitted)` at all.
+  const measuredUserIds = new Set(members.map((member) => member.userId));
+  // A null dateKey predates the daily-report day key and belongs to no day in the window, so it has
+  // no slot in any denominator either.
+  const rows = allRows.filter(
+    (row) => measuredUserIds.has(row.userId) && row.dateKey !== null && isWorkdayKey(row.dateKey)
+  );
 
   const dayKeys: string[] = [];
   for (let offset = days - 1; offset >= 0; offset -= 1) dayKeys.push(shiftDateKey(today, -offset));
 
   const byDay = dayKeys.map((dateKey) => {
-    const dayRows = rows.filter((row) => row.dateKey === dateKey);
-    const withUnplanned = dayRows.filter((row) => row.unplannedText).length;
     const workday = isWorkdayKey(dateKey);
+    // DISPLAYED — what was filed that day, by anyone. VISIBILITY, exactly like the digest's report
+    // list: a weekend report and a guest's report both happened and both stay on the chart.
+    const filed = allRows.filter((row) => row.dateKey === dateKey);
+    // COUNTED — the subset with a slot in that day's denominator. Empty on a weekend, by design.
+    const counted = rows.filter((row) => row.dateKey === dateKey);
+    const countedUnplanned = counted.filter((row) => row.unplannedText).length;
     return {
       dateKey,
       workday,
-      submitted: dayRows.length,
+      submitted: filed.length,
+      // The rate-bearing count, the one `expected` is comparable to. `counted <= expected` holds by
+      // construction: one report per person per day, and every counted author is in `members`.
+      counted: counted.length,
       // Nobody is asked for a report on a weekend, so nobody is expected to have filed one.
       expected: workday ? members.length : 0,
-      unplanned: withUnplanned,
-      blockers: dayRows.filter((row) => row.blockersText || row.helpText).length,
-      unplannedShare: dayRows.length ? Math.round((withUnplanned / dayRows.length) * 100) : 0
+      unplanned: filed.filter((row) => row.unplannedText).length,
+      blockers: filed.filter((row) => row.blockersText || row.helpText).length,
+      unplannedShare: counted.length ? Math.round((countedUnplanned / counted.length) * 100) : 0
     };
   });
 
@@ -488,7 +582,10 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
 // Turns the old copy-to-clipboard nudge into a real, delivered request.
 export async function requestCheckIn(actor: RequestActor, userId: string, message?: string | null) {
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
-  await assertWorkspaceMember(actor.workspace.id, userId);
+  const targetKind = await assertWorkspaceMember(actor.workspace.id, userId);
+  // Asking an agent for a report is asking it for something it is forbidden to file. The UI never
+  // offers it — the ids come from the filtered missing list — but a direct API call would.
+  if (targetKind === 'AGENT') throw new HttpError(400, 'Agents do not file daily reports');
   const notification = await prisma.notification.create({
     data: {
       workspaceId: actor.workspace.id,
@@ -968,6 +1065,7 @@ export async function generateOneOnOneAgendaCandidates(
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       select: { id: true, key: true, title: true, status: true, dueAt: true }
     }),
+    // measured-people:allow — 1:1 agenda material for one named participant. No rate, no denominator.
     prisma.checkInResponse.findMany({
       where: { workspaceId, userId: participantId },
       orderBy: { submittedFor: 'desc' },
@@ -1075,12 +1173,13 @@ async function requireMeetingActionItemAccess(actor: RequestActor, actionItemId:
   return item;
 }
 
-async function assertWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+async function assertWorkspaceMember(workspaceId: string, userId: string): Promise<UserKind> {
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
-    select: { id: true }
+    select: { id: true, user: { select: { kind: true } } }
   });
   if (!member) throw new HttpError(400, 'User must belong to this workspace');
+  return member.user.kind;
 }
 
 function normalizeText(value: string | null | undefined): string | null {

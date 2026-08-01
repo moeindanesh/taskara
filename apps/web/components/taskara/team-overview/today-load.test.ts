@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { buildTeamOverviewGraph, type GraphPersonInput, type GraphTaskInput } from './use-team-overview-graph';
+import { announcedArrivals } from './use-node-entrances';
 import { taskNodeRadius } from './graph-model';
 import { isInTodayLoad, isOverdue, workspaceDateKey, workspaceDay } from './today-load';
 
@@ -25,6 +26,7 @@ function person(overrides: Partial<GraphPersonInput> = {}): GraphPersonInput {
       id: overrides.id ?? 'user-1',
       name: overrides.name ?? 'آرش',
       role: overrides.role ?? 'MEMBER',
+      kind: overrides.kind ?? 'HUMAN',
       avatarUrl: overrides.avatarUrl ?? null,
    };
 }
@@ -126,36 +128,85 @@ describe('buildTeamOverviewGraph', () => {
       expect(graph.links.every((link) => link.kind !== 'membership' || link.source === 'workspace')).toBe(true);
    });
 
-   test('keeps humans on the graph with an empty load, and hides idle guests and agents', () => {
+   test('keeps humans and agents on the graph with an empty load, and hides only idle guests', () => {
       const graph = build(
          [
             person({ id: 'owner', role: 'OWNER', name: 'الف' }),
             person({ id: 'admin', role: 'ADMIN', name: 'ب' }),
             person({ id: 'member', role: 'MEMBER', name: 'پ' }),
             person({ id: 'guest', role: 'GUEST', name: 'ت' }),
-            person({ id: 'agent', role: 'AGENT', name: 'ث' }),
+            // Role MEMBER on purpose: agent-ness lives on the user, not on the membership role.
+            person({ id: 'agent', role: 'MEMBER', kind: 'AGENT', name: 'ث' }),
          ],
          []
       );
 
+      // An idle agent keeps its seat: it is a teammate, not a thing that appears only while busy.
       expect(graph.nodes.filter((node) => node.kind === 'person').map((node) => node.id)).toEqual([
          'user:owner',
          'user:admin',
          'user:member',
+         'user:agent',
       ]);
    });
 
-   test('shows a guest or agent once they are carrying work today', () => {
-      const graph = build(
-         [person({ id: 'guest', role: 'GUEST' }), person({ id: 'agent', role: 'AGENT' })],
+   test('an agent keeps its seat whatever role it holds, while a guest earns one with work', () => {
+      const idle = build(
          [
-            task({ id: 'a', key: 'TSK-1', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'guest' } }),
-            task({ id: 'b', key: 'TSK-2', dueAt: '2026-07-30T08:00:00.000Z', assignee: { id: 'agent' } }),
+            person({ id: 'guest', role: 'GUEST', name: 'الف' }),
+            person({ id: 'agent', role: 'AGENT', kind: 'AGENT', name: 'ب' }),
+         ],
+         []
+      );
+      expect(idle.nodes.filter((node) => node.kind === 'person').map((node) => node.id)).toEqual(['user:agent']);
+
+      const working = build(
+         [
+            person({ id: 'guest', role: 'GUEST', name: 'الف' }),
+            person({ id: 'agent', role: 'AGENT', kind: 'AGENT', name: 'ب' }),
+         ],
+         [task({ id: 'a', key: 'TSK-1', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'guest' } })]
+      );
+      expect(working.nodes.filter((node) => node.kind === 'person').map((node) => node.id)).toEqual([
+         'user:guest',
+         'user:agent',
+      ]);
+   });
+
+   test('marks agent people and their work so the renderer and the chime can tell them apart', () => {
+      const graph = build(
+         [
+            person({ id: 'human', name: 'الف' }),
+            person({ id: 'agent', role: 'MEMBER', kind: 'AGENT', name: 'ب' }),
+         ],
+         [
+            task({ id: 'a', key: 'TSK-1', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'human' } }),
+            task({ id: 'b', key: 'TSK-2', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'agent' } }),
          ]
       );
 
-      const people = graph.nodes.filter((node) => node.kind === 'person');
-      expect(people.map((node) => node.id)).toEqual(['user:guest']);
+      const agentOf = (id: string) => graph.nodes.find((node) => node.id === id);
+      expect(agentOf('user:human')).toMatchObject({ agent: false });
+      expect(agentOf('user:agent')).toMatchObject({ agent: true });
+      expect(agentOf('task:a')).toMatchObject({ agent: false });
+      expect(agentOf('task:b')).toMatchObject({ agent: true });
+   });
+
+   test('agent work animates in without spending a chime slot', () => {
+      const graph = build(
+         [
+            person({ id: 'human', name: 'الف' }),
+            person({ id: 'agent', role: 'MEMBER', kind: 'AGENT', name: 'ب' }),
+         ],
+         [
+            task({ id: 'a', key: 'TSK-1', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'human' } }),
+            task({ id: 'b', key: 'TSK-2', dueAt: '2026-07-29T08:00:00.000Z', assignee: { id: 'agent' } }),
+         ]
+      );
+      const entered = ['task:a', 'task:b', 'user:agent'];
+
+      // Both task nodes arrived; only the human's is announced. People never chime at all.
+      expect(announcedArrivals(entered, graph.nodes)).toEqual(['task:a']);
    });
 
    test('drops unassigned work and work belonging to former members', () => {

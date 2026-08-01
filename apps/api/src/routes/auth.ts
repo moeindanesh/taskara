@@ -264,6 +264,7 @@ async function userWorkspaceMembershipForSlug(userId: string, workspaceSlug: str
 }
 
 async function listUserWorkspaceMemberships(userId: string) {
+  // measured-people:allow — Same, on the sign-in path.
   const memberships = await prisma.workspaceMember.findMany({
     where: { userId },
     orderBy: { createdAt: 'asc' },

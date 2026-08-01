@@ -27,6 +27,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
 
   app.get('/workspaces', async (request) => {
     const user = await requireSessionUser(request);
+    // measured-people:allow — Which workspaces this user belongs to; not a people metric.
     const memberships = await prisma.workspaceMember.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'asc' },

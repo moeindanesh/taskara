@@ -339,6 +339,8 @@ export const fa = {
       requested: 'درخواست ارسال شد',
       submittedStat: (submitted: number, expected: number) =>
          `${submitted.toLocaleString('fa-IR')} از ${expected.toLocaleString('fa-IR')} گزارش`,
+      // Shown instead of the ratio on a day nobody was asked: "۰ از ۰ گزارش" reads as a failure.
+      weekend: 'روز تعطیل — گزارشی خواسته نشده',
       blockerStat: (count: number) => `${count.toLocaleString('fa-IR')} گیر`,
       // This is the share of a single day's reports, not a share of days — the trends panel is
       // where the day-over-day figure lives.

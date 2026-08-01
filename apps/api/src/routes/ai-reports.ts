@@ -8,6 +8,7 @@ import { getRequestActor, isWorkspaceAdminRole, requireWorkspaceAdmin } from '..
 import { createAnnouncement } from '../services/announcements';
 import { buildDailyReportDigest } from '../services/check-ins';
 import { HttpError } from '../services/http';
+import { isMeasuredMember } from '../services/measured-people';
 import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
 import {
   projectWhereForAccess,
@@ -1548,6 +1549,7 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
         lead: { select: { id: true } }
       }
     }),
+    // measured-people:allow — Assignable-people directory for the assistant.
     prisma.workspaceMember.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: [{ user: { name: 'asc' } }],
@@ -3142,7 +3144,18 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
             team: { select: { id: true, name: true, slug: true } }
           }
         },
-        assignee: { select: { id: true, name: true, email: true } },
+        // Both halves of the shared predicate are here for the per-assignee ranking below, which is
+        // a people metric: `kind` because an agent may hold any membership role, and the membership
+        // role itself because a GUEST human is outside every denominator the API draws.
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            kind: true,
+            workspaces: { where: { workspaceId: actor.workspace.id }, select: { role: true } }
+          }
+        },
         reporter: { select: { id: true, name: true, email: true } },
         labels: {
           include: {
@@ -3176,8 +3189,19 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
       }
     }
 
+    // This ranks people against each other and ships the order into the management-analysis prompt,
+    // so it is a measurement: an agent that closes tickets around the clock would top the table and
+    // make every human below it read as underperforming. Agents are dropped; the unassigned bucket
+    // stays, because it is a backlog signal about the workspace rather than about a person.
     const byAssignee = new Map<string, { name: string; total: number; done: number }>();
     for (const task of filteredTasks) {
+      // The same two clauses the server-side denominators use, via the shared in-memory predicate:
+      // a kind-only test left GUEST humans in a ranking that participation and workload already
+      // exclude them from. An assignee with no membership row here is in no denominator either.
+      if (task.assignee) {
+        const membership = task.assignee.workspaces[0];
+        if (!membership || !isMeasuredMember({ role: membership.role, userKind: task.assignee.kind })) continue;
+      }
       const key = task.assigneeId || 'unassigned';
       const name = task.assignee?.name || 'بدون مسئول';
       const current = byAssignee.get(key) || { name, total: 0, done: 0 };

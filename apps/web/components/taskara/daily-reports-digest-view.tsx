@@ -76,7 +76,14 @@ export function DailyReportsDigestView() {
             <header className="flex flex-wrap items-center justify-between gap-3">
                <div className="flex items-baseline gap-3">
                   <span className="text-[13px] text-zinc-500 dark:text-zinc-400">{dayLabel}</span>
-                  {stats ? (
+                  {/* On a weekend the day has no denominator, so the ratio would read "۰ از ۰" —
+                      a perfect score rendered as total failure. The reports below still list
+                      whatever was filed anyway. */}
+                  {digest && !digest.workday ? (
+                     <span className="text-[13px] text-zinc-500 dark:text-zinc-400">
+                        {fa.dailyReportsDigest.weekend}
+                     </span>
+                  ) : stats ? (
                      <span className="text-[13px] text-zinc-900 dark:text-zinc-100">
                         {fa.dailyReportsDigest.submittedStat(stats.submitted, stats.expected)}
                      </span>

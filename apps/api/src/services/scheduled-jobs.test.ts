@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { prisma, type WorkspaceRole } from '@taskara/db';
+import { prisma, type UserKind, type WorkspaceRole } from '@taskara/db';
 import {
   dailyReportJobs,
   jobShouldFire,
@@ -124,8 +124,9 @@ describe('daily report reminders', () => {
     expect(remindedIds).toContain(fixture.pending);
     expect(remindedIds).toContain(fixture.owner);
     expect(remindedIds).not.toContain(fixture.filed);
-    // Guests are never asked for a daily report.
+    // Guests are never asked for a daily report, and neither are agents.
     expect(remindedIds).not.toContain(fixture.guest);
+    expect(remindedIds).not.toContain(fixture.agent);
   });
 });
 
@@ -149,6 +150,14 @@ describe('digest ready notification', () => {
           dateKey: yesterday,
           completedText: 'بررسی',
           blockersText: 'منتظر دسترسی'
+        },
+        // A legacy agent row. The count a manager is nudged with must describe the same people the
+        // digest itself reports on, so this one is not in it.
+        {
+          workspaceId: fixture.workspaceId,
+          userId: fixture.agent,
+          dateKey: yesterday,
+          completedText: 'گزارش ایجنت'
         }
       ]
     });
@@ -161,8 +170,10 @@ describe('digest ready notification', () => {
     });
 
     expect(notifications.map((row) => row.userId).sort()).toEqual([fixture.owner, fixture.admin].sort());
+    // Two reports, one blocker — the agent's row is not one of the two.
     expect(notifications[0].body).toContain('۲');
     expect(notifications[0].body).toContain('۱');
+    expect(notifications[0].body).not.toContain('۳');
   });
 });
 
@@ -174,9 +185,9 @@ async function createWorkspace() {
   });
   cleanupWorkspaceIds.push(workspace.id);
 
-  const make = async (key: string, role: WorkspaceRole) => {
+  const make = async (key: string, role: WorkspaceRole, kind: UserKind = 'HUMAN') => {
     const user = await prisma.user.create({
-      data: { email: `${key}-${suffix}@jobs.test`.toLowerCase(), name: key },
+      data: { email: `${key}-${suffix}@jobs.test`.toLowerCase(), name: key, kind },
       select: { id: true }
     });
     cleanupUserIds.push(user.id);
@@ -190,6 +201,8 @@ async function createWorkspace() {
     admin: await make('admin', 'ADMIN'),
     filed: await make('filed', 'MEMBER'),
     pending: await make('pending', 'MEMBER'),
-    guest: await make('guest', 'GUEST')
+    guest: await make('guest', 'GUEST'),
+    // Role MEMBER, kind AGENT: the discriminator has to be the kind, not the membership role.
+    agent: await make('agent', 'MEMBER', 'AGENT')
   };
 }

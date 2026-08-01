@@ -74,6 +74,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const [members, total] = await Promise.all([
+      // measured-people:allow — Member directory. Agents are teammates and belong in it.
       prisma.workspaceMember.findMany({
         where,
         orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
@@ -94,6 +95,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
           }
         }
       }),
+      // measured-people:allow — That directory's total, over the same where.
       prisma.workspaceMember.count({ where })
     ]);
 
@@ -601,6 +603,7 @@ async function assertOwnerChangeIsSafeWithClient(
 ): Promise<void> {
   if (currentRole !== 'OWNER' || nextRole === 'OWNER') return;
 
+  // measured-people:allow — Last-owner safety check: a permission invariant about the OWNER role, and an agent holding it still keeps the workspace administrable.
   const ownerCount = await client.workspaceMember.count({
     where: { workspaceId, role: 'OWNER' }
   });

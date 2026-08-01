@@ -199,7 +199,20 @@ export interface TaskaraTask {
       archivedAt?: string | null;
       projectId?: string;
    } | null;
-   assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   /**
+    * `kind` is carried on the assignee because people lists get derived from tasks when the roster
+    * has not loaded, and a person-shaped object without it reads as HUMAN — which is how agents
+    * re-entered the panels that score people. Absent on snapshots cached before agents existed, so
+    * undefined still means HUMAN.
+    */
+   assignee?: {
+      id: string;
+      name: string;
+      email: string;
+      kind?: 'HUMAN' | 'AGENT';
+      phone?: string | null;
+      avatarUrl?: string | null;
+   } | null;
    reporter?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    version?: number;
    syncState?: 'pending';
@@ -357,7 +370,10 @@ export interface TaskaraDailyReportTrends {
    byDay: Array<{
       dateKey: string;
       workday: boolean;
+      /** Everything filed that day, by anyone: what the chart shows. Never a numerator. */
       submitted: number;
+      /** The measured, workday subset — the only count `expected` may be read against. */
+      counted: number;
       expected: number;
       unplanned: number;
       blockers: number;
@@ -375,6 +391,8 @@ export interface TaskaraDailyReportTrends {
 
 export interface TaskaraDailyReportDigest {
    dateKey: string;
+   /** False on a weekend: nobody was asked for a report, so `stats` has no denominator that day. */
+   workday: boolean;
    reports: TaskaraCheckInResponse[];
    blockersFirst: TaskaraCheckInResponse[];
    unplanned: TaskaraCheckInResponse[];
@@ -675,6 +693,8 @@ export interface TaskaraUser {
    email: string;
    name: string;
    phone?: string | null;
+   /** Absent on bootstrap snapshots cached before agents existed; treat undefined as HUMAN. */
+   kind?: 'HUMAN' | 'AGENT';
    role: string;
    joinedAt: string;
    mattermostUsername?: string | null;

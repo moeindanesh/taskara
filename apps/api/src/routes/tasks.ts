@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
+import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-people';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import {
   assertActorCanAccessTeamSlug,
@@ -73,22 +74,30 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
+    // A `by: ['assigneeId']` rollup is a per-person ranking however task-shaped its rows look, so
+    // both groupBys carry the predicate on the assignee. Today the loop below reads them by measured
+    // member id, which would hide an agent's row anyway — but that safety lives in one `for` line,
+    // and iterating the group rows instead (the obvious way to write "everyone who did work") would
+    // put every agent back on the leaderboard. Filtering at the query is what survives that edit.
     const [assignedCounts, doneCounts, members] = await Promise.all([
       prisma.task.groupBy({
         by: ['assigneeId'],
-        where,
+        where: { ...where, assignee: { is: measuredSubjectWhere(actor.workspace.id) } },
         _count: { _all: true }
       }),
       prisma.task.groupBy({
         by: ['assigneeId'],
         where: {
           ...where,
+          assignee: { is: measuredSubjectWhere(actor.workspace.id) },
           status: 'DONE'
         },
         _count: { _all: true }
       }),
+      // The leaderboard ranks people against each other. An agent on it changes real humans' rank
+      // positions when it is productive and pads the total when it is idle.
       prisma.workspaceMember.findMany({
-        where: { workspaceId: actor.workspace.id },
+        where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
         include: {
           user: {
             select: {
@@ -303,6 +312,11 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
+    // Destruction is broader than a tracker agent needs. Everything else an agent does to a task —
+    // create, read, update, status, comment, label, dependency, subtask — stays permitted.
+    if (actor.user.kind === 'AGENT') {
+      return reply.code(403).send({ message: 'Agents cannot delete tasks' });
+    }
     const access = await resolveWorkspaceAccess(actor);
     const { idOrKey } = request.params as { idOrKey: string };
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);

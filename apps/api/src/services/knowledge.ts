@@ -982,6 +982,7 @@ async function subscribeUsersToKnowledgePage(
 ): Promise<void> {
   const requestedUserIds = [...new Set(input.userIds.filter((userId): userId is string => Boolean(userId)))];
   if (!requestedUserIds.length) return;
+  // measured-people:allow — Subscribes named people to a page: a delivery list, nothing counted.
   const members = await tx.workspaceMember.findMany({
     where: { workspaceId: input.workspaceId, userId: { in: requestedUserIds } },
     select: { userId: true }

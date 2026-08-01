@@ -26,6 +26,21 @@ export function diffNodeEntrances(previous: Set<string> | null, nodes: GraphNode
    return { entered: nodes.filter((node) => !previous.has(node.id)).map((node) => node.id), seen };
 }
 
+/**
+ * Which of the arriving nodes are worth a chime.
+ *
+ * Agent work still animates in — it is real work and the graph should show it arriving. It is only
+ * left out of the announcement: the chime budget is capped, and an agent working through a queue
+ * would spend every slot a human arrival should have had, on every open tab.
+ */
+export function announcedArrivals(entered: string[], nodes: GraphNode[]): string[] {
+   const byId = new Map(nodes.map((node) => [node.id, node]));
+   return entered.filter((id) => {
+      const node = byId.get(id);
+      return node?.kind === 'task' && !node.agent;
+   });
+}
+
 export interface NodeEntrances {
    /** Node id to its position in the arrival burst, used to stagger the animation. */
    entering: Map<string, number>;
@@ -61,8 +76,7 @@ export function useNodeEntrances(graph: TeamOverviewGraph): NodeEntrances {
       seenRef.current = seen;
       if (!entered.length) return;
 
-      const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-      const arrivedTasks = entered.filter((id) => byId.get(id)?.kind === 'task');
+      const arrivedTasks = announcedArrivals(entered, graph.nodes);
 
       // The composer already announced anything this tab just created.
       if (!isTaskArrivalSoundSuppressed()) {

@@ -175,12 +175,14 @@ export async function milestoneProgressById(
   if (!uniqueIds.length) return result;
 
   const [statusGroups, overdueGroups] = await Promise.all([
+    // measured-people:allow — Milestone progress by status and weight. Grouped by milestone, not by person: no assignee is named or ranked.
     client.task.groupBy({
       by: ['milestoneId', 'status'],
       where: { milestoneId: { in: uniqueIds } },
       _count: { _all: true },
       _sum: { weight: true }
     }),
+    // measured-people:allow — Overdue count per milestone, same rollup on the same axis.
     client.task.groupBy({
       by: ['milestoneId'],
       where: {
@@ -387,6 +389,7 @@ export async function listMilestoneOwnerCandidates(actor: RequestActor, input: M
   };
 
   const [members, total] = await Promise.all([
+    // measured-people:allow — Milestone owner picker.
     prisma.workspaceMember.findMany({
       where,
     include: {
@@ -397,6 +400,7 @@ export async function listMilestoneOwnerCandidates(actor: RequestActor, input: M
       orderBy: [{ user: { name: 'asc' } }, { user: { email: 'asc' } }],
       take: input.limit
     }),
+    // measured-people:allow — That picker's total, over the same where.
     prisma.workspaceMember.count({ where })
   ]);
 
