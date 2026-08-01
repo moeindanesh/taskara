@@ -319,10 +319,16 @@ const strictQueryBooleanSchema = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
-const milestoneStatusFilterSchema = z.preprocess((value) => {
+/** A repeated query filter is written as one comma-separated value, never as a repeated key. */
+function splitCommaSeparated(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   return value.split(',').map((item) => item.trim()).filter(Boolean);
-}, z.array(milestoneStatusSchema).min(1).max(milestoneStatuses.length));
+}
+
+const milestoneStatusFilterSchema = z.preprocess(
+  splitCommaSeparated,
+  z.array(milestoneStatusSchema).min(1).max(milestoneStatuses.length)
+);
 
 export const milestoneListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
@@ -516,12 +522,69 @@ export const triageSplitSchema = z.object({
   reason: z.string().trim().max(5000).nullable().optional()
 });
 
+/**
+ * One absence sentinel for the whole task query surface. `milestoneId=none` established it; every
+ * later filter that can ask for "the field is not set" spells it the same way, so a caller learns
+ * the convention once.
+ */
+const taskFilterNone = z.literal('none');
+
+/** Taskara's word for `status NOT IN (DONE, CANCELED)` — see a milestone's `unfinishedTaskPolicy`. */
+export const unfinishedTaskStatusFilter = 'unfinished';
+
+/**
+ * `status` accepts one status, a comma-separated list of them, or `unfinished` on its own.
+ *
+ * `unfinished` is deliberately not spelled `open`: this is a task manager, not a GitHub clone, and
+ * `open` has no meaning in Taskara's language. It is also not spelled `active`, which
+ * `work-health.ts` already uses for the narrower TODO/IN_PROGRESS/IN_REVIEW/BLOCKED set — reusing it
+ * here would give one word two sizes. Mixing `unfinished` with explicit statuses is rejected rather
+ * than guessed at, because both plausible readings (union, intersection) have a real caller.
+ */
+export const taskStatusFilterSchema = z.union(
+  [
+    z.literal(unfinishedTaskStatusFilter),
+    z.preprocess(splitCommaSeparated, z.array(taskStatusSchema).min(1).max(taskStatuses.length))
+  ],
+  {
+    errorMap: () => ({
+      message: `status accepts ${taskStatuses.join(', ')}, a comma-separated list of those, or "${unfinishedTaskStatusFilter}" on its own`
+    })
+  }
+);
+
+/**
+ * Whether the task has an *open* blocker — a blocking task that is itself unfinished. Named for the
+ * dependency edge, not for `status: BLOCKED`, which is a self-declared status and a different claim.
+ */
+export const taskBlockerFilterSchema = z.enum(['none', 'any']);
+
+/**
+ * A closed set rather than a free `field:direction` parser: every value here has to stay cheap to
+ * order by, and an open parser invites sorts with no index behind them.
+ */
+export const taskSortOrders = [
+  'createdAt:asc',
+  'createdAt:desc',
+  'updatedAt:asc',
+  'updatedAt:desc',
+  'dueAt:asc',
+  'dueAt:desc'
+] as const;
+
+export type TaskSortOrderValue = (typeof taskSortOrders)[number];
+export const taskSortSchema = z.enum(taskSortOrders);
+
 export const taskListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
-  milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
-  assigneeId: z.string().uuid().optional(),
-  status: taskStatusSchema.optional(),
+  milestoneId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  parentId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  assigneeId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  status: taskStatusFilterSchema.optional(),
   priority: taskPrioritySchema.optional(),
+  label: z.string().trim().max(80).optional(),
+  blockers: taskBlockerFilterSchema.optional(),
+  sort: taskSortSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
   mine: z.coerce.boolean().optional(),
