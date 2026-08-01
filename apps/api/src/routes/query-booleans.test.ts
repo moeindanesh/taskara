@@ -60,7 +60,74 @@ describe('boolean query parameters read the word they were given', () => {
       }
     });
   });
+
+  /**
+   * `listAttentionItems` reads `query.generate !== false`, so the opt-out was written and then made
+   * unreachable by the schema in front of it: no query string could produce `false`, and every
+   * listing paid for a full attention sweep. Fixing the parse is what connects the two.
+   */
+  describe('GET /attention?generate', () => {
+    test('generate=false skips the sweep, so nothing is generated', async () => {
+      const body = await getJson('/attention', { generate: 'false' });
+      expect(body.generatedAt).toBeNull();
+    });
+
+    test('generate=true still sweeps', async () => {
+      const body = await getJson('/attention', { generate: 'true' });
+      expect(body.generatedAt).not.toBeNull();
+    });
+
+    test('an unparseable generate or includeSnoozed is a 400', async () => {
+      expect((await get('/attention', { generate: 'banana' })).statusCode).toBe(400);
+      expect((await get('/attention', { includeSnoozed: '1' })).statusCode).toBe(400);
+    });
+  });
+
+  /**
+   * `knowledgePageWhereForQuery` branches three ways on `verified` — verified, unverified, and no
+   * filter at all — and the middle one had no reachable input. "Show me the pages nobody has
+   * verified" is the question the field exists to answer and the one it could not be asked.
+   */
+  describe('GET /knowledge/pages?verified', () => {
+    test('verified=false selects the unverified pages, not the verified ones', async () => {
+      const titles = await pageTitles({ verified: 'false' });
+      expect(titles).toEqual(['Unverified page']);
+    });
+
+    test('verified=true still selects the verified ones', async () => {
+      expect(await pageTitles({ verified: 'true' })).toEqual(['Verified page']);
+    });
+
+    test('omitting verified filters on neither', async () => {
+      expect(await pageTitles({})).toEqual(['Unverified page', 'Verified page']);
+    });
+
+    test('an unparseable verified, expired or mine is a 400', async () => {
+      expect((await get('/knowledge/pages', { verified: 'banana' })).statusCode).toBe(400);
+      expect((await get('/knowledge/pages', { expired: '1' })).statusCode).toBe(400);
+      expect((await get('/knowledge/pages', { mine: 'no' })).statusCode).toBe(400);
+    });
+  });
 });
+
+async function pageTitles(query: Record<string, string>): Promise<string[]> {
+  const body = await getJson('/knowledge/pages', query);
+  return body.items.map((item: { title: string }) => item.title).sort();
+}
+
+async function get(path: string, query: Record<string, string>) {
+  return app.inject({
+    method: 'GET',
+    url: `${path}?${new URLSearchParams(query).toString()}`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail }
+  });
+}
+
+async function getJson(path: string, query: Record<string, string>) {
+  const response = await get(path, query);
+  expect(response.statusCode).toBe(200);
+  return response.json();
+}
 
 async function getTasks(query: Record<string, string>) {
   return app.inject({
@@ -119,6 +186,42 @@ async function createFixture(): Promise<Fixture> {
       title: 'Theirs',
       status: 'TODO',
       assigneeId: other.id
+    }
+  });
+
+  const space = await prisma.knowledgeSpace.create({
+    data: {
+      workspaceId: workspace.id,
+      type: 'WORKSPACE',
+      key: `bool-space-${suffix}`,
+      name: 'Bool space'
+    }
+  });
+  // One verified, one not: `verified=false` is only meaningful if the two are distinguishable, and a
+  // fixture of a single page would let a broken filter pass by returning everything.
+  await prisma.knowledgePage.create({
+    data: {
+      workspaceId: workspace.id,
+      spaceId: space.id,
+      slug: 'verified-page',
+      path: 'verified-page',
+      title: 'Verified page',
+      content: {},
+      contentText: '',
+      status: 'PUBLISHED',
+      verifiedAt: new Date('2026-01-01T00:00:00.000Z')
+    }
+  });
+  await prisma.knowledgePage.create({
+    data: {
+      workspaceId: workspace.id,
+      spaceId: space.id,
+      slug: 'unverified-page',
+      path: 'unverified-page',
+      title: 'Unverified page',
+      content: {},
+      contentText: '',
+      status: 'PUBLISHED'
     }
   });
 

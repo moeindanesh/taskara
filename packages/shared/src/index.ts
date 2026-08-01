@@ -913,9 +913,11 @@ export const knowledgePageListQuerySchema = z.object({
   ownerId: z.string().uuid().optional(),
   label: z.string().trim().max(80).optional(),
   status: knowledgePageStatusSchema.optional(),
-  verified: z.coerce.boolean().optional(),
-  expired: z.coerce.boolean().optional(),
-  mine: z.coerce.boolean().optional(),
+  // `verified` is three-valued downstream — verified, unverified, unfiltered — so the false half is
+  // a real query, not just the absence of the true one.
+  verified: strictQueryBooleanSchema.optional(),
+  expired: strictQueryBooleanSchema.optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
