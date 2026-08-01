@@ -328,7 +328,21 @@ export const updateMilestoneSchema = milestoneMetadataSchema.partial().extend({
   }
 });
 
-const strictQueryBooleanSchema = z.preprocess((value) => {
+/**
+ * The only way to spell a boolean in a query string. `true` and `false` mean themselves and every
+ * other value is rejected, so the caller gets a 400 instead of a silently different result set.
+ *
+ * This exists because `z.coerce.boolean()` is `Boolean(string)`: every non-empty value is `true`,
+ * so `?mine=false` means `?mine=true` and there is no spelling of "off" at all. Unrecognized input
+ * is echoed back unchanged for `z.boolean()` to reject, which keeps the field's name in the Zod
+ * error path.
+ *
+ * Anything narrower or wider is a bug: no `1`/`0`, no `yes`/`no`, no case folding. A query string is
+ * written by a program against a documented API, and a second accepted spelling is a second thing
+ * every caller has to agree on. Environment variables answer to the same rule but a wider
+ * vocabulary — see `parseEnvFlag` in the API's config, and issue #42 for why they differ.
+ */
+export const strictQueryBooleanSchema = z.preprocess((value) => {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return value;
@@ -606,7 +620,7 @@ export const taskListQuerySchema = z.object({
   sort: taskSortSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
