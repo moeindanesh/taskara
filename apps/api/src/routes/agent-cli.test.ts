@@ -813,9 +813,14 @@ describe('taskara CLI', () => {
       // Naming them is the point — a true warning is actionable and a false one is visibly false.
       // But a map body can carry dozens, and a stderr line that reprints half of one is a line
       // nobody finishes reading.
-      expect(mentionNotice('@Robin please look')).toContain('@Robin looks like a mention');
-      expect(mentionNotice('@a @b @c @d @e')).toContain('@a, @b, @c and 2 more look like mentions');
-      expect(mentionNotice('bun add @types/node')).toBeUndefined();
+      const reach = 'Use --add-assignee.';
+      expect(mentionNotice('@Robin please look', reach)).toContain('@Robin looks like a mention');
+      expect(mentionNotice('@a @b @c @d @e', reach)).toContain('@a, @b, @c and 2 more look like mentions');
+      expect(mentionNotice('bun add @types/node', reach)).toBeUndefined();
+
+      // The pointer is the caller's: the CLI takes an email on a flag and MCP takes a uuid, so the
+      // core states the rule and each shell names verbs its own caller can type.
+      expect(mentionNotice('@Robin please look', reach)).toEndWith(reach);
     });
 
     test('task create keeps the body and says who it did not reach', async () => {

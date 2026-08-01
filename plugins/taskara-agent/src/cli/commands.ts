@@ -99,6 +99,10 @@ export const usage = `taskara <noun> <verb> [arguments]
 A person is addressed by id or by email — never by name, which carries no unique constraint.
 "user list" is how you find either. Agents are in the roster too, marked by their kind.
 
+An @-mention in a body reaches nobody. A mention is a rich-text node the web editor writes and
+every body sent from here is markdown, so address a person with a flag, not in prose. A body that
+looks like it tried is written as given, with a line on stderr naming who was not told.
+
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
 rewrite an Effort's body, which several sessions append to at once.
@@ -285,9 +289,12 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
  * caller no way to write the sentence at all. What it must not do is land in silence.
  */
 function noted(outcome: string, body: string | undefined): string {
-  const notice = mentionNotice(body);
+  const notice = mentionNotice(body, MENTION_REACH);
   return notice ? `${outcome}\n${notice}` : outcome;
 }
+
+/** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
+const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;
 

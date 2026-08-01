@@ -59,8 +59,12 @@ export function findMentionAttempts(body: string | null | undefined): string[] {
  * actionable — the caller sees exactly who is still waiting to be told — and a false one is
  * obvious, because `@media` in the list reads as the misfire it is instead of leaving the caller
  * hunting a body for a mention that was never there.
+ *
+ * `reach` is the caller's, because the two shells over this core do not spell the same act the same
+ * way: the CLI takes an email on `--add-assignee` while MCP's `assigneeId` is a uuid (#49). One
+ * rule, and each surface names verbs its own caller can actually type.
  */
-export function mentionNotice(body: string | null | undefined): string | undefined {
+export function mentionNotice(body: string | null | undefined, reach: string): string | undefined {
   const attempts = findMentionAttempts(body);
   if (!attempts.length) return undefined;
 
@@ -70,8 +74,7 @@ export function mentionNotice(body: string | null | undefined): string | undefin
 
   const reads = attempts.length === 1 ? 'looks like a mention' : 'look like mentions';
   return `${listed} ${reads} and notified nobody: `
-    + 'a mention is a node the web editor writes, and a markdown body carries none. '
-    + 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
+    + `a mention is a node the web editor writes, and a markdown body carries none. ${reach}`;
 }
 
 function isSerializedEditorValue(body: string): boolean {
