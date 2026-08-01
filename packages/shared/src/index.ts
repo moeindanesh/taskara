@@ -508,9 +508,9 @@ export const updateTaskSchema = z.object({
   labels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
   // The additive idiom, for callers that hold a delta rather than the set. Two agents each adding
   // one label to the same task must both survive; with `labels` they cannot, because each reads the
-  // set, appends locally and writes the whole thing back, and this endpoint has no concurrency
-  // control to catch the loser (`baseVersion` is optional and reachable only through /sync). Moving
-  // the add server-side makes the two writes commute instead of racing.
+  // set, appends locally and writes the whole thing back. Moving the add server-side makes the two
+  // writes commute instead of racing. A body cannot be fixed this way — it is one string, and the
+  // section a line belongs in is in the middle of it — so it takes `taskPatchConcurrencySchema`.
   addLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
   removeLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional()
 }).superRefine((value, ctx) => {
@@ -526,6 +526,22 @@ export const updateTaskSchema = z.object({
       message: 'Use labels to replace the whole set, or addLabels/removeLabels to change it — not both'
     });
   }
+});
+
+/**
+ * Optimistic concurrency for `PATCH /tasks/:idOrKey`: the version the write is based on.
+ *
+ * Deliberately a *separate* schema rather than a field on `updateTaskSchema`, because that schema's
+ * key set **is** the changed-field set — `Object.keys(input)` is what the conflict scan tests and
+ * what the sync event announces as `changedFields`. A protocol field living inside it would be
+ * published as a column that moved and would conflict with itself on the next write.
+ *
+ * Not coerced. A JSON body carries numbers, and a caller that sends `"3"` has almost certainly
+ * pasted the version somewhere it was stringified; taking it silently would make the protection
+ * depend on a guess.
+ */
+export const taskPatchConcurrencySchema = z.object({
+  baseVersion: z.number().int().min(1).optional()
 });
 
 export const createCommentSchema = z.object({
