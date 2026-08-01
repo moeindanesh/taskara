@@ -1,6 +1,7 @@
 import { prisma, type Prisma, type SyncEvent, type Task, type TaskSource } from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity, snapshot } from './audit';
+import { openBlockerCountSelect } from './blockers';
 import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
@@ -89,7 +90,17 @@ export const taskInclude = {
       updatedAt: true
     }
   },
-  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+  // `blockingDependencies` counts only the blockers still in the way — see services/blockers.ts.
+  // Every consumer of this number already read it as "is this task blocked", so filtering it here
+  // is not a change of meaning, it is the number finally meaning what it is used for.
+  _count: {
+    select: {
+      comments: true,
+      subtasks: true,
+      blockingDependencies: openBlockerCountSelect,
+      attachments: true
+    }
+  }
 } satisfies Prisma.TaskInclude;
 
 export async function ensureDefaultProject(workspaceId: string): Promise<{ id: string; keyPrefix: string }> {
@@ -693,6 +704,9 @@ async function assertTaskRelations(
   if (input.parentId && input.parentId === taskId) {
     throw new HttpError(400, 'Task cannot be its own parent');
   }
+  if (input.parentId && taskId) {
+    await assertParentIsNotDescendant(tx, workspaceId, taskId, input.parentId);
+  }
 
   const lockedMilestones = await lockMilestonesForUpdate(tx, workspaceId, milestoneLockIds);
   const [project, assignee, parent, cycle] = await Promise.all([
@@ -748,6 +762,53 @@ async function assertTaskRelations(
 
 function selectableMilestoneStatus(status: string): boolean {
   return status === 'PLANNED' || status === 'ACTIVE';
+}
+
+/**
+ * How deep a subtask chain may go. Generous enough that no real breakdown reaches it, small enough
+ * that the ancestor walk below is a handful of round trips rather than an unbounded one.
+ */
+const MAX_TASK_TREE_DEPTH = 50;
+
+/**
+ * `parentId` is the other edge that has to stay acyclic, and it had the same hole the blocking
+ * edges did: only self-parenting was refused, so a task could be reparented under its own child and
+ * the pair would then be its own ancestry. Nothing that walks the tree — breadcrumbs, subtask
+ * rollups, a map's children — survives that.
+ *
+ * Walking up from the *proposed parent* answers both questions at once: reaching the task means the
+ * task is an ancestor of its own parent-to-be, which is exactly a cycle. The visited set is there
+ * because the ancestry may already be circular from before this check existed, and the walk must
+ * refuse such a graph instead of spinning on it.
+ */
+async function assertParentIsNotDescendant(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  taskId: string,
+  parentId: string
+): Promise<void> {
+  const visited = new Set<string>([parentId]);
+  let cursor: string | null = parentId;
+
+  for (let depth = 0; cursor; depth += 1) {
+    if (depth >= MAX_TASK_TREE_DEPTH) {
+      throw new HttpError(400, 'Task hierarchy is too deep');
+    }
+    const ancestor: { parentId: string | null } | null = await tx.task.findFirst({
+      where: { id: cursor, workspaceId },
+      select: { parentId: true }
+    });
+    const next: string | null = ancestor?.parentId ?? null;
+    if (!next) return;
+    if (next === taskId) {
+      throw new HttpError(400, 'Task cannot become a descendant of itself');
+    }
+    if (visited.has(next)) {
+      throw new HttpError(400, 'Task hierarchy already contains a cycle');
+    }
+    visited.add(next);
+    cursor = next;
+  }
 }
 
 async function assertActorCanAccessProject(

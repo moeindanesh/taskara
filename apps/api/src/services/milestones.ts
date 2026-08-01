@@ -16,6 +16,7 @@ import type {
 } from '@taskara/shared';
 import { type RequestActor } from './actor';
 import { logActivity } from './audit';
+import { openBlockerCountSelect } from './blockers';
 import { HttpError } from './http';
 import { serializeTaskAttachment } from './task-attachments';
 import {
@@ -104,7 +105,16 @@ const milestoneTaskSyncInclude = {
       updatedAt: true
     }
   },
-  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+  // Same filtered count as taskInclude — this shape feeds the sync stream, so an unfiltered number
+  // here would overwrite the filtered one in the client cache on the next milestone edit.
+  _count: {
+    select: {
+      comments: true,
+      subtasks: true,
+      blockingDependencies: openBlockerCountSelect,
+      attachments: true
+    }
+  }
 } satisfies Prisma.TaskInclude;
 
 type MilestoneTaskSyncShape = Prisma.TaskGetPayload<{ include: typeof milestoneTaskSyncInclude }>;

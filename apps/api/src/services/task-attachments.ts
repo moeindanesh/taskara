@@ -1,6 +1,7 @@
 import { prisma, type Prisma, type SyncEvent, type TaskAttachment } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { logActivity } from './audit';
+import { openBlockerCountSelect } from './blockers';
 import { HttpError } from './http';
 import { buildMediaUrl, type UploadedMediaObject } from './media';
 import { appendSyncEvent, publishSyncEvent } from './sync';
@@ -21,7 +22,16 @@ const taskAttachmentSyncInclude = {
   reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
-  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+  // Same filtered count as taskInclude: the number has to mean the same thing whichever endpoint
+  // returned the task, or a client's "blocked" badge flickers depending on where the row came from.
+  _count: {
+    select: {
+      comments: true,
+      subtasks: true,
+      blockingDependencies: openBlockerCountSelect,
+      attachments: true
+    }
+  }
 } satisfies Prisma.TaskInclude;
 
 export function serializeTaskAttachment(attachment: TaskAttachment): TaskAttachmentResponse {

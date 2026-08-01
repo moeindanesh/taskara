@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@taskara/db';
 import { proposeThreadTasksSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
+import { openBlockerEdgesInclude } from '../services/blockers';
 import { createTask, ensureDefaultProject } from '../services/tasks';
 
 interface ProposedTaskPayload {
@@ -68,7 +69,10 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       },
       include: {
         project: { select: { id: true, name: true, keyPrefix: true } },
-        blockingDependencies: { include: { blockedByTask: true } }
+        // Only the blockers still in the way. Unfiltered, a task whose prerequisites were all
+        // finished stayed in `blocked` forever and never reached `focus` — a daily plan that told a
+        // real person their available work was unavailable.
+        blockingDependencies: { ...openBlockerEdgesInclude, include: { blockedByTask: true } }
       },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 25

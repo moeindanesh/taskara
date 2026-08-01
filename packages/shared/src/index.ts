@@ -421,6 +421,14 @@ export const createCommentSchema = z.object({
   mattermostPostId: z.string().optional()
 });
 
+// `blockedBy` is an id or a key, like every other task reference an agent or a script can hold, so
+// it is length-bounded rather than uuid-shaped. Trimmed and non-empty after trimming: a blank
+// string would otherwise reach the lookup and come back as a plain 404, which reads as "no such
+// task" when the truth is "you sent nothing".
+export const createTaskDependencySchema = z.object({
+  blockedBy: z.string().trim().min(1).max(120)
+});
+
 export const requestTaskReviewSchema = z.object({
   reviewerId: z.string().uuid(),
   dueAt: z.string().datetime().nullable().optional(),
