@@ -422,6 +422,7 @@ describe('every task list the surfaces ran is accounted for', () => {
     // quietly dropped later on the grounds that it changes no row. It is the load slice behind
     // every assignment candidate's score.
     expect(composed).toContain('services/assignment.ts#recommendAssignment task.findMany');
+    expect(composed).toContain('routes/agent.ts#anonymous task.findMany');
   });
 
   test('the deliberate effort read is recognised as one, not reported as a miss', () => {
@@ -534,6 +535,22 @@ describe('the predicate reader, which is what makes the runtime guard sound', ()
     expect(readWorkPredicate({ OR: [workTaskWhere, { status: 'DONE' }] })).toBe('absent');
     expect(readWorkPredicate({ workspaceId: 'ws-1' })).toBe('absent');
     expect(readWorkPredicate(undefined)).toBe('absent');
+  });
+
+  test('a kind clause about a RELATED row says nothing about this row', () => {
+    // Found by planting it. `{ parent: { is: { kind: 'WORK' } } }` constrains the row's PARENT, and
+    // a reader that descended into relation keys called that `composed` while the query returned
+    // every effort in the workspace — a false-safe of exactly the kind this harness replaced a text
+    // scan to avoid, reached from the other direction.
+    expect(readWorkPredicate({ parent: { is: { kind: 'WORK' } } })).toBe('absent');
+    expect(readWorkPredicate({ subtasks: { some: { kind: 'WORK' } } })).toBe('absent');
+    expect(readWorkPredicate({ project: { tasks: { some: { kind: 'WORK' } } } })).toBe('absent');
+    // Asking for efforts through a relation is not the read path either — the read path asks about
+    // the rows it is selecting.
+    expect(readWorkPredicate({ parent: { is: { kind: 'EFFORT' } } })).toBe('absent');
+    // Inversion is still reported from anywhere, because `negated` can never be excused away.
+    expect(readWorkPredicate({ parent: { isNot: { kind: 'WORK' } } })).toBe('negated');
+    expect(readWorkPredicate({ NOT: { AND: [workTaskWhere] } })).toBe('negated');
   });
 });
 
@@ -810,6 +827,10 @@ async function driveSurfaces(): Promise<Surfaces> {
     url: '/assignment/recommend',
     payload: { projectId: fixture.projects.P.id, weight: 2 }
   });
+
+  // Same reason: the agent daily plan runs its own task list, and a surface no test drives is a
+  // surface the harness cannot see.
+  await as(fixture.adminToken, { method: 'POST', url: '/agent/daily-plan' });
 
   return {
     workHealth,
