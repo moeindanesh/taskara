@@ -3,6 +3,23 @@ import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
 
+/**
+ * Who a notification can be delivered to: a person.
+ *
+ * A notification is a nudge to somebody who will read an inbox. An agent has none — it discovers work
+ * by querying the frontier, which is a pull. Rows addressed to one are never read, never cleared, and
+ * quietly wrong in any count over Notification.
+ *
+ * This is **not** `measuredMemberWhere`. That predicate also drops GUEST, because a guest must not move
+ * a number a human is judged by — but a guest is still a person who should be told when work they watch
+ * changes. The two rules agree on agents and disagree on guests, and #37 is the standing lesson about
+ * what happens when overlapping rules get merged into one.
+ *
+ * Nothing here is about what an agent may *do*. Agents author work, and #38 makes that authorship
+ * provable; they simply are not an audience for it.
+ */
+export const notifiableMemberWhere = { user: { kind: 'HUMAN' } } satisfies Prisma.WorkspaceMemberWhereInput;
+
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 export const TASK_STATUS_CHANGED_NOTIFICATION_TYPE = 'task_status_changed';
@@ -224,11 +241,16 @@ export async function subscribeUsersToTask(
   const requestedUserIds = [...new Set(input.userIds.filter((userId): userId is string => Boolean(userId)))];
   if (!requestedUserIds.length) return [];
 
-  // measured-people:allow — Task watchers: a delivery list. An agent assigned to a task is told about it like anyone else.
+  // Filtered by kind, and deliberately NOT by measuredMemberWhere: that predicate also drops GUEST,
+  // and a guest is a person who should still be told when work they watch changes. Two rules that
+  // overlap today are still two rules — see #37, where merging them is what went wrong.
+  //
+  // measured-people:allow — Task watchers: a delivery list, not a measurement.
   const workspaceMembers = await tx.workspaceMember.findMany({
     where: {
       workspaceId: input.workspaceId,
-      userId: { in: requestedUserIds }
+      userId: { in: requestedUserIds },
+      ...notifiableMemberWhere
     },
     select: { userId: true }
   });
@@ -326,11 +348,13 @@ export async function createTaskMentionNotifications(
   );
   if (!mentionedUserIds.length) return [];
 
-  // measured-people:allow — Resolves @-mentions to real members before notifying them; mentioning an agent has to reach it.
+  // measured-people:allow — Resolves @-mentions to real members before notifying them. An agent has no
+  // inbox, so a mention of one produces no row; it is still visible in the body a human reads.
   const workspaceMembers = await tx.workspaceMember.findMany({
     where: {
       workspaceId: input.workspaceId,
-      userId: { in: mentionedUserIds }
+      userId: { in: mentionedUserIds },
+      ...notifiableMemberWhere
     },
     select: { userId: true }
   });

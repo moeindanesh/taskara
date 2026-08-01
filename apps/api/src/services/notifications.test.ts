@@ -8,6 +8,7 @@ import {
   createTaskMentionNotifications,
   createTaskSubscriberNotifications,
   inboxNotificationThreadScope,
+  notifiableMemberWhere,
   subscribeUsersToTask,
   taskInboxNotificationWhere
 } from './notifications';
@@ -309,5 +310,70 @@ describe('task mention notifications', () => {
       meetingId: 'meeting-1'
     });
     expect(inboxNotificationThreadScope({ id: 'n-4' })).toEqual({ id: 'n-4' });
+  });
+});
+
+/**
+ * Issue #39 — an agent authors work but is not an audience for it. It has no inbox, so a row addressed
+ * to one is never read and never cleared.
+ *
+ * Asserted on the resolved `where` rather than on an outcome, because the outcome depends on what the
+ * database holds and the property is about the query. Same reasoning as measured-work-harness.ts.
+ */
+describe('notification recipients are people', () => {
+  function captureRecipientWhere() {
+    const seen: Array<Record<string, unknown>> = [];
+    const tx = {
+      workspaceMember: {
+        findMany: async (args: WorkspaceMemberFindManyArgs) => {
+          seen.push((args?.where || {}) as Record<string, unknown>);
+          return [];
+        }
+      },
+      notification: { createMany: async () => ({ count: 0 }) },
+      taskSubscription: { createMany: async () => ({ count: 0 }) }
+    } as unknown as Prisma.TransactionClient;
+    return { tx, seen };
+  }
+
+  test('a task subscription is filtered to human members', async () => {
+    const capture = captureRecipientWhere();
+
+    await subscribeUsersToTask(capture.tx, {
+      workspaceId: 'workspace-1',
+      taskId: 'task-1',
+      userIds: ['user-agent', 'user-human']
+    });
+
+    expect(capture.seen).toHaveLength(1);
+    expect(capture.seen[0]).toMatchObject({ user: { kind: 'HUMAN' } });
+  });
+
+  test('a mention is filtered to human members too', async () => {
+    const capture = captureRecipientWhere();
+
+    await createTaskMentionNotifications(capture.tx, {
+      workspaceId: 'workspace-1',
+      actorUserId: 'user-actor',
+      actorName: 'Actor',
+      attribution: { actorId: 'user-actor', actorType: 'USER', actorRuntime: null } as ActorAttribution,
+      task: {
+        id: 'task-1',
+        key: 'CORE-1',
+        title: 'Mentioning somebody',
+        description: serializedDescription([{ userId: 'user-agent', name: 'Claude' }])
+      }
+    });
+
+    expect(capture.seen).toHaveLength(1);
+    expect(capture.seen[0]).toMatchObject({ user: { kind: 'HUMAN' } });
+  });
+
+  test('the predicate is about kind, never about role — a guest is still a person', () => {
+    // measuredMemberWhere drops GUEST because a guest must not move a number a human is judged by.
+    // A guest must still be told when work they watch changes, so notifiableMemberWhere must not
+    // borrow that clause. #37 is the standing lesson about merging two rules that overlap today.
+    expect(notifiableMemberWhere).toEqual({ user: { kind: 'HUMAN' } });
+    expect(JSON.stringify(notifiableMemberWhere)).not.toContain('role');
   });
 });
