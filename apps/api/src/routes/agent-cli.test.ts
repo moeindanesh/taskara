@@ -290,6 +290,115 @@ describe('taskara CLI', () => {
     });
   });
 
+  /**
+   * Rewriting an Effort body is the one operation on this surface where two sessions collide by
+   * design: every resolving session appends a line to the same index. The shell's whole job here is
+   * to carry the version the caller read and to turn the server's refusal into exit 5 with enough in
+   * it to retry.
+   */
+  describe('body concurrency', () => {
+    test('task view reports the version, which is the thing a body rewrite has to quote', async () => {
+      const task = await createTaskViaApi('has a version');
+
+      const viewed = await run(['task', 'view', task.key]);
+
+      expect(viewed.code).toBe(0);
+      expect(viewed.json.version).toBe(1);
+    });
+
+    test('rewriting an Effort body without --base-version is refused by the server, exit 6', async () => {
+      const effort = await createEffortViaApi('an effort rewritten blind');
+
+      const blind = await run(['task', 'edit', effort.key, '--body', 'a whole new map'], {}, undefined);
+
+      expect(blind.code).toBe(6);
+      expect(blind.stderr).toContain('baseVersion');
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: effort.id } });
+      expect(stored.description).toBe(effortBody);
+    });
+
+    test('two sessions appending to one Effort: the second exits 5 and its line is not in the body', async () => {
+      const effort = await createEffortViaApi('an effort two sessions resolve against');
+
+      // Both sessions read before either writes — the interleave that loses a line. `task view`
+      // is the read an agent actually performs, so the version comes out of the same place the
+      // body does rather than being fetched behind the caller's back at write time, which would
+      // quote a version fresher than the body the caller edited.
+      const sessionA = await run(['task', 'view', effort.key, '--comments']);
+      const sessionB = await run(['task', 'view', effort.key, '--comments']);
+      expect(sessionA.json.version).toBe(sessionB.json.version);
+
+      const wrote = await run(
+        ['task', 'edit', effort.key, '--body-file', '-', '--base-version', String(sessionA.json.version)],
+        {},
+        appended(String(sessionA.json.description), 'session A')
+      );
+      const lost = await run(
+        ['task', 'edit', effort.key, '--body-file', '-', '--base-version', String(sessionB.json.version)],
+        {},
+        appended(String(sessionB.json.description), 'session B')
+      );
+
+      expect(wrote.code).toBe(0);
+      expect(lost.code).toBe(5);
+
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: effort.id } });
+      expect(stored.description).toContain('session A');
+      expect(stored.description).not.toContain('session B');
+    });
+
+    test('the losing session gets the current body and version on stdout, and one retry lands it', async () => {
+      const effort = await createEffortViaApi('an effort whose loser retries');
+      const read = await run(['task', 'view', effort.key, '--comments']);
+
+      await run(
+        ['task', 'edit', effort.key, '--body-file', '-', '--base-version', String(read.json.version)],
+        {},
+        appended(String(read.json.description), 'the winner')
+      );
+      const lost = await run(
+        ['task', 'edit', effort.key, '--body-file', '-', '--base-version', String(read.json.version)],
+        {},
+        appended(String(read.json.description), 'the loser')
+      );
+
+      expect(lost.code).toBe(5);
+      // Machine-readable, like a lost claim: a caller deciding what to do next should not have to
+      // scrape stderr, and here it should not have to issue a second read either.
+      const error = lost.json.error as { task: { version: number; description: string } };
+      expect(error.task.description).toContain('the winner');
+
+      const retried = await run(
+        ['task', 'edit', effort.key, '--body-file', '-', '--base-version', String(error.task.version)],
+        {},
+        appended(error.task.description, 'the loser')
+      );
+
+      expect(retried.code).toBe(0);
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: effort.id } });
+      expect(stored.description).toContain('the winner');
+      expect(stored.description).toContain('the loser');
+    });
+
+    test('--base-version on its own is a usage error, not a no-op write that reports success', async () => {
+      const task = await createTaskViaApi('nothing to change');
+
+      const empty = await run(['task', 'edit', task.key, '--base-version', '1']);
+
+      expect(empty.code).toBe(1);
+      expect(empty.stderr).toContain('at least one change');
+    });
+
+    test('--base-version must be a number, and nothing is sent when it is not', async () => {
+      const task = await createTaskViaApi('given a bad version');
+
+      const bad = await run(['task', 'edit', task.key, '--title', 'Renamed', '--base-version', 'latest']);
+
+      expect(bad.code).toBe(1);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).title).toBe('given a bad version');
+    });
+  });
+
   describe('identity', () => {
     test('the runtime is sent as itself, and the surface no longer claims to be CODEX', async () => {
       const created = await run(
@@ -369,6 +478,34 @@ async function createTaskViaApi(
   expect(response.statusCode).toBe(201);
   const body = response.json() as { id: string; key: string };
   return { id: body.id, key: body.key };
+}
+
+/** A map body shaped like a real one: the index is section two of three, not the tail. */
+const effortBody = [
+  '## Notes',
+  '',
+  'This map carries execution.',
+  '',
+  '## Decisions so far',
+  '',
+  '- [An earlier ticket](https://example.test/1) — settled.',
+  '',
+  '## Out of scope',
+  '',
+  '- Not this.',
+  ''
+].join('\n');
+
+/** Append a line to Decisions-so-far, which is where a resolving session puts one. */
+function appended(body: string, line: string): string {
+  const marker = '## Out of scope';
+  const entry = `- [${line}](https://example.test/x) — done.\n\n`;
+  const at = body.indexOf(marker);
+  return at === -1 ? `${body}${entry}` : `${body.slice(0, at)}${entry}${body.slice(at)}`;
+}
+
+function createEffortViaApi(title: string): Promise<{ id: string; key: string }> {
+  return createTaskViaApi(title, { kind: 'EFFORT', status: 'IN_PROGRESS', description: effortBody });
 }
 
 async function addBlocker(key: string, blockedBy: string): Promise<void> {

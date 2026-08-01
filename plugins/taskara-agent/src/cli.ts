@@ -2,7 +2,7 @@
 import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
 import { TaskaraError, exitCodes, type ExitCode } from './core/errors';
-import { ClaimLostError, runCommand, usage } from './cli/commands';
+import { ClaimLostError, StaleWriteError, runCommand, usage } from './cli/commands';
 
 /**
  * `taskara <noun> <verb>` — the tracker surface a skill can actually reach.
@@ -57,7 +57,10 @@ function fail(error: unknown): ExitCode {
 }
 
 function describe(error: unknown): { code: ExitCode; message: string; payload: Record<string, unknown> } {
-  if (error instanceof ClaimLostError) {
+  // Both conflicts carry the row as their payload, for the same reason: exit 5 tells a script to
+  // stop, and what it does next depends on a fact only the server holds — who claimed the task, or
+  // what the body says now.
+  if (error instanceof ClaimLostError || error instanceof StaleWriteError) {
     return { code: exitCodes.conflict, message: error.message, payload: { task: error.task } };
   }
   if (error instanceof TaskaraError) {

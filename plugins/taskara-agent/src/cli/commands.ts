@@ -1,6 +1,6 @@
 import { taskKinds, taskPriorities, taskStatuses } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
-import { usageError } from '../core/errors';
+import { TaskaraError, usageError } from '../core/errors';
 import {
   addTaskBlocker,
   claimTask,
@@ -53,6 +53,8 @@ export const usage = `taskara <noun> <verb> [arguments]
   task edit     <key|id> [--add-label L] [--remove-label L] [--add-blocker K] [--remove-blocker K]
                 [--add-assignee <id>] [--title <s>] [--body <s> | --body-file <path|->]
                 [--status S] [--priority P] [--due-at <iso>] [--milestone <id>] [--weight n]
+                [--base-version n]   the version you read; 409/exit 5 if the row has moved past it.
+                                     Required when rewriting an Effort's body.
   task claim    <key|id>
   task comment  <key|id> [--body <s> | --body-file <path|->]
   task close    <key|id> [--reason completed|canceled]
@@ -171,6 +173,12 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   const parent = flags.get('parent');
   if (parent) patch.parentId = parent === 'none' ? null : await resolveTaskId(client, parent);
 
+  // Not a change — a condition the changes are applied under, so it is counted separately below.
+  // Deliberately taken from the caller rather than fetched here: the version has to be the one that
+  // came with the body the caller edited, and a version this command looked up at write time would
+  // be fresher than that and would wave through exactly the stale write it exists to catch.
+  const baseVersion = flags.number('base-version');
+
   const addBlockers = splitValues(flags.all('add-blocker'));
   const removeBlockers = splitValues(flags.all('remove-blocker'));
   flags.assertNoUnknown();
@@ -183,7 +191,9 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   // Fields, then blockers. Blocker edges are separate rows on separate endpoints, so an edit that
   // touches both is not one atomic write — a failure part-way leaves the earlier half applied. Doing
   // the PATCH first means the reported task reflects every field change that succeeded.
-  if (Object.keys(fields).length > 0) await updateTask(client, key, fields);
+  if (Object.keys(fields).length > 0) {
+    await patchTask(client, key, baseVersion === undefined ? fields : { ...fields, baseVersion });
+  }
   for (const blocker of removeBlockers) await removeTaskBlocker(client, key, blocker);
   for (const blocker of addBlockers) await addTaskBlocker(client, key, blocker);
 
@@ -236,6 +246,38 @@ export class ClaimLostError extends Error {
   }
 }
 
+/**
+ * A refused write: the row moved past the version this edit was based on.
+ *
+ * Like a lost claim, the payload is the point. The server has already read the current row in order
+ * to notice the conflict and returns it in the 409, so the loser can re-apply its line to the body
+ * it gets back and send it with the version it carries. Without this the caller would have to issue
+ * a second read to learn what it already has, and "re-read and retry" would cost two round trips
+ * instead of one.
+ */
+export class StaleWriteError extends Error {
+  constructor(message: string, readonly task: unknown) {
+    super(message);
+    this.name = 'StaleWriteError';
+  }
+}
+
+/** `updateTask`, with the 409 turned into a failure that carries the row to merge against. */
+async function patchTask(client: TaskaraClient, key: string, patch: UpdateTaskInput): Promise<void> {
+  try {
+    await updateTask(client, key, patch);
+  } catch (error) {
+    if (error instanceof TaskaraError && error.status === 409 && isTaskLike(error.body)) {
+      throw new StaleWriteError(error.message, taskDetails(error.body as Task));
+    }
+    throw error;
+  }
+}
+
+function isTaskLike(body: unknown): boolean {
+  return Boolean(body) && typeof body === 'object' && 'version' in (body as Record<string, unknown>);
+}
+
 function requireTaskRef(positionals: string[], command: string): string {
   const [key] = positionals;
   if (!key) throw usageError(`${command} needs a task key or id`);
@@ -258,6 +300,10 @@ export function taskSummary(task: Task): Record<string, unknown> {
     status: task.status,
     priority: task.priority,
     kind: task.kind ?? 'WORK',
+    // On every read, not only the detailed one. A session that is about to rewrite a body needs the
+    // version that came with it, and a caller that has to ask for the version separately is a caller
+    // that will quote one taken at a different moment from the body it edited.
+    version: task.version ?? null,
     dueAt: task.dueAt ?? null,
     project: task.project ? { id: task.project.id, keyPrefix: task.project.keyPrefix, name: task.project.name } : null,
     milestone: task.milestone
