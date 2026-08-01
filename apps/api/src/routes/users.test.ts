@@ -199,6 +199,64 @@ describe('user provisioning routes', () => {
     expect(stored.kind).toBe('AGENT');
     expect(stored.operatorId).toBe(fixture.operator.id);
   });
+
+  describe('the member directory', () => {
+    test('lists agents alongside people, carrying the kind that tells them apart', async () => {
+      // #37 keeps agents out of measurement and out of nothing else. The directory is the roster,
+      // so both belong in it, and `kind` is the only field that says which is which — the agent
+      // here holds WorkspaceRole.AGENT but nothing may read agent-ness off a role.
+      const fixture = await createFixture();
+
+      const response = await injectAs(fixture, 'admin', { method: 'GET', url: '/users' });
+
+      expect(response.statusCode).toBe(200);
+      const items = response.json().items as Array<{ id: string; kind: string; operatorId: string | null }>;
+      expect(items.find((item) => item.id === fixture.agent.id)?.kind).toBe('AGENT');
+      expect(items.find((item) => item.id === fixture.agent.id)?.operatorId).toBe(fixture.operator.id);
+      expect(items.find((item) => item.id === fixture.operator.id)?.kind).toBe('HUMAN');
+    });
+
+    test('kind narrows the directory, and total narrows with it', async () => {
+      const fixture = await createFixture();
+
+      const humans = await injectAs(fixture, 'admin', { method: 'GET', url: '/users?kind=HUMAN' });
+      expect(humans.statusCode).toBe(200);
+      const humanItems = humans.json().items as Array<{ id: string; kind: string }>;
+      expect(humanItems.every((item) => item.kind === 'HUMAN')).toBe(true);
+      expect(humanItems.map((item) => item.id)).not.toContain(fixture.agent.id);
+      // The count is what a pager trusts. A caller filtering the page itself would keep a total
+      // that describes a different population than the rows it holds.
+      expect(humans.json().total).toBe(humanItems.length);
+
+      const agents = await injectAs(fixture, 'admin', { method: 'GET', url: '/users?kind=AGENT' });
+      expect((agents.json().items as Array<{ id: string }>).map((item) => item.id))
+        .toEqual([fixture.agent.id]);
+    });
+
+    test('kind composes with the search rather than replacing it', async () => {
+      const fixture = await createFixture();
+
+      const both = await injectAs(fixture, 'admin', {
+        method: 'GET',
+        url: `/users?kind=HUMAN&q=${encodeURIComponent(fixture.agent.email)}`
+      });
+
+      // The agent's own address, asked for among humans only: the search matches it and the kind
+      // rules it out, so neither clause is being dropped.
+      expect(both.statusCode).toBe(200);
+      expect(both.json().items).toHaveLength(0);
+      expect(both.json().total).toBe(0);
+    });
+
+    test('a kind that is not one is refused rather than ignored', async () => {
+      const fixture = await createFixture();
+
+      const response = await injectAs(fixture, 'admin', { method: 'GET', url: '/users?kind=ROBOT' });
+
+      // Ignoring it would answer with the whole roster while the caller believed it had filtered.
+      expect(response.statusCode).toBe(400);
+    });
+  });
 });
 
 type Persona = 'admin' | 'operator';

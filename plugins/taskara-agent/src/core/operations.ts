@@ -5,6 +5,7 @@ import type {
   TaskKindValue,
   TaskPriorityValue,
   TaskStatusValue,
+  UserKindValue,
   WorkspaceRoleValue
 } from '@taskara/shared';
 import type { QueryValues, TaskaraClient } from './client';
@@ -16,7 +17,8 @@ import type {
   Project,
   Task,
   TaskAttachment,
-  TaskListResponse
+  TaskListResponse,
+  UserListResponse
 } from './types';
 
 /**
@@ -359,11 +361,59 @@ export function submitDailyReport(client: TaskaraClient, input: DailyReportInput
 export interface UserListFilters {
   q?: string;
   role?: WorkspaceRoleValue;
+  /** HUMAN or AGENT. Species, not permission — a role never says which one a member is. */
+  kind?: UserKindValue;
   limit?: number;
+  offset?: number;
 }
 
-export function listUsers(client: TaskaraClient, filters: UserListFilters = {}): Promise<JsonRecord> {
-  return client.request<JsonRecord>('/users', { query: filters as QueryValues });
+export function listUsers(client: TaskaraClient, filters: UserListFilters = {}): Promise<UserListResponse> {
+  return client.request<UserListResponse>('/users', { query: filters as QueryValues });
+}
+
+/**
+ * Resolve a person to a UUID, accepting an email address as well as an id.
+ *
+ * The three handles a person could have are not equal, and this is where that is decided:
+ *
+ * - A **UUID** passes through, as everywhere else.
+ * - An **email** is resolved. It is the only handle a person has that is both unique
+ *   (`User.email` is `@@unique`) and appears in prose, which is what makes it addressable at all.
+ * - A **name** is refused, and loudly. `User.name` carries no unique constraint, so matching one
+ *   would be a heuristic that works until two people share a first name and then quietly hands the
+ *   work to the wrong colleague. This surface will not make a name behave like an identifier.
+ *
+ * Nothing here guesses: the two forms are told apart by the `@` a UUID cannot contain, and the
+ * match against the search results is **exact**, because `GET /users?q=` matches with `contains`
+ * and `dana@example.test` is a substring of `xdana@example.test`.
+ */
+export async function resolveUserId(client: TaskaraClient, ref: string): Promise<string> {
+  if (isUuid(ref)) return ref;
+
+  const wanted = ref.trim().toLowerCase();
+  if (!wanted.includes('@')) {
+    // Usage rather than not-found: nothing is sent, and no retry of this string can ever work.
+    const hint = wanted === 'me'
+      ? 'To take a task yourself, use `taskara task claim <key>` — it is atomic and this flag is not.'
+      : 'A name is not an identifier: `User.name` has no unique constraint. Find the person with '
+        + '`taskara user list --query "<name>"` and pass the id or the email it prints.';
+    throw new TaskaraError(`"${ref}" is neither a user id nor an email address. ${hint}`, {
+      exitCode: exitCodes.usage
+    });
+  }
+
+  const roster = await listUsers(client, { q: wanted, limit: 200 });
+  const match = roster.items.find((member) => member.email.toLowerCase() === wanted);
+  if (match) return match.id;
+
+  // The search succeeded and held no exact match, so no HTTP 404 happened and none is claimed. The
+  // roster is not named back at the caller the way `resolveProjectId` names known prefixes: a list
+  // of prefixes is a handful of tokens, and a list of everyone's email addresses is the whole
+  // directory pasted into an error message.
+  throw new TaskaraError(
+    `No member of this workspace has the email "${ref}". List the roster with \`taskara user list\`.`,
+    { exitCode: exitCodes.notFound }
+  );
 }
 
 export interface CreateUserInput {

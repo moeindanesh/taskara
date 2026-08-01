@@ -167,6 +167,14 @@ export const setWorkspaceRoleSchema = z.object({
 export const userListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   role: workspaceRoleSchema.optional(),
+  /**
+   * HUMAN or AGENT. Species, not permission — `WorkspaceRole.AGENT` is a permission profile and
+   * nothing may infer agent-ness from it, so a caller that wants only people has to say `kind`.
+   *
+   * Filtered here rather than by the caller so `total` keeps describing the rows it is returned
+   * with: a client-side filter over a paged response silently drops members past the page boundary.
+   */
+  kind: userKindSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   offset: z.coerce.number().int().min(0).default(0)
 });

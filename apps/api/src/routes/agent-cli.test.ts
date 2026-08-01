@@ -27,9 +27,30 @@ let fixture: Fixture;
 interface Fixture {
   workspaceSlug: string;
   workspaceId: string;
+  ownerId: string;
   ownerEmail: string;
   otherEmail: string;
   otherName: string;
+  /** A human member who has never held a Task. The population #49 exists to reach. */
+  idleEmail: string;
+  idleName: string;
+  idlePhone: string;
+  /**
+   * Two addresses the idle one is a substring of, one at each end, plus a mixed-case row.
+   *
+   * The pair is not decoration: a prepended lookalike catches a resolver that takes `items[0]` or
+   * matches with `endsWith`, and an appended one catches `startsWith`. Their memberships are dated
+   * so the wanted row sorts **last**, so no relaxation of the comparison can be accidentally right.
+   */
+  prefixedEmail: string;
+  suffixedEmail: string;
+  /** Written straight through Prisma in mixed case, the way a row predating the schema would be. */
+  shoutedEmail: string;
+  /** A real User row with no membership here. Resolution is workspace-scoped and must say so. */
+  outsiderEmail: string;
+  /** An agent User, in the roster and marked, operated by the owner. */
+  agentEmail: string;
+  agentToken: string;
   projectId: string;
   projectKeyPrefix: string;
 }
@@ -54,7 +75,22 @@ describe('taskara CLI', () => {
 
   afterAll(async () => {
     await prisma.workspace.deleteMany({ where: { id: fixture.workspaceId } });
-    await prisma.user.deleteMany({ where: { email: { in: [fixture.ownerEmail, fixture.otherEmail] } } });
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: [
+            fixture.ownerEmail,
+            fixture.otherEmail,
+            fixture.idleEmail,
+            fixture.prefixedEmail,
+            fixture.suffixedEmail,
+            fixture.shoutedEmail,
+            fixture.outsiderEmail,
+            fixture.agentEmail
+          ]
+        }
+      }
+    });
     await app.close();
   });
 
@@ -481,6 +517,234 @@ describe('taskara CLI', () => {
     });
   });
 
+  describe('the user noun', () => {
+    test('user list names a person who holds no Task, which is the case that had no handle', async () => {
+      // The hole #49 exists for. A user uuid appears in no key, no URL and no prose, and the only
+      // place the shell surfaced one was beside an assignee on a Task that person already holds —
+      // so handing work to somebody with none was the one case with no handle at all.
+      const listed = await run(['user', 'list']);
+
+      expect(listed.code).toBe(0);
+      const users = listed.json.users as Array<{ id: string; email: string; name: string }>;
+      const idle = users.find((user) => user.email === fixture.idleEmail);
+      expect(idle).toBeDefined();
+      expect(idle?.name).toBe(fixture.idleName);
+
+      // The id it prints is the one `--add-assignee` was demanding, and the person it addresses has
+      // never held a Task, so nothing else on the surface could have produced it.
+      const task = await createTaskViaApi('work for somebody who holds none');
+      const assigned = await run(['task', 'edit', task.key, '--add-assignee', String(idle?.id)]);
+      expect(assigned.code).toBe(0);
+      expect((assigned.json.assignee as { email: string }).email).toBe(fixture.idleEmail);
+    });
+
+    test('agents are in the roster and marked, because they are teammates and not colleagues', async () => {
+      // #37 separated visibility from measurement: `measuredMemberWhere` keeps agents out of metrics
+      // and out of nothing else. A roster that filtered them out would undo that; one that showed
+      // them unmarked would make an agent indistinguishable from the person next to it.
+      const listed = await run(['user', 'list']);
+      const users = listed.json.users as Array<{
+        email: string; kind: string; operatorId: string | null;
+      }>;
+
+      const agent = users.find((user) => user.email === fixture.agentEmail);
+      expect(agent?.kind).toBe('AGENT');
+      // The operator is the human it acts for, so the mark says whose machine this is, not just that
+      // it is one.
+      expect(agent?.operatorId).toBe(fixture.ownerId);
+
+      const person = users.find((user) => user.email === fixture.idleEmail);
+      expect(person?.kind).toBe('HUMAN');
+      expect(person?.operatorId).toBeNull();
+    });
+
+    test('--kind filters server-side, so the total agrees with the rows', async () => {
+      const humans = await run(['user', 'list', '--kind', 'HUMAN']);
+      expect(humans.code).toBe(0);
+      const humanRows = humans.json.users as Array<{ email: string; kind: string }>;
+      expect(humanRows.every((user) => user.kind === 'HUMAN')).toBe(true);
+      expect(humanRows.map((user) => user.email)).not.toContain(fixture.agentEmail);
+      // Client-side filtering would leave `total` describing a different population than `users`,
+      // and a caller paging through it would silently skip rows.
+      expect(humans.json.total).toBe(humanRows.length);
+
+      const agents = await run(['user', 'list', '--kind', 'AGENT']);
+      expect(agents.code).toBe(0);
+      const agentRows = agents.json.users as Array<{ email: string }>;
+      expect(agentRows.map((user) => user.email)).toEqual([fixture.agentEmail]);
+    });
+
+    test('the roster prints what addressing a person needs and no more', async () => {
+      // `GET /users` also returns a phone number, a Mattermost handle, an avatar and lifetime task
+      // counts. None of that helps address anybody, and a roster is the one command whose whole
+      // output is other people's details, so the shell renders a deliberately narrow projection.
+      const listed = await run(['user', 'list']);
+      const [first] = listed.json.users as Array<Record<string, unknown>>;
+
+      expect(Object.keys(first ?? {}).sort())
+        .toEqual(['email', 'id', 'kind', 'name', 'operatorId', 'role']);
+      expect(listed.stdout).not.toContain(fixture.idlePhone);
+    });
+
+    test('--query finds a person by name, and the answer stays a list', async () => {
+      const listed = await run(['user', 'list', '--query', fixture.idleName]);
+
+      expect(listed.code).toBe(0);
+      expect((listed.json.users as Array<{ email: string }>).map((user) => user.email))
+        .toContain(fixture.idleEmail);
+      // A name carries no unique constraint, so the search that accepts one must never collapse to a
+      // single answer. It is a list, with a total, however many rows come back.
+      expect(Array.isArray(listed.json.users)).toBe(true);
+      expect(typeof listed.json.total).toBe('number');
+    });
+
+    test('an agent credential may read the roster, and still may not administer', async () => {
+      // The scope decision, made rather than inherited. Handing work to a person is a thing this map
+      // says agents do, the CLI is the only surface a skill can reach, and reading who exists is the
+      // one prerequisite. It grants nothing new either: every Task already carries
+      // `assignee: { id, name, email }`, so a credential could already enumerate everyone who holds
+      // work. What the roster adds is the people who hold none — this ticket's whole population.
+      const asCredential = { TASKARA_AGENT_TOKEN: fixture.agentToken, TASKARA_USER_EMAIL: undefined };
+      const listed = await run(['user', 'list'], asCredential);
+
+      expect(listed.code).toBe(0);
+      expect((listed.json.users as Array<{ email: string }>).map((user) => user.email))
+        .toContain(fixture.idleEmail);
+
+      // Reading who is on the team and writing who is on the team stay separated at the seam #29
+      // built for it: no verb here reaches `requireWorkspaceAdmin`, because a credential can never
+      // satisfy it, and a documented string that can never work is worse than no string.
+      const created = await run(['user', 'create', '--email', 'nobody@example.test'], asCredential);
+      expect(created.code).toBe(1);
+      expect(created.stderr).toContain('list');
+    });
+  });
+
+  describe('addressing a person', () => {
+    test('--add-assignee takes an email, which is the one unique handle a person has in prose', async () => {
+      const task = await createTaskViaApi('handed over by email');
+
+      const assigned = await run(['task', 'edit', task.key, '--add-assignee', fixture.idleEmail]);
+
+      expect(assigned.code).toBe(0);
+      expect((assigned.json.assignee as { id: string; email: string }).email).toBe(fixture.idleEmail);
+    });
+
+    test('a name is refused before anything is sent, because a name is not an identifier', async () => {
+      // The trap this ticket names. `User.name` has no unique constraint, so resolving one would be
+      // a heuristic that is right until two people share a first name. Exit 1 rather than a lookup:
+      // nothing was sent, and retrying is pointless.
+      const task = await createTaskViaApi('never handed to a name');
+
+      const byName = await run(['task', 'edit', task.key, '--add-assignee', fixture.idleName]);
+
+      expect(byName.code).toBe(1);
+      expect(byName.stderr).toContain('user list');
+      const untouched = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+      expect(untouched.assigneeId).toBeNull();
+    });
+
+    test('me on a write says which verb to use instead', async () => {
+      // A credential never learns its own user id — `task list --assignee me` works only because the
+      // server answers "mine" without one. `task claim` is the tracker contract's take-it-yourself
+      // verb and it is atomic, so pointing at it is better than teaching this flag a second way.
+      const task = await createTaskViaApi('not mine to take this way');
+
+      const mine = await run(['task', 'edit', task.key, '--add-assignee', 'me']);
+
+      expect(mine.code).toBe(1);
+      expect(mine.stderr).toContain('task claim');
+    });
+
+    test('an email nobody in this workspace holds is 4, and says where to look', async () => {
+      const task = await createTaskViaApi('addressed to nobody');
+
+      const missing = await run(['task', 'edit', task.key, '--add-assignee', 'ghost@example.invalid']);
+
+      expect(missing.code).toBe(4);
+      expect(missing.stderr).toContain('ghost@example.invalid');
+      expect(missing.stderr).toContain('user list');
+    });
+
+    test('resolution is exact, so a lookalike address never gets the work by accident', async () => {
+      // `GET /users?q=` matches with `contains`, so searching for `dana@…` also returns the two
+      // addresses that extend it. Every relaxation of `===` has a wrong answer waiting here:
+      // `items[0]` and `endsWith` reach the prefixed row, `startsWith` the suffixed one.
+      //
+      // **The precondition is asserted, not assumed.** An earlier version of this test passed with
+      // the resolver taking `items[0]`, because the memberships were written by one `createMany`
+      // and the `createdAt` tie happened to order the wanted row first — the fixture was deciding
+      // the answer. If that ordering ever changes, this line fails instead of the test going quiet.
+      const search = await run(['user', 'list', '--query', fixture.idleEmail]);
+      const found = (search.json.users as Array<{ email: string }>).map((user) => user.email);
+      expect(found).toEqual([fixture.suffixedEmail, fixture.prefixedEmail, fixture.idleEmail]);
+
+      for (const email of [fixture.idleEmail, fixture.prefixedEmail, fixture.suffixedEmail]) {
+        const task = await createTaskViaApi(`addressed to ${email}`);
+        const assigned = await run(['task', 'edit', task.key, '--add-assignee', email]);
+
+        expect(assigned.code).toBe(0);
+        expect((assigned.json.assignee as { email: string }).email).toBe(email);
+      }
+    });
+
+    test('case is folded on both sides, so a mixed-case row is still reachable', async () => {
+      // The input half is obvious. The stored half is not: `createUserSchema` lowercases on write,
+      // but a row written any other way — a migration, a direct Prisma call, this fixture — keeps
+      // whatever case it was given, and without folding the stored side it can never be addressed.
+      const shouted = await createTaskViaApi('handed to a mixed-case row');
+      const byLower = await run([
+        'task', 'edit', shouted.key, '--add-assignee', fixture.shoutedEmail.toLowerCase()
+      ]);
+      expect(byLower.code).toBe(0);
+      expect((byLower.json.assignee as { email: string }).email).toBe(fixture.shoutedEmail);
+
+      const plain = await createTaskViaApi('shouted at in capitals');
+      const byUpper = await run([
+        'task', 'edit', plain.key, '--add-assignee', fixture.idleEmail.toUpperCase()
+      ]);
+      expect(byUpper.code).toBe(0);
+      expect((byUpper.json.assignee as { email: string }).email).toBe(fixture.idleEmail);
+    });
+
+    test('a real user who is not a member of this workspace does not resolve', async () => {
+      // `GET /users` is workspace-scoped, and resolution inherits that rather than working around
+      // it. An address that exists in the database but not in this workspace is a 4, not a silent
+      // assignment across a boundary.
+      const task = await createTaskViaApi('addressed outside the workspace');
+
+      const outside = await run(['task', 'edit', task.key, '--add-assignee', fixture.outsiderEmail]);
+
+      expect(outside.code).toBe(4);
+      const untouched = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+      expect(untouched.assigneeId).toBeNull();
+    });
+
+    test('task create and task list take the same email, so one flag means one thing', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'Filed straight onto a person', '--assignee', fixture.idleEmail
+      ]);
+      expect(created.code).toBe(0);
+      expect((created.json.assignee as { email: string }).email).toBe(fixture.idleEmail);
+
+      const listed = await run(['task', 'list', '--assignee', fixture.idleEmail]);
+      expect(listed.code).toBe(0);
+      expect((listed.json.tasks as Array<{ key: string }>).map((task) => task.key))
+        .toContain(String(created.json.key));
+    });
+
+    test('the sentinels survive: none and me still mean what they meant', async () => {
+      // Both are values the resolver must let past untouched. `none` is #21's absence sentinel and
+      // `me` is the only way a credential can ask about itself.
+      const unassigned = await run(['task', 'list', '--assignee', 'none', '--limit', '5']);
+      expect(unassigned.code).toBe(0);
+
+      const mine = await run(['task', 'list', '--assignee', 'me', '--limit', '5']);
+      expect(mine.code).toBe(0);
+    });
+  });
+
   describe('identity', () => {
     test('the runtime is sent as itself, and the surface no longer claims to be CODEX', async () => {
       const created = await run(
@@ -615,27 +879,97 @@ async function createFixture(): Promise<Fixture> {
   const ownerEmail = `cli-owner-${suffix}@example.test`;
   const otherEmail = `cli-other-${suffix}@example.test`;
   const otherName = 'Other claimant';
+  const idleEmail = `dana-${suffix}@example.test`;
+  const idleName = 'Dana Idle';
+  const idlePhone = `+1555${suffix.replace(/\D/g, '').padEnd(6, '0').slice(0, 6)}`;
+  // The idle address is a proper substring of both of these — one extends it at the front, one at
+  // the back — so `q=dana-…` returns three rows and every loose comparison has something to get
+  // wrong: `items[0]` and `endsWith` reach for the prefixed one, `startsWith` for the suffixed one.
+  const prefixedEmail = `x${idleEmail}`;
+  const suffixedEmail = `${idleEmail}.example`;
+  const shoutedEmail = `CLI-Shouted-${suffix}@Example.Test`;
+  const agentEmail = `cli-agent-${suffix}@example.test`;
+  const outsiderEmail = `cli-outsider-${suffix}@example.test`;
+
   const owner = await prisma.user.create({ data: { email: ownerEmail, name: 'CLI owner' } });
   const other = await prisma.user.create({ data: { email: otherEmail, name: otherName } });
+  const idle = await prisma.user.create({
+    data: { email: idleEmail, name: idleName, phone: idlePhone }
+  });
+  const prefixed = await prisma.user.create({
+    data: { email: prefixedEmail, name: 'Dana Prefixed' }
+  });
+  const suffixed = await prisma.user.create({
+    data: { email: suffixedEmail, name: 'Dana Suffixed' }
+  });
+  // Written straight through Prisma, so the schema's `.toLowerCase()` never sees it — the shape a
+  // row predating that rule would have. Resolution folds both sides or this one is unreachable.
+  const shouted = await prisma.user.create({
+    data: { email: shoutedEmail, name: 'Shouted Row' }
+  });
+  const agent = await prisma.user.create({
+    data: { email: agentEmail, name: 'Claude', kind: 'AGENT', operatorId: owner.id }
+  });
+  // Never given a membership below: a real row this workspace cannot reach.
+  await prisma.user.create({ data: { email: outsiderEmail, name: 'Outsider' } });
   const workspace = await prisma.workspace.create({
     data: { name: 'CLI workspace', slug: `cli-${suffix}` }
   });
   await prisma.workspaceMember.createMany({
     data: [
       { workspaceId: workspace.id, userId: owner.id, role: 'OWNER' },
-      { workspaceId: workspace.id, userId: other.id, role: 'MEMBER' }
+      { workspaceId: workspace.id, userId: other.id, role: 'MEMBER' },
+      { workspaceId: workspace.id, userId: shouted.id, role: 'MEMBER' },
+      // An ordinary MEMBER role rather than WorkspaceRole.AGENT: #20 settled that nothing may infer
+      // agent-ness from the role, so the roster must mark this row from `kind` alone.
+      { workspaceId: workspace.id, userId: agent.id, role: 'MEMBER' }
     ]
+  });
+
+  // The three lookalikes are dated by hand rather than left to a shared `createMany` timestamp.
+  // `GET /users` orders by role then `createdAt: 'desc'`, so this puts the wanted row **last** of
+  // the three — and an earlier version of the exactness test passed against `items[0]` precisely
+  // because a tie had put it first. A fixture that decides the answer proves nothing.
+  const base = Date.parse('2026-01-01T00:00:00.000Z');
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: idle.id, role: 'MEMBER', createdAt: new Date(base) }
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: prefixed.id, role: 'MEMBER', createdAt: new Date(base + 60_000) }
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId: suffixed.id, role: 'MEMBER', createdAt: new Date(base + 120_000) }
   });
   const project = await prisma.project.create({
     data: { workspaceId: workspace.id, name: 'CLI', keyPrefix: `CL${suffix.slice(0, 3).toUpperCase()}` }
   });
 
+  // A real credential, minted through the route an operator uses, so the scope test exercises the
+  // authentication path rather than a hand-built row.
+  const issued = await app.inject({
+    method: 'POST',
+    url: '/agent-credentials',
+    headers: { 'x-workspace-slug': workspace.slug, 'x-user-email': ownerEmail },
+    payload: { userId: agent.id, name: 'CLI roster test' }
+  });
+  expect(issued.statusCode).toBe(201);
+
   return {
     workspaceSlug: workspace.slug,
     workspaceId: workspace.id,
+    ownerId: owner.id,
     ownerEmail,
     otherEmail,
     otherName,
+    idleEmail,
+    idleName,
+    idlePhone,
+    prefixedEmail,
+    suffixedEmail,
+    shoutedEmail,
+    outsiderEmail,
+    agentEmail,
+    agentToken: (issued.json() as { token: string }).token,
     projectId: project.id,
     projectKeyPrefix: project.keyPrefix
   };

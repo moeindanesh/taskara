@@ -57,14 +57,21 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
   app.get('/users', async (request) => {
     const actor = await getRequestActor(request);
     const query = userListQuerySchema.parse(request.query);
-    const userFilter: Prisma.UserWhereInput | undefined = query.q
+    // `kind` sits beside the search rather than replacing it, so `?q=…&kind=HUMAN` narrows twice.
+    // Both clauses land on the User row; `role` lives on the membership and stays outside.
+    const userFilter: Prisma.UserWhereInput | undefined = query.q || query.kind
       ? {
-          OR: [
-            { email: { contains: query.q, mode: 'insensitive' } },
-            { name: { contains: query.q, mode: 'insensitive' } },
-            { phone: { contains: query.q, mode: 'insensitive' } },
-            { mattermostUsername: { contains: query.q, mode: 'insensitive' } }
-          ]
+          kind: query.kind,
+          ...(query.q
+            ? {
+                OR: [
+                  { email: { contains: query.q, mode: 'insensitive' } },
+                  { name: { contains: query.q, mode: 'insensitive' } },
+                  { phone: { contains: query.q, mode: 'insensitive' } },
+                  { mattermostUsername: { contains: query.q, mode: 'insensitive' } }
+                ]
+              }
+            : {})
         }
       : undefined;
 

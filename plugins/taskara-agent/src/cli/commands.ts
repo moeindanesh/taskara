@@ -1,4 +1,4 @@
-import { taskKinds, taskPriorities, taskStatuses } from '@taskara/shared';
+import { taskKinds, taskPriorities, taskStatuses, userKinds, workspaceRoles } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
 import {
@@ -10,16 +10,19 @@ import {
   getTask,
   listProjects,
   listTasks,
+  listUsers,
   removeTaskBlocker,
   resolveProjectId,
   resolveTaskId,
+  resolveUserId,
   updateTask,
   type CreateProjectInput,
   type CreateTaskInput,
   type TaskListFilters,
-  type UpdateTaskInput
+  type UpdateTaskInput,
+  type UserListFilters
 } from '../core/operations';
-import type { Project, Task } from '../core/types';
+import type { Project, Task, WorkspaceMember } from '../core/types';
 import { Flags, parseArgs, readBody, splitValues } from './args';
 
 export interface CommandResult {
@@ -46,23 +49,40 @@ const projectVerbs: Record<string, Handler> = {
   create: projectCreate
 };
 
+/**
+ * `list` and no more, and the omissions are the decision.
+ *
+ * `POST /users` and `PATCH /users/:id/role` both go through `requireWorkspaceAdmin`, which #29
+ * taught to refuse **any** credential-authenticated request whatever role its agent holds. So a
+ * `user create` verb on this surface could never succeed for the caller the surface exists for, and
+ * #28 already settled what to do with a string like that: in a contract whose commands are pasted
+ * verbatim, one that never works is worse than prose. MCP keeps both, because a human in
+ * conversation may well be an admin.
+ */
+const userVerbs: Record<string, Handler> = {
+  list: userList
+};
+
 const nouns: Record<string, Record<string, Handler>> = {
   task: taskVerbs,
-  project: projectVerbs
+  project: projectVerbs,
+  user: userVerbs
 };
 
 export const usage = `taskara <noun> <verb> [arguments]
 
   task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                 [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
-                [--label a,b] [--assignee <id>] [--due-at <iso>] [--milestone <id>] [--weight n]
+                [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]
+                [--weight n]
   task view     <key|id> [--comments]
-  task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assignee <id>|none|me]
+  task list     [--parent <key|id|none>] [--status unfinished|S,S]
+                [--assignee <id|email>|none|me]
                 [--blockers none|any] [--label <name>|none] [--kind WORK|EFFORT]
                 [--project <keyPrefix|id>] [--sort createdAt:asc] [--query <s>] [--team <slug>]
                 [--limit n] [--offset n]
   task edit     <key|id> [--add-label L] [--remove-label L] [--add-blocker K] [--remove-blocker K]
-                [--add-assignee <id>] [--title <s>] [--body <s> | --body-file <path|->]
+                [--add-assignee <id|email>] [--title <s>] [--body <s> | --body-file <path|->]
                 [--status S] [--priority P] [--due-at <iso>] [--milestone <id>] [--weight n]
                 [--base-version n]
   task claim    <key|id>
@@ -72,6 +92,11 @@ export const usage = `taskara <noun> <verb> [arguments]
   project list   [--include-archived]
   project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
                  [--parent <keyPrefix|id>]
+
+  user list     [--query <s>] [--kind HUMAN|AGENT] [--role R] [--limit n] [--offset n]
+
+A person is addressed by id or by email — never by name, which carries no unique constraint.
+"user list" is how you find either. Agents are in the roster too, marked by their kind.
 
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
@@ -107,7 +132,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
     kind: flags.oneOf('kind', taskKinds),
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
-    assigneeId: flags.get('assignee'),
+    assigneeId: await optionalUserId(client, flags.get('assignee')),
     dueAt: flags.get('due-at'),
     milestoneId: flags.get('milestone'),
     weight: flags.number('weight'),
@@ -153,10 +178,12 @@ async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandRes
   if (parent) filters.parentId = parent === 'none' ? 'none' : await resolveTaskId(client, parent);
 
   // `me` needs no id: the list endpoint already answers "mine" without one, which is the only way to
-  // ask when the caller is a credential that never learned its own user id.
+  // ask when the caller is a credential that never learned its own user id. `none` is #21's absence
+  // sentinel and must reach the server as itself; both go past the resolver untouched.
   const assignee = flags.get('assignee');
   if (assignee === 'me') filters.mine = true;
-  else if (assignee) filters.assigneeId = assignee;
+  else if (assignee === 'none') filters.assigneeId = 'none';
+  else if (assignee) filters.assigneeId = await resolveUserId(client, assignee);
 
   flags.assertNoUnknown();
   const result = await listTasks(client, dropUndefined(filters));
@@ -184,7 +211,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
     // Taskara holds at most one assignee, so this sets rather than appends. The flag keeps `gh`'s
     // name because the docs are read in two columns; the semantics are Taskara's, and `task claim`
     // is the verb for taking unheld work.
-    assigneeId: flags.get('add-assignee'),
+    assigneeId: await optionalUserId(client, flags.get('add-assignee')),
     addLabels: optionalList(splitValues(flags.all('add-label'))),
     removeLabels: optionalList(splitValues(flags.all('remove-label')))
   };
@@ -300,6 +327,42 @@ async function projectCreate(client: TaskaraClient, flags: Flags): Promise<Comma
   return { data: projectSummary(project), note: `Created project ${project.keyPrefix}` };
 }
 
+/**
+ * The read that makes a person addressable.
+ *
+ * `--assignee` takes a UUID, and a user UUID appears in no key, no URL and no prose — the only place
+ * the shell surfaced one was beside an assignee on a Task that person already holds. So handing work
+ * to somebody who holds none was the one case with no handle at all, which is the same shape of hole
+ * `project list` closed for projects, one noun over.
+ *
+ * It answers about **everyone**, agents included. #37 drew the line between visibility and
+ * measurement: `measuredMemberWhere` keeps agents out of metrics that judge humans and out of
+ * nothing else, so filtering them out here would quietly re-merge the two.
+ */
+async function userList(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const filters: UserListFilters = {
+    q: flags.get('query'),
+    kind: flags.oneOf('kind', userKinds),
+    role: flags.oneOf('role', workspaceRoles),
+    limit: flags.number('limit'),
+    offset: flags.number('offset')
+  };
+  flags.assertNoUnknown();
+
+  const roster = await listUsers(client, dropUndefined(filters));
+  return {
+    data: {
+      total: roster.total,
+      limit: roster.limit,
+      offset: roster.offset,
+      // Always a list with a count, never a single resolved person, and deliberately so: `--query`
+      // matches a name, a name is not unique, and a shape that could return one answer would invite
+      // a caller to read `.users[0].id` as if it were.
+      users: roster.items.map(userSummary)
+    }
+  };
+}
+
 /** A lost claim: a failure with a payload, because the holder is the point of the failure. */
 export class ClaimLostError extends Error {
   constructor(message: string, readonly task: unknown) {
@@ -350,6 +413,18 @@ function optionalList(values: string[]): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
+/**
+ * `resolveUserId` for a flag that may be absent, on the two commands that *write* an assignee.
+ *
+ * Neither of them takes `none` or `me`. `none` is a list filter, and clearing an assignee is not
+ * something the tracker contract asks for; `me` cannot work on a write, because a credential never
+ * learns its own user id — `resolveUserId` says so and points at `task claim`, which is the verb
+ * for taking work yourself and is atomic besides.
+ */
+function optionalUserId(client: TaskaraClient, ref: string | undefined): Promise<string | undefined> {
+  return ref === undefined ? Promise.resolve(undefined) : resolveUserId(client, ref);
+}
+
 function dropUndefined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
 }
@@ -364,6 +439,30 @@ export function projectSummary(project: Project): Record<string, unknown> {
     parentId: project.parentId ?? null,
     taskCount: project._count?.tasks ?? project.tasks?.length ?? 0,
     subprojectCount: project._count?.subprojects ?? project.subprojects?.length ?? 0
+  };
+}
+
+/**
+ * A roster row: what addressing a person needs, and nothing else.
+ *
+ * `GET /users` also returns a phone number, a Mattermost handle, an avatar URL and lifetime task
+ * counts. None of it helps hand over work, and this is the one command whose entire output is other
+ * people's details — so the shell prints the narrow thing. That is ergonomics, not a boundary: the
+ * API still hands the caller the wider row, and narrowing it there is `GET /users`'s own question.
+ *
+ * `kind` and `operatorId` are the marking. An agent is a teammate and belongs in the list, but an
+ * agent listed unmarked is an agent indistinguishable from the person above it — and `operatorId`
+ * names the human it acts for, which is the part that makes the mark useful rather than merely
+ * present. `role` is here because a GUEST is an outsider and that is worth seeing before assigning.
+ */
+export function userSummary(member: WorkspaceMember): Record<string, unknown> {
+  return {
+    id: member.id,
+    name: member.name,
+    email: member.email,
+    kind: member.kind ?? 'HUMAN',
+    operatorId: member.operatorId ?? null,
+    role: member.role
   };
 }
 

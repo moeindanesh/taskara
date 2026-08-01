@@ -4,7 +4,9 @@ import type {
   MilestoneStatusValue,
   TaskKindValue,
   TaskPriorityValue,
-  TaskStatusValue
+  TaskStatusValue,
+  UserKindValue,
+  WorkspaceRoleValue
 } from '@taskara/shared';
 
 /**
@@ -70,6 +72,37 @@ export interface Task {
 
 export interface TaskListResponse {
   items: Task[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * One row of the workspace roster: a User, plus the membership that puts them in this workspace.
+ *
+ * `kind` is not decoration. Agents are teammates and belong in every list (#37), so a roster shows
+ * both — and an agent shown unmarked is an agent indistinguishable from a colleague. `operatorId`
+ * says whose machine it is: for an agent it names the human it acts for, and for a person it is
+ * always null.
+ *
+ * The API returns more than this — a phone number, a Mattermost handle, an avatar and lifetime task
+ * counts. None of it helps address anybody, so the shells project it away rather than printing it.
+ */
+export interface WorkspaceMember {
+  id: string;
+  name: string;
+  email: string;
+  kind?: UserKindValue;
+  operatorId?: string | null;
+  role: WorkspaceRoleValue;
+  membershipId?: string;
+  phone?: string | null;
+  mattermostUsername?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface UserListResponse {
+  items: WorkspaceMember[];
   total: number;
   limit: number;
   offset: number;
