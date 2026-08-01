@@ -92,6 +92,27 @@ export const taskInclude = {
   _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
 } satisfies Prisma.TaskInclude;
 
+/**
+ * A blocker stops blocking once it is finished, so "is this blocked?" is a question about the
+ * blocking task's status and never about how many edges exist.
+ *
+ * `_count.blockingDependencies` just above counts every edge ever created, so a task whose blockers
+ * are all DONE reads as blocked forever — that is the bug issue #24 owns. This predicate is the read
+ * path's only answer to the question, so correcting the shape there is a change in one place: if
+ * #24 lands a maintained open-blocker counter, this becomes a test on that column and its *meaning*
+ * — neither DONE nor CANCELED — stays exactly as written here.
+ */
+const openBlockerEdge = {
+  blockedByTask: { status: { notIn: ['DONE', 'CANCELED'] } }
+} satisfies Prisma.TaskDependencyWhereInput;
+
+export function openBlockersWhere(
+  filter: 'none' | 'any' | undefined
+): Prisma.TaskWhereInput['blockingDependencies'] {
+  if (!filter) return undefined;
+  return filter === 'none' ? { none: openBlockerEdge } : { some: openBlockerEdge };
+}
+
 export async function ensureDefaultProject(workspaceId: string): Promise<{ id: string; keyPrefix: string }> {
   return prisma.project.upsert({
     where: { workspaceId_keyPrefix: { workspaceId, keyPrefix: 'INBOX' } },

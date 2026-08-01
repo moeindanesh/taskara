@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@taskara/db';
-import { createCommentSchema, createTaskSchema, taskKindSchema, taskListQuerySchema, updateTaskSchema } from '@taskara/shared';
+import {
+  createCommentSchema,
+  createTaskSchema,
+  taskKindSchema,
+  taskListQuerySchema,
+  unfinishedTaskStatusFilter,
+  updateTaskSchema,
+  type TaskSortOrderValue
+} from '@taskara/shared';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
 import { HttpError } from '../services/http';
@@ -20,6 +28,7 @@ import {
   createTask,
   deleteTask,
   findTaskByIdOrKey,
+  openBlockersWhere,
   serializeTaskForResponse,
   taskInclude,
   updateTask
@@ -44,6 +53,44 @@ const taskArchiveQuerySchema = z.object({
   cursor: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
+
+type TaskListQuery = z.infer<typeof taskListQuerySchema>;
+
+function taskStatusWhere(filter: TaskListQuery['status']): Prisma.TaskWhereInput['status'] {
+  if (!filter) return undefined;
+  if (filter === unfinishedTaskStatusFilter) return { notIn: ['DONE', 'CANCELED'] };
+  return { in: filter };
+}
+
+/**
+ * Exact name match on one label, the same semantics `GET /knowledge/pages?label=` already has, plus
+ * the absence sentinel the rest of this query surface uses. A label literally named `none` is
+ * therefore unreachable through this filter.
+ */
+function taskLabelWhere(label: TaskListQuery['label']): Prisma.TaskWhereInput['labels'] {
+  if (!label) return undefined;
+  return label === 'none' ? { none: {} } : { some: { label: { name: label } } };
+}
+
+const taskSortOrderBy = {
+  'createdAt:asc': { createdAt: 'asc' },
+  'createdAt:desc': { createdAt: 'desc' },
+  'updatedAt:asc': { updatedAt: 'asc' },
+  'updatedAt:desc': { updatedAt: 'desc' },
+  'dueAt:asc': { dueAt: 'asc' },
+  'dueAt:desc': { dueAt: 'desc' }
+} satisfies Record<TaskSortOrderValue, Prisma.TaskOrderByWithRelationInput>;
+
+/**
+ * `id` is appended to every ordering, including the default, so that offset paging cannot drop or
+ * repeat a row when the leading keys tie — which they routinely do on a freshly imported map.
+ */
+function taskListOrderBy(sort: TaskListQuery['sort']): Prisma.TaskOrderByWithRelationInput[] {
+  const leading: Prisma.TaskOrderByWithRelationInput[] = sort
+    ? [taskSortOrderBy[sort]]
+    : [{ status: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'desc' }];
+  return [...leading, { id: 'asc' }];
+}
 
 export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
   app.get('/leaderboard', async (request) => {
@@ -164,9 +211,17 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       ...(query.kind ? { kind: query.kind } : workTaskWhere),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
-      assigneeId: query.mine ? actor.user.id : query.assigneeId,
-      status: query.status,
-      priority: query.priority
+      // Filters the CHILDREN, never the parent, so this composes with the effort exclusion instead
+      // of fighting it: an effort's children are ordinary WORK and stay listable while the effort
+      // itself does not. Reaching the effort row is the `kind` parameter's job, not this one's.
+      parentId: query.parentId === 'none' ? null : query.parentId,
+      assigneeId: query.mine
+        ? actor.user.id
+        : query.assigneeId === 'none' ? null : query.assigneeId,
+      status: taskStatusWhere(query.status),
+      priority: query.priority,
+      labels: taskLabelWhere(query.label),
+      blockingDependencies: openBlockersWhere(query.blockers)
     };
 
     if (query.teamId !== 'all') {
@@ -191,7 +246,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       prisma.task.findMany({
         where,
         include: taskInclude,
-        orderBy: [{ status: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'desc' }],
+        orderBy: taskListOrderBy(query.sort),
         take: query.limit,
         skip: query.offset
       }),
