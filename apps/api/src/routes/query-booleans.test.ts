@@ -26,6 +26,8 @@ interface Fixture {
   otherEmail: string;
   ownerTaskKey: string;
   otherTaskKey: string;
+  ownerArchivedTaskKey: string;
+  otherArchivedTaskKey: string;
 }
 
 describe('boolean query parameters read the word they were given', () => {
@@ -51,7 +53,8 @@ describe('boolean query parameters read the word they were given', () => {
 
     test('mine=true is still only mine', async () => {
       const keys = await listTaskKeys({ mine: 'true' });
-      expect(keys).toEqual([fixture.ownerTaskKey]);
+      expect(keys).toContain(fixture.ownerTaskKey);
+      expect(keys).not.toContain(fixture.otherTaskKey);
     });
 
     test('a value that is neither true nor false is a 400, not a guess', async () => {
@@ -126,7 +129,58 @@ describe('boolean query parameters read the word they were given', () => {
       expect((await get('/one-on-ones', { active: 'banana' })).statusCode).toBe(400);
     });
   });
+
+  /**
+   * The remaining sites all narrow a list when the flag is on, so `false` has to mean the unnarrowed
+   * list — the same thing omitting the parameter means, and the thing every one of them used to
+   * refuse to say. Each is asserted against the parameter's own endpoint rather than its schema,
+   * because a route file holding its own copy of the query shape is exactly how these drifted apart.
+   */
+  describe('the filters that narrow a list are off when told false', () => {
+    test('GET /tasks/archive?mine=false is the whole team', async () => {
+      const all = await keysOf('/tasks/archive', { mine: 'false' });
+      const onlyMine = await keysOf('/tasks/archive', { mine: 'true' });
+      expect(all).toContain(fixture.otherArchivedTaskKey);
+      expect(onlyMine).toEqual([fixture.ownerArchivedTaskKey]);
+      expect((await get('/tasks/archive', { mine: 'banana' })).statusCode).toBe(400);
+    });
+
+    test('GET /sync/bootstrap?mine=false seeds the cache with the whole team', async () => {
+      const keys = (body: { tasks: Array<{ key: string }> }) => body.tasks.map((task) => task.key);
+      expect(keys(await getJson('/sync/bootstrap', { mine: 'false' }))).toContain(fixture.otherTaskKey);
+      expect(keys(await getJson('/sync/bootstrap', { mine: 'true' }))).not.toContain(fixture.otherTaskKey);
+      expect((await get('/sync/bootstrap', { mine: 'banana' })).statusCode).toBe(400);
+    });
+
+    test('GET /announcements?unread=false is everything, read or not', async () => {
+      const all = await getJson('/announcements', { unread: 'false' });
+      const unreadOnly = await getJson('/announcements', { unread: 'true' });
+      expect(all.items.length).toBeGreaterThan(unreadOnly.items.length);
+      expect((await get('/announcements', { unread: 'banana' })).statusCode).toBe(400);
+    });
+
+    test('GET /notifications?unread=false is everything, read or not', async () => {
+      const all = await getJson('/notifications', { unread: 'false' });
+      const unreadOnly = await getJson('/notifications', { unread: 'true' });
+      expect(all.items.length).toBeGreaterThan(unreadOnly.items.length);
+      expect((await get('/notifications', { unread: 'banana' })).statusCode).toBe(400);
+    });
+
+    test('GET /meetings?mine=false is the whole team', async () => {
+      const all = await getJson('/meetings', { mine: 'false' });
+      const onlyMine = await getJson('/meetings', { mine: 'true' });
+      const titles = (body: { items: Array<{ title: string }> }) => body.items.map((item) => item.title);
+      expect(titles(all)).toContain('Someone else’s meeting');
+      expect(titles(onlyMine)).not.toContain('Someone else’s meeting');
+      expect((await get('/meetings', { mine: 'banana' })).statusCode).toBe(400);
+    });
+  });
 });
+
+async function keysOf(path: string, query: Record<string, string>): Promise<string[]> {
+  const body = await getJson(path, query);
+  return body.items.map((item: { key: string }) => item.key).sort();
+}
 
 async function seriesTitles(query: Record<string, string>): Promise<string[]> {
   const body = await getJson('/one-on-ones', query);
@@ -248,6 +302,81 @@ async function createFixture(): Promise<Fixture> {
     }
   });
 
+  // The archive is what finished more than five days ago, so these need a real, old completedAt.
+  const longAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const ownerArchived = await prisma.task.create({
+    data: {
+      workspaceId: workspace.id,
+      projectId: project.id,
+      sequence: 3,
+      key: `${project.keyPrefix}-3`,
+      title: 'Mine, archived',
+      status: 'DONE',
+      assigneeId: owner.id,
+      completedAt: longAgo
+    }
+  });
+  const otherArchived = await prisma.task.create({
+    data: {
+      workspaceId: workspace.id,
+      projectId: project.id,
+      sequence: 4,
+      key: `${project.keyPrefix}-4`,
+      title: 'Theirs, archived',
+      status: 'DONE',
+      assigneeId: other.id,
+      completedAt: longAgo
+    }
+  });
+
+  // One read and one unread of each, so `unread=false` has something extra to return and cannot
+  // pass by returning the same list twice.
+  for (const [title, readAt] of [['Read announcement', longAgo], ['Unread announcement', null]] as const) {
+    const announcement = await prisma.announcement.create({
+      data: {
+        workspaceId: workspace.id,
+        title,
+        status: 'PUBLISHED',
+        publishedAt: longAgo
+      }
+    });
+    await prisma.announcementRecipient.create({
+      data: {
+        workspaceId: workspace.id,
+        announcementId: announcement.id,
+        userId: owner.id,
+        readAt
+      }
+    });
+  }
+
+  await prisma.notification.createMany({
+    data: [
+      {
+        workspaceId: workspace.id,
+        userId: owner.id,
+        taskId: ownerTask.id,
+        type: 'task.assigned',
+        title: 'Read notification',
+        readAt: longAgo
+      },
+      {
+        workspaceId: workspace.id,
+        userId: owner.id,
+        taskId: otherTask.id,
+        type: 'task.assigned',
+        title: 'Unread notification'
+      }
+    ]
+  });
+
+  await prisma.meeting.createMany({
+    data: [
+      { workspaceId: workspace.id, title: 'My meeting', ownerId: owner.id },
+      { workspaceId: workspace.id, title: 'Someone else’s meeting', ownerId: other.id }
+    ]
+  });
+
   await prisma.oneOnOneSeries.createMany({
     data: [
       {
@@ -273,6 +402,8 @@ async function createFixture(): Promise<Fixture> {
     ownerEmail,
     otherEmail,
     ownerTaskKey: ownerTask.key,
-    otherTaskKey: otherTask.key
+    otherTaskKey: otherTask.key,
+    ownerArchivedTaskKey: ownerArchived.key,
+    otherArchivedTaskKey: otherArchived.key
   };
 }

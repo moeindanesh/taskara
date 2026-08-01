@@ -690,7 +690,7 @@ export const announcementPollVoteSchema = z.object({
 export const announcementListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   status: announcementStatusSchema.optional(),
-  unread: z.coerce.boolean().optional(),
+  unread: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -723,7 +723,7 @@ export const meetingListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   status: meetingStatusSchema.optional(),
   teamId: z.string().min(1).default('all'),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
