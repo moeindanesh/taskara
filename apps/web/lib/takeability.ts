@@ -117,7 +117,7 @@ export function matchesBlockersFilter(task: TaskaraTask, filter: TaskBlockersFil
  * The broader set is a click away, because the blockers filter is a first-class control now:
  * widening the status filter on top of `blockers: 'none'` is how you ask that question.
  */
-export const takeableStatuses = ['BACKLOG', 'TODO'];
+export const takeableStatuses: readonly string[] = ['BACKLOG', 'TODO'];
 
 /**
  * The takeable view's predicate, shared with its chip count so the number on the chip and the rows

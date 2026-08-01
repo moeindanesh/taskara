@@ -752,7 +752,7 @@ function buildSystemViewState(key: SystemViewKey, teamId: string): TaskaraTaskVi
          scope: 'tasks',
          teamId,
          query: '',
-         status: takeableStatuses,
+         status: [...takeableStatuses],
          assigneeIds: [],
          priority: [],
          projectIds: [],
