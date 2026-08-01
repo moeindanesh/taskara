@@ -29,8 +29,10 @@ Missing or unusable configuration exits **2** before anything is sent.
 - **A key**, `CORE-123` — the project's key prefix and a per-project sequence number. This is the
   identity to write in prose, in commit messages, and in another Task's body.
 - **A UUID**, which every command accepts wherever it accepts a key. `--parent` takes either, and
-  resolves a key for you. Two flags still take **only** a UUID: `--milestone` and `--assignee` (which
-  also takes `none` or `me`). Anything else on those two is exit 6, `Validation failed`.
+  resolves a key for you. Two flags still take **only** a UUID: `--assignee` (which also takes `none`
+  or `me`) and `--milestone`, which exists on `task create` and `task edit` and **not** on
+  `task list` — asking for it there is exit 1, `Unknown flag`. Anything but a UUID on either is exit
+  6, `Validation failed`, with no clue which field it meant.
 - **A URL**, `<web-origin>/<workspace-slug>/issue/CORE-123`. The `/issue/` segment is a naming
   leftover in the web app; the concept is still Task.
 
@@ -40,8 +42,8 @@ first — `KEY="${URL##*/}"` — then pass the key.
 ## Identifying a project
 
 `--project` takes a **key prefix** — `CORE`, the front half of every key in that project — or the
-project's UUID. The two can never be confused: a prefix is uppercase letters and digits, and every
-UUID has hyphens in it. Case does not matter, so `--project core` is the same request.
+project's UUID. The two can never be confused: a prefix is letters and digits with no hyphen in it,
+and every UUID has four. Case does not matter, so `--project core` is the same request.
 
 So a Task key answers the question on its own: anything in `CORE-123` belongs in `--project CORE`.
 Pass the whole key by mistake and it is exit **4** — and because the message names the prefixes that
