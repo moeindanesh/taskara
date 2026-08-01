@@ -28,21 +28,35 @@ Missing or unusable configuration exits **2** before anything is sent.
 
 - **A key**, `CORE-123` — the project's key prefix and a per-project sequence number. This is the
   identity to write in prose, in commit messages, and in another Task's body.
-- **A UUID**, which every command accepts wherever it accepts a key. Some filters take only a UUID —
-  `--project`, `--milestone`, and `--assignee` (which also takes `none` or `me`). `--parent` takes
-  either, and resolves a key for you.
+- **A UUID**, which every command accepts wherever it accepts a key. `--parent` takes either, and
+  resolves a key for you. Two flags still take **only** a UUID: `--assignee` (which also takes `none`
+  or `me`) and `--milestone`, which exists on `task create` and `task edit` and **not** on
+  `task list` — asking for it there is exit 1, `Unknown flag`. Anything but a UUID on either is exit
+  6, `Validation failed`, with no clue which field it meant.
 - **A URL**, `<web-origin>/<workspace-slug>/issue/CORE-123`. The `/issue/` segment is a naming
   leftover in the web app; the concept is still Task.
 
 **A URL is not a task reference.** `taskara task view <url>` exits **4**. Take the key off the end
 first — `KEY="${URL##*/}"` — then pass the key.
 
+## Identifying a project
+
+`--project` takes a **key prefix** — `CORE`, the front half of every key in that project — or the
+project's UUID. The two can never be confused: a prefix is letters and digits with no hyphen in it,
+and every UUID has four. Case does not matter, so `--project core` is the same request.
+
+So a Task key answers the question on its own: anything in `CORE-123` belongs in `--project CORE`.
+Pass the whole key by mistake and it is exit **4** — and because the message names the prefixes that
+do exist, `No project with key prefix "CORE-3". Known prefixes: BILL, CORE.` tells you what to type
+without a second command.
+
 ## Conventions
 
-- **Create a task**: `taskara task create --project <projectId> --title "..." --body "..."`. Use
+- **List projects**: `taskara project list` — the one read that works in an empty workspace.
+- **Create a task**: `taskara task create --project CORE --title "..." --body "..."`. Use
   `--body-file -` for anything multi-line; see [Bodies](#bodies-longer-than-a-line).
 - **Create a task as a child of another**:
-  `taskara task create --project <projectId> --title "..." --parent CORE-1`
+  `taskara task create --project CORE --title "..." --parent CORE-1`
 - **Read a task**: `taskara task view CORE-123 --comments`
 - **List tasks**: `taskara task list --status unfinished --sort createdAt:asc`
 - **Search by label and state**:
@@ -146,20 +160,38 @@ should not go looking for them.
 Create a Taskara Task in the project the work concerns:
 
 ```bash
-taskara task create --project <projectId> --title "..." --body-file -
+taskara task create --project CORE --title "..." --body-file -
 ```
 
-`--project` is required and takes a UUID, not a key prefix. Every listed Task carries its project, so
-resolve one once per session:
+`--project` is required. If you already hold a Task key, you already hold the answer — the prefix of
+`CORE-123` is `CORE`. Otherwise ask:
 
 ```bash
-taskara task list --limit 1 | jq -r '.tasks[0].project.id'
+taskara project list | jq -r '.projects[].keyPrefix'
 ```
 
-`task` is the CLI's only noun today — there is no `taskara project list` — so that trick needs the
-workspace to hold at least one Task already. In an empty workspace, get the project id from the web
-UI or from whoever set the workspace up. The MCP surface has `project_list` if you are in
-conversation rather than in a script.
+### Starting a workspace that holds nothing
+
+`project list` answers in an empty workspace, and `project create` fills one. Three commands take a
+workspace from nothing to a charted effort:
+
+```bash
+taskara project list
+taskara project create --name "Core platform" --key-prefix CORE
+taskara task create --project CORE --title "..." --kind EFFORT --status IN_PROGRESS --body-file -
+```
+
+A key prefix is 2–12 characters, starts with a letter, and holds only letters and digits; write it in
+any case and it is stored uppercase. A malformed one is exit **6**, `Validation failed` — the server
+does not say which rule you broke, so check it against that sentence. It must be unique in the
+workspace, and a prefix already taken is exit **5** — a conflict, not a rejection, because the
+request was well-formed and somebody else has the name.
+
+`project create` also takes `--parent <keyPrefix|id>` for a subproject and `--body`/`--body-file` for
+a description. It does **not** take a team or a lead: `--team` means a slug on `task list` and would
+have to mean a UUID here, and one flag with two meanings is worse than a missing one. A project
+created without a team is visible workspace-wide, which is what an agent bootstrapping one wants. Set
+a team or a lead in the web UI, or through MCP's `project_create`, which carries both.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -174,7 +206,7 @@ are its **child** Tasks.
 
 - **Map**:
   ```bash
-  taskara task create --project <projectId> --title "<effort name>" \
+  taskara task create --project CORE --title "<effort name>" \
                       --kind EFFORT --status IN_PROGRESS --body-file -
   ```
   **`--status IN_PROGRESS` is not optional.** `status` defaults to `TODO` for every Task, and an
@@ -199,7 +231,7 @@ are its **child** Tasks.
   wrong. Tickets still carry `wayfinder:<type>`.
 - **Child ticket**:
   ```bash
-  taskara task create --project <projectId> --title "..." \
+  taskara task create --project CORE --title "..." \
                       --parent <effortKey> --label wayfinder:task --body-file -
   ```
   `--parent` takes the Effort's key and resolves it. The label is `wayfinder:<type>` — one of
@@ -208,7 +240,9 @@ are its **child** Tasks.
 
   **A ticket must be in the same project as its map.** The parent is resolved within the child's
   project, so a mismatch is `Parent task not found in this project`, exit 6 — which reads like a bad
-  key and is usually a wrong `--project`. A whole effort therefore lands in one project.
+  key and is usually a wrong `--project`. A whole effort therefore lands in one project, and the
+  cheapest way to get that right is to take `--project` from the Effort's own key: the map `CORE-1`
+  puts its tickets in `--project CORE`.
 - **Blocking**: Taskara's **native dependency edge** — the canonical, UI-visible representation, so
   the human sees what is takeable without opening the Effort.
   `taskara task edit CORE-123 --add-blocker CORE-9` means *CORE-9 blocks CORE-123*; remove with

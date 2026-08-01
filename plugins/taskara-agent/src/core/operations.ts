@@ -198,6 +198,38 @@ export function listProjects(client: TaskaraClient): Promise<Project[]> {
   return client.request<Project[]>('/projects');
 }
 
+/**
+ * Resolve a project reference to a UUID, accepting a key prefix as well as an id.
+ *
+ * The same argument that made `--parent` take a task key, one level up. `CORE` is the front half of
+ * every key in the project, so an agent that has read `CORE-123` anywhere is already holding the
+ * handle, while a project uuid appears in no key, no URL and no prose. The two can never be confused:
+ * a key prefix matches `^[A-Z][A-Z0-9]*$` and every uuid contains the hyphen that forbids.
+ *
+ * `GET /projects/:id` takes only an id, so the lookup goes through the list — one request, the same
+ * one `project list` makes, and none at all when the caller already holds an id.
+ */
+export async function resolveProjectId(client: TaskaraClient, idOrKeyPrefix: string): Promise<string> {
+  if (isUuid(idOrKeyPrefix)) return idOrKeyPrefix;
+
+  const wanted = idOrKeyPrefix.trim().toUpperCase();
+  const projects = await listProjects(client);
+  const match = projects.find((project) => project.keyPrefix.toUpperCase() === wanted);
+  if (match) return match.id;
+
+  // The recovery is one line away and this call already fetched it, so naming the prefixes that do
+  // exist costs nothing and saves the caller a round trip through `project list` to learn what it
+  // should have typed. No HTTP 404 happened here — the list succeeded — so no status is attached.
+  const known = projects.map((project) => project.keyPrefix).sort();
+  const shown = known.slice(0, 20).join(', ');
+  const suffix = known.length === 0
+    ? 'This workspace has no projects yet; create one with `taskara project create`.'
+    : `Known prefixes: ${shown}${known.length > 20 ? `, and ${known.length - 20} more` : ''}.`;
+  throw new TaskaraError(`No project with key prefix "${idOrKeyPrefix}". ${suffix}`, {
+    exitCode: exitCodes.notFound
+  });
+}
+
 export function getProject(client: TaskaraClient, projectId: string): Promise<Project> {
   return client.request<Project>(`/projects/${encodeURIComponent(projectId)}`);
 }

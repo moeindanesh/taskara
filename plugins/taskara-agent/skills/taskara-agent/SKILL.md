@@ -34,12 +34,12 @@ Both surfaces read:
 ## CLI
 
 ```
-taskara task create   --project <id> --title <s> [--body <s> | --body-file <path|->]
+taskara task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                       [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                       [--label a,b] [--assignee <id>] [--due-at <iso>] [--milestone <id>]
 taskara task view     <key|id> [--comments]
 taskara task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assignee <id>|none|me]
-                      [--blockers none|any] [--label <name>|none] [--project <id>]
+                      [--blockers none|any] [--label <name>|none] [--project <keyPrefix|id>]
                       [--kind WORK|EFFORT] [--sort createdAt:asc] [--query <s>] [--limit n]
 taskara task edit     <key|id> [--add-label L] [--remove-label L]
                       [--add-blocker K] [--remove-blocker K] [--add-assignee <id>] [...fields]
@@ -47,7 +47,16 @@ taskara task edit     <key|id> [--add-label L] [--remove-label L]
 taskara task claim    <key|id>
 taskara task comment  <key|id> [--body <s> | --body-file <path|->]
 taskara task close    <key|id> [--reason completed|canceled]
+
+taskara project list  [--include-archived]
+taskara project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
+                      [--parent <keyPrefix|id>]
 ```
+
+`--project` takes a **key prefix** — `CORE`, the front half of every key in that project — or a UUID.
+A prefix has no hyphen and a UUID always does, so the two never collide. `project list` is the read
+that works in a workspace holding nothing at all; without it, the only shell-side source of a project
+was an existing Task, and an empty workspace could not be started from a script.
 
 **stdout is always JSON**, the result on success and `{ "error": ... }` on failure. **stderr is
 always the human line.** The exit code is what you branch on.
