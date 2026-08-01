@@ -154,6 +154,9 @@ export interface TaskaraProjectHealthUpdateListResponse {
    offset: number;
 }
 
+/** WORK is a unit of work; EFFORT is the root of an effort — a map, not something anyone does. */
+export type TaskaraTaskKind = 'WORK' | 'EFFORT';
+
 export interface TaskaraTask {
    id: string;
    key: string;
@@ -161,6 +164,12 @@ export interface TaskaraTask {
    description?: string | null;
    status: string;
    priority: string;
+   /**
+    * Optional because cached snapshots written before efforts existed carry no `kind` — and those
+    * snapshots contain only work, so absence genuinely means WORK here rather than merely defaulting
+    * to it. See `isEffort` in `@/lib/work-tasks`, which is the only place that reads this.
+    */
+   kind?: TaskaraTaskKind;
    parentId?: string | null;
    weight?: number | null;
    dueAt?: string | null;

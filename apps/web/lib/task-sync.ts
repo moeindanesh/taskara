@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { TaskaraClientError, taskaraApiBaseUrl, taskaraRequest, taskaraRequestHeaders } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { dispatchWorkspaceRefresh } from '@/lib/live-refresh';
+import { admitTasksToCache } from '@/lib/work-tasks';
 import { authChangedEvent, authStorageKey, clearAuthSession, getAuthSession } from '@/store/auth-store';
 import type {
    TaskaraMilestone,
@@ -243,6 +244,23 @@ type TaskSyncRefreshOptions = {
    preserveVisibleState?: boolean;
 };
 
+/**
+ * The client task cache and the only way to write to it.
+ *
+ * `useTaskSync` writes tasks from nineteen places — bootstrap, replay, live events, optimistic
+ * create, optimistic update, rollback, delete. The raw `useState` setter is deliberately kept inside
+ * this function and never handed back, so a twentieth write cannot be added that skips the gate: the
+ * only setter in scope is the one that runs `admitTasksToCache`.
+ */
+function useTaskCache(): [TaskaraTask[], Dispatch<SetStateAction<TaskaraTask[]>>] {
+   const [tasks, setStoredTasks] = useState<TaskaraTask[]>([]);
+   const setTasks = useCallback<Dispatch<SetStateAction<TaskaraTask[]>>>(
+      (update) => setStoredTasks((current) => admitTasksToCache(current, update)),
+      []
+   );
+   return [tasks, setTasks];
+}
+
 export function useTaskSync(scope: TaskSyncScope) {
    const [authRevision, setAuthRevision] = useState(0);
    const scopeKey = useMemo(() => taskScopeKey(scope), [authRevision, scope]);
@@ -254,7 +272,7 @@ export function useTaskSync(scope: TaskSyncScope) {
    const lastBootstrappedScopeRef = useRef<string | null>(null);
    const authIdentityRef = useRef<TaskSyncAuthIdentity>(readTaskSyncAuthIdentity());
    const clientId = useMemo(getOrCreateTaskSyncClientId, []);
-   const [tasks, setTasks] = useState<TaskaraTask[]>([]);
+   const [tasks, setTasks] = useTaskCache();
    const [resources, setResources] = useState<TaskSyncResources>({
       milestones: [],
       projects: [],
@@ -1220,6 +1238,11 @@ export function buildOptimisticTask(
       key: optimisticTaskKey(syncMutationId),
       title: input.title,
       description: input.description || null,
+      // Stated rather than left to the default. This row is persisted as a pending mutation and
+      // replayed on a later boot, possibly by a build whose reading of an absent `kind` has moved
+      // on; a row that says what it is survives that, and an unstamped one would quietly vanish
+      // from the board, taking somebody's offline write with it.
+      kind: 'WORK',
       status: input.status,
       priority: input.priority,
       weight: input.weight ?? null,

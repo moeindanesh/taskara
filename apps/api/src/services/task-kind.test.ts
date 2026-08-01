@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { prisma, type Prisma } from '@taskara/db';
+import { serializeTaskForResponse, taskInclude } from './tasks';
 
 const cleanupWorkspaceIds: string[] = [];
 const cleanupUserIds: string[] = [];
@@ -7,16 +8,16 @@ const cleanupUserIds: string[] = [];
 const EFFORT_FIELDS_CONSTRAINT = 'Task_effort_has_no_work_fields';
 const EFFORT_STATUS_CONSTRAINT = 'Task_effort_status';
 
-describe('task kind database invariants', () => {
-  afterEach(async () => {
-    while (cleanupWorkspaceIds.length) {
-      const workspaceId = cleanupWorkspaceIds.pop();
-      if (workspaceId) await prisma.workspace.deleteMany({ where: { id: workspaceId } });
-    }
-    const userIds = cleanupUserIds.splice(0);
-    if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-  });
+afterEach(async () => {
+  while (cleanupWorkspaceIds.length) {
+    const workspaceId = cleanupWorkspaceIds.pop();
+    if (workspaceId) await prisma.workspace.deleteMany({ where: { id: workspaceId } });
+  }
+  const userIds = cleanupUserIds.splice(0);
+  if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+});
 
+describe('task kind database invariants', () => {
   test('accepts an effort that carries no work fields and is already in progress', async () => {
     const fixture = await createFixture();
 
@@ -179,6 +180,35 @@ describe('task kind database invariants', () => {
     expect(untouched.weight).toBeNull();
     expect(untouched.dueAt).toBeNull();
     expect(untouched.status).toBe('IN_PROGRESS');
+  });
+});
+
+/**
+ * The browser cannot see the column, only the field on the wire, and its whole exclusion turns on
+ * that field being there. `taskInclude` is an `include`, so every scalar rides along today — but a
+ * later change to a `select` would drop `kind` while every existing test still passed, and the
+ * client filter would go quietly inert with nothing to notice it.
+ */
+describe('task kind reaches the client', () => {
+  test('serializes kind onto every task the sync payload carries', async () => {
+    const fixture = await createFixture();
+    await prisma.task.create({ data: taskRow(fixture, { title: 'Ordinary work' }) });
+    await prisma.task.create({
+      data: taskRow(fixture, { kind: 'EFFORT', status: 'IN_PROGRESS', title: 'An effort' })
+    });
+
+    const serialized = (
+      await prisma.task.findMany({
+        where: { workspaceId: fixture.workspace.id, title: { in: ['Ordinary work', 'An effort'] } },
+        include: taskInclude,
+        orderBy: { title: 'asc' }
+      })
+    ).map(serializeTaskForResponse);
+
+    expect(serialized.map((task) => `${task.title}: ${task.kind}`)).toEqual([
+      'An effort: EFFORT',
+      'Ordinary work: WORK'
+    ]);
   });
 });
 
