@@ -237,8 +237,17 @@ function observe(input: {
  *     form selects precisely the efforts, and it is the false-safe a text scan cannot see;
  *   - a match inside an `OR` branch does not count, because a disjunct constrains nothing on its
  *     own — the other branch is free to re-admit everything;
- *   - anywhere else, a conjunctive match counts however deeply it is nested, including through a
- *     to-one relation filter;
+ *   - only a clause constraining THE ROW BEING SELECTED can be `composed`, so a positive match
+ *     counts through `AND` and nowhere else. `{ parent: { is: { kind: 'WORK' } } }` says the row's
+ *     PARENT is work and says nothing about the row; accepting it would report a query returning
+ *     every effort in the workspace as verified — the same class of false-safe as the text scan,
+ *     reached from a different direction. Found by planting it, not by reading. Negation is still
+ *     hunted everywhere, relation keys included, because `negated` is the one verdict a reviewed
+ *     entry cannot excuse and over-reporting it is harmless.
+ *
+ *     The people-side reader deliberately does the opposite and is right to: `measuredSubjectWhere`
+ *     is legitimately reached through `assignee: { is: … }`, because there the question really is
+ *     about a related row. `kind` is a column on the Task being selected;
  *   - a conjunctive `kind` that ADMITS `EFFORT` is `effort-scoped` rather than `absent`, because
  *     asking for efforts on purpose is a supported read, not a leak.
  */
@@ -246,15 +255,18 @@ export function readWorkPredicate(where: unknown): WorkPredicateVerdict {
   let negatedMatch = false;
   let effortScoped = false;
 
-  const walk = (node: unknown, negated: boolean): boolean => {
-    if (Array.isArray(node)) return node.some((item) => walk(item, negated));
+  // `constrains` stays true only while the walk is still describing THE ROW BEING SELECTED: the
+  // root object and whatever `AND` chains off it. It goes false the moment the walk steps through a
+  // relation key, because from there the clause is about a different row.
+  const walk = (node: unknown, negated: boolean, constrains: boolean): boolean => {
+    if (Array.isArray(node)) return node.some((item) => walk(item, negated, constrains));
     if (!isRecord(node)) return false;
 
     if ('kind' in node) {
       if (admitsOnlyWork(node.kind)) {
-        if (!negated) return true;
-        negatedMatch = true;
-      } else if (!negated && admitsEffort(node.kind)) {
+        if (!negated && constrains) return true;
+        if (negated) negatedMatch = true;
+      } else if (!negated && constrains && admitsEffort(node.kind)) {
         effortScoped = true;
       }
     }
@@ -262,12 +274,12 @@ export function readWorkPredicate(where: unknown): WorkPredicateVerdict {
     for (const [key, value] of Object.entries(node)) {
       // A disjunct cannot constrain the result set, so a predicate inside one is not composed.
       if (key === 'OR') continue;
-      if (walk(value, negated || negatingKeys.has(key))) return true;
+      if (walk(value, negated || negatingKeys.has(key), constrains && key === 'AND')) return true;
     }
     return false;
   };
 
-  if (walk(where, false)) return 'composed';
+  if (walk(where, false, true)) return 'composed';
   if (negatedMatch) return 'negated';
   return effortScoped ? 'effort-scoped' : 'absent';
 }

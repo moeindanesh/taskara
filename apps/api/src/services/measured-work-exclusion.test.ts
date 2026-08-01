@@ -116,10 +116,22 @@ interface BootstrapBody {
   users: Array<{ id: string; _count: { reportedTasks: number } }>;
 }
 
+interface InboxBody {
+  items: Array<{ id: string; taskId: string | null }>;
+  total: number;
+  unreadCount: number;
+}
+
+interface MeBody {
+  unreadNotifications: number;
+}
+
 interface Surfaces {
   workHealth: WorkHealthBody;
   scopedWorkHealth: WorkHealthBody;
   attention: AttentionBody;
+  inbox: InboxBody;
+  me: MeBody;
   projectTasks: TaskListBody;
   effortTasks: TaskListBody;
   effortDetail: TaskDetailBody;
@@ -337,6 +349,24 @@ describe('an effort is not work, and no work list or number counts one', () => {
 
     await prisma.task.deleteMany({ where: { id: { in: [closable.work.id, closable.effort.id] } } });
   });
+
+  test('an effort never turns up in a human_s inbox', () => {
+    // The one leak here that is not a Task query at all, which is why no Task-level mechanism
+    // reaches it and why it survived the first pass: the gate is a Notification where, and the
+    // predicate has to ride in on the nested `task` relation filter.
+    //
+    // It is a LIVE leak, not a latent one. Nothing about an effort's shape keeps it out — its
+    // reporter is subscribed at creation, everyone named in its body is subscribed permanently
+    // (the API has no unsubscribe path), and its body is the document, so every revision fans out.
+    // The WORK row is the positive control: an empty inbox would otherwise satisfy this.
+    expect(surfaces.inbox.items.map((item) => item.taskId)).toEqual([fixture.tasks.W1.id]);
+    expect(surfaces.inbox.total).toBe(1);
+
+    // The two counters read through the same gate and are rendered in different places — the inbox
+    // badge and the settings tile — so they can disagree with each other and with the list.
+    expect(surfaces.inbox.unreadCount).toBe(1);
+    expect(surfaces.me.unreadNotifications).toBe(1);
+  });
 });
 
 describe('an effort is still reachable, because the effort IS the map', () => {
@@ -388,6 +418,11 @@ describe('every task list the surfaces ran is accounted for', () => {
     expect(composed).toContain('services/work-health.ts#getWorkHealthSummary task.groupBy');
     expect(composed).toContain('routes/sync.ts#listTasksForScope task.findMany');
     expect(composed).toContain('routes/sync.ts#listTasksForScope task.count');
+    // Unreachable today — an effort can hold no assignee — but named here so the clause cannot be
+    // quietly dropped later on the grounds that it changes no row. It is the load slice behind
+    // every assignment candidate's score.
+    expect(composed).toContain('services/assignment.ts#recommendAssignment task.findMany');
+    expect(composed).toContain('routes/agent.ts#anonymous task.findMany');
   });
 
   test('the deliberate effort read is recognised as one, not reported as a miss', () => {
@@ -500,6 +535,22 @@ describe('the predicate reader, which is what makes the runtime guard sound', ()
     expect(readWorkPredicate({ OR: [workTaskWhere, { status: 'DONE' }] })).toBe('absent');
     expect(readWorkPredicate({ workspaceId: 'ws-1' })).toBe('absent');
     expect(readWorkPredicate(undefined)).toBe('absent');
+  });
+
+  test('a kind clause about a RELATED row says nothing about this row', () => {
+    // Found by planting it. `{ parent: { is: { kind: 'WORK' } } }` constrains the row's PARENT, and
+    // a reader that descended into relation keys called that `composed` while the query returned
+    // every effort in the workspace — a false-safe of exactly the kind this harness replaced a text
+    // scan to avoid, reached from the other direction.
+    expect(readWorkPredicate({ parent: { is: { kind: 'WORK' } } })).toBe('absent');
+    expect(readWorkPredicate({ subtasks: { some: { kind: 'WORK' } } })).toBe('absent');
+    expect(readWorkPredicate({ project: { tasks: { some: { kind: 'WORK' } } } })).toBe('absent');
+    // Asking for efforts through a relation is not the read path either — the read path asks about
+    // the rows it is selecting.
+    expect(readWorkPredicate({ parent: { is: { kind: 'EFFORT' } } })).toBe('absent');
+    // Inversion is still reported from anywhere, because `negated` can never be excused away.
+    expect(readWorkPredicate({ parent: { isNot: { kind: 'WORK' } } })).toBe('negated');
+    expect(readWorkPredicate({ NOT: { AND: [workTaskWhere] } })).toBe('negated');
   });
 });
 
@@ -695,6 +746,39 @@ async function seedWorkspace(): Promise<Fixture> {
     updatedAt: fresh
   });
 
+  // Inbox rows of each kind, for the admin. Written straight to the table because the fan-out that
+  // produces them is a write path and the leak is on the read: `subscribeTaskParticipants` puts the
+  // reporter and everyone named in a body on a task permanently, and an effort's body is the living
+  // document, so every revision of a map produces one of these for every subscriber.
+  // `actorType: 'USER'` on both: what is under test is whether an effort reaches the inbox, so the
+  // two rows must differ only in the kind of task they point at. A human editing a map is also the
+  // realistic case — an agent-authored row would drag agent provenance into an assertion about
+  // efforts and make a later failure ambiguous between the two exclusions.
+  await prisma.notification.createMany({
+    data: [
+      {
+        workspaceId: workspace.id,
+        userId: users.admin.id,
+        actorId: users.mapper.id,
+        actorType: 'USER',
+        taskId: EFF1.id,
+        type: 'task_description_changed',
+        title: `${EFF1.key}: نقشه`,
+        body: 'متن نقشه تغییر کرد'
+      },
+      {
+        workspaceId: workspace.id,
+        userId: users.admin.id,
+        actorId: users.mapper.id,
+        actorType: 'USER',
+        taskId: W1.id,
+        type: 'task_description_changed',
+        title: `${W1.key}: کار`,
+        body: 'شرح کار تغییر کرد'
+      }
+    ]
+  });
+
   const [adminSession, leadSession] = await Promise.all([
     createUserSession(users.admin.id),
     createUserSession(users.lead.id)
@@ -739,10 +823,29 @@ async function driveSurfaces(): Promise<Surfaces> {
     url: '/attention?status=ALL&limit=100'
   });
 
+  const [inbox, me] = await Promise.all([
+    as<InboxBody>(fixture.adminToken, { method: 'GET', url: '/notifications?limit=100' }),
+    as<MeBody>(fixture.adminToken, { method: 'GET', url: '/me' })
+  ]);
+
+  // Not asserted on — it recommends people, not tasks. Driven so the harness sees the task slice
+  // behind every candidate's load, which is a measurement whether or not a number here moves.
+  await as(fixture.adminToken, {
+    method: 'POST',
+    url: '/assignment/recommend',
+    payload: { projectId: fixture.projects.P.id, weight: 2 }
+  });
+
+  // Same reason: the agent daily plan runs its own task list, and a surface no test drives is a
+  // surface the harness cannot see.
+  await as(fixture.adminToken, { method: 'POST', url: '/agent/daily-plan' });
+
   return {
     workHealth,
     scopedWorkHealth,
     attention,
+    inbox,
+    me,
     projectTasks,
     effortTasks,
     effortDetail,

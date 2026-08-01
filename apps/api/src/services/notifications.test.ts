@@ -122,7 +122,12 @@ describe('task mention notifications', () => {
   test('keeps task, announcement, and meeting notifications in the inbox scope', () => {
     const where = taskInboxNotificationWhere('workspace-1', 'user-1');
 
-    expect(where.OR).toContainEqual({ task: { is: { workspaceId: 'workspace-1' } } });
+    // The task branch is narrowed to WORK. An effort is a Task, and its subscribers are notified on
+    // every revision of a body that is edited continuously, so without this the inbox filled with
+    // map churn. Written as a literal rather than by spreading the shared predicate: if the
+    // predicate changes, this should fail and be read again, not silently agree with whatever it
+    // became.
+    expect(where.OR).toContainEqual({ task: { is: { workspaceId: 'workspace-1', kind: 'WORK' } } });
     expect(where.OR).toContainEqual({ announcement: { is: { workspaceId: 'workspace-1' } } });
     expect(where.OR).toContainEqual({ meeting: { is: { workspaceId: 'workspace-1' } } });
   });
