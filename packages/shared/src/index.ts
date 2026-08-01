@@ -25,6 +25,12 @@ export const taskViewGroupings = ['status', 'assignee', 'project', 'milestone', 
 export const taskViewOrderings = ['priority', 'updatedAt', 'createdAt', 'dueAt', 'title'] as const;
 export const taskViewSubGroupings = ['none', 'status', 'assignee', 'project', 'milestone', 'priority'] as const;
 export const taskViewCompletedIssues = ['all', 'week', 'month', 'none'] as const;
+/**
+ * `blockers` on a *view* is the tri-state filter, spelled the way `GET /tasks?blockers=` is by #21
+ * with `all` standing in for the absent parameter — a saved view serializes every key, so "no
+ * filter" needs a value.
+ */
+export const taskViewBlockersFilters = ['all', 'none', 'any'] as const;
 export const taskViewDisplayProperties = [
   'id',
   'status',
@@ -34,6 +40,7 @@ export const taskViewDisplayProperties = [
   'dueAt',
   'labels',
   'milestone',
+  'blockers',
   'links',
   'timeInStatus',
   'createdAt',
@@ -81,6 +88,7 @@ export type TaskViewGroupingValue = (typeof taskViewGroupings)[number];
 export type TaskViewOrderingValue = (typeof taskViewOrderings)[number];
 export type TaskViewSubGroupingValue = (typeof taskViewSubGroupings)[number];
 export type TaskViewCompletedIssuesValue = (typeof taskViewCompletedIssues)[number];
+export type TaskViewBlockersFilterValue = (typeof taskViewBlockersFilters)[number];
 export type TaskViewDisplayPropertyValue = (typeof taskViewDisplayProperties)[number];
 
 export const taskStatusSchema = z.enum(taskStatuses);
@@ -115,6 +123,7 @@ export const taskViewGroupingSchema = z.enum(taskViewGroupings);
 export const taskViewOrderingSchema = z.enum(taskViewOrderings);
 export const taskViewSubGroupingSchema = z.enum(taskViewSubGroupings);
 export const taskViewCompletedIssuesSchema = z.enum(taskViewCompletedIssues);
+export const taskViewBlockersFilterSchema = z.enum(taskViewBlockersFilters);
 export const taskViewDisplayPropertySchema = z.enum(taskViewDisplayProperties);
 
 function normalizePhoneNumberInput(value: unknown): unknown {
@@ -1073,6 +1082,9 @@ export const taskViewStateSchema = z.object({
   nestedSubIssues: z.boolean().default(false),
   orderCompletedByRecency: z.boolean().default(false),
   completedIssues: taskViewCompletedIssuesSchema.default('all'),
+  // Defaulted rather than optional so a view saved before this key existed round-trips as "no
+  // filter" instead of failing to parse on read — `serializeView` parses every stored row.
+  blockers: taskViewBlockersFilterSchema.default('all'),
   displayProperties: z.array(taskViewDisplayPropertySchema).default([
     'id',
     'status',

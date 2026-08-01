@@ -634,6 +634,12 @@ export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'milestone' |
 export type TaskViewSubGrouping = 'none' | TaskViewGrouping;
 export type TaskViewOrdering = 'priority' | 'updatedAt' | 'createdAt' | 'dueAt' | 'title';
 export type TaskViewCompletedIssues = 'all' | 'week' | 'month' | 'none';
+/**
+ * The list/board blockers filter. `all` is no filter, `none` is the frontier, `any` is what is
+ * stuck. The last two are the API's `?blockers=` spelling from #21; see `lib/takeability.ts`.
+ */
+export type TaskBlockersFilter = 'all' | 'none' | 'any';
+
 export type TaskViewDisplayProperty =
    | 'id'
    | 'status'
@@ -643,6 +649,7 @@ export type TaskViewDisplayProperty =
    | 'dueAt'
    | 'labels'
    | 'milestone'
+   | 'blockers'
    | 'links'
    | 'timeInStatus'
    | 'createdAt'
@@ -667,6 +674,8 @@ export interface TaskaraTaskViewState {
    nestedSubIssues: boolean;
    orderCompletedByRecency: boolean;
    completedIssues: TaskViewCompletedIssues;
+   /** See `lib/takeability.ts`: `all` is no filter, `none` is the frontier, `any` is what is stuck. */
+   blockers: TaskBlockersFilter;
    displayProperties: TaskViewDisplayProperty[];
 }
 

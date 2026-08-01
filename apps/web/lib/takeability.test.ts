@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { TaskaraTask } from '@/lib/taskara-types';
 import {
    isOpenBlocker,
+   isTakeable,
    matchesBlockersFilter,
    openBlockerCount,
    readTakeability,
@@ -150,6 +151,41 @@ describe('the blockers filter', () => {
    test('any is what is stuck', () => {
       expect(matchesBlockersFilter(blocked, 'any')).toBe(true);
       expect(matchesBlockersFilter(free, 'any')).toBe(false);
+   });
+});
+
+describe('the takeable view', () => {
+   test('takes unstarted work with nothing in front of it', () => {
+      expect(isTakeable(task({ status: 'BACKLOG' }))).toBe(true);
+      expect(isTakeable(task({ status: 'TODO' }))).toBe(true);
+   });
+
+   test('leaves out work that has already been taken', () => {
+      expect(isTakeable(task({ status: 'IN_PROGRESS' }))).toBe(false);
+      expect(isTakeable(task({ status: 'IN_REVIEW' }))).toBe(false);
+   });
+
+   test('leaves out finished work', () => {
+      expect(isTakeable(task({ status: 'DONE' }))).toBe(false);
+      expect(isTakeable(task({ status: 'CANCELED' }))).toBe(false);
+   });
+
+   // The self-declared status wins over the graph. Someone set it by hand to say "not ready".
+   test('leaves out work whose owner declared it blocked, edges or no edges', () => {
+      expect(isTakeable(task({ status: 'BLOCKED' }))).toBe(false);
+      expect(isTakeable(task({ status: 'BLOCKED', _count: { blockingDependencies: 0 } }))).toBe(
+         false
+      );
+   });
+
+   test('leaves out work with an open blocker', () => {
+      expect(isTakeable(task({ status: 'TODO', _count: { blockingDependencies: 1 } }))).toBe(false);
+   });
+
+   // The whole point: the count is already filtered to open blockers, so a task whose only blocker
+   // finished is back on the frontier rather than stuck behind a permanent edge.
+   test('takes work whose blockers have all finished', () => {
+      expect(isTakeable(task({ status: 'TODO', _count: { blockingDependencies: 0 } }))).toBe(true);
    });
 });
 

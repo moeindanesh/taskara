@@ -1,4 +1,4 @@
-import type { TaskaraTask } from '@/lib/taskara-types';
+import type { TaskBlockersFilter, TaskaraTask } from '@/lib/taskara-types';
 
 /**
  * Whether a task can be picked up, and what is standing in front of it.
@@ -101,9 +101,28 @@ export function openBlockerCount(task: TaskaraTask): number {
  * The values are the API's `?blockers=none|any` spelling from #21 so the two never drift, with `all`
  * standing in for the absent parameter because a saved view serializes every key.
  */
-export type TaskBlockersFilter = 'all' | 'none' | 'any';
-
 export function matchesBlockersFilter(task: TaskaraTask, filter: TaskBlockersFilter): boolean {
    if (filter === 'all') return true;
    return filter === 'none' ? openBlockerCount(task) === 0 : openBlockerCount(task) > 0;
+}
+
+/**
+ * What «آماده برداشت» means, and it is narrower than "unfinished with nothing in front of it".
+ *
+ * Something already IN_PROGRESS or IN_REVIEW has been taken, so offering it as takeable answers a
+ * question nobody asked. BLOCKED is excluded for the opposite reason: the status is self-declared
+ * and unrelated to dependency edges (CONTEXT.md), so a person who set it has said this is not ready
+ * whatever the graph thinks — and a view that overrules them would be worse than no view.
+ *
+ * The broader set is a click away, because the blockers filter is a first-class control now:
+ * widening the status filter on top of `blockers: 'none'` is how you ask that question.
+ */
+export const takeableStatuses = ['BACKLOG', 'TODO'];
+
+/**
+ * The takeable view's predicate, shared with its chip count so the number on the chip and the rows
+ * behind it can never disagree.
+ */
+export function isTakeable(task: TaskaraTask): boolean {
+   return takeableStatuses.includes(task.status) && openBlockerCount(task) === 0;
 }
