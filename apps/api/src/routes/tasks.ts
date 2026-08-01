@@ -4,6 +4,7 @@ import {
   createCommentSchema,
   createTaskDependencySchema,
   createTaskSchema,
+  strictQueryBooleanSchema,
   taskKindSchema,
   taskListQuerySchema,
   unfinishedTaskStatusFilter,
@@ -50,7 +51,7 @@ const taskArchiveQuerySchema = z.object({
   kind: taskKindSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   completedBefore: z.string().datetime().optional(),
   cursor: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50)

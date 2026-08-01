@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { strictQueryBooleanSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import {
   dismissAttentionItem,
@@ -11,8 +12,10 @@ import {
 
 const attentionListQuerySchema = z.object({
   status: z.enum(['ACTIVE', 'ALL', 'OPEN', 'SNOOZED', 'RESOLVED', 'DISMISSED']).optional(),
-  includeSnoozed: z.coerce.boolean().optional(),
-  generate: z.coerce.boolean().optional(),
+  includeSnoozed: strictQueryBooleanSchema.optional(),
+  // `listAttentionItems` opts out on `generate === false`, which no query string could produce while
+  // this was `z.coerce.boolean()`.
+  generate: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });

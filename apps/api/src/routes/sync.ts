@@ -14,6 +14,7 @@ import {
   milestoneCompletionSchema,
   milestoneTransitionSchema,
   reorderMilestoneSchema,
+  strictQueryBooleanSchema,
   updateMeetingActionItemSchema,
   updateMilestoneSchema,
   updateTaskSchema
@@ -80,7 +81,7 @@ import {
 const syncScopeQuerySchema = z.object({
   scope: z.literal('tasks').default('tasks'),
   teamId: z.string().min(1).default('all'),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   cursor: z.string().regex(/^\d+$/).default('0'),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   clientId: z.string().trim().min(1).max(160).optional(),

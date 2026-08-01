@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Prisma } from '@taskara/db';
 import { prisma } from '@taskara/db';
 import { z } from 'zod';
+import { strictQueryBooleanSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import {
   collapseInboxNotificationsByThread,
@@ -12,7 +13,7 @@ import {
 } from '../services/notifications';
 
 const notificationsQuerySchema = z.object({
-  unread: z.coerce.boolean().optional(),
+  unread: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
