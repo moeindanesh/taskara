@@ -460,10 +460,18 @@ export const createTaskSchema = z.object({
   cycleId: z.string().uuid().optional(),
   milestoneId: z.string().uuid().optional(),
   title: z.string().min(1).max(300),
-  // The work ceiling, not the wider one, because this schema has no `kind` field: POST /tasks
-  // cannot mint an effort at all, so every row it creates is WORK. Whoever adds `kind` here must
-  // widen this to `taskDescriptionMaxChars(input.kind)` in the same change.
-  description: z.string().max(WORK_DESCRIPTION_MAX_CHARS).optional(),
+  // Absent means WORK, and that default is the whole compatibility story rather than a tidy touch:
+  // every caller that exists — the web app, the Mattermost bot, the menubar app, and every internal
+  // path that mints a task from a meeting, a check-in or an agent proposal — omits this field. A
+  // required field, or a different default, would silently reclassify everything the team files.
+  kind: taskKindSchema.default('WORK'),
+  // The widest ceiling any task may hold, matching `updateTaskSchema` — this is the transport
+  // bound, and the per-kind one is applied in `createTask()`. The narrowing does not live here even
+  // though `kind` is right above it: a `superRefine` would turn this object into a `ZodEffects`,
+  // and `codexTaskCreateSchema` extends it. The service layer is the better home anyway, because a
+  // Zod issue does not reach a caller — `/sync/push` flattens it and the web client reads only
+  // `message` — whereas the `HttpError` the service throws survives both paths with its number.
+  description: z.string().max(EFFORT_DESCRIPTION_MAX_CHARS).optional(),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('NO_PRIORITY'),
   weight: taskWeightSchema.nullable().optional(),

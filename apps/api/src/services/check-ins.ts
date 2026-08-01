@@ -1015,6 +1015,7 @@ export async function createTaskFromMeetingActionItem(
   const task = await createTask(actor, {
     projectId,
     title: actionItem.title,
+    kind: 'WORK',
     description: actionItem.notes || undefined,
     assigneeId: input.assigneeId === undefined ? actionItem.assigneeId ?? undefined : input.assigneeId ?? undefined,
     status: target.status,

@@ -125,7 +125,10 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const payload = action.payload as unknown as ProposedTaskPayload;
-    const task = await createTask(actor, payload);
+    // `kind` is pinned rather than spread from the payload, and the order matters: `payload` is
+    // untyped JSON read back out of the database and cast, so a row that carried `kind: 'EFFORT'`
+    // would otherwise mint an effort from an agent proposal. A proposal is work by construction.
+    const task = await createTask(actor, { ...payload, kind: 'WORK' });
     await prisma.agentAction.update({
       where: { id },
       data: {

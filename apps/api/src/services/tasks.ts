@@ -121,6 +121,9 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
 }
 
 export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
+  assertDescriptionFitsKind(input.description, input.kind);
+  assertEffortShape(input);
+
   let syncEvents: SyncEvent[] = [];
   const task = await prisma.$transaction(async (tx) => {
     await assertActorCanAccessProject(tx, actor, input.projectId);
@@ -138,6 +141,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         key,
         sequence,
         title: input.title,
+        kind: input.kind,
         description: input.description,
         status: input.status,
         priority: input.priority,
@@ -251,10 +255,12 @@ async function reserveTaskKey(
 }
 
 /**
- * The per-kind half of the description ceiling, applied here rather than in `updateTaskSchema`
- * because a patch body carries no `kind` — the kind belongs to the row being patched, so Zod
- * cannot see it. The schema bounds the field at the widest ceiling any task may hold; this narrows
- * it to the ceiling that applies to *this* row.
+ * The per-kind half of the description ceiling, applied here rather than in the schemas. On update
+ * it has to be: a patch body carries no `kind`, because the kind belongs to the row being patched.
+ * On create the kind *is* in the body, and this still does not live in `createTaskSchema` — a
+ * `superRefine` would make that object a `ZodEffects` and `codexTaskCreateSchema` extends it, and
+ * the message reaches further from here (see below). Either way the schema bounds the field at the
+ * widest ceiling any task may hold and this narrows it to the ceiling that applies to *this* row.
  *
  * Refusing beats trimming, and not marginally: an Effort's description is a wayfinder map, and the
  * part a silent truncation would take is the tail of the Decisions-so-far index — the newest
@@ -276,6 +282,53 @@ function assertDescriptionFitsKind(description: string | null | undefined, kind:
     `Description is ${description.length} characters; a ${kind} task allows ${max}.`
       + (kind === 'WORK' ? ' Only an EFFORT may hold a longer body.' : '')
   );
+}
+
+/**
+ * The fields an effort may not carry, and the statuses it may not sit in — the two `CHECK`
+ * constraints from #19, restated here as a refusal a caller can read.
+ *
+ * The constraints stay where they are and stay load-bearing: ten of the thirteen task write paths
+ * never reach this function, so a service-layer assertion alone would be a sieve. What this adds is
+ * the *diagnosis*. A caller that hands an effort an assignee currently gets Postgres' own words —
+ * a constraint name and a dump of the failing row, as a 500 — and an agent that pasted a command
+ * cannot act on that. It needs to be told which argument to drop.
+ *
+ * Every offending field is named in one message rather than the first one found, because the cost
+ * of the alternative is a round trip per field for a caller assembling a command by trial.
+ *
+ * Status is the one that will be met most often, and not by mistake: `status` defaults to `TODO`
+ * for every task and an effort may not be `TODO`, so anyone who omits it lands here. The message
+ * therefore names the status to use rather than merely listing what is allowed. Defaulting an
+ * effort to `IN_PROGRESS` instead was rejected — the schema default is applied before this code can
+ * tell an omitted `status` from an explicit `TODO`, so it would silently overrule a caller that
+ * asked for one thing and got another.
+ */
+const effortWorkFields = ['assigneeId', 'dueAt', 'weight', 'milestoneId', 'cycleId', 'parentId'] as const;
+const effortStatuses = new Set(['IN_PROGRESS', 'DONE', 'CANCELED']);
+
+function assertEffortShape(input: CreateTaskInput): void {
+  if (input.kind !== 'EFFORT') return;
+
+  const problems: string[] = [];
+
+  const carried = effortWorkFields.filter((field) => input[field] !== undefined && input[field] !== null);
+  if (carried.length > 0) {
+    problems.push(
+      `An effort cannot carry ${carried.join(', ')} — it is the root of a piece of work, not a unit of`
+        + ' work, and every such field belongs to the tasks underneath it.'
+    );
+  }
+
+  if (!effortStatuses.has(input.status)) {
+    problems.push(
+      `An effort cannot be created with status ${input.status} — a charted effort has already begun,`
+        + ' so pass status IN_PROGRESS, or DONE or CANCELED for one that is over.'
+    );
+  }
+
+  if (problems.length === 0) return;
+  throw new HttpError(400, problems.join(' '));
 }
 
 export async function updateTask(

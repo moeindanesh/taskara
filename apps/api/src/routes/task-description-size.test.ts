@@ -191,7 +191,7 @@ describe('Task description size', () => {
     expect(await description(effort.id)).toBeNull();
   });
 
-  test('creating a task still refuses over the work ceiling, because create can only mint work', async () => {
+  test('the create ceiling follows the kind of the row being created', async () => {
     const created = await app.inject({
       method: 'POST',
       url: '/tasks',
@@ -206,16 +206,25 @@ describe('Task description size', () => {
     expect(created.statusCode).toBe(400);
     expect(refusalText(created)).toContain(String(WORK_DESCRIPTION_MAX_CHARS));
 
-    // Why the create ceiling is the *work* ceiling and not a trap: `createTaskSchema` has no `kind`
-    // field, so POST /tasks cannot mint an effort at all. Whoever adds one must widen this with it.
-    const work = await app.inject({
+    // This half was written to fail the moment `kind` became writable (#46), because until then
+    // create hardcoded the work ceiling on the grounds that no row it made could be an effort. It
+    // can now, so what it pins is the other side of that bargain: a map-sized body has to fit
+    // through create, or an effort's ceiling is reachable only through a later PATCH.
+    const effort = await app.inject({
       method: 'POST',
       url: '/tasks',
       headers: authHeaders(),
-      payload: { projectId: fixture.projectId, title: 'Kind is not writable on create', kind: 'EFFORT' }
+      payload: {
+        projectId: fixture.projectId,
+        title: 'An effort minted with its map',
+        kind: 'EFFORT',
+        status: 'IN_PROGRESS',
+        description: mapBody(LIVE_MAP_CHARS)
+      }
     });
-    expect(work.statusCode).toBe(201);
-    expect(work.json().kind).toBe('WORK');
+    expect(effort.statusCode).toBe(201);
+    expect(effort.json().kind).toBe('EFFORT');
+    expect(await description(effort.json().id)).toHaveLength(LIVE_MAP_CHARS);
   });
 });
 
