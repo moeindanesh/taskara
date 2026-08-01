@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import {
   prisma,
   type AgentCredentialScope,
+  type AgentRuntime,
   type Prisma,
   type User,
   type Workspace,
@@ -9,6 +10,7 @@ import {
   type WorkspaceRole
 } from '@taskara/db';
 import { config } from '../config';
+import { deriveActorProvenance } from './actor-provenance';
 import { authenticateAgentCredential, isAgentCredentialToken } from './agent-credential';
 import { displayNameFromEmail, getBearerToken, getSessionUser, normalizeEmail } from './auth';
 import { HttpError } from './http';
@@ -20,7 +22,10 @@ export interface RequestActor {
   workspace: Workspace;
   user: User;
   role: WorkspaceRole;
+  /** Derived from user.kind, never from a header. See ./actor-provenance. */
   actorType: ActorType;
+  /** Client-asserted, and only ever set for an agent actor. */
+  actorRuntime: AgentRuntime | null;
   source: ActorSource;
   /** Present iff this request authenticated with an agent credential rather than as a person. */
   credential?: { id: string; scope: AgentCredentialScope };
@@ -39,6 +44,19 @@ function headerValue(request: FastifyRequest, name: string): string | undefined 
 function normalizeOptionalText(value?: string): string | undefined {
   const normalized = value?.trim();
   return normalized || undefined;
+}
+
+/**
+ * The runtime a client says it is. Nothing authenticates this, which is why it can only ever
+ * qualify an actor already proven to be an agent by its authenticated User.kind.
+ *
+ * `x-actor-type` is the legacy header that used to decide the actorType outright. It is demoted,
+ * not honoured: at most it names a runtime, and only CODEX ever meant one.
+ */
+function declaredRuntime(request: FastifyRequest): string | undefined {
+  const declared = headerValue(request, 'x-agent-runtime');
+  if (normalizeOptionalText(declared)) return declared;
+  return headerValue(request, 'x-actor-type') === 'CODEX' ? 'CODEX' : undefined;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -125,8 +143,15 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
       workspace,
       user: authenticated.user,
       role: authenticated.role,
-      // Derived from the authenticated credential, never from `x-actor-type`.
-      actorType: 'AGENT',
+      // Through the same derivation as every other channel, never from `x-actor-type`. The kind is
+      // read off the authenticated row rather than assumed from the credential: a composite foreign
+      // key already guarantees it is AGENT, so passing it keeps one function the only place an
+      // actorType is decided instead of two that must be kept agreeing.
+      ...deriveActorProvenance({
+        userKind: authenticated.user.kind,
+        channel: 'AGENT',
+        declaredRuntime: declaredRuntime(request)
+      }),
       source: 'AGENT',
       credential: authenticated.credential
     };
@@ -139,7 +164,17 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
       where: { workspaceId_userId: { workspaceId: workspace.id, userId: sessionUser.id } }
     });
     if (!membership) throw new HttpError(403, 'User is not a member of this workspace');
-    return { workspace, user: sessionUser, role: membership.role, actorType: 'USER', source: 'WEB' };
+    return {
+      workspace,
+      user: sessionUser,
+      role: membership.role,
+      ...deriveActorProvenance({
+        userKind: sessionUser.kind,
+        channel: 'USER',
+        declaredRuntime: declaredRuntime(request)
+      }),
+      source: 'WEB'
+    };
   }
 
   const email = headerValue(request, 'x-user-email');
@@ -164,9 +199,16 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
   });
   if (!membership) throw new HttpError(403, 'User is not a member of this workspace');
 
-  const actorType = headerValue(request, 'x-actor-type') === 'CODEX' ? 'CODEX' : 'USER';
-  const source = actorType === 'CODEX' ? 'CODEX' : 'API';
-  return { workspace, user, role: membership.role, actorType, source };
+  // `source` names the channel and stays client-influenced, exactly as it always was. It is not
+  // the provenance discriminator and must not be read as one -- actorType is.
+  const source = headerValue(request, 'x-actor-type') === 'CODEX' ? 'CODEX' : 'API';
+  return {
+    workspace,
+    user,
+    role: membership.role,
+    ...deriveActorProvenance({ userKind: user.kind, channel: 'USER', declaredRuntime: declaredRuntime(request) }),
+    source
+  };
 }
 
 export async function getWorkspaceRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
@@ -240,7 +282,15 @@ export async function getMattermostActor(payload: MattermostActorPayload): Promi
     select: { role: true }
   });
   if (!membership) throw new HttpError(403, 'User is not a member of this workspace');
-  return { workspace, user, role: membership.role, actorType: 'MATTERMOST', source: 'MATTERMOST' };
+  return {
+    workspace,
+    user,
+    role: membership.role,
+    // An agent reaching us over Mattermost is still an agent. The channel only names what a human
+    // looks like here.
+    ...deriveActorProvenance({ userKind: user.kind, channel: 'MATTERMOST' }),
+    source: 'MATTERMOST'
+  };
 }
 
 function mattermostWorkspaceSlug(payload: MattermostActorPayload): string {

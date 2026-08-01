@@ -1,5 +1,6 @@
 import { prisma, type Prisma, type SyncEvent, type Task, type TaskSource } from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity, snapshot } from './audit';
 import type { z } from 'zod';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
@@ -168,6 +169,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
+      attribution: attributedTo(actor),
       task
     });
     if (task.assigneeId && task.assigneeId !== actor.user.id) {
@@ -175,6 +177,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         data: {
           workspaceId: actor.workspace.id,
           userId: task.assigneeId,
+          ...attributedTo(actor),
           taskId: task.id,
           type: TASK_ASSIGNED_NOTIFICATION_TYPE,
           title: `${task.key}: ${task.title}`,
@@ -212,6 +215,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'created',
@@ -354,6 +358,7 @@ export async function updateTask(
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
         actorName: actor.user.name,
+        attribution: attributedTo(actor),
         task,
         previousDescription: existing.description
       });
@@ -364,6 +369,7 @@ export async function updateTask(
         data: {
           workspaceId: actor.workspace.id,
           userId: input.assigneeId,
+          ...attributedTo(actor),
           taskId: task.id,
           type: TASK_ASSIGNED_NOTIFICATION_TYPE,
           title: `${task.key}: ${task.title}`,
@@ -376,6 +382,7 @@ export async function updateTask(
       await createTaskSubscriberNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
+        attribution: attributedTo(actor),
         task,
         type: TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
         body: taskStatusChangedNotificationBody(actor.user.name, existing.status, input.status)
@@ -386,6 +393,7 @@ export async function updateTask(
       await createTaskSubscriberNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
+        attribution: attributedTo(actor),
         task,
         type: TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE,
         body: taskDescriptionChangedNotificationBody(actor.user.name),
@@ -428,6 +436,7 @@ export async function updateTask(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'updated',
@@ -442,6 +451,7 @@ export async function updateTask(
         workspaceId: actor.workspace.id,
         actorId: actor.user.id,
         actorType: actor.actorType,
+        actorRuntime: actor.actorRuntime,
         entityType: 'task_review',
         entityId: audit.reviewId,
         action: 'canceled',
@@ -507,6 +517,7 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: existing.id,
     action: 'deleted',
@@ -547,6 +558,7 @@ export async function addTaskComment(
     await createTaskSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
+      attribution: attributedTo(actor),
       task: updatedTask,
       type: TASK_COMMENTED_NOTIFICATION_TYPE,
       body: taskCommentedNotificationBody(actor.user.name)
@@ -574,6 +586,7 @@ export async function addTaskComment(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'commented',

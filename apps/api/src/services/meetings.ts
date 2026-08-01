@@ -4,6 +4,7 @@ import type { createMeetingSchema, createMeetingTasksSchema, updateMeetingSchema
 import { config } from '../config';
 import type { RequestActor } from './actor';
 import { isWorkspaceAdminRole } from './actor';
+import { attributedTo, type ActorAttribution } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { MEETING_ASSIGNED_NOTIFICATION_TYPE, meetingAssignedNotificationBody } from './notifications';
@@ -145,6 +146,7 @@ export async function createMeeting(actor: RequestActor, input: CreateMeetingInp
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
+      attribution: attributedTo(actor),
       meetingId: meeting.id,
       title: meeting.title,
       userIds: participantIds
@@ -157,6 +159,7 @@ export async function createMeeting(actor: RequestActor, input: CreateMeetingInp
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting',
     entityId: meeting.id,
     action: 'created',
@@ -214,6 +217,7 @@ export async function updateMeeting(actor: RequestActor, meetingId: string, inpu
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
+      attribution: attributedTo(actor),
       meetingId: meeting.id,
       title: meeting.title,
       userIds: participantIds
@@ -226,6 +230,7 @@ export async function updateMeeting(actor: RequestActor, meetingId: string, inpu
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting',
     entityId: meeting.id,
     action: 'updated',
@@ -273,6 +278,7 @@ export async function createTasksFromMeeting(actor: RequestActor, meetingId: str
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting',
     entityId: meeting.id,
     action: 'tasks_created',
@@ -324,6 +330,7 @@ export async function sendMeetingSms(actor: RequestActor, meetingId: string) {
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting',
     entityId: meeting.id,
     action: 'sms_meeting_sent',
@@ -340,6 +347,7 @@ async function createMeetingNotifications(
     workspaceId: string;
     actorUserId: string;
     actorName: string;
+    attribution: ActorAttribution;
     meetingId: string;
     title: string;
     userIds: string[];
@@ -365,6 +373,7 @@ async function createMeetingNotifications(
     data: missingUserIds.map((userId) => ({
       workspaceId: input.workspaceId,
       userId,
+      ...input.attribution,
       meetingId: input.meetingId,
       type: MEETING_ASSIGNED_NOTIFICATION_TYPE,
       title: input.title,

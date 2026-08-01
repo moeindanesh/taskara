@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Prisma } from '@taskara/db';
+import type { ActorAttribution } from './actor-provenance';
 import {
   TASK_COMMENTED_NOTIFICATION_TYPE,
   TASK_MENTIONED_NOTIFICATION_TYPE,
@@ -53,6 +54,10 @@ function serializedDescription(
       ]
     }
   });
+}
+
+function humanAttribution(actorId: string): ActorAttribution {
+  return { actorId, actorType: 'USER', actorRuntime: null };
 }
 
 function mockMentionTransaction(validWorkspaceUserIds: string[], subscribedUserIds: string[] = []) {
@@ -132,6 +137,7 @@ describe('task mention notifications', () => {
       workspaceId,
       actorUserId,
       actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
       task: {
         id: 'task-1',
         key: 'CORE-12',
@@ -145,6 +151,7 @@ describe('task mention notifications', () => {
       {
         workspaceId,
         userId: mentionedUserId,
+        ...humanAttribution('user-actor'),
         taskId: 'task-1',
         type: TASK_MENTIONED_NOTIFICATION_TYPE,
         title: 'CORE-12: Mention notification',
@@ -165,6 +172,7 @@ describe('task mention notifications', () => {
       workspaceId,
       actorUserId,
       actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
       task: {
         id: 'task-1',
         key: 'CORE-12',
@@ -190,6 +198,7 @@ describe('task mention notifications', () => {
       workspaceId: 'workspace-1',
       actorUserId: 'user-actor',
       actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
       task: {
         id: 'task-1',
         key: 'CORE-12',
@@ -227,6 +236,7 @@ describe('task mention notifications', () => {
     const recipientIds = await createTaskSubscriberNotifications(mock.tx, {
       workspaceId,
       actorUserId: 'user-actor',
+      attribution: humanAttribution('user-actor'),
       task: { id: 'task-1', key: 'CORE-12', title: 'Subscriber update' },
       type: TASK_COMMENTED_NOTIFICATION_TYPE,
       body: 'Raha دیدگاهی روی این کار گذاشت.',
@@ -238,6 +248,7 @@ describe('task mention notifications', () => {
       {
         workspaceId,
         userId: 'user-subscriber',
+        ...humanAttribution('user-actor'),
         taskId: 'task-1',
         type: TASK_COMMENTED_NOTIFICATION_TYPE,
         title: 'CORE-12: Subscriber update',

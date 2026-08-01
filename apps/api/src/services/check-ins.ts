@@ -11,6 +11,7 @@ import type {
   updateMeetingActionItemSchema
 } from '@taskara/shared';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
@@ -163,6 +164,7 @@ export async function createCheckInResponse(actor: RequestActor, input: CreateCh
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'check_in',
     entityId: row.id,
     action,
@@ -591,6 +593,7 @@ export async function requestCheckIn(actor: RequestActor, userId: string, messag
     data: {
       workspaceId: actor.workspace.id,
       userId,
+      ...attributedTo(actor),
       type: DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE,
       title: `${actor.user.name} گزارش روزانه‌ات را خواسته است`,
       body: message?.trim() || 'لطفاً گزارش روزانه‌ی امروزت را ثبت کن.'
@@ -600,6 +603,7 @@ export async function requestCheckIn(actor: RequestActor, userId: string, messag
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'check_in',
     entityId: userId,
     action: 'requested',
@@ -734,6 +738,7 @@ export async function createOneOnOneSeries(actor: RequestActor, input: CreateOne
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'one_on_one',
     entityId: series.id,
     action: 'created',
@@ -789,6 +794,7 @@ export async function addOneOnOneAgendaItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'one_on_one_agenda_item',
     entityId: item.id,
     action: 'created',
@@ -863,6 +869,7 @@ export async function createMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: row.id,
     action: 'created',
@@ -900,6 +907,7 @@ export async function updateMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: updated.id,
     action,
@@ -967,6 +975,7 @@ export async function carryForwardMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: actionItem.id,
     action: existing ? 'carry_forward_skipped_duplicate' : 'carried_forward',
@@ -1022,6 +1031,7 @@ export async function createTaskFromMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: updated.id,
     action: 'converted_to_task',
