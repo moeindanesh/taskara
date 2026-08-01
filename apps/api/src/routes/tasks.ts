@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@taskara/db';
 import {
   createCommentSchema,
+  createTaskDependencySchema,
   createTaskSchema,
   taskKindSchema,
   taskListQuerySchema,
@@ -11,11 +12,13 @@ import {
 } from '@taskara/shared';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
+import { openBlockersWhere } from '../services/blockers';
 import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
 import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-people';
 import { workTaskWhere } from '../services/measured-work';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
+import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -28,7 +31,6 @@ import {
   createTask,
   deleteTask,
   findTaskByIdOrKey,
-  openBlockersWhere,
   serializeTaskForResponse,
   taskInclude,
   updateTask
@@ -484,19 +486,30 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const actor = await getRequestActor(request);
     const access = await resolveWorkspaceAccess(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const body = request.body as { blockedBy: string };
+    // Parsed, not cast. The old `request.body as { blockedBy: string }` turned a missing body into
+    // a 500 with a TypeError in it, which tells a caller nothing and tells a log reader too much.
+    const input = createTaskDependencySchema.parse(request.body);
     const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
-    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, body.blockedBy, access);
+    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, input.blockedBy, access);
     if (!task || !blockedBy) return reply.code(404).send({ message: 'Task or dependency not found' });
-    if (task.id === blockedBy.id) return reply.code(400).send({ message: 'Task cannot block itself' });
 
-    const dependency = await prisma.taskDependency.upsert({
-      where: { taskId_blockedByTaskId: { taskId: task.id, blockedByTaskId: blockedBy.id } },
-      update: {},
-      create: { taskId: task.id, blockedByTaskId: blockedBy.id }
-    });
-
+    const { dependency } = await addTaskDependency(actor, task, blockedBy);
     return reply.code(201).send(dependency);
+  });
+
+  // The edge is addressed by its two endpoints rather than by a dependency id, because that is what
+  // the caller who wants it gone actually holds — it is the same pair they sent to create it, and
+  // the POST response is not something an agent re-reading a task ever saw.
+  app.delete('/tasks/:idOrKey/dependencies/:blockedByIdOrKey', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey, blockedByIdOrKey } = request.params as { idOrKey: string; blockedByIdOrKey: string };
+    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, blockedByIdOrKey, access);
+    if (!task || !blockedBy) return reply.code(404).send({ message: 'Task or dependency not found' });
+
+    await removeTaskDependency(actor, task, blockedBy);
+    return reply.code(204).send();
   });
 }
 

@@ -13,6 +13,7 @@ import type {
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
+import { openBlockerEdgesInclude } from './blockers';
 import { HttpError } from './http';
 import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
 import { measuredMemberWhere } from './measured-people';
@@ -336,7 +337,10 @@ export async function buildCheckInDraft(actor: RequestActor, dateKey = workspace
         assigneeId: actor.user.id,
         status: { notIn: ['DONE', 'CANCELED'] }
       },
-      include: { blockingDependencies: { select: { id: true } } },
+      // The same open-blocker filter as the daily plan. This list decides which tasks a human is
+      // offered as "blocked" and which as today's focus in their daily report draft, so an
+      // unfiltered count kept finished prerequisites nagging in the blocked column indefinitely.
+      include: { blockingDependencies: { ...openBlockerEdgesInclude, select: { id: true } } },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 25
     }),

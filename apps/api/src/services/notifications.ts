@@ -7,6 +7,12 @@ export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
 export const TASK_STATUS_CHANGED_NOTIFICATION_TYPE = 'task_status_changed';
 export const TASK_COMMENTED_NOTIFICATION_TYPE = 'task_commented';
 export const TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE = 'task_description_changed';
+// The web inbox already carries a label for `task_blocked`; nothing had ever written one. Adding a
+// blocker is the only event that makes a task un-takeable by someone else's decision, so it is the
+// one dependency write that is news. Removing a blocker is deliberately silent: a task also becomes
+// unblocked when its blocker is simply finished, and announcing only the manual half of that would
+// be a signal people learn to distrust.
+export const TASK_BLOCKED_NOTIFICATION_TYPE = 'task_blocked';
 export const TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE = 'task_review_requested';
 export const TASK_REVIEW_DECIDED_NOTIFICATION_TYPE = 'task_review_decided';
 export const ANNOUNCEMENT_PUBLISHED_NOTIFICATION_TYPE = 'announcement_published';
@@ -42,6 +48,10 @@ export function taskCommentedNotificationBody(actorName: string): string {
 
 export function taskDescriptionChangedNotificationBody(actorName: string): string {
   return `${actorName} توضیحات این کار را به‌روزرسانی کرد.`;
+}
+
+export function taskBlockedNotificationBody(actorName: string, blockerKey: string, blockerTitle: string): string {
+  return `${actorName} این کار را وابسته به ${blockerKey} («${blockerTitle}») کرد.`;
 }
 
 export function taskReviewRequestedNotificationBody(actorName: string): string {
