@@ -8,6 +8,10 @@ Agentic team task manager for a Persian-speaking (RTL, Jalali-calendar) team, ba
 A unit of work with a key (e.g. `CORE-123`), exactly one project, at most one assignee, an optional weight (1/2/3/4/8) and an optional due date. The web UI's `/issue/:taskKey` URLs are a naming leftover — the concept is Task.
 _Avoid_: Issue, ticket
 
+**Effort**:
+A Task with `kind = EFFORT`: the root of a piece of exploratory work, holding its destination, notes and decisions, and owning its tickets as ordinary child Tasks. It is a real Task with a real key and a real URL, but it is not a unit of work — it carries no assignee, due date, weight, milestone or parent, and only ever sits in `IN_PROGRESS`, `DONE` or `CANCELED`. It lives in the project it concerns. No human is offered one as something to pick up, and no metric counts one. Everything else is `kind = WORK`.
+_Avoid_: Map (the agent skills' word for the same thing — the tracker doc carries the translation), epic
+
 **Workspace**:
 The top-level container for the whole team: members, teams, projects, and tasks. One team = one workspace; routing and API access are scoped by its slug.
 _Avoid_: Org, organization
