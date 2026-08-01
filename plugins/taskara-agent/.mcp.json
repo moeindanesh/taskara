@@ -2,7 +2,7 @@
   "mcpServers": {
     "taskara": {
       "command": "bun",
-      "args": ["./scripts/mcp-server.ts"]
+      "args": ["./src/mcp-server.ts"]
     }
   }
 }

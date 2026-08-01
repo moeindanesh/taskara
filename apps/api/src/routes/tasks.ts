@@ -29,6 +29,7 @@ import { sendTaskCreatedSms, sendTaskFollowUpSms } from '../services/task-sms';
 import {
   addTaskComment,
   addTaskProgressStartedAt,
+  claimTask,
   createTask,
   deleteTask,
   findTaskByIdOrKey,
@@ -378,6 +379,32 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const task = await updateTask(actor, existing.id, input);
     const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
     return decoratedTask;
+  });
+
+  // Taking a task, as opposed to being given one. A distinct route rather than a flag on PATCH
+  // because it is conditional: it succeeds only if nobody holds the task, and folding that into
+  // `assigneeId` would make one field sometimes-conditional depending on its value.
+  //
+  // 409 is the whole contract. A caller that loses gets the holder in the body and must not treat
+  // the task as its own — that misreading is what produced two parallel implementations of #33.
+  app.post('/tasks/:idOrKey/claim', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    const { claimed, task } = await claimTask(actor, existing.id);
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
+    if (claimed) return decoratedTask;
+
+    const holder = task.assignee;
+    return reply.code(409).send({
+      message: holder
+        ? `${task.key} is already claimed by ${holder.name}`
+        : `${task.key} could not be claimed`,
+      ...decoratedTask
+    });
   });
 
   app.delete('/tasks/:idOrKey', async (request, reply) => {
