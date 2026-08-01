@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { TaskaraTask } from '@/lib/taskara-types';
 import { editorValueToPlainText } from '@/lib/task-text-ai';
-import { effortBodyText, isBodyReadOnly, isEditorBody } from './effort-body';
+import { effortBodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from './effort-body';
 
 /**
  * The body of `TKR-35` as the editor left it, copied out of the workspace it was measured in.
@@ -78,6 +78,26 @@ describe('recovering a converted body', () => {
 
       expect(editorValueToPlainText(decoy)).toBe('');
       expect(effortBodyText(decoy)).toBe(decoy);
+   });
+});
+
+describe('what AI is allowed to offer to rewrite', () => {
+   const suggestion = {
+      titleSuggestion: 'A sharper title',
+      descriptionSuggestion: 'A tidied-up paragraph.',
+      summarySuggestion: 'Three lines, shorter.',
+   };
+
+   test('an effort is offered a title and nothing that replaces its body', () => {
+      expect(withoutBodyRewrite(suggestion, task({ kind: 'EFFORT' }))).toEqual({
+         titleSuggestion: 'A sharper title',
+         descriptionSuggestion: null,
+         summarySuggestion: null,
+      });
+   });
+
+   test('work keeps every suggestion, and the same object', () => {
+      expect(withoutBodyRewrite(suggestion, task({ kind: 'WORK' }))).toBe(suggestion);
    });
 });
 

@@ -82,3 +82,24 @@ export function effortBodyText(value: string | null | undefined): string {
    const source = value ?? '';
    return isEditorBody(source) ? editorValueToPlainText(source) : source;
 }
+
+/**
+ * An AI suggestion with the halves that would overwrite the body removed.
+ *
+ * The editor is the loud way the web rewrites a body; the AI panel is the quiet one, and it is
+ * worse. A conversion wraps the markdown and is recoverable — a paraphrase is not. Nothing should
+ * offer to replace an Effort's Decisions-so-far index with a tidier version of it.
+ *
+ * The suppression happens where the suggestion is received rather than where the button is drawn,
+ * because «اعمال همه پیشنهادها» sends both halves and a suggestion that is merely unrendered still
+ * arrives at the apply as `null` — which the patch reads as «clear the body». Removing the offer
+ * and refusing the write are two guards for one rule, and both are here on purpose.
+ *
+ * Work is handed back its own object, so a suggestion keeps its identity through the common path.
+ */
+export function withoutBodyRewrite<
+   T extends { descriptionSuggestion: string | null; summarySuggestion: string | null },
+>(suggestion: T, task: { kind?: TaskaraTaskKind | null }): T {
+   if (!isBodyReadOnly(task)) return suggestion;
+   return { ...suggestion, descriptionSuggestion: null, summarySuggestion: null };
+}
