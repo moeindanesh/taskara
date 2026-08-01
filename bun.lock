@@ -120,8 +120,12 @@
     "plugins/taskara-agent": {
       "name": "taskara-agent",
       "version": "0.1.0",
+      "bin": {
+        "taskara": "./src/cli.ts",
+      },
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.20.1",
+        "@taskara/shared": "workspace:*",
         "zod": "^3.25.76",
       },
       "devDependencies": {

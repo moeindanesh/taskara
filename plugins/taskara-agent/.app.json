@@ -2,8 +2,14 @@
   "apps": {
     "taskara": {
       "displayName": "Taskara",
-      "description": "API-backed team task manager for Codex and Mattermost workflows.",
-      "env": ["TASKARA_API_URL", "TASKARA_USER_EMAIL", "TASKARA_WORKSPACE_SLUG", "TASKARA_AGENT_RUNTIME"]
+      "description": "API-backed team task manager and issue tracker for agent workflows.",
+      "env": [
+        "TASKARA_API_URL",
+        "TASKARA_WORKSPACE_SLUG",
+        "TASKARA_AGENT_TOKEN",
+        "TASKARA_USER_EMAIL",
+        "TASKARA_AGENT_RUNTIME"
+      ]
     }
   }
 }

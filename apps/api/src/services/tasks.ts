@@ -4,7 +4,7 @@ import { attributedTo } from './actor-provenance';
 import { logActivity, snapshot } from './audit';
 import { openBlockerCountSelect } from './blockers';
 import type { z } from 'zod';
-import { taskDescriptionMaxChars, type TaskKindValue } from '@taskara/shared';
+import { maxTaskLabels, taskDescriptionMaxChars, type TaskKindValue } from '@taskara/shared';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
@@ -320,13 +320,28 @@ export async function updateTask(
       where: { id: taskId },
       select: { version: true, milestoneId: true, projectId: true }
     });
-    if (
-      !currentTaskState
-      || currentTaskState.version !== existing.version
-      || currentTaskState.milestoneId !== existing.milestoneId
-      || currentTaskState.projectId !== existing.projectId
-    ) {
+    if (!currentTaskState) {
       throw new HttpError(409, 'Task changed on another client');
+    }
+    // This guard protects a read-modify-write: everything above derives from `existing`, which was
+    // read before the transaction, so a row that moved underneath us invalidates the derivation.
+    //
+    // A label delta derives nothing from it. `addLabels`/`removeLabels` are applied against the row
+    // as it is now, after the update below has taken the row lock, so there is no stale read to
+    // protect and the version having moved is not evidence of anything. Left in, this check would
+    // hand a 409 to whichever of two concurrent relabels arrived second and undo the entire point
+    // of moving the add server-side — the writes would no longer race, but one would still fail.
+    //
+    // Narrow on purpose: the moment a patch also carries a scalar field, it is a read-modify-write
+    // again and gets the guard back.
+    if (!isLabelDeltaOnly(input)) {
+      if (
+        currentTaskState.version !== existing.version
+        || currentTaskState.milestoneId !== existing.milestoneId
+        || currentTaskState.projectId !== existing.projectId
+      ) {
+        throw new HttpError(409, 'Task changed on another client');
+      }
     }
     const reservedKey = isProjectChange ? await reserveTaskKey(tx, targetProjectId) : null;
 
@@ -355,6 +370,8 @@ export async function updateTask(
     if (input.labels) {
       await tx.taskLabel.deleteMany({ where: { taskId } });
       await syncTaskLabels(tx, actor.workspace.id, taskId, input.labels);
+    } else if (input.addLabels || input.removeLabels) {
+      await applyTaskLabelDelta(tx, actor.workspace.id, taskId, input.addLabels, input.removeLabels);
     }
 
     const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
@@ -423,7 +440,10 @@ export async function updateTask(
     }
 
     const changedFields = [...new Set([
-      ...Object.keys(input),
+      // A sync client diffs task fields, and the task field that moved is `labels` however the
+      // caller spelled the request. `addLabels` is a verb on the wire, not a column, and a client
+      // that has never heard of it would otherwise be told nothing changed.
+      ...Object.keys(input).map((field) => (labelDeltaFields.has(field) ? 'labels' : field)),
       ...(isProjectChange && input.milestoneId === undefined && existing.milestoneId ? ['milestoneId'] : [])
     ])];
     const taskEvent = await appendSyncEvent(tx, {
@@ -484,6 +504,89 @@ export async function updateTask(
   );
 
   return task;
+}
+
+export interface ClaimTaskResult {
+  claimed: boolean;
+  task: Awaited<ReturnType<typeof findTaskWithInclude>>;
+}
+
+async function findTaskWithInclude(workspaceId: string, taskId: string) {
+  return prisma.task.findFirstOrThrow({
+    where: { id: taskId, workspaceId },
+    include: taskInclude
+  });
+}
+
+/**
+ * Take an unassigned task, or fail and say who holds it.
+ *
+ * The mutual exclusion is the `where` clause, not a check the caller performs first: one
+ * `updateMany` filtered on `assigneeId: null`, and the row count is the answer. Two agents racing
+ * for the same ticket both issue this, Postgres serialises them on the row, and exactly one sees a
+ * count of 1. Reading the assignee and then assigning — the convention that let #33 be built twice
+ * — cannot be made safe from the client no matter how carefully it is done.
+ *
+ * Deliberately not idempotent for a caller that already holds the task: `claimed: false` means "you
+ * did not take this now", which is the only question a caller racing for exclusive work is asking.
+ * Answering "yes, you had it already" would let a re-run of an orchestrating script conclude it had
+ * just won a race it never entered.
+ */
+export async function claimTask(actor: RequestActor, taskId: string): Promise<ClaimTaskResult> {
+  const existing = await prisma.task.findFirst({
+    where: { id: taskId, workspaceId: actor.workspace.id },
+    select: { id: true, kind: true }
+  });
+  if (!existing) throw new HttpError(404, 'Task not found');
+  // An effort carries no assignee — a CHECK constraint says so — so a claim on one is not a race
+  // that was lost, it is a category error. Caught here because the alternative is the constraint
+  // rejecting the write and the caller receiving a 500 with Postgres in it.
+  if (existing.kind === 'EFFORT') {
+    throw new HttpError(400, 'An effort cannot be claimed: it is not a unit of work');
+  }
+
+  const { count } = await prisma.task.updateMany({
+    where: { id: taskId, workspaceId: actor.workspace.id, assigneeId: null },
+    data: { assigneeId: actor.user.id, version: { increment: 1 } }
+  });
+
+  const task = await findTaskWithInclude(actor.workspace.id, taskId);
+  if (count === 0) return { claimed: false, task };
+
+  await subscribeUsersToTask(prisma, {
+    workspaceId: actor.workspace.id,
+    taskId,
+    userIds: [actor.user.id]
+  });
+
+  const event = await appendSyncEvent(prisma, {
+    workspaceId: actor.workspace.id,
+    entityType: 'task',
+    entityId: taskId,
+    operation: 'updated',
+    entityVersion: task.version,
+    actorId: actor.user.id,
+    payload: {
+      before: serializeTaskForResponse({ ...task, assignee: null, assigneeId: null }),
+      after: serializeTaskForResponse(task),
+      changedFields: ['assigneeId']
+    }
+  });
+  publishSyncEvent(event);
+
+  await logActivity({
+    workspaceId: actor.workspace.id,
+    actorId: actor.user.id,
+    actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
+    entityType: 'task',
+    entityId: taskId,
+    action: 'claimed',
+    after: task,
+    source: actor.source
+  }).catch(() => undefined);
+
+  return { claimed: true, task };
 }
 
 export async function deleteTask(actor: RequestActor, taskId: string, syncMutation?: SyncMutationMeta) {
@@ -732,6 +835,73 @@ async function syncTaskLabels(
   }
 }
 
+/**
+ * Add and remove labels against whatever the row holds right now, rather than against a set the
+ * caller read a moment ago. That is the whole difference from `syncTaskLabels`: no caller state
+ * takes part, so two concurrent deltas touching different labels both survive.
+ *
+ * Removals run first so `--remove-label x --add-label x` settles on present rather than on
+ * whichever query the database happened to order last.
+ */
+async function applyTaskLabelDelta(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  taskId: string,
+  addLabels: string[] | undefined,
+  removeLabels: string[] | undefined
+): Promise<void> {
+  const remove = normalizeLabelNames(removeLabels ?? []);
+  const add = normalizeLabelNames(addLabels ?? []);
+
+  if (remove.length > 0) {
+    await tx.taskLabel.deleteMany({
+      where: { taskId, label: { workspaceId, name: { in: remove } } }
+    });
+  }
+
+  for (const name of add) {
+    const label = await tx.label.upsert({
+      where: { workspaceId_name: { workspaceId, name } },
+      update: {},
+      create: { workspaceId, name }
+    });
+    // `TaskLabel` is keyed on the pair, so re-adding a label the task already carries is a no-op
+    // rather than a unique violation. An add has to be idempotent: a retried request must not be
+    // the difference between success and a 500.
+    await tx.taskLabel.upsert({
+      where: { taskId_labelId: { taskId, labelId: label.id } },
+      update: {},
+      create: { taskId, labelId: label.id }
+    });
+  }
+
+  // The cap `labels` enforces per-request, enforced here on the result instead. Checking the input
+  // array would let a task grow without bound twelve labels at a time, which is the one thing the
+  // cap exists to stop.
+  const total = await tx.taskLabel.count({ where: { taskId } });
+  if (total > maxTaskLabels) {
+    throw new HttpError(400, `A task cannot carry more than ${maxTaskLabels} labels`);
+  }
+}
+
+function normalizeLabelNames(rawLabels: string[]): string[] {
+  return [...new Set(rawLabels.map((label) => label.trim()).filter(Boolean))];
+}
+
+const labelDeltaFields = new Set(['addLabels', 'removeLabels']);
+
+/**
+ * Whether a patch changes nothing but labels, additively. Keyed off the actual request keys rather
+ * than off the parsed defaults, because an absent field and a field set to undefined mean the same
+ * thing here and neither is a change.
+ */
+function isLabelDeltaOnly(input: UpdateTaskInput): boolean {
+  const present = Object.entries(input)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+  return present.length > 0 && present.every((key) => labelDeltaFields.has(key));
+}
+
 async function assertTaskRelations(
   tx: Prisma.TransactionClient,
   workspaceId: string,
@@ -918,6 +1088,11 @@ async function assertNoConflictingTaskUpdate(
 ): Promise<void> {
   if (baseVersion === undefined || baseVersion >= currentVersion) return;
 
+  // Raw keys, deliberately unmapped — the mirror image of the sync event above, which rewrites
+  // `addLabels` to `labels`. There it is being announced, and a listener needs the column name.
+  // Here it is being tested for conflict, and an additive delta conflicts with nothing: it does not
+  // depend on the set it is applied to. Mapping it would resurrect exactly the false conflict this
+  // idiom exists to remove.
   const changedFields = new Set(Object.keys(input));
   if (changedFields.size === 0) return;
 

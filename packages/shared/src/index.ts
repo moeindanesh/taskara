@@ -473,6 +473,13 @@ export const createTaskSchema = z.object({
   source: z.enum(['WEB', 'API', 'MATTERMOST', 'CODEX', 'AGENT', 'SYSTEM']).default('API')
 });
 
+/**
+ * How many labels one task may carry. Exported because two places enforce it and they must agree:
+ * the schemas cap the array a caller sends, and the additive path caps the resulting set — which is
+ * the only cap that binds once a caller can add twelve at a time, repeatedly.
+ */
+export const maxTaskLabels = 12;
+
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(300).optional(),
   // The widest ceiling any task may hold, because a patch body cannot tell WORK from EFFORT — the
@@ -488,7 +495,29 @@ export const updateTaskSchema = z.object({
   cycleId: z.string().uuid().nullable().optional(),
   milestoneId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
-  labels: z.array(z.string().min(1).max(40)).max(12).optional()
+  // The whole-array replacement, unchanged. The web client holds the complete set in its editor and
+  // means to replace it, so this is the right idiom for it and stays the default.
+  labels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
+  // The additive idiom, for callers that hold a delta rather than the set. Two agents each adding
+  // one label to the same task must both survive; with `labels` they cannot, because each reads the
+  // set, appends locally and writes the whole thing back, and this endpoint has no concurrency
+  // control to catch the loser (`baseVersion` is optional and reachable only through /sync). Moving
+  // the add server-side makes the two writes commute instead of racing.
+  addLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
+  removeLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional()
+}).superRefine((value, ctx) => {
+  // Replacing and adding in one request is not a merge anyone can predict the outcome of — it is a
+  // caller that has confused the two idioms. Refusing beats picking an order and being quietly
+  // wrong half the time.
+  if (value.labels === undefined) return;
+  for (const field of ['addLabels', 'removeLabels'] as const) {
+    if (value[field] === undefined) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [field],
+      message: 'Use labels to replace the whole set, or addLabels/removeLabels to change it — not both'
+    });
+  }
 });
 
 export const createCommentSchema = z.object({

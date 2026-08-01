@@ -1,73 +1,133 @@
 ---
 name: taskara-agent
-description: Use native Taskara MCP tools from Codex to create, search, update, assign, summarize, plan, report on, and administer project milestones and team tasks through the Taskara API.
+description: Work Taskara tasks, efforts, projects, milestones and daily reports — create, search, claim, edit, comment, close, plan and report — through the Taskara CLI or its MCP tools.
 ---
 
 # Taskara Agent
 
-Use native tools when the user wants to interact with Taskara milestones, tasks, projects, planning workflows, or workspace users.
+Taskara is a team task manager that is also this team's issue tracker. Its word for a unit of work is
+a **Task** (key `CORE-123`), and its word for the root of a piece of exploratory work — what the
+wayfinder skills call a *map* — is an **Effort**, a Task with `kind = EFFORT`.
+
+Two surfaces over one core:
+
+- **The CLI**, `taskara <noun> <verb>`, for anything running in a shell. This is the whole tracker
+  contract and the only surface a skill file can reach, because a skill's instructions are strings
+  pasted into Bash.
+- **The MCP tools**, for a person in conversation.
 
 ## Environment
 
-The MCP server reads:
+Both surfaces read:
 
 - `TASKARA_API_URL`
-- `TASKARA_USER_EMAIL`
 - `TASKARA_WORKSPACE_SLUG`
+- `TASKARA_AGENT_TOKEN` — an agent credential, presented as a bearer token. This is how an agent
+  authenticates; an agent User is refused on the email path.
+- `TASKARA_USER_EMAIL` — the legacy header path, for a **human** driving the MCP tools. Ignored when
+  a token is set.
 - `TASKARA_AGENT_RUNTIME` (optional) — `CLAUDE_CODE`, `CODEX`, `OPENCLAW` or `HERMES`. Set it in the
-  per-runtime MCP config, since the same server binary serves all four. It is recorded on the rows
-  an agent writes, and ignored when the configured identity is a human.
+  per-runtime config, since one binary serves all four. It is recorded on the rows an agent writes
+  and ignored when the configured identity is a human. A value that is not one of the four is a
+  configuration error rather than a silent omission.
 
-## Native Tools
+## CLI
 
-The plugin exposes these MCP tools:
+```
+taskara task create   --project <id> --title <s> [--body <s> | --body-file <path|->]
+                      [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
+                      [--label a,b] [--assignee <id>] [--due-at <iso>] [--milestone <id>]
+taskara task view     <key|id> [--comments]
+taskara task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assignee <id>|none|me]
+                      [--blockers none|any] [--label <name>|none] [--project <id>]
+                      [--kind WORK|EFFORT] [--sort createdAt:asc] [--query <s>] [--limit n]
+taskara task edit     <key|id> [--add-label L] [--remove-label L]
+                      [--add-blocker K] [--remove-blocker K] [--add-assignee <id>] [...fields]
+taskara task claim    <key|id>
+taskara task comment  <key|id> [--body <s> | --body-file <path|->]
+taskara task close    <key|id> [--reason completed|canceled]
+```
 
-- `check_connection`
-- `list_projects`
-- `create_project`
-- `summarize_project`
-- `list_milestones`
-- `create_milestone`
-- `update_milestone`
-- `summarize_milestone`
-- `assign_task_to_milestone`
-- `search_tasks`
-- `list_my_tasks`
-- `get_task`
-- `create_task`
-- `update_task`
-- `comment_on_task`
-- `propose_tasks_from_text`
-- `apply_agent_action`
-- `generate_daily_plan`
-- `get_daily_report_draft`
-- `submit_daily_report`
-- `plan_work`
-- `triage_backlog`
-- `detect_blockers`
-- `generate_weekly_report`
-- `list_users`
-- `create_user`
-- `update_user_role`
+**stdout is always JSON**, the result on success and `{ "error": ... }` on failure. **stderr is
+always the human line.** The exit code is what you branch on.
+
+### Exit codes
+
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | Succeeded | Continue. |
+| 1 | Usage — bad noun, verb or flag. Nothing was sent. | Fix the command. |
+| 2 | Configuration — required environment missing or unusable. Nothing was sent. | A human fixes the config. |
+| 3 | Auth — 401/403. Credential absent, wrong, revoked, or not permitted. | A human fixes the credential. |
+| 4 | Not found — 404. | Check the key. |
+| 5 | Conflict — 409. Includes losing a `task claim`. | Someone else has it; move on. |
+| 6 | Rejected — the server understood the request and refused it. | Fix the request. |
+| 7 | Server error — 5xx. Whether the work happened is unknown. | Retry, then escalate. |
+| 8 | Unreachable — no HTTP response at all. | Retry; check the API is up. |
+
+### The frontier
+
+The unfinished, unassigned, unblocked children of one effort — what is takeable right now:
+
+```bash
+taskara task list --parent <effortKey> --status unfinished --assignee none \
+                  --blockers none --sort createdAt:asc
+```
+
+### Claiming
+
+`taskara task claim <key>` is conditional server-side: it takes the task only if nobody holds it,
+and exits **5** naming the holder if somebody does. Always claim before starting work on a shared
+effort, and treat exit 5 as "pick a different ticket" — never as "the claim looked stale".
+
+It is deliberately not idempotent. Re-claiming a task you already hold also exits 5, because "you
+hold this" and "you just took this" are different answers.
+
+### Labels and blockers
+
+`--add-label` / `--remove-label` are applied **server-side**, so two agents relabelling one task do
+not overwrite each other. Both flags repeat, and accept comma-separated lists.
+
+`--add-blocker K` means *K blocks this task*. Blocker edges are separate rows on separate endpoints,
+so a `task edit` touching both fields and blockers is not one atomic write.
+
+### Bodies
+
+`--body-file -` reads the body from stdin. Use it for anything long: an effort body is tens of
+kilobytes of markdown, and inline shell quoting of that is where a paste breaks. The description
+ceiling is the server's — 15,000 characters for work, 60,000 for an effort.
+
+## MCP tools
+
+Same `noun_verb` grammar as the CLI.
+
+| Tool | |
+|---|---|
+| `workspace_check` | Check the API URL, workspace and identity |
+| `project_list` `project_create` `project_summarize` | Projects |
+| `milestone_list` `milestone_create` `milestone_update` `milestone_summarize` | Milestones |
+| `task_search` `task_list_mine` `task_view` | Reading tasks |
+| `task_create` `task_edit` `task_claim` `task_comment` `task_attach` `task_set_milestone` | Writing tasks |
+| `task_propose` `agent_action_apply` | Turning a discussion into proposed tasks, then applying them |
+| `plan_daily` `plan_work` `backlog_triage` `blocker_detect` | Planning |
+| `report_daily_draft` `report_daily_submit` `report_weekly` | Reports |
+| `user_list` `user_create` `user_set_role` | Admin-only; not reachable with an agent credential |
+
+`task_search` carries the whole query vocabulary, so the frontier is one call:
+`parentId`, `status: 'unfinished'`, `assigneeId: 'none'`, `blockers: 'none'`, `sort: 'createdAt:asc'`.
 
 ## Safety
 
 - Ask for confirmation before applying bulk changes.
 - Do not mark tasks `DONE` or `CANCELED` unless the user explicitly asks.
-- Do not complete, cancel, archive, or otherwise change milestone lifecycle implicitly. Keep those actions deliberate and preserve unfinished-task policy decisions.
-- Assign tasks only to an open milestone in the same project; let the API enforce this invariant and report its error instead of retrying with a different milestone silently.
-- Use a milestone's returned `version` for metadata updates. On conflict, refetch and show the user what changed before retrying.
-- Use `propose_tasks_from_text` for long plans or discussions, then apply selected proposed actions with `apply_agent_action`.
-- Draft a daily report with `get_daily_report_draft` and show it to the user for edits; only call `submit_daily_report` once they confirm the wording. The report is their voice, not yours.
+- Do not complete, cancel, archive, or otherwise change milestone lifecycle implicitly. Keep those
+  actions deliberate and preserve unfinished-task policy decisions.
+- Assign tasks only to an open milestone in the same project; let the API enforce this invariant and
+  report its error instead of retrying with a different milestone silently.
+- Use a milestone's returned `version` for metadata updates. On conflict, refetch and show the user
+  what changed before retrying.
+- Prefer `addLabels`/`removeLabels` over `labels`, which replaces the whole set and loses a
+  concurrent edit.
+- Draft a daily report with `report_daily_draft` and show it to the user for edits; only call
+  `report_daily_submit` once they confirm the wording. The report is their voice, not yours.
 - Include task keys in summaries after mutations.
-- User-management tools require `OWNER` or `ADMIN` in Taskara.
-
-## Fallback CLI
-
-The old helper script is still available for manual testing:
-
-```bash
-bun scripts/taskara.mjs list-my-tasks
-bun scripts/taskara.mjs search-tasks --query "blocked backend"
-bun scripts/taskara.mjs create-task --project-id "<uuid>" --title "Implement audit trail"
-```

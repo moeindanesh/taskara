@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "taskara": "./src/cli.ts"
+  },
   "scripts": {
-    "mcp": "bun scripts/mcp-server.ts",
+    "mcp": "bun src/mcp-server.ts",
+    "cli": "bun src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.1",
+    "@taskara/shared": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {
