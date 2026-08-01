@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance, type InjectOptions } from 'fastify';
 import { registerApp } from '../app';
+import { mintAgentCredentialToken } from './agent-credential';
 import { createUserSession } from './auth';
 
 /**
@@ -161,7 +162,7 @@ describe('agent authorship at the request boundary', () => {
   test('a human cannot claim agent authorship with a header', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const created = await inject(app, fixture, fixture.human.email, {
+    const created = await inject(app, fixture, fixture.human, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Human work' },
@@ -177,7 +178,7 @@ describe('agent authorship at the request boundary', () => {
   test("an agent's work is stamped AGENT however the client describes itself", async () => {
     const fixture = await createWorkspaceFixture();
 
-    const created = await inject(app, fixture, fixture.agent.email, {
+    const created = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Agent work' },
@@ -192,19 +193,19 @@ describe('agent authorship at the request boundary', () => {
   test('the runtime rides on the action, because one agent User serves all four', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const viaOpenclaw = await inject(app, fixture, fixture.agent.email, {
+    const viaOpenclaw = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'From OpenClaw' },
       headers: { 'x-agent-runtime': 'OPENCLAW' }
     });
-    const viaClaudeCode = await inject(app, fixture, fixture.agent.email, {
+    const viaClaudeCode = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'From Claude Code' },
       headers: { 'x-agent-runtime': 'claude-code' }
     });
-    const viaNothing = await inject(app, fixture, fixture.agent.email, {
+    const viaNothing = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'From an undeclared runtime' }
@@ -218,7 +219,7 @@ describe('agent authorship at the request boundary', () => {
   test('the legacy x-actor-type header names a runtime and decides nothing else', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const byAgent = await inject(app, fixture, fixture.agent.email, {
+    const byAgent = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Legacy plugin call' },
@@ -228,7 +229,7 @@ describe('agent authorship at the request boundary', () => {
     expect(agentRow.actorType).toBe('AGENT');
     expect(agentRow.actorRuntime).toBe('CODEX');
 
-    const byHuman = await inject(app, fixture, fixture.human.email, {
+    const byHuman = await inject(app, fixture, fixture.human, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Legacy human call' },
@@ -242,13 +243,18 @@ describe('agent authorship at the request boundary', () => {
   test('provenance is a snapshot: changing the identity does not rewrite past work', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const created = await inject(app, fixture, fixture.agent.email, {
+    const created = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Work done while an agent' },
       headers: { 'x-agent-runtime': 'HERMES' }
     });
     expect(created.statusCode).toBe(201);
+
+    // The credential goes first because a composite foreign key refuses to let a credential holder
+    // stop being an agent. That is the real sequence an account conversion has to follow, and it is
+    // the one worth testing: revoke, then convert, and the work already done keeps its authorship.
+    await prisma.agentCredential.deleteMany({ where: { userId: fixture.agent.id } });
 
     // The two things a query-time re-join would have consulted, both changed after the fact.
     await prisma.user.update({
@@ -268,7 +274,7 @@ describe('agent authorship at the request boundary', () => {
   test('a notification records the agent that caused it', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const created = await inject(app, fixture, fixture.agent.email, {
+    const created = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: {
@@ -311,7 +317,7 @@ describe('agent authorship at the request boundary', () => {
   test('an unrecognised runtime is recorded as none, not as a runtime', async () => {
     const fixture = await createWorkspaceFixture();
 
-    const created = await inject(app, fixture, fixture.agent.email, {
+    const created = await inject(app, fixture, fixture.agent, {
       method: 'POST',
       url: '/tasks',
       payload: { projectId: fixture.project.id, title: 'Runtime from the future' },
@@ -334,7 +340,7 @@ interface WorkspaceFixture {
   workspace: { id: string; slug: string };
   project: { id: string };
   human: { id: string; email: string };
-  agent: { id: string; email: string };
+  agent: { id: string; email: string; token: string };
 }
 
 async function createWorkspaceFixture(): Promise<WorkspaceFixture> {
@@ -380,20 +386,42 @@ async function createWorkspaceFixture(): Promise<WorkspaceFixture> {
     select: { id: true }
   });
 
-  return { workspace, project, human, agent };
+  // An agent authenticates with its own credential; the email header cannot speak as one. The
+  // credential is full read-write so that nothing here passes or fails on a narrow scope -- what is
+  // under test is the kind of the identity behind it.
+  const minted = mintAgentCredentialToken();
+  await prisma.agentCredential.create({
+    data: {
+      workspaceId: workspace.id,
+      userId: agent.id,
+      name: 'Provenance test',
+      lookupId: minted.lookupId,
+      tokenHash: minted.tokenHash,
+      scope: 'READ_WRITE'
+    }
+  });
+
+  return { workspace, project, human, agent: { ...agent, token: minted.token } };
 }
 
 function inject(
   app: FastifyInstance,
   fixture: WorkspaceFixture,
-  email: string,
+  actor: { email: string; token?: string },
   options: InjectOptions & { headers?: Record<string, string> }
 ) {
+  // Each actor authenticates the way it actually can: a person by the email header, an agent by its
+  // credential. An agent User is refused on the header path, so using it for both would test a route
+  // no agent has -- and would quietly stop exercising provenance at all.
+  const credentials = actor.token
+    ? { authorization: `Bearer ${actor.token}` }
+    : { 'x-user-email': actor.email };
+
   return app.inject({
     ...options,
     headers: {
       'x-workspace-slug': fixture.workspace.slug,
-      'x-user-email': email,
+      ...credentials,
       ...(options.headers || {})
     }
   });
