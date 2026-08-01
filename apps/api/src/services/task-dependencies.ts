@@ -48,6 +48,8 @@ export async function addTaskDependency(
     // Dependency writes are rare and this transaction is short, so the contention is not real.
     await lockWorkspaceDependencies(tx, actor.workspace.id);
 
+    await assertBothAreWork(tx, task, blocker);
+
     const existing = await tx.taskDependency.findUnique({
       where: { taskId_blockedByTaskId: { taskId: task.id, blockedByTaskId: blocker.id } }
     });
@@ -161,6 +163,43 @@ async function appendDependencySyncEvent(
  * check, because the route accepted them for as long as it has existed — so the walk has to
  * terminate on a graph that is *already* cyclic, not merely avoid creating one.
  */
+/**
+ * Neither end of a blocking edge may be an Effort.
+ *
+ * An Effort is a map, not a unit of work: nobody is assigned it and nothing waits on it. An edge
+ * touching one would put it in the dependencies section of a real task and count it toward that
+ * task's open-blocker total — an Effort appearing to a human as work standing in their way, which is
+ * the whole failure `kind` exists to prevent.
+ *
+ * Refused at the write rather than filtered at the read, because filtering leaves a row in the
+ * database that means something nobody can see, and the next reader of those edges would have to
+ * remember to filter too. The reads are filtered as well, for edges predating this.
+ *
+ * `kind` is read here rather than taken from the caller: the endpoints arrive as {id, key, title},
+ * and a guard that trusts its caller to have looked is a guard the next caller forgets.
+ */
+async function assertBothAreWork(
+  tx: Prisma.TransactionClient,
+  task: { id: string; key: string },
+  blocker: { id: string; key: string }
+): Promise<void> {
+  const rows = await tx.task.findMany({
+    where: { id: { in: [task.id, blocker.id] }, kind: 'EFFORT' },
+    select: { id: true }
+  });
+  if (!rows.length) return;
+
+  const efforts = new Set(rows.map((row) => row.id));
+  const named = [
+    efforts.has(task.id) ? task.key : null,
+    efforts.has(blocker.id) ? blocker.key : null
+  ].filter(Boolean);
+  throw new HttpError(
+    400,
+    `A blocking edge cannot touch an effort: ${named.join(' and ')} ${named.length > 1 ? 'are efforts' : 'is an effort'}. An effort holds tickets through parentId; it does not block work and is not blocked by it.`
+  );
+}
+
 async function assertNoBlockingCycle(
   tx: Prisma.TransactionClient,
   taskId: string,

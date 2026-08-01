@@ -389,8 +389,11 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
           }
         },
         subtasks: { orderBy: { createdAt: 'asc' } },
-        blockingDependencies: { include: { blockedByTask: true } },
-        blockedTasks: { include: { task: true } }
+        // Filtered on the far end of each edge, not on this task. An effort cannot be an endpoint of
+        // a blocking edge -- assertBothAreWork refuses one -- so this covers only edges predating
+        // that guard, and it costs nothing to keep an effort out of a human's dependencies list.
+        blockingDependencies: { where: { blockedByTask: workTaskWhere }, include: { blockedByTask: true } },
+        blockedTasks: { where: { task: workTaskWhere }, include: { task: true } }
       }
     });
     if (!fullTask) return null;

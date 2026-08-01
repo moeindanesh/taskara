@@ -757,6 +757,101 @@ async function cleanup(): Promise<void> {
   await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
 }
 
+/**
+ * Issue #51 — an Effort is a map, not work. An edge touching one would put it in a human's
+ * dependencies list and count it toward their open-blocker total, which is the failure `kind`
+ * exists to prevent.
+ */
+describe('a blocking edge cannot touch an effort', () => {
+  beforeAll(async () => {
+    app = Fastify({ logger: false });
+    await registerApp(app);
+    await app.ready();
+  });
+
+  afterEach(cleanup);
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test('refuses an effort as the blocker, naming it', async () => {
+    const fixture = await createFixture();
+    const work = await seedTask(fixture, 'Real work');
+    const effort = await seedEffort(fixture, 'A map');
+
+    const response = await injectAs(fixture, 'member', {
+      method: 'POST',
+      url: `/tasks/${work.key}/dependencies`,
+      payload: { blockedBy: effort.key }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain(effort.key);
+    expect(response.json().message).toContain('effort');
+    expect(await prisma.taskDependency.count({ where: { taskId: work.id } })).toBe(0);
+  });
+
+  test('refuses an effort as the blocked task too, because the edge is wrong in both directions', async () => {
+    const fixture = await createFixture();
+    const work = await seedTask(fixture, 'Real work');
+    const effort = await seedEffort(fixture, 'A map');
+
+    const response = await injectAs(fixture, 'member', {
+      method: 'POST',
+      url: `/tasks/${effort.key}/dependencies`,
+      payload: { blockedBy: work.key }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain(effort.key);
+  });
+
+  test('an edge that predates the guard is hidden from the read', async () => {
+    const fixture = await createFixture();
+    const work = await seedTask(fixture, 'Real work');
+    const effort = await seedEffort(fixture, 'A map');
+    // Written straight to the table: no route creates this any more, which is the point — the
+    // filter covers history rather than a path anybody can still take.
+    await prisma.taskDependency.create({ data: { taskId: work.id, blockedByTaskId: effort.id } });
+
+    const response = await injectAs(fixture, 'member', { method: 'GET', url: `/tasks/${work.key}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().blockingDependencies).toEqual([]);
+    // The count filters on blocker STATUS, not kind, so it still sees the row. Pinned as the known
+    // edge of this fix rather than left for somebody to trip over.
+    expect(response.json()._count.blockingDependencies).toBe(1);
+  });
+
+  test('an ordinary work blocker is still accepted', async () => {
+    const fixture = await createFixture();
+    const work = await seedTask(fixture, 'Real work');
+    const blocker = await seedTask(fixture, 'Its prerequisite');
+
+    await addDependency(fixture, work.key, blocker.key);
+
+    const response = await injectAs(fixture, 'member', { method: 'GET', url: `/tasks/${work.key}` });
+    expect(response.json().blockingDependencies).toHaveLength(1);
+  });
+});
+
+async function seedEffort(fixture: Fixture, title: string): Promise<{ id: string; key: string }> {
+  const sequence = fixture.nextSequence();
+  return prisma.task.create({
+    data: {
+      workspaceId: fixture.workspace.id,
+      projectId: fixture.project.id,
+      sequence,
+      key: `${fixture.project.keyPrefix}-${sequence}`,
+      title,
+      kind: 'EFFORT',
+      status: 'IN_PROGRESS',
+      reporterId: fixture.member.id
+    },
+    select: { id: true, key: true }
+  });
+}
+
 async function createFixture(): Promise<Fixture> {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const workspace = await prisma.workspace.create({
