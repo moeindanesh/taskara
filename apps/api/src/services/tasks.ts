@@ -4,6 +4,7 @@ import { attributedTo } from './actor-provenance';
 import { logActivity, snapshot } from './audit';
 import { openBlockerCountSelect } from './blockers';
 import type { z } from 'zod';
+import { taskDescriptionMaxChars, type TaskKindValue } from '@taskara/shared';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
@@ -249,6 +250,34 @@ async function reserveTaskKey(
   };
 }
 
+/**
+ * The per-kind half of the description ceiling, applied here rather than in `updateTaskSchema`
+ * because a patch body carries no `kind` — the kind belongs to the row being patched, so Zod
+ * cannot see it. The schema bounds the field at the widest ceiling any task may hold; this narrows
+ * it to the ceiling that applies to *this* row.
+ *
+ * Refusing beats trimming, and not marginally: an Effort's description is a wayfinder map, and the
+ * part a silent truncation would take is the tail of the Decisions-so-far index — the newest
+ * entries, the ones a reader navigates by. That failure would arrive as a 200.
+ *
+ * The message carries the number because nothing else does. A `ZodError` is flattened to a bare
+ * "Validation failed" on the `/sync/push` path the web app writes through, and the web client
+ * reads only `message` and never `issues` on the REST path, so a limit named solely in a Zod issue
+ * reaches no caller — human or agent — in either place. An `HttpError` message survives both.
+ */
+function assertDescriptionFitsKind(description: string | null | undefined, kind: TaskKindValue): void {
+  if (typeof description !== 'string') return;
+
+  const max = taskDescriptionMaxChars(kind);
+  if (description.length <= max) return;
+
+  throw new HttpError(
+    400,
+    `Description is ${description.length} characters; a ${kind} task allows ${max}.`
+      + (kind === 'WORK' ? ' Only an EFFORT may hold a longer body.' : '')
+  );
+}
+
 export async function updateTask(
   actor: RequestActor,
   taskId: string,
@@ -261,6 +290,7 @@ export async function updateTask(
     include: taskInclude
   });
   if (!existing) throw new Error('Task not found in this workspace');
+  assertDescriptionFitsKind(input.description, existing.kind);
   await assertNoConflictingTaskUpdate(actor.workspace.id, taskId, input, existing.version, baseVersion);
 
   let syncEvents: SyncEvent[] = [];
