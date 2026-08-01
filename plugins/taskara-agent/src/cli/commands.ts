@@ -1,6 +1,7 @@
 import { taskKinds, taskPriorities, taskStatuses, userKinds, workspaceRoles } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
+import { mentionNotice } from '../core/mentions';
 import {
   addTaskBlocker,
   claimTask,
@@ -125,10 +126,11 @@ export async function runCommand(client: TaskaraClient, argv: string[]): Promise
 }
 
 async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const body = await readBody(flags);
   const input: CreateTaskInput = {
     projectId: await resolveProjectId(client, flags.require('project')),
     title: flags.require('title'),
-    description: await readBody(flags),
+    description: body,
     kind: flags.oneOf('kind', taskKinds),
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
@@ -144,7 +146,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
 
   flags.assertNoUnknown();
   const task = await createTask(client, dropUndefined(input));
-  return { data: taskSummary(task), note: `Created ${task.key}` };
+  return { data: taskSummary(task), note: noted(`Created ${task.key}`, body) };
 }
 
 async function taskView(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -200,9 +202,10 @@ async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandRes
 async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
   const key = requireTaskRef(positionals, 'task edit');
 
+  const body = await readBody(flags);
   const patch: UpdateTaskInput = {
     title: flags.get('title'),
-    description: await readBody(flags),
+    description: body,
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
     dueAt: flags.get('due-at'),
@@ -244,7 +247,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   for (const blocker of addBlockers) await addTaskBlocker(client, key, blocker);
 
   const task = await getTask(client, key);
-  return { data: taskSummary(task), note: `Updated ${task.key}` };
+  return { data: taskSummary(task), note: noted(`Updated ${task.key}`, body) };
 }
 
 async function taskClaim(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -270,7 +273,20 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   if (!body?.trim()) throw usageError('task comment needs --body or --body-file');
 
   const comment = await commentOnTask(client, key, body);
-  return { data: comment, note: `Commented on ${key}` };
+  return { data: comment, note: noted(`Commented on ${key}`, body) };
+}
+
+/**
+ * The outcome line, and the one thing the write did not do.
+ *
+ * A body that names people notifies none of them — a mention is a node the web editor writes, and
+ * this surface only ever sends markdown (#53). The write still lands: the prose is what a human
+ * reads, and refusing to store a sentence on the strength of a guess about it would leave the
+ * caller no way to write the sentence at all. What it must not do is land in silence.
+ */
+function noted(outcome: string, body: string | undefined): string {
+  const notice = mentionNotice(body);
+  return notice ? `${outcome}\n${notice}` : outcome;
 }
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;

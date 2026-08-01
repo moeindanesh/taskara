@@ -52,6 +52,28 @@ export function findMentionAttempts(body: string | null | undefined): string[] {
   return [...found];
 }
 
+/**
+ * The line a writing surface says back when a body reads as if it addressed somebody.
+ *
+ * It names the handles rather than only stating the rule, for two reasons: a true one is
+ * actionable — the caller sees exactly who is still waiting to be told — and a false one is
+ * obvious, because `@media` in the list reads as the misfire it is instead of leaving the caller
+ * hunting a body for a mention that was never there.
+ */
+export function mentionNotice(body: string | null | undefined): string | undefined {
+  const attempts = findMentionAttempts(body);
+  if (!attempts.length) return undefined;
+
+  const shown = attempts.slice(0, 3).join(', ');
+  const rest = attempts.length - 3;
+  const listed = rest > 0 ? `${shown} and ${rest} more` : shown;
+
+  const reads = attempts.length === 1 ? 'looks like a mention' : 'look like mentions';
+  return `${listed} ${reads} and notified nobody: `
+    + 'a mention is a node the web editor writes, and a markdown body carries none. '
+    + 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
+}
+
 function isSerializedEditorValue(body: string): boolean {
   if (!body.trimStart().startsWith('{')) return false;
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
-import { findMentionAttempts } from '../../../../plugins/taskara-agent/src/core/mentions';
+import { findMentionAttempts, mentionNotice } from '../../../../plugins/taskara-agent/src/core/mentions';
 
 /**
  * The `taskara` CLI, driven as a process against a live API.
@@ -760,6 +760,10 @@ describe('taskara CLI', () => {
         .toEqual(['@robin@example.test']);
       expect(findMentionAttempts('cc **@robin** and (@sara), then @robin again'))
         .toEqual(['@robin', '@sara']);
+      // A sentence ends in a full stop and a handle does not — but a name may well contain one, so
+      // the trailing dot comes off and an interior one stays.
+      expect(findMentionAttempts('please ask @robin. @robin.example knows the rest.'))
+        .toEqual(['@robin', '@robin.example']);
     });
 
     test('the shapes that merely contain an @ are left alone', () => {
@@ -803,6 +807,72 @@ describe('taskara CLI', () => {
       });
 
       expect(findMentionAttempts(fromTheEditor)).toEqual([]);
+    });
+
+    test('the notice names the handles, and stops naming them before it becomes the body', () => {
+      // Naming them is the point — a true warning is actionable and a false one is visibly false.
+      // But a map body can carry dozens, and a stderr line that reprints half of one is a line
+      // nobody finishes reading.
+      expect(mentionNotice('@Robin please look')).toContain('@Robin looks like a mention');
+      expect(mentionNotice('@a @b @c @d @e')).toContain('@a, @b, @c and 2 more look like mentions');
+      expect(mentionNotice('bun add @types/node')).toBeUndefined();
+    });
+
+    test('task create keeps the body and says who it did not reach', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'Mention written in markdown',
+        '--body', `@Robin and ${fixture.idleEmail} — please look before Friday`
+      ]);
+
+      // **Exit 0, not 1.** A mistyped flag is unambiguously wrong and exits 1; this is a guess about
+      // prose, and refusing to store text on a guess leaves the caller with no way to write the
+      // sentence at all. The body is still worth keeping — a human reads it — so the write lands and
+      // the surface says what the write did not do.
+      expect(created.code).toBe(0);
+      expect(created.stderr).toContain('Created');
+      expect(created.stderr).toContain('@Robin');
+      expect(created.stderr).toContain('--add-assignee');
+
+      // Said, never silently repaired: the body is stored exactly as it was written.
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: String(created.json.id) } });
+      expect(stored.description).toBe(`@Robin and ${fixture.idleEmail} — please look before Friday`);
+
+      // And the warning is true. Nobody was notified, least of all the person whose address is in
+      // the body: a markdown body carries no mention nodes, so the extractor finds nothing.
+      const notified = await prisma.notification.findMany({ where: { taskId: stored.id } });
+      expect(notified).toEqual([]);
+    });
+
+    test('a body with nothing to warn about gets nothing said about it', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'An ordinary body',
+        '--body', 'Install with `bun add @types/node`, then mail robin@example.test.'
+      ]);
+
+      expect(created.code).toBe(0);
+      expect(created.stderr.trim()).toBe(`Created ${String(created.json.key)}`);
+    });
+
+    test('task edit and task comment say it too, because the body reads the same in all three', async () => {
+      const task = await createTaskViaApi('Mention on the other two verbs');
+
+      const edited = await run(['task', 'edit', task.key, '--body', '@Robin one more look?']);
+      expect(edited.code).toBe(0);
+      expect(edited.stderr).toContain('@Robin');
+
+      const commented = await run(['task', 'comment', task.key, '--body', 'thanks @Robin']);
+      expect(commented.code).toBe(0);
+      expect(commented.stderr).toContain('@Robin');
+
+      // A comment mention is the deeper hole of the two, and it is not this surface's: a comment
+      // body is never scanned for mentions by **any** client, so the same words typed in the web
+      // reach nobody either. Its subscribers hear about the comment; the person named does not.
+      const mentions = await prisma.notification.findMany({
+        where: { taskId: task.id, type: 'task_mentioned' }
+      });
+      expect(mentions).toEqual([]);
     });
   });
 
