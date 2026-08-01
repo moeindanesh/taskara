@@ -4,6 +4,15 @@ import type { ButtonHTMLAttributes, ChangeEvent, FormEvent } from 'react';
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+// PROTOTYPE #26 — remove with prototype-takeable.tsx
+import {
+   PrototypeSwitcher,
+   VariantA,
+   VariantB,
+   VariantC,
+   readTakeability,
+   useTakeabilityVariant
+} from '@/components/taskara/prototype-takeable';
 import {
    ArrowRight,
    Box,
@@ -232,6 +241,8 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    const navigate = useNavigate();
    const { orgId, taskKey: routeTaskKey } = useParams();
    const taskKey = taskKeyOverride || routeTaskKey;
+   // PROTOTYPE #26 — remove with prototype-takeable.tsx
+   const prototypeVariant = useTakeabilityVariant();
    const taskSync = useWorkspaceTaskSync();
    const [task, setTask] = useState<TaskaraTask | null>(null);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
@@ -818,9 +829,14 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
    const labels = task.labels || [];
+   // PROTOTYPE #26 — remove with prototype-takeable.tsx
+   const takeability = readTakeability(task);
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
+         {/* PROTOTYPE #26 — remove with prototype-takeable.tsx */}
+         <PrototypeSwitcher />
          <main className="min-w-0 overflow-y-auto px-6 py-5">
+            {prototypeVariant === 'C' ? <VariantC state={takeability} /> : null}
             <div className="mb-8 flex items-center justify-between gap-3">
                <Button
                   className="rounded-full border-white/8 bg-white/5 text-zinc-300 hover:bg-white/10"
@@ -1041,6 +1057,9 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                <AttachmentList attachments={attachments} className="mt-3" />
             </section>
 
+            {/* PROTOTYPE #26 — remove with prototype-takeable.tsx */}
+            {prototypeVariant === 'A' ? <VariantA state={takeability} /> : null}
+
             <section className="mt-8 border-t border-white/8 pt-5 pb-6">
                <div className="mb-4 flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold text-zinc-100">{fa.issue.activity}</h2>
@@ -1091,6 +1110,8 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
          </main>
 
          <aside className="min-w-0 overflow-y-auto overflow-x-hidden border-s border-white/6 bg-[#141416] p-3">
+            {/* PROTOTYPE #26 — remove with prototype-takeable.tsx */}
+            {prototypeVariant === 'B' ? <VariantB state={takeability} /> : null}
             <div className="mb-3 flex items-center justify-end gap-2">
                <SidebarIconButton ariaLabel="Copy issue link" onClick={() => void copyIssueUrl()}>
                   <Link2 className="size-4" />
