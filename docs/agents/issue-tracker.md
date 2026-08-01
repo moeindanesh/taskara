@@ -156,6 +156,11 @@ resolve one once per session:
 taskara task list --limit 1 | jq -r '.tasks[0].project.id'
 ```
 
+`task` is the CLI's only noun today — there is no `taskara project list` — so that trick needs the
+workspace to hold at least one Task already. In an empty workspace, get the project id from the web
+UI or from whoever set the workspace up. The MCP surface has `project_list` if you are in
+conversation rather than in a script.
+
 ## When a skill says "fetch the relevant ticket"
 
 ```bash
