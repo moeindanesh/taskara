@@ -7,6 +7,7 @@ import {
   strictQueryBooleanSchema,
   taskKindSchema,
   taskListQuerySchema,
+  taskPatchConcurrencySchema,
   unfinishedTaskStatusFilter,
   updateTaskSchema,
   type TaskSortOrderValue
@@ -94,6 +95,35 @@ function taskListOrderBy(sort: TaskListQuery['sort']): Prisma.TaskOrderByWithRel
     ? [taskSortOrderBy[sort]]
     : [{ status: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'desc' }];
   return [...leading, { id: 'asc' }];
+}
+
+/**
+ * A stale write, turned into an answer the loser can act on without asking again.
+ *
+ * "Re-read and retry" is the price of optimistic concurrency, and half of it is a round trip the
+ * server can simply skip: it has just read the row in order to discover the conflict, so it hands it
+ * back. A session whose appended line was refused gets the current body and the current version in
+ * the 409 and can re-apply immediately, which is what keeps the retry a loop of one.
+ *
+ * Returns `null` for anything that is not a 409, so an unrelated failure keeps its own status.
+ */
+async function describeStaleWrite(
+  workspaceId: string,
+  taskId: string,
+  error: unknown
+): Promise<Record<string, unknown> | null> {
+  if (!(error instanceof HttpError) || error.statusCode !== 409) return null;
+
+  const current = await prisma.task.findFirst({ where: { id: taskId, workspaceId }, include: taskInclude });
+  if (!current) return { message: error.message };
+
+  const [decoratedTask] = await addTaskProgressStartedAt(workspaceId, [serializeTaskForResponse(current)]);
+  return {
+    message: `${current.key} changed on another client: it is now version ${current.version}, and this`
+      + ' write was based on an older one. The current row is in this response — re-apply your change'
+      + ' to it and send it back with the version it carries.',
+    ...decoratedTask
+  };
 }
 
 export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
@@ -368,6 +398,11 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     return decoratedTask;
   });
 
+  // Optimistic concurrency lives here rather than in `updateTask`, because it is a property of this
+  // path and not of the operation. /sync is the web client's mutation queue: it carries its own
+  // `baseVersion` where it has one, and a first push that has no prior version to quote must still
+  // be allowed through. This is the path an agent uses, and an agent editing a body has always just
+  // read one.
   app.patch('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
     const access = await resolveWorkspaceAccess(actor);
@@ -375,8 +410,37 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
+    // Parsed off the body separately, before the patch. `updateTaskSchema` does not declare
+    // `baseVersion` and would strip it silently — a caller that sent the protection would be told
+    // nothing and would believe it had it.
+    const { baseVersion } = taskPatchConcurrencySchema.parse(request.body ?? {});
     const input = updateTaskSchema.parse(request.body);
-    const task = await updateTask(actor, existing.id, input);
+
+    // An Effort's body is an index every resolving session appends a line to, and there is no
+    // recovering a line that was overwritten: the ticket holding the detail is already closed. So
+    // the version is required rather than merely available — an optional guard is one somebody
+    // forgets on the write that mattered, and the failure is silent by construction.
+    //
+    // Scoped to EFFORT on purpose. A work task's description is a value one caller sets, not a
+    // shared document; requiring the round trip there would make every `task edit --body` a
+    // two-step operation to protect a race nothing has ever hit.
+    if (existing.kind === 'EFFORT' && input.description !== undefined && baseVersion === undefined) {
+      return reply.code(400).send({
+        message: `Rewriting an Effort's body requires baseVersion: read ${existing.key}, then send the`
+          + ' version you read back as baseVersion. Two sessions resolve tickets against one Effort at'
+          + ' once, and a write that is no longer based on the current body is refused with 409 rather'
+          + ' than overwriting the other session\'s line.'
+      });
+    }
+
+    let task;
+    try {
+      task = await updateTask(actor, existing.id, input, undefined, baseVersion);
+    } catch (error) {
+      const conflict = await describeStaleWrite(actor.workspace.id, existing.id, error);
+      if (conflict) return reply.code(409).send(conflict);
+      throw error;
+    }
     const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
     return decoratedTask;
   });

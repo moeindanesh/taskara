@@ -90,7 +90,7 @@ Branch on the exit code, never on stderr. All are below 9, so none collides with
 | 2 | Config — required environment missing or unusable. **Nothing was sent.** | A human fixes the config |
 | 3 | Auth — credential absent, wrong, revoked or not permitted | A human fixes the credential |
 | 4 | Not found — no such task, project or workspace | Check the key |
-| 5 | Conflict — **includes losing a `task claim`** | Someone else has it; take another ticket |
+| 5 | Conflict — **includes losing a `task claim`, and a body rewrite another session got in ahead of** | Someone else has it; take another ticket, or re-apply your edit and retry |
 | 6 | Rejected — the server understood the request and refused it | Fix the request |
 | 7 | Server error — whether the work happened is **unknown** | Retry, then escalate |
 | 8 | Unreachable — no HTTP response at all | Retry; check the API is up |
@@ -113,6 +113,9 @@ EOF
 
 The ceiling is the server's, and the shell carries none of its own: **15,000 characters for a work
 Task, 60,000 for an Effort.** A refusal names the count, the limit and the kind, and exits 6.
+
+Rewriting an **Effort** body additionally requires `--base-version`, because several sessions append
+to it at once — see [Rewriting an Effort body](#rewriting-an-effort-body).
 
 ### Labels
 
@@ -257,15 +260,57 @@ are its **child** Tasks.
   somebody else holds it; move to the next frontier ticket.
 - **Resolve**: `taskara task comment <key> --body-file -` with the answer, then
   `taskara task close <key> --reason completed`, then append a context pointer to the Effort's
-  Decisions-so-far. The Effort body is rewritten whole, from stdin:
-  ```bash
-  taskara task edit <effortKey> --body-file - < /tmp/effort-body.md
-  ```
-  There is no append operation and no optimistic-concurrency flag on this path, so read the body,
-  edit it, and write it back in one session rather than holding it across a long pause.
+  Decisions-so-far. The Effort body is rewritten whole, and the rewrite must say which version it is
+  based on — see [Rewriting an Effort body](#rewriting-an-effort-body).
 
 Ruling a ticket out of scope is `taskara task close <key> --reason canceled` plus the line on the
 Effort's Out of scope section.
+
+### Rewriting an Effort body
+
+There is no append operation. Decisions-so-far sits **in the middle** of the body — between Notes and
+Not-yet-specified — so a line appended at the end lands in the wrong section, and teaching Taskara to
+find the right one would put wayfinder's document format inside the API. The whole body is rewritten
+every time.
+
+Several sessions resolve tickets against one Effort at once, so a rewrite has to say what it was
+based on. **`--base-version` is required when the body being rewritten belongs to an Effort**, and it
+must be the version that came back with the body you edited:
+
+```bash
+# --comments is what makes `task view` return the body; the plain view is a summary.
+taskara task view "$EFFORT" --comments > /tmp/effort.json
+jq -r .description /tmp/effort.json > /tmp/effort-body.md
+VERSION=$(jq -r .version /tmp/effort.json)
+
+# ...edit /tmp/effort-body.md, adding one line to Decisions so far...
+
+taskara task edit "$EFFORT" --body-file - --base-version "$VERSION" < /tmp/effort-body.md
+```
+
+Do not re-read the version just before writing. The point of the flag is that the version and the
+body come from the same read; a fresher one waves through exactly the write it exists to catch.
+
+**Exit 5 means another session wrote first and your line is not in the body.** It is not a warning,
+and nothing was written. The current body and its version come back on stdout under `error.task`, so
+the retry costs no extra read:
+
+```bash
+if ! taskara task edit "$EFFORT" --body-file - --base-version "$VERSION" \
+       < /tmp/effort-body.md > /tmp/edit-result.json; then
+  # Exit 5: error.task is the row as it is now, including the other session's line.
+  jq -r .error.task.description /tmp/edit-result.json > /tmp/effort-body.md
+  VERSION=$(jq -r .error.task.version /tmp/edit-result.json)
+  # ...re-apply your own line to /tmp/effort-body.md, then send it with this VERSION.
+fi
+```
+
+Re-apply **your own line** to the body that came back. Do not resend the body you had: it is missing
+the other session's line, and sending it would lose exactly what the refusal saved.
+
+Omitting `--base-version` on an Effort is a 400, exit 6, and nothing is written. A work Task's body
+is a value one caller sets rather than an index several append to, so `taskara task edit <key> --body`
+needs no version — and gets no protection.
 
 ## Three unrelated `AGENT` tokens
 

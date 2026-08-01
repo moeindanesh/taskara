@@ -335,7 +335,10 @@ registerTool('task_edit', {
   title: 'Edit a Taskara task',
   description:
     'Update a task by UUID or key. Prefer addLabels/removeLabels over labels: labels replaces the whole '
-    + 'set and loses a concurrent edit, while the add and remove are applied server-side and commute.',
+    + 'set and loses a concurrent edit, while the add and remove are applied server-side and commute. '
+    + 'A description is a whole-body rewrite and cannot commute, so pass baseVersion — the version that '
+    + 'came with the body you edited — and the server refuses the write instead of overwriting someone '
+    + 'else. Rewriting an Effort body without it is rejected.',
   inputSchema: {
     task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
     title: z.string().min(1).max(300).optional(),
@@ -352,12 +355,17 @@ registerTool('task_edit', {
     removeLabels: z.array(z.string().min(1).max(40)).max(12).optional(),
     parentId: z.string().uuid().nullable().optional(),
     cycleId: z.string().uuid().nullable().optional(),
-    milestoneId: z.string().uuid().nullable().optional()
+    milestoneId: z.string().uuid().nullable().optional(),
+    baseVersion: z.number().int().min(1).optional()
+      .describe('The version of the task this edit is based on. 409 if the row has moved past it.')
   }
-}, async ({ task, ...patch }) => {
+}, async ({ task, baseVersion, ...patch }) => {
   const body = dropUndefined(patch);
+  // Counted apart from the fields: `baseVersion` states what the write is applied against, so a
+  // request carrying only it asks for nothing and must not report success.
   if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
-  return { task: taskSummary(await api.updateTask(client, task, body)) };
+  const updated = await api.updateTask(client, task, baseVersion === undefined ? body : { ...body, baseVersion });
+  return { task: taskSummary(updated) };
 });
 
 registerTool('task_claim', {

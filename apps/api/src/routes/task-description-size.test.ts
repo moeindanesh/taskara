@@ -81,7 +81,7 @@ describe('Task description size', () => {
     const body = mapBody(LIVE_MAP_CHARS);
     expect(body).toHaveLength(LIVE_MAP_CHARS);
 
-    const response = await patch(effort.key, { description: body });
+    const response = await patch(effort.key, { description: body, baseVersion: effort.version });
     expect(response.statusCode).toBe(200);
 
     const stored = await description(effort.id);
@@ -93,7 +93,7 @@ describe('Task description size', () => {
     const effort = await seedTask({ kind: 'EFFORT', status: 'IN_PROGRESS' });
 
     const atLimit = mapBody(EFFORT_DESCRIPTION_MAX_CHARS);
-    expect((await patch(effort.key, { description: atLimit })).statusCode).toBe(200);
+    expect((await patch(effort.key, { description: atLimit, baseVersion: effort.version })).statusCode).toBe(200);
     expect(await description(effort.id)).toHaveLength(EFFORT_DESCRIPTION_MAX_CHARS);
 
     const overLimit = mapBody(EFFORT_DESCRIPTION_MAX_CHARS + 1);
@@ -152,7 +152,7 @@ describe('Task description size', () => {
     const effort = await seedTask({ kind: 'EFFORT', status: 'IN_PROGRESS' });
     const persian = persianBody(EFFORT_DESCRIPTION_MAX_CHARS);
 
-    expect((await patch(effort.key, { description: persian })).statusCode).toBe(200);
+    expect((await patch(effort.key, { description: persian, baseVersion: effort.version })).statusCode).toBe(200);
     const stored = await description(effort.id);
     expect(stored).toBe(persian);
     expect(Buffer.byteLength(stored ?? '', 'utf8')).toBeGreaterThan(100_000);
@@ -300,7 +300,10 @@ async function seedTask(data: { kind?: 'WORK' | 'EFFORT'; status?: string }) {
       kind: data.kind ?? 'WORK',
       status: (data.status ?? 'TODO') as never
     },
-    select: { id: true, key: true }
+    // `version` because rewriting an effort's body over PATCH has to say which version it is based
+    // on — see `task-body-concurrency.test.ts`. A freshly seeded row is always 1, but quoting the
+    // column keeps these tests honest if that ever stops being true.
+    select: { id: true, key: true, version: true }
   });
 }
 

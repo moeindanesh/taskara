@@ -43,6 +43,7 @@ taskara task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assi
                       [--kind WORK|EFFORT] [--sort createdAt:asc] [--query <s>] [--limit n]
 taskara task edit     <key|id> [--add-label L] [--remove-label L]
                       [--add-blocker K] [--remove-blocker K] [--add-assignee <id>] [...fields]
+                      [--base-version n]
 taskara task claim    <key|id>
 taskara task comment  <key|id> [--body <s> | --body-file <path|->]
 taskara task close    <key|id> [--reason completed|canceled]
@@ -69,7 +70,7 @@ always the human line.** The exit code is what you branch on.
 | 2 | Configuration — required environment missing or unusable. Nothing was sent. | A human fixes the config. |
 | 3 | Auth — 401/403. Credential absent, wrong, revoked, or not permitted. | A human fixes the credential. |
 | 4 | Not found — 404. | Check the key. |
-| 5 | Conflict — 409. Includes losing a `task claim`. | Someone else has it; move on. |
+| 5 | Conflict — 409. Includes losing a `task claim`, and a body rewrite another session got in ahead of. | Someone else has it; move on, or re-apply and retry. |
 | 6 | Rejected — the server understood the request and refused it. | Fix the request. |
 | 7 | Server error — 5xx. Whether the work happened is unknown. | Retry, then escalate. |
 | 8 | Unreachable — no HTTP response at all. | Retry; check the API is up. |
@@ -106,6 +107,16 @@ so a `task edit` touching both fields and blockers is not one atomic write.
 kilobytes of markdown, and inline shell quoting of that is where a paste breaks. The description
 ceiling is the server's — 15,000 characters for work, 60,000 for an effort.
 
+A body is written whole, so two sessions editing one body would silently overwrite each other.
+`--base-version n` is the version that came back with the body you edited — send it, and a write the
+row has moved past is refused with exit **5** rather than applied over somebody else's line. It is
+**required** when rewriting an **effort** body, whose Decisions-so-far index several sessions append
+to at once; omitting it there exits 6 and writes nothing. `task view` reports `version` on every
+read, and `--comments` is what makes it return the description as well.
+
+On exit 5 the current row is on stdout under `error.task`, body and version together. Re-apply your
+own change to *that* body and send it with *that* version. Never resend the body you had.
+
 ## MCP tools
 
 Same `noun_verb` grammar as the CLI.
@@ -137,6 +148,9 @@ Same `noun_verb` grammar as the CLI.
   what changed before retrying.
 - Prefer `addLabels`/`removeLabels` over `labels`, which replaces the whole set and loses a
   concurrent edit.
+- Pass `baseVersion` on `task_edit` whenever you send a `description`. A body cannot be sent as a
+  delta, so the version is the only thing standing between a concurrent edit and a lost paragraph.
+  On a conflict, refetch, re-apply the change, and show the user what moved before retrying.
 - Draft a daily report with `report_daily_draft` and show it to the user for edits; only call
   `report_daily_submit` once they confirm the wording. The report is their voice, not yours.
 - Include task keys in summaries after mutations.

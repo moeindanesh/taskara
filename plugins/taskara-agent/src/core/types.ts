@@ -44,6 +44,8 @@ export interface Task {
   key: string;
   title: string;
   description?: string | null;
+  /** Bumped by every write. What an optimistic body rewrite quotes back as `baseVersion`. */
+  version?: number;
   status: TaskStatusValue;
   priority: TaskPriorityValue;
   kind?: TaskKindValue;

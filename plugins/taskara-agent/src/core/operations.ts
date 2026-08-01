@@ -74,6 +74,13 @@ export interface UpdateTaskInput {
   labels?: string[];
   addLabels?: string[];
   removeLabels?: string[];
+  /**
+   * The version this write is based on — not a field being changed, but the condition it is applied
+   * under. The server answers 409 once the row has moved past it. **Required** when the patch
+   * rewrites an Effort's description: that body is an index several sessions append a line to, and
+   * a line lost from it is a decision the next session cannot find, in a ticket already closed.
+   */
+  baseVersion?: number;
 }
 
 export interface ClaimOutcome {

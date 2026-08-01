@@ -369,10 +369,23 @@ export async function updateTask(
       taskId,
       [existing.milestoneId, resolvedMilestoneId === undefined ? existing.milestoneId : resolvedMilestoneId]
     );
-    const currentTaskState = await tx.task.findUnique({
-      where: { id: taskId },
-      select: { version: true, milestoneId: true, projectId: true }
-    });
+    // `FOR UPDATE`, not a plain read. Without the lock this is a check-then-act: two transactions
+    // both read version 1, both pass the comparison below, and the second `UPDATE` merely waits for
+    // the first to commit before overwriting it — so two simultaneous body rewrites both answered
+    // 200 and one line vanished, which is the bug this guard was supposed to catch. Ten concurrent
+    // writers used to produce six winners. The lock makes the second transaction block here and
+    // read the version the first one committed, so the comparison is against reality.
+    //
+    // Taken for every patch, including a label delta that will not compare versions: the row is
+    // locked by the `UPDATE` a few statements later regardless, so this only moves the wait earlier,
+    // and one code path is worth more than the microseconds.
+    const [currentTaskState] = await tx.$queryRaw<Array<{
+      version: number;
+      milestoneId: string | null;
+      projectId: string;
+    }>>`
+      SELECT "version", "milestoneId", "projectId" FROM "Task" WHERE "id" = ${taskId}::uuid FOR UPDATE
+    `;
     if (!currentTaskState) {
       throw new HttpError(409, 'Task changed on another client');
     }
