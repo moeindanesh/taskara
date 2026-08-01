@@ -10,6 +10,19 @@ const optionalUrl = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
+/**
+ * `z.coerce.boolean()` is truthiness on a string, so it reads "false" and "0" as **true**. That is
+ * survivable for a feature toggle and not survivable for a switch whose whole job is to close an
+ * authentication path, so this one reads the words an operator would actually write.
+ */
+export function parseEnvFlag(value: unknown, fallback: boolean): boolean {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return Boolean(value);
+  return !['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
+const envFlag = (fallback: boolean) => z.preprocess((value) => parseEnvFlag(value, fallback), z.boolean());
+
 const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   API_HOST: z.string().min(1),
@@ -19,6 +32,9 @@ const envSchema = z.object({
   TASKARA_CDN_MEDIA_BASE_URL: optionalUrl,
   TASKARA_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   TASKARA_SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Legacy `x-user-email` authentication. Defaults on so shipped consumers keep working; set it to
+  // `false` once they have moved, which turns the path off for the whole deployment.
+  TASKARA_EMAIL_HEADER_AUTH: envFlag(true),
   TASKARA_INVITE_TTL_DAYS: z.coerce.number().int().positive().default(14),
   MATTERMOST_SLASH_TOKEN: optionalString,
   MATTERMOST_BASE_URL: optionalUrl,

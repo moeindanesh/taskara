@@ -2,6 +2,7 @@ import cors from '@fastify/cors';
 import formbody from '@fastify/formbody';
 import type { FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
+import { registerAgentCredentialRoutes } from './routes/agent-credentials';
 import { registerAgentRoutes } from './routes/agent';
 import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerAiReportRoutes } from './routes/ai-reports';
@@ -77,6 +78,7 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(registerViewRoutes);
   await app.register(registerWorkHealthRoutes);
   await app.register(registerMattermostRoutes);
+  await app.register(registerAgentCredentialRoutes);
   await app.register(registerAgentRoutes);
   await app.register(registerAiReportRoutes);
 

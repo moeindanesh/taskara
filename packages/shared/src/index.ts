@@ -48,6 +48,7 @@ export const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as con
 export const milestoneUnfinishedTaskPolicies = ['KEEP', 'UNASSIGN', 'MOVE'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
 export const userKinds = ['HUMAN', 'AGENT'] as const;
+export const agentCredentialScopes = ['READ_ONLY', 'READ_WRITE'] as const;
 export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
 export const meetingActionItemStatuses = ['OPEN', 'DONE', 'CANCELED'] as const;
@@ -100,6 +101,7 @@ export const milestoneHealthSchema = z.enum(milestoneHealthValues);
 export const milestoneUnfinishedTaskPolicySchema = z.enum(milestoneUnfinishedTaskPolicies);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
 export const userKindSchema = z.enum(userKinds);
+export const agentCredentialScopeSchema = z.enum(agentCredentialScopes);
 export const announcementStatusSchema = z.enum(announcementStatuses);
 export const meetingStatusSchema = z.enum(meetingStatuses);
 export const meetingActionItemStatusSchema = z.enum(meetingActionItemStatuses);
@@ -138,6 +140,16 @@ export const createUserSchema = z.object({
   role: workspaceRoleSchema.default('MEMBER'),
   kind: userKindSchema.optional(),
   operatorId: z.string().uuid().optional()
+});
+
+export const createAgentCredentialSchema = z.object({
+  userId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  // Read-write by default: the tracker skills create and update Tasks, and a credential that
+  // cannot do its job gets replaced by one with a wider grant than anybody intended.
+  scope: agentCredentialScopeSchema.default('READ_WRITE'),
+  // Omitted means never expires -- the whole reason this primitive exists.
+  expiresAt: z.string().datetime().optional()
 });
 
 export const updateUserSchema = z.object({

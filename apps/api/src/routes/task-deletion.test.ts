@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance, type InjectOptions } from 'fastify';
 import { registerApp } from '../app';
+import { mintAgentCredentialToken } from '../services/agent-credential';
 
 let app: FastifyInstance;
 const cleanupWorkspaceIds: string[] = [];
@@ -76,8 +77,8 @@ interface Fixture {
   workspace: { id: string; slug: string };
   project: { id: string; keyPrefix: string };
   member: { id: string; email: string };
-  agent: { id: string; email: string };
-  memberRoleAgent: { id: string; email: string };
+  agent: { id: string; email: string; token: string };
+  memberRoleAgent: { id: string; email: string; token: string };
   nextSequence: () => number;
 }
 
@@ -123,7 +124,35 @@ async function createFixture(): Promise<Fixture> {
   });
 
   let sequence = 0;
-  return { workspace, project, member, agent, memberRoleAgent, nextSequence: () => (sequence += 1) };
+  return {
+    workspace,
+    project,
+    member,
+    // An agent authenticates with an agent credential -- the email header cannot speak as one. The
+    // credential is deliberately full read-write, so what the gate below refuses is the agent's
+    // kind and not a narrow scope.
+    agent: { ...agent, token: await issueCredential(workspace.id, agent.id) },
+    memberRoleAgent: {
+      ...memberRoleAgent,
+      token: await issueCredential(workspace.id, memberRoleAgent.id)
+    },
+    nextSequence: () => (sequence += 1)
+  };
+}
+
+async function issueCredential(workspaceId: string, userId: string): Promise<string> {
+  const minted = mintAgentCredentialToken();
+  await prisma.agentCredential.create({
+    data: {
+      workspaceId,
+      userId,
+      name: 'Task deletion test',
+      lookupId: minted.lookupId,
+      tokenHash: minted.tokenHash,
+      scope: 'READ_WRITE'
+    }
+  });
+  return minted.token;
 }
 
 async function createTask(fixture: Fixture, title: string): Promise<{ id: string; key: string }> {
@@ -141,11 +170,19 @@ async function createTask(fixture: Fixture, title: string): Promise<{ id: string
 }
 
 async function injectAs(fixture: Fixture, persona: Persona, options: InjectOptions) {
+  const actor = fixture[persona];
+  // Each persona authenticates the way it actually can: a person by the email header, an agent by
+  // its credential. Using the header for both would test a path an agent no longer has.
+  const credentials =
+    'token' in actor
+      ? { authorization: `Bearer ${actor.token}` }
+      : { 'x-user-email': actor.email };
+
   return app.inject({
     ...options,
     headers: {
       'x-workspace-slug': fixture.workspace.slug,
-      'x-user-email': fixture[persona].email,
+      ...credentials,
       ...(options.headers || {})
     }
   });

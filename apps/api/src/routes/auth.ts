@@ -39,6 +39,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing?.passwordHash) throw new HttpError(409, 'An account with this email already exists');
+    // An agent User is passwordless by design, so without this it lands in the branch below and has
+    // a password written onto it while keeping its id -- handing the caller the agent's memberships
+    // and its whole work history, from an unauthenticated endpoint, knowing only an email address
+    // that the product displays. Same wording as the duplicate above so this is not a probe for
+    // which addresses are agents.
+    if (existing?.kind === 'AGENT') throw new HttpError(409, 'An account with this email already exists');
 
     const user = existing
       ? await prisma.user.update({
@@ -67,7 +73,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const input = authLoginSchema.parse(request.body);
     const user = await prisma.user.findUnique({ where: { email: normalizeEmail(input.email) } });
 
-    if (!user || !(await verifyPassword(input.password, user.passwordHash))) {
+    // Verified before the kind check, not short-circuited by it, so an agent address is not
+    // distinguishable from a wrong password by how long the answer takes.
+    const passwordMatches = user ? await verifyPassword(input.password, user.passwordHash) : false;
+    // An agent authenticates with an agent credential and holds no interactive session. This is
+    // defence in depth behind the two guards above: a row that predates them, or one written by
+    // some future path, still cannot be logged into.
+    if (!user || !passwordMatches || user.kind === 'AGENT') {
       throw new HttpError(401, 'Invalid email or password');
     }
 
@@ -202,6 +214,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       assertInviteUsable(invite);
 
       const email = normalizeEmail(invite.email);
+      // The same takeover as on /auth/register, one invite away. An invite carries a role, so
+      // accepting one addressed to an agent would also hand the claimer that role.
+      const claimed = await tx.user.findUnique({ where: { email }, select: { kind: true } });
+      if (claimed?.kind === 'AGENT') {
+        throw new HttpError(409, 'An account with this email already exists');
+      }
+
       const user = await tx.user.upsert({
         where: { email },
         update: {

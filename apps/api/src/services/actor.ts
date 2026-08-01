@@ -1,7 +1,16 @@
 import type { FastifyRequest } from 'fastify';
-import { prisma, type Prisma, type User, type Workspace, type WorkspaceMember, type WorkspaceRole } from '@taskara/db';
+import {
+  prisma,
+  type AgentCredentialScope,
+  type Prisma,
+  type User,
+  type Workspace,
+  type WorkspaceMember,
+  type WorkspaceRole
+} from '@taskara/db';
 import { config } from '../config';
-import { displayNameFromEmail, getSessionUser, normalizeEmail } from './auth';
+import { authenticateAgentCredential, isAgentCredentialToken } from './agent-credential';
+import { displayNameFromEmail, getBearerToken, getSessionUser, normalizeEmail } from './auth';
 import { HttpError } from './http';
 
 export type ActorSource = 'WEB' | 'API' | 'MATTERMOST' | 'CODEX' | 'AGENT' | 'SYSTEM';
@@ -13,6 +22,8 @@ export interface RequestActor {
   role: WorkspaceRole;
   actorType: ActorType;
   source: ActorSource;
+  /** Present iff this request authenticated with an agent credential rather than as a person. */
+  credential?: { id: string; scope: AgentCredentialScope };
 }
 
 export function isWorkspaceAdminRole(role: WorkspaceRole): boolean {
@@ -103,6 +114,24 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
   if (!workspaceSlug) throw new HttpError(400, 'Workspace slug is required');
 
   const workspace = await requireWorkspaceBySlug(workspaceSlug);
+
+  // An agent credential is presented as a bearer token and identified by its prefix, so it costs no
+  // database read to tell apart from a session token. It never falls through to another path: a
+  // caller that presented a bad credential is rejected, not quietly downgraded to the email header.
+  const bearer = getBearerToken(request);
+  if (bearer && isAgentCredentialToken(bearer)) {
+    const authenticated = await authenticateAgentCredential(bearer, workspace.id, request.method);
+    return {
+      workspace,
+      user: authenticated.user,
+      role: authenticated.role,
+      // Derived from the authenticated credential, never from `x-actor-type`.
+      actorType: 'AGENT',
+      source: 'AGENT',
+      credential: authenticated.credential
+    };
+  }
+
   const sessionUser = await getSessionUser(request);
 
   if (sessionUser) {
@@ -115,9 +144,20 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
 
   const email = headerValue(request, 'x-user-email');
   if (!email) throw new HttpError(401, 'Authentication required');
+  // The single switch that turns the legacy header path off for a deployment that has finished
+  // migrating its consumers. It defaults on because shipped clients still depend on it; retiring
+  // it fleet-wide is its own effort, and this flag is what that effort flips.
+  if (!config.TASKARA_EMAIL_HEADER_AUTH) throw new HttpError(401, 'Authentication required');
 
   const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
   if (!user) throw new HttpError(401, 'User must sign up or be invited before API access');
+  // Unconditional, and not covered by the flag above: an agent has a credential of its own now, so
+  // there is no reason for the weaker path to be able to speak as one -- and every reason not to,
+  // since agent provenance is only worth anything if it cannot be asserted by whoever knows a
+  // string that appears in every activity feed.
+  if (user.kind === 'AGENT') {
+    throw new HttpError(401, 'Agent users must authenticate with an agent credential');
+  }
 
   const membership = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId: workspace.id, userId: user.id } }
@@ -139,6 +179,15 @@ export async function getWorkspaceRole(workspaceId: string, userId: string): Pro
 
 export async function requireWorkspaceAdmin(request: FastifyRequest): Promise<RequestActor & { role: WorkspaceRole }> {
   const actor = await getRequestActor(request);
+  // The scope ceiling, and the reason it is expressed here rather than as a list of forbidden URLs:
+  // "administer the workspace" already has exactly one seam in this codebase, and it is this one.
+  // A long-lived headless secret must never reach user creation, role changes, invites, or the
+  // credential routes themselves -- otherwise one leaked token buys a permanent second account, or
+  // renews itself. This is checked before the role check on purpose: it holds whatever role the
+  // agent's membership carries, so an OWNER agent gains nothing.
+  if (actor.credential) {
+    throw new HttpError(403, 'An agent credential cannot administer this workspace');
+  }
   if (!isWorkspaceAdminRole(actor.role)) {
     throw new HttpError(403, 'Workspace admin access required');
   }
