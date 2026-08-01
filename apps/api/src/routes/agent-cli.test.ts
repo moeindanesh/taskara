@@ -327,6 +327,51 @@ describe('taskara CLI', () => {
     });
   });
 
+  describe('--project takes the key prefix an agent already holds', () => {
+    test('task create and task list both accept it, and it means the same project as the uuid', async () => {
+      // `CORE` is the front half of every key in the project, so an agent reading CORE-123 in its own
+      // prompt is already holding the handle. #45 settled the same argument for `--parent`.
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix, '--title', 'Addressed by prefix'
+      ]);
+      expect(created.code).toBe(0);
+      expect((created.json.project as { id: string }).id).toBe(fixture.projectId);
+
+      const listed = await run(['task', 'list', '--project', fixture.projectKeyPrefix, '--query', 'Addressed by prefix']);
+      expect(listed.code).toBe(0);
+      expect((listed.json.tasks as Array<{ key: string }>).map((task) => task.key)).toContain(String(created.json.key));
+    });
+
+    test('it is case-insensitive, because the server uppercases the prefix it stores', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix.toLowerCase(), '--title', 'Lower-cased prefix'
+      ]);
+      expect(created.code).toBe(0);
+      expect((created.json.project as { id: string }).id).toBe(fixture.projectId);
+    });
+
+    test('an unknown prefix is 4, and the message names the prefixes that do exist', async () => {
+      const missing = await run(['task', 'create', '--project', 'NOSUCH', '--title', 'Nowhere to put it']);
+
+      expect(missing.code).toBe(4);
+      expect(missing.stderr).toContain('NOSUCH');
+      // The recovery is one line away and the shell already fetched it, so it says so rather than
+      // making the caller run `project list` to find out what it should have typed.
+      expect(missing.stderr).toContain(fixture.projectKeyPrefix);
+    });
+
+    test('project create --parent nests a subproject under a prefix', async () => {
+      const keyPrefix = `SUB${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+      const child = await run([
+        'project', 'create', '--name', 'A subproject', '--key-prefix', keyPrefix,
+        '--parent', fixture.projectKeyPrefix
+      ]);
+
+      expect(child.code).toBe(0);
+      expect(child.json.parentId).toBe(fixture.projectId);
+    });
+  });
+
   describe('identity', () => {
     test('the runtime is sent as itself, and the surface no longer claims to be CODEX', async () => {
       const created = await run(

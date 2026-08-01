@@ -11,6 +11,7 @@ import {
   listProjects,
   listTasks,
   removeTaskBlocker,
+  resolveProjectId,
   resolveTaskId,
   updateTask,
   type CreateProjectInput,
@@ -52,12 +53,13 @@ const nouns: Record<string, Record<string, Handler>> = {
 
 export const usage = `taskara <noun> <verb> [arguments]
 
-  task create   --project <id> --title <s> [--body <s> | --body-file <path|->]
+  task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                 [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                 [--label a,b] [--assignee <id>] [--due-at <iso>] [--milestone <id>] [--weight n]
   task view     <key|id> [--comments]
   task list     [--parent <key|id|none>] [--status unfinished|S,S] [--assignee <id>|none|me]
-                [--blockers none|any] [--label <name>|none] [--project <id>] [--kind WORK|EFFORT]
+                [--blockers none|any] [--label <name>|none] [--project <keyPrefix|id>]
+                [--kind WORK|EFFORT]
                 [--sort createdAt:asc] [--query <s>] [--team <slug>] [--limit n] [--offset n]
   task edit     <key|id> [--add-label L] [--remove-label L] [--add-blocker K] [--remove-blocker K]
                 [--add-assignee <id>] [--title <s>] [--body <s> | --body-file <path|->]
@@ -94,7 +96,7 @@ export async function runCommand(client: TaskaraClient, argv: string[]): Promise
 
 async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
   const input: CreateTaskInput = {
-    projectId: flags.require('project'),
+    projectId: await resolveProjectId(client, flags.require('project')),
     title: flags.require('title'),
     description: await readBody(flags),
     kind: flags.oneOf('kind', taskKinds),
@@ -125,8 +127,9 @@ async function taskView(client: TaskaraClient, flags: Flags, positionals: string
 }
 
 async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const project = flags.get('project');
   const filters: TaskListFilters = {
-    projectId: flags.get('project'),
+    projectId: project === undefined ? undefined : await resolveProjectId(client, project),
     status: flags.get('status'),
     priority: flags.oneOf('priority', taskPriorities),
     kind: flags.oneOf('kind', taskKinds),
@@ -274,6 +277,9 @@ async function projectCreate(client: TaskaraClient, flags: Flags): Promise<Comma
     keyPrefix: flags.require('key-prefix').trim().toUpperCase(),
     description: await readBody(flags)
   };
+
+  const parent = flags.get('parent');
+  if (parent) input.parentId = await resolveProjectId(client, parent);
 
   flags.assertNoUnknown();
   const project = await createProject(client, dropUndefined(input));
