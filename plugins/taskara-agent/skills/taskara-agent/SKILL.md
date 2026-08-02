@@ -114,7 +114,8 @@ hold this" and "you just took this" are different answers.
 
 ### Watching
 
-Reporting a task, being assigned one, or being mentioned in a body subscribes you to it. `taskara
+Reporting a task, being assigned one, or being mentioned in its description or in a comment
+subscribes you to it. `taskara
 task unsubscribe <key>` stops that, and it **sticks**: being mentioned or assigned again will not
 put you back on the list. `taskara task subscribe <key>` withdraws the decision.
 

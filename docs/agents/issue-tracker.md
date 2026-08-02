@@ -139,13 +139,15 @@ finds the address.
 
 Two consequences worth knowing before you rely on the alternative:
 
-- **A comment mention is dead in every client**, not only this one. No client scans a comment body
-  for mentions, so the same words typed in the web notify nobody either. A comment does notify the
-  task's **subscribers** — the reporter, the assignee, anyone mentioned in the body through the
-  editor — so commenting reaches people already attached to the work, and only them.
+- **A comment is a body like any other.** A mention node in a comment notifies the person it names,
+  puts them on the watch list so they hear the reply, and replaces the ambient "commented" row they
+  would otherwise have got — one comment is one notification. But your comment is markdown, so it
+  carries no nodes and reaches nobody by name. What a comment *does* reach is the task's
+  **subscribers** — the reporter, the assignee, anyone already named in the description — so
+  commenting still reaches people attached to the work, and only them.
 - **An Effort body can never @-notify.** A map's body is markdown by design, and the inbox filters
-  efforts out of every read besides. Say who should look in the ticket you hand them, not in the
-  map.
+  efforts out of every read besides — which is also true of a comment on an effort. Say who should
+  look in the ticket you hand them, not in the map.
 
 ## Conventions
 
@@ -253,8 +255,9 @@ Claiming an Effort exits 6 — an Effort is not a unit of work and holds no assi
 
 ### Watching
 
-Reporting a Task, being assigned one, or being `@`-mentioned in its body subscribes you to it, and
-every later comment, status change and description edit then reaches your inbox.
+Reporting a Task, being assigned one, or being `@`-mentioned in its description or in a comment on
+it subscribes you to it, and every later comment, status change and description edit then reaches
+your inbox.
 
 ```bash
 taskara task unsubscribe CORE-123           # stop hearing about it

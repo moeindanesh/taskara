@@ -943,13 +943,48 @@ describe('taskara CLI', () => {
       expect(commented.code).toBe(0);
       expect(commented.stderr).toContain('@Robin');
 
-      // A comment mention is the deeper hole of the two, and it is not this surface's: a comment
-      // body is never scanned for mentions by **any** client, so the same words typed in the web
-      // reach nobody either. Its subscribers hear about the comment; the person named does not.
+      // And the notice is true on all three verbs for the same reason: no mention nodes, nobody
+      // told. When #53 shipped, the comment verb was true by accident — `addTaskComment` scanned
+      // nothing, so the web would not have notified either and the notice's *reason* was only half
+      // right. #55 closed that, and the sentence the CLI prints is now the whole explanation.
       const mentions = await prisma.notification.findMany({
         where: { taskId: task.id, type: 'task_mentioned' }
       });
       expect(mentions).toEqual([]);
+    });
+
+    test('a comment that carries a mention node does reach the person, and is not warned about', async () => {
+      // #55, from the shell, because the rule is about the nodes and not about the client. A
+      // markdown comment mentions nobody (above); a comment that IS an editor state mentions
+      // whoever its nodes name — the same body a session gets back from `task view` and appends to.
+      const task = await createTaskViaApi('a question asked in a comment');
+      const idle = await prisma.user.findUniqueOrThrow({ where: { email: fixture.idleEmail } });
+      const body = JSON.stringify({
+        root: {
+          type: 'root',
+          children: [{
+            type: 'paragraph',
+            children: [
+              { type: 'mention', version: 1, text: `@${fixture.idleName}`, mentionUserId: idle.id },
+              { type: 'text', text: ' does this look right to you?' }
+            ]
+          }]
+        }
+      });
+
+      const commented = await run(['task', 'comment', task.key, '--body-file', '-'], {}, body);
+
+      expect(commented.code).toBe(0);
+      // The outcome line and nothing else. Warning about a live mention would be false, and would
+      // teach a caller to strip one out of a body it was only appending to.
+      expect(commented.stderr.trim()).toBe(`Commented on ${task.key}`);
+
+      const mentions = await prisma.notification.findMany({
+        where: { taskId: task.id, type: 'task_mentioned' }
+      });
+      expect(mentions.map((mention) => mention.userId)).toEqual([idle.id]);
+      // Named, and therefore watching — so the answer to the question reaches them too.
+      expect(await prisma.taskSubscription.count({ where: { taskId: task.id, userId: idle.id } })).toBe(1);
     });
   });
 

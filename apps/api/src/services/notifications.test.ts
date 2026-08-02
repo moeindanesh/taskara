@@ -203,6 +203,29 @@ describe('task mention notifications', () => {
     expect(mock.createdNotifications.map((notification) => notification.userId)).toEqual([newMentionUserId]);
   });
 
+  test('with no previous body every mention is new, which is what a comment is', async () => {
+    // #55. `previousBody` exists so that re-saving a description does not re-notify everyone still
+    // named in it — the body is one revised document. A comment is not: there is no edit route, so
+    // each one is its own utterance, and naming the same person in two of them is addressing them
+    // twice. Deduplicating a comment against an earlier comment would silently drop the second
+    // question somebody asked you.
+    const body = serializedBody([{ userId: 'user-sara', name: 'Sara' }]);
+    const input = {
+      workspaceId: 'workspace-1',
+      actorUserId: 'user-actor',
+      actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
+      task: { id: 'task-1', key: 'CORE-12', title: 'Asked twice' },
+      body
+    };
+
+    const first = mockMentionTransaction(['user-sara']);
+    const second = mockMentionTransaction(['user-sara']);
+
+    expect(await createTaskMentionNotifications(first.tx, input)).toEqual(['user-sara']);
+    expect(await createTaskMentionNotifications(second.tx, input)).toEqual(['user-sara']);
+  });
+
   test('does not create notifications when the body has no mention nodes', async () => {
     const mock = mockMentionTransaction(['user-mentioned']);
 
