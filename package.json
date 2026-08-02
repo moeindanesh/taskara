@@ -18,6 +18,7 @@
     "dev:mattermost": "bun run --filter @taskara/mattermost-bot dev",
     "agent:login": "cd plugins/taskara-agent && bun link >/dev/null 2>&1 && bun src/cli.ts login",
     "agent:provision": "bun plugins/taskara-agent/scripts/setup.ts provision",
+    "agent:build": "bun plugins/taskara-agent/scripts/build-package.ts",
     "agent:setup": "bun plugins/taskara-agent/scripts/setup.ts setup",
     "db:generate": "PRISMA_GENERATE_SKIP_AUTOINSTALL=1 bun prisma generate --schema packages/db/prisma/schema.prisma",
     "db:migrate": "bun prisma migrate dev --schema packages/db/prisma/schema.prisma",

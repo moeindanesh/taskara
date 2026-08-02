@@ -40,12 +40,22 @@ export function readConfig(env: Record<string, string | undefined> = process.env
   const workspaceSlug = optional(env.TASKARA_WORKSPACE_SLUG) ?? stored?.workspaceSlug;
   if (!workspaceSlug) throw configError('TASKARA_WORKSPACE_SLUG is required — or run `taskara login`');
 
-  // Only honour the stored token for the workspace it was issued against: a credential is scoped to
-  // one workspace, so pairing it with a different slug would send a key to a door it cannot open and
-  // report the 403 as if the workspace were wrong.
-  const storedToken = stored && stored.workspaceSlug === workspaceSlug ? stored.token : undefined;
-  const token = optional(env.TASKARA_AGENT_TOKEN) ?? storedToken;
+  const envToken = optional(env.TASKARA_AGENT_TOKEN);
   const userEmail = optional(env.TASKARA_USER_EMAIL);
+
+  // The stored token is a fallback for having *no* credentials, not a default that outranks the
+  // ones you set. Authentication is picked as a whole rather than field by field: if the
+  // environment names either a token or an email, the file stays out of it. Falling back per-field
+  // would let a token written months ago beat a TASKARA_USER_EMAIL set deliberately today — and it
+  // would do so silently, since a token outranks an email once both are present.
+  //
+  // Scoped to its own workspace too: a credential is issued against one, so pairing it with a
+  // different slug sends a key to a door it cannot open and reports the 403 as if the slug were
+  // wrong.
+  const storedToken = !envToken && !userEmail && stored?.workspaceSlug === workspaceSlug
+    ? stored.token
+    : undefined;
+  const token = envToken ?? storedToken;
   if (!token && !userEmail) {
     throw configError('Run `taskara login`, or set TASKARA_AGENT_TOKEN or TASKARA_USER_EMAIL');
   }

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
@@ -117,6 +119,30 @@ describe('taskara CLI', () => {
       const typo = await run(['task', 'create', '--project', fixture.projectId, '--title', 'x', '--lable', 'oops']);
       expect(typo.code).toBe(1);
       expect(typo.stderr).toContain('--lable');
+    });
+
+    test('a stored credential stands in for the environment, and the environment still wins', async () => {
+      const home = mkdtempSync(join(tmpdir(), 'taskara-home-'));
+      mkdirSync(join(home, '.taskara'), { recursive: true });
+      writeFileSync(
+        join(home, '.taskara', 'credentials.json'),
+        JSON.stringify({ apiUrl: baseUrl, workspaceSlug: fixture.workspaceSlug, token: 'stored-and-wrong' })
+      );
+
+      // Nothing in the environment: the file alone has to carry url and workspace. The token is
+      // deliberately bad, so a 3 proves the file was read and sent rather than ignored.
+      const fromFile = await run(['task', 'list'], {
+        HOME: home,
+        TASKARA_API_URL: undefined,
+        TASKARA_WORKSPACE_SLUG: undefined,
+        TASKARA_USER_EMAIL: undefined
+      });
+      expect(fromFile.code).toBe(3);
+
+      // And the environment overrides it field by field, which is what keeps CI honest on a machine
+      // that has also logged in.
+      const envWins = await run(['task', 'list'], { HOME: home });
+      expect(envWins.code).toBe(0);
     });
 
     test('2 — configuration: nothing is sent when the environment is unusable', async () => {
@@ -1078,7 +1104,12 @@ async function run(
 ): Promise<CliRun> {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? '',
-    HOME: process.env.HOME ?? '',
+    // A HOME of its own, for the same reason the cwd is neutral. `readConfig` falls back to
+    // ~/.taskara/credentials.json, so a developer who has ever run `taskara login` would otherwise
+    // have the configuration tests below quietly pass their real credentials to the CLI -- the
+    // "unusable environment" case would resolve and exit 4 instead of 2. It passed in CI, where no
+    // such file exists, and failed on the machine that wrote one, which is the worst way round.
+    HOME: neutralCwd,
     TASKARA_API_URL: baseUrl,
     TASKARA_WORKSPACE_SLUG: fixture.workspaceSlug,
     TASKARA_USER_EMAIL: fixture.ownerEmail

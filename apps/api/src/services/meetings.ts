@@ -50,12 +50,21 @@ export const meetingInclude = {
   project: { select: meetingProjectSelect },
   owner: { select: userSelect },
   createdBy: { select: userSelect },
+  // `id` is appended to every ordering here, and it is not decoration. Rows attached to a meeting in
+  // one request share a `createdAt` to the tick, and Postgres returns tied rows in whatever order it
+  // likes — so without a tiebreak the same meeting serialises differently between two reads. That
+  // surfaced as a test failing roughly one run in five while passing in isolation, but a client
+  // reading a list whose order changes under it has the same problem and no test to notice.
+  //
+  // Same fix #21 made for the task list, for the same reason, one relation over.
   participants: {
-    orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    orderBy: [{ role: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     include: { user: { select: userSelect } }
   },
   tasks: {
-    orderBy: { createdAt: 'desc' },
+    // taskId, not id: MeetingTask is a join table keyed on [meetingId, taskId] and has no id of
+    // its own. Unique within a meeting, which is all a tiebreak has to be.
+    orderBy: [{ createdAt: 'desc' }, { taskId: 'desc' }],
     include: meetingTaskInclude
   },
   _count: { select: { participants: true, tasks: true } }
@@ -127,7 +136,7 @@ export async function listMeetings(actor: RequestActor, query: MeetingListInput)
     prisma.meeting.findMany({
       where,
       include: meetingInclude,
-      orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit,
       skip: query.offset
     }),
