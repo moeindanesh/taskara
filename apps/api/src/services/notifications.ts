@@ -356,7 +356,20 @@ export async function createTaskSubscriberNotifications(
     },
     select: { userId: true }
   });
-  const recipientIds = [...new Set(subscriptions.map((subscription) => subscription.userId))];
+  const subscriberIds = [...new Set(subscriptions.map((subscription) => subscription.userId))];
+  // #57. Every way onto this list is gated at the moment somebody joins it — but a task **moves**.
+  // A project change, or a project reassigned to another team, takes work away from a subscriber
+  // whose subscription was entirely legitimate when it was made, and no check on the way in can see
+  // that coming. Re-asked here, per event, so the ambient stream stops at the wall rather than
+  // narrating walled-off work to somebody who now 404s on it.
+  //
+  // The subscription row is deliberately left alone. A move is not a decision about attention, and
+  // deleting it would silently discard a watch that comes back the moment the task does.
+  const recipientIds = await filterUsersWithTaskAccess(tx, {
+    workspaceId: input.workspaceId,
+    taskId: input.task.id,
+    userIds: subscriberIds
+  });
   if (!recipientIds.length) return [];
 
   await tx.notification.createMany({

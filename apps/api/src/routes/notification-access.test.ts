@@ -153,8 +153,88 @@ describe('notification task access', () => {
 
       expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(1);
     });
+
+    /**
+     * The third question on the ticket, and the one that decides the shape of the whole fix: a task
+     * that moves out of reach after somebody legitimately started watching it.
+     *
+     * Nothing at the point of subscription was wrong — a teamless task is readable by the whole
+     * workspace, and both of these people subscribed to one. Moving it into a team is what takes it
+     * away from one of them, and no check on the way in can see that coming.
+     *
+     * Both people are moved together so the two halves cannot be satisfied by an off switch: one
+     * subscriber must stop hearing about it and the other must not.
+     */
+    test('a task that moves out of reach stops writing to the people it left behind', async () => {
+      const task = await createTask('watched, then walled off', fixture.openProjectId);
+      await subscribe(task.key, fixture.insiderEmail);
+      await subscribe(task.key, fixture.outsiderEmail);
+
+      // The control. Without it the assertion after the move could pass because nothing was ever
+      // listening — which is how a fan-out test goes vacuous.
+      await comment(task.key, 'while it was still everyone\'s');
+      expect(await commentedRowCount(task.id, fixture.insiderId)).toBe(1);
+      expect(await commentedRowCount(task.id, fixture.outsiderId)).toBe(1);
+
+      await moveToProject(task.key, fixture.projectId);
+      await comment(task.key, 'after it moved behind a wall');
+
+      expect(await commentedRowCount(task.id, fixture.insiderId)).toBe(2);
+      expect(await commentedRowCount(task.id, fixture.outsiderId)).toBe(1);
+      // And the row from before the move — legitimate when it was written, and not deletable on
+      // that basis — stops being delivered. This is the half a write-side filter cannot reach.
+      expect(await inboxKeys(fixture.outsiderEmail)).not.toContain(task.key);
+      expect(await inboxKeys(fixture.insiderEmail)).toContain(task.key);
+    });
+
+    test('a status change on a walled-off task writes nothing to a stale subscriber', async () => {
+      const task = await createTask('moved, then progressed', fixture.openProjectId);
+      await subscribe(task.key, fixture.outsiderEmail);
+      await subscribe(task.key, fixture.insiderEmail);
+      await moveToProject(task.key, fixture.projectId);
+
+      await patch(task.key, { status: 'IN_PROGRESS' });
+
+      expect(await statusRowCount(task.id, fixture.outsiderId)).toBe(0);
+      expect(await statusRowCount(task.id, fixture.insiderId)).toBe(1);
+    });
   });
 });
+
+async function subscribe(idOrKey: string, email: string): Promise<void> {
+  const response = await app.inject({
+    method: 'POST',
+    url: `/tasks/${idOrKey}/subscription`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email },
+    payload: {}
+  });
+  expect(response.statusCode).toBe(200);
+}
+
+async function patch(idOrKey: string, body: Record<string, unknown>): Promise<void> {
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/tasks/${idOrKey}`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    payload: body
+  });
+  expect(response.statusCode).toBe(200);
+}
+
+/** The move itself, asserted to have happened — a silently rejected PATCH would fake every result. */
+async function moveToProject(idOrKey: string, projectId: string): Promise<void> {
+  await patch(idOrKey, { projectId });
+  const moved = await prisma.task.findFirstOrThrow({ where: { key: idOrKey }, select: { projectId: true } });
+  expect(moved.projectId).toBe(projectId);
+}
+
+function commentedRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_commented' } });
+}
+
+function statusRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_status_changed' } });
+}
 
 async function comment(idOrKey: string, body: string): Promise<void> {
   const response = await app.inject({
