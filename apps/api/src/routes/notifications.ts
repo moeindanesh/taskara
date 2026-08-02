@@ -4,6 +4,7 @@ import { prisma } from '@taskara/db';
 import { z } from 'zod';
 import { strictQueryBooleanSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
+import { resolveWorkspaceAccess } from '../services/team-access';
 import {
   collapseInboxNotificationsByThread,
   encodeNotificationCursor,
@@ -68,11 +69,10 @@ const notificationEntityInclude = {
 export async function registerNotificationRoutes(app: FastifyInstance): Promise<void> {
   app.get('/notifications', async (request) => {
     const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
     const query = notificationsQuerySchema.parse(request.query);
 
-    const where = taskInboxNotificationWhere(actor.workspace.id, actor.user.id, {
-      unreadOnly: query.unread
-    });
+    const where = taskInboxNotificationWhere(access, { unreadOnly: query.unread });
 
     const threadRows = await prisma.notification.findMany({
       where,
@@ -116,9 +116,10 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.get('/notifications/sync', async (request) => {
     const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
     const query = notificationsSyncQuerySchema.parse(request.query);
     const after = parseNotificationCursor(query.after);
-    const baseWhere = taskInboxNotificationWhere(actor.workspace.id, actor.user.id);
+    const baseWhere = taskInboxNotificationWhere(access);
 
     const where: Prisma.NotificationWhereInput = after
       ? {
@@ -142,7 +143,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         include: notificationEntityInclude
       }),
       prisma.notification.findMany({
-        where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true }),
+        where: taskInboxNotificationWhere(access, { unreadOnly: true }),
         select: {
           id: true,
           createdAt: true,
@@ -166,12 +167,13 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.patch('/notifications/:id/read', async (request, reply) => {
     const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
     const { id } = request.params as { id: string };
 
     const existing = await prisma.notification.findFirst({
       where: {
         id,
-        ...taskInboxNotificationWhere(actor.workspace.id, actor.user.id)
+        ...taskInboxNotificationWhere(access)
       }
     });
 
@@ -180,7 +182,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const readAt = existing.readAt ?? new Date();
     await prisma.notification.updateMany({
       where: {
-        ...taskInboxNotificationWhere(actor.workspace.id, actor.user.id),
+        ...taskInboxNotificationWhere(access),
         ...inboxNotificationThreadScope(existing),
         readAt: null
       },
@@ -205,7 +207,8 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.post('/notifications/read-all', async (request) => {
     const actor = await getRequestActor(request);
-    const where = taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true });
+    const access = await resolveWorkspaceAccess(actor);
+    const where = taskInboxNotificationWhere(access, { unreadOnly: true });
     const readAt = new Date();
     const [unreadAnnouncements, result] = await prisma.$transaction(async (tx) => {
       const unreadAnnouncements = await tx.notification.findMany({
@@ -239,13 +242,14 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.post('/notifications/delivered', async (request) => {
     const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
     const body = notificationDeliveredBodySchema.parse(request.body);
 
     const result = await prisma.notification.updateMany({
       where: {
         id: { in: body.ids },
         deliveredAt: null,
-        ...taskInboxNotificationWhere(actor.workspace.id, actor.user.id)
+        ...taskInboxNotificationWhere(access)
       },
       data: { deliveredAt: new Date() }
     });
