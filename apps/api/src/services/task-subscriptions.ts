@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from '@taskara/db';
+import { prisma } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { isNotifiable } from './notifications';
 
@@ -86,19 +86,17 @@ export async function unsubscribeFromTask(actor: RequestActor, taskId: string): 
  * The counterpart of the automatic path, and unlike it this one does not care whether the person was
  * ever a participant — asking to watch is the whole justification.
  *
- * `tx` is taken rather than assumed, because `claimTask` calls this **inside** its own transaction:
- * taking a task and being put back on its list is one act, and a nested `prisma.$transaction` would
- * open a second connection that cannot see the claim it is reacting to.
+ * One transaction, for the same reason as its opposite: the withdrawal and the subscription are one
+ * decision, and a crash between them would leave the person in the third state — no row either way
+ * — quietly discarding a mute they never asked to lift.
  */
-export async function subscribeToTask(
-  actor: RequestActor,
-  taskId: string,
-  tx: Prisma.TransactionClient = prisma
-): Promise<TaskWatchState> {
-  await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
-  await tx.taskSubscription.createMany({
-    data: [{ workspaceId: actor.workspace.id, taskId, userId: actor.user.id }],
-    skipDuplicates: true
+export async function subscribeToTask(actor: RequestActor, taskId: string): Promise<TaskWatchState> {
+  await prisma.$transaction(async (tx) => {
+    await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
+    await tx.taskSubscription.createMany({
+      data: [{ workspaceId: actor.workspace.id, taskId, userId: actor.user.id }],
+      skipDuplicates: true
+    });
   });
   return 'watching';
 }
