@@ -20,13 +20,14 @@ import {
   meetingProjectSelect,
   visibleMeetingActionItem
 } from './meeting-visibility';
-import { buildMeetingAccessWhere, canAccessMeeting } from './meetings';
+import { canAccessMeeting } from './meetings';
 import { measuredMemberWhere } from './measured-people';
 import { isWorkTask } from './measured-work';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import {
   canReadProject,
+  meetingWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
   type WorkspaceAccess
@@ -828,13 +829,14 @@ export async function addOneOnOneAgendaItem(
 }
 
 export async function listMeetingActionItems(actor: RequestActor, input: Partial<MeetingActionItemListInput> = {}) {
+  const access = await resolveWorkspaceAccess(actor);
   const where: Prisma.MeetingActionItemWhereInput = {
     workspaceId: actor.workspace.id,
     assigneeId: input.assigneeId,
     meetingId: input.meetingId,
     ...(input.status && input.status !== 'ALL' ? { status: input.status } : {}),
     ...(input.dueBefore ? { dueAt: { lte: new Date(input.dueBefore) } } : {}),
-    meeting: buildMeetingAccessWhere(actor)
+    meeting: meetingWhereForAccess(access)
   };
 
   const [items, total] = await Promise.all([
@@ -848,7 +850,6 @@ export async function listMeetingActionItems(actor: RequestActor, input: Partial
     prisma.meetingActionItem.count({ where })
   ]);
 
-  const access = await resolveWorkspaceAccess(actor);
   return {
     items: items.map((item) => visibleMeetingActionItem(access, serializeMeetingActionItem(item))),
     total,
@@ -1095,7 +1096,7 @@ export function taskTargetFromMeetingActionItem(
  * Four branches, three of which now carry an access clause:
  *
  * - **tasks** — `taskWhereForAccess`, the predicate every other task read composes.
- * - **action items** — `buildMeetingAccessWhere`, the meeting rule, since an action item is walled
+ * - **action items** — `meetingWhereForAccess`, the meeting rule, since an action item is walled
  *   by its meeting rather than by a project.
  * - **attention** — {@link visibleAttentionForAgenda}, because the pointer is polymorphic and no
  *   predicate reaches through it.
@@ -1145,7 +1146,7 @@ export async function generateOneOnOneAgendaCandidates(
         workspaceId,
         assigneeId: participantId,
         status: 'OPEN',
-        meeting: buildMeetingAccessWhere(actor)
+        meeting: meetingWhereForAccess(access)
       },
       orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
       take: 5
@@ -1329,7 +1330,7 @@ async function requireMeetingActionItemAccess(actor: RequestActor, actionItemId:
     where: {
       id: actionItemId,
       workspaceId: actor.workspace.id,
-      meeting: buildMeetingAccessWhere(actor)
+      meeting: meetingWhereForAccess(await resolveWorkspaceAccess(actor))
     },
     include: actionItemInclude
   });

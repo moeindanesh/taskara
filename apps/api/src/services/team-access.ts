@@ -264,6 +264,79 @@ export async function filterUsersWithTaskAccess(
   });
 }
 
+/**
+ * Who may read a **meeting**: its participants, its owner, its creator, and workspace admins.
+ *
+ * Team and project membership deliberately do not enter, which is why this is not a second spelling
+ * of `projectWhereForAccess` — it is a different rule about a different entity, and the meeting's
+ * *contents* are gated separately in `services/meeting-visibility.ts`.
+ *
+ * It lives here because #60 needed it in two places: the meeting routes, and the inbox, whose
+ * `meetingId` branch had the same drift #57 fixed on `taskId` — a meeting you were removed from
+ * went on delivering its title. The old copy in `services/meetings.ts` took a `RequestActor` and a
+ * `MeetingAccessScope` it ignored; the scope is deleted and the actor is unnecessary, since
+ * `access` already carries the reader's id and whether they read everything.
+ */
+export function meetingWhereForAccess(
+  access: WorkspaceAccess,
+  options?: { mineOnly?: boolean }
+): Prisma.MeetingWhereInput {
+  const onIt: Prisma.MeetingWhereInput[] = [
+    { participants: { some: { userId: access.userId } } },
+    { ownerId: access.userId },
+    { createdById: access.userId }
+  ];
+  // `mine` is a filter the reader asked for, so it narrows an admin too.
+  if (options?.mineOnly) return { OR: onIt };
+  if (access.workspaceWide) return {};
+  return { OR: onIt };
+}
+
+/**
+ * Who may read an **announcement**: its recipients, its creator, and workspace admins — the rule
+ * `GET /announcements/:id` has always enforced, written once.
+ *
+ * Deliberately says nothing about `status`. Whether a draft belongs in a particular list is a
+ * question about that list, and `GET /announcements` still answers it for itself.
+ *
+ * The drift it closes in the inbox is not a project wall: `updateAnnouncement` can **replace** the
+ * recipient list, and the notification rows written to the old recipients outlive it.
+ */
+export function announcementWhereForAccess(access: WorkspaceAccess): Prisma.AnnouncementWhereInput {
+  if (access.workspaceWide) return { workspaceId: access.workspaceId };
+  return {
+    workspaceId: access.workspaceId,
+    // The creator branch matters even though only an admin may post one today: it is the rule
+    // `GET /announcements/:id` already enforces through `canManageAnnouncement`, and dropping it
+    // here would make the list disagree with the detail the day that changes.
+    OR: [
+      { creatorId: access.userId },
+      { recipients: { some: { userId: access.userId } } }
+    ]
+  };
+}
+
+/**
+ * Who may read a **knowledge space**: everyone for a workspace space, the team for a team space,
+ * and `canReadProject`'s population for a project space.
+ *
+ * Composes `projectWhereForAccess` rather than re-spelling it, which is why the project branch stays
+ * correct when the project rule changes. Extracted from `services/knowledge.ts`, where it was an
+ * async function over a `RequestActor` and therefore unusable from anything holding only an
+ * `access` — the inbox and the activity classifier both needed it.
+ */
+export function knowledgeSpaceWhereForAccess(access: WorkspaceAccess): Prisma.KnowledgeSpaceWhereInput {
+  if (access.workspaceWide) return { workspaceId: access.workspaceId };
+  return {
+    workspaceId: access.workspaceId,
+    OR: [
+      { type: 'WORKSPACE' },
+      { teamId: { in: access.teamIds } },
+      { type: 'PROJECT', project: projectWhereForAccess(access) }
+    ]
+  };
+}
+
 export function viewWhereForAccess(access: WorkspaceAccess): Prisma.ViewWhereInput {
   if (access.workspaceWide) return { workspaceId: access.workspaceId };
   return {

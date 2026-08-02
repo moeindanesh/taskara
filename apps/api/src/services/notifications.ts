@@ -2,7 +2,14 @@ import type { Prisma, TaskStatus, UserKind } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
-import { filterUsersWithTaskAccess, taskWhereForAccess, type WorkspaceAccess } from './team-access';
+import {
+  announcementWhereForAccess,
+  filterUsersWithTaskAccess,
+  knowledgeSpaceWhereForAccess,
+  meetingWhereForAccess,
+  taskWhereForAccess,
+  type WorkspaceAccess
+} from './team-access';
 
 /**
  * Who a notification can be delivered to: a person.
@@ -161,6 +168,23 @@ export function parseNotificationCursor(cursor?: string): NotificationCursor | n
  *
  * The two are spread in that order and are independent: an effort a reader *can* open is still
  * excluded, and a work task they cannot open is still hidden. Neither clause implies the other.
+ *
+ * ## The other three branches, which #57 left and #60 closed
+ *
+ * The argument that fixed the task branch was never about tasks. It was that **a notification row
+ * outlives the reach it was written under**: the recipient was resolved at write time, and the
+ * entity can move afterwards. A task changes project; a meeting drops a participant; a knowledge
+ * page's space is a PROJECT space whose project's team is reassigned; an announcement's recipient
+ * list is edited. Every one of those leaves a row that goes on delivering a title, and only a read
+ * gate catches it.
+ *
+ * So each branch now composes that entity's own rule from the shared module — `meetingWhereForAccess`,
+ * `announcementWhereForAccess`, `knowledgeSpaceWhereForAccess`. None is restated here.
+ *
+ * The first branch is the one worth reading twice. It admits a notification that points at nothing —
+ * a daily-report reminder, a digest — and it did not name `knowledgePageId`, so **every**
+ * knowledge-page notification matched it and the branch below was dead. That is why gating the
+ * knowledge branch alone would have changed nothing.
  */
 export function taskInboxNotificationWhere(
   access: WorkspaceAccess,
@@ -171,11 +195,11 @@ export function taskInboxNotificationWhere(
     workspaceId,
     userId,
     OR: [
-      { taskId: null, announcementId: null, meetingId: null },
+      { taskId: null, announcementId: null, meetingId: null, knowledgePageId: null },
       { task: { is: { ...taskWhereForAccess(access), ...workTaskWhere } } },
-      { announcement: { is: { workspaceId } } },
-      { meeting: { is: { workspaceId } } },
-      { knowledgePage: { is: { workspaceId } } }
+      { announcement: { is: announcementWhereForAccess(access) } },
+      { meeting: { is: { workspaceId, ...meetingWhereForAccess(access) } } },
+      { knowledgePage: { is: { workspaceId, space: { is: knowledgeSpaceWhereForAccess(access) } } } }
     ],
     ...(options.unreadOnly ? { readAt: null } : {})
   };

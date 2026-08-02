@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@taskara/db';
 import { announcementListQuerySchema, announcementPollVoteSchema, createAnnouncementSchema, updateAnnouncementSchema } from '@taskara/shared';
 import { getRequestActor, isWorkspaceAdminRole, requireWorkspaceAdmin } from '../services/actor';
+import { announcementWhereForAccess, resolveWorkspaceAccess } from '../services/team-access';
 import {
   attachPollVoteOptionIdsForUser,
   attachPollVoteOptionIdsForSingleAnnouncement,
@@ -21,14 +22,13 @@ export async function registerAnnouncementRoutes(app: FastifyInstance): Promise<
     const query = announcementListQuerySchema.parse(request.query);
     const isAdmin = isWorkspaceAdminRole(actor.role);
 
+    // Who may read an announcement is `announcementWhereForAccess`; which announcements belong in
+    // *this list* is the status default, and that is a question about the list rather than about
+    // access. #60 moved the first half to the shared module so the inbox can compose the same rule.
     const where: Prisma.AnnouncementWhereInput = {
-      workspaceId: actor.workspace.id,
+      ...announcementWhereForAccess(await resolveWorkspaceAccess(actor)),
       status: query.status || (isAdmin ? undefined : 'PUBLISHED')
     };
-
-    if (!isAdmin) {
-      where.recipients = { some: { userId: actor.user.id } };
-    }
 
     if (query.unread) {
       where.recipients = { some: { userId: actor.user.id, readAt: null } };

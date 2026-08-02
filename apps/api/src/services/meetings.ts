@@ -15,7 +15,11 @@ import { HttpError } from './http';
 import { meetingProjectSelect, meetingTaskInclude, visibleMeeting } from './meeting-visibility';
 import { MEETING_ASSIGNED_NOTIFICATION_TYPE, meetingAssignedNotificationBody } from './notifications';
 import { sendMessageSimple } from './sms';
-import { assertActorCanAccessTeamSlug, resolveWorkspaceAccess } from './team-access';
+import {
+  assertActorCanAccessTeamSlug,
+  meetingWhereForAccess,
+  resolveWorkspaceAccess
+} from './team-access';
 import { createTask, serializeTaskForResponse } from './tasks';
 
 type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
@@ -67,42 +71,19 @@ type MeetingWithAccess = {
 };
 
 /**
- * Who may read a meeting: its participants, its owner, its creator, and workspace admins.
+ * Who may read a meeting is now `meetingWhereForAccess` in `services/team-access.ts`, beside every
+ * other entity's rule, because #60's inbox fix needed the same predicate.
  *
- * **Team and project membership deliberately do not enter**, and that is the whole finding behind
- * #60's third carried-over item. This module used to resolve a `MeetingAccessScope` — the same three
- * membership queries `resolveWorkspaceAccess` issues — and hand it to this function and to
- * {@link canAccessMeeting}, both of which took it as `_scope` and **ignored it**. Three wasted
- * queries per call across eight sites, and worse than wasted: a parallel access model, computed and
- * discarded, made this surface *look* access-aware. It is a fair guess at how the include below went
- * four tickets without anybody noticing it had no `where`.
+ * What went with it: `MeetingAccessScope`, a parallel access model that issued the same three
+ * membership queries `resolveWorkspaceAccess` does and whose result both consumers took as `_scope`
+ * and **ignored**. Three wasted queries per call across eight sites, and worse than wasted — dead
+ * scaffolding that made this surface look access-aware, which is a fair guess at how the include
+ * above went four tickets without anybody noticing it had no `where`.
  *
- * Deleted rather than wired. Wiring it would mean a meeting becomes readable by anyone on its team,
- * which is a product decision nobody has made, and it would have been the wrong fix anyway: the
- * disclosure was never *who may read the meeting*, it was what the meeting carried with it.
+ * Deleted rather than wired. Wiring it would make a meeting readable by anyone on its team, which is
+ * a product decision nobody has made, and it would have fixed the wrong thing anyway: the disclosure
+ * was never who may read the meeting, it was what the meeting carried with it.
  */
-export function buildMeetingAccessWhere(
-  actor: RequestActor,
-  options?: { mineOnly?: boolean }
-): Prisma.MeetingWhereInput {
-  const mineOnly = Boolean(options?.mineOnly);
-  const predicates: Prisma.MeetingWhereInput[] = [
-    { participants: { some: { userId: actor.user.id } } },
-    { ownerId: actor.user.id },
-    { createdById: actor.user.id }
-  ];
-
-  if (mineOnly) {
-    return { OR: predicates };
-  }
-
-  if (isWorkspaceAdminRole(actor.role)) {
-    return {};
-  }
-
-  return { OR: predicates };
-}
-
 export function canAccessMeeting(actor: RequestActor, meeting: MeetingWithAccess): boolean {
   if (meeting.participants?.some((participant) => participant.userId === actor.user.id)) return true;
   if (meeting.ownerId === actor.user.id || meeting.createdById === actor.user.id) return true;
@@ -131,7 +112,7 @@ export async function listMeetings(actor: RequestActor, query: MeetingListInput)
     where.team = { workspaceId: actor.workspace.id, slug: query.teamId };
   }
 
-  const filters: Prisma.MeetingWhereInput[] = [buildMeetingAccessWhere(actor, { mineOnly: query.mine })];
+  const filters: Prisma.MeetingWhereInput[] = [meetingWhereForAccess(access, { mineOnly: query.mine })];
   if (query.q) {
     filters.push({
       OR: [
@@ -168,7 +149,7 @@ export async function getMeeting(actor: RequestActor, meetingId: string) {
     where: {
       id: meetingId,
       workspaceId: actor.workspace.id,
-      AND: [buildMeetingAccessWhere(actor)]
+      AND: [meetingWhereForAccess(access)]
     },
     include: meetingInclude
   });
