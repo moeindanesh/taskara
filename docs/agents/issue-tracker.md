@@ -485,13 +485,27 @@ They coexist and mean different things. Do not reason from one to another.
 ## Pointing another repo at Taskara
 
 This file is Taskara's own copy. To make a *different* repository's skills read Taskara instead of
-GitHub, four things have to be true in that repo.
+GitHub, five things have to be true in that repo.
 
-**1. The binary is on `$PATH`.** Until it is published, the honest instruction is a path:
+**1. `taskara` is on `$PATH`.** One command, from the plugin directory:
 
 ```bash
-alias taskara='bun /absolute/path/to/taskara/plugins/taskara-agent/src/cli.ts'
+cd /path/to/taskara/plugins/taskara-agent && bun link
 ```
+
+That symlinks the `bin` this package already declares into `~/.bun/bin`, so plain `taskara` works
+from any directory. It points at the source rather than a copy, so a `git pull` updates the command
+with no reinstall — which matters while this surface is still moving.
+
+An **alias** works too and is worth knowing about, because a skill pastes `taskara …` into a
+**non-interactive** shell, and a shell alias defined in an interactive profile is not there. `bun
+link` is a real file on `$PATH` and does not have that problem.
+
+`bun build --compile` produces a standalone binary and is the wrong tool here: it is 58 MB, it is
+*slower* to start than the linked source (210 ms against 104 ms, because that much binary has to be
+paged in), and on Apple Silicon an unsigned one is killed by the kernel with **exit 137** and no
+message — which reads as a crash in your own code. It earns its place only where Bun cannot be
+installed at all; then build it in CI and `codesign -s -` it.
 
 **2. The agent has a credential.** One agent User per human operator, shared across every runtime.
 Minting the first one is an admin act and is not self-service — a workspace owner runs:
