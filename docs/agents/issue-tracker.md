@@ -509,10 +509,16 @@ export TASKARA_AGENT_TOKEN=<the token, shown once>
 export TASKARA_AGENT_RUNTIME=CLAUDE_CODE   # or CODEX / OPENCLAW / HERMES
 ```
 
-**3. The repo has a project to write into.** `taskara project list`, or `taskara project create`
+**3. The agent is on the team that owns the work.** Workspace membership is not enough. Projects are
+team-scoped, and an agent that is a workspace member but on no team reads an **empty workspace** —
+`taskara project list` answers `[]` and `task list` answers `0`. That looks exactly like a broken
+credential and is not one: it is the access rule working. Add the agent to the team the same way you
+would a colleague, and the same projects appear.
+
+**4. The repo has a project to write into.** `taskara project list`, or `taskara project create`
 if it is a fresh workspace. Its **key prefix** — not its UUID — is what every later command takes.
 
-**4. The repo has these three files and an `## Agent skills` block.** Copy `docs/agents/` from here
+**5. The repo has these three files and an `## Agent skills` block.** Copy `docs/agents/` from here
 into the new repo and change only what is repo-specific: the project key prefix in the examples, and
 `domain.md`, which points at *that* repo's own vocabulary. Then add the `## Agent skills` block to
 its `AGENTS.md` — `CLAUDE.md` names one runtime in a filename the other three have to read.
