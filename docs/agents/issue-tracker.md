@@ -175,7 +175,8 @@ Two consequences worth knowing before you rely on the alternative:
   `--body-file -` for anything multi-line; see [Bodies](#bodies-longer-than-a-line).
 - **Create a task as a child of another**:
   `taskara task create --project CORE --title "..." --parent CORE-1`
-- **Read a task**: `taskara task view CORE-123 --comments`
+- **Read a task**: `taskara task view CORE-123`. The body always comes back; add `--comments` for the
+  thread as well.
 - **List tasks**: `taskara task list --status unfinished --sort createdAt:asc`
 - **Search by label and state**:
   `taskara task list --label wayfinder:task --status unfinished --sort createdAt:asc`
@@ -353,7 +354,7 @@ a team or a lead in the web UI, or through MCP's `project_create`, which carries
 ## When a skill says "fetch the relevant ticket"
 
 ```bash
-taskara task view CORE-123 --comments
+taskara task view CORE-123
 ```
 
 ## Wayfinding operations
@@ -436,7 +437,7 @@ must be the version that came back with the body you edited:
 
 ```bash
 # --comments is what makes `task view` return the body; the plain view is a summary.
-taskara task view "$EFFORT" --comments > /tmp/effort.json
+taskara task view "$EFFORT" > /tmp/effort.json
 jq -r .description /tmp/effort.json > /tmp/effort-body.md
 VERSION=$(jq -r .version /tmp/effort.json)
 

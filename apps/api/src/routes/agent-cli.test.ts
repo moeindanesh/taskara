@@ -326,6 +326,27 @@ describe('taskara CLI', () => {
       const thread = viewed.json.commentThread as Array<{ body: string }>;
       expect(thread.map((comment) => comment.body)).toContain('Picked this up.');
     });
+
+    /**
+     * `task view` is the one command whose whole job is "show me this task", and for a while the
+     * body only came back with `--comments` — a flag about the comment thread, which is what it
+     * says it is. Reading a task therefore meant asking for something you did not want and hoping
+     * the thing you did want rode along. It cost a real session a step during the map migration.
+     */
+    test('task view returns the body without being asked for the comment thread', async () => {
+      const task = await createTaskViaApi('has a body');
+      expect((await run(['task', 'edit', task.key, '--body', 'The body.'])).code).toBe(0);
+
+      const plain = await run(['task', 'view', task.key]);
+      expect(plain.code).toBe(0);
+      expect(plain.json.description).toBe('The body.');
+      // And the flag still means what it says: no thread unless asked.
+      expect(plain.json.commentThread).toBeUndefined();
+
+      const withThread = await run(['task', 'view', task.key, '--comments']);
+      expect(withThread.json.description).toBe('The body.');
+      expect(withThread.json.commentThread).toBeDefined();
+    });
   });
 
   /**

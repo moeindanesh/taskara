@@ -88,7 +88,7 @@ export const usage = `taskara <noun> <verb> [arguments]
                 [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                 [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]
                 [--weight n]
-  task view     <key|id> [--comments]
+  task view     <key|id> [--comments]   # body always; --comments adds the thread
   task list     [--parent <key|id|none>] [--status unfinished|S,S]
                 [--assignee <id|email>|none|me]
                 [--blockers none|any] [--label <name>|none] [--kind WORK|EFFORT]
@@ -181,7 +181,12 @@ async function taskView(client: TaskaraClient, flags: Flags, positionals: string
   flags.assertNoUnknown();
 
   const task = await getTask(client, key);
-  return { data: withComments ? taskDetails(task) : taskSummary(task) };
+  // The body comes back either way. `--comments` used to be the only way to see a description,
+  // which reads as a flag about the comment thread and is one — so reading a task meant asking for
+  // something you did not want and hoping the thing you did want rode along. That cost a real
+  // session an entire step during the map migration, on the one command whose whole job is "show me
+  // this task".
+  return { data: taskDetails(task, { withComments }) };
 }
 
 async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
@@ -578,7 +583,17 @@ export function taskSummary(task: Task): Record<string, unknown> {
   };
 }
 
-export function taskDetails(task: Task): Record<string, unknown> {
+/**
+ * A task as `task view` answers it.
+ *
+ * The description is unconditional. It is the field the command exists to show, and gating it
+ * behind `--comments` made the one obvious read a two-guess affair.
+ *
+ * `commentThread` is what the flag actually buys, so it is the only thing the flag controls — and
+ * it stays opt-in because a long thread is most of the payload and most callers are reading the
+ * body, not the conversation.
+ */
+export function taskDetails(task: Task, options: { withComments?: boolean } = {}): Record<string, unknown> {
   return {
     ...taskSummary(task),
     description: task.description ?? null,
@@ -590,10 +605,14 @@ export function taskDetails(task: Task): Record<string, unknown> {
         ? { redacted: true, open: subtask.open }
         : { key: subtask.key, title: subtask.title, status: subtask.status }
     ) ?? [],
-    commentThread: task.comments?.map((comment) => ({
-      body: comment.body,
-      createdAt: comment.createdAt,
-      author: comment.author?.name ?? null
-    })) ?? []
+    ...(options.withComments
+      ? {
+          commentThread: task.comments?.map((comment) => ({
+            body: comment.body,
+            createdAt: comment.createdAt,
+            author: comment.author?.name ?? null
+          })) ?? []
+        }
+      : {})
   };
 }

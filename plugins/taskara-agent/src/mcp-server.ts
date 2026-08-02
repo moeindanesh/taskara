@@ -309,6 +309,9 @@ registerTool('task_view', {
   description: 'Get a task by UUID or task key, including comments, subtasks, and dependencies.',
   inputSchema: { task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123') }
 }, async ({ task }) => {
+  // MCP's own taskDetails already returns the body and the thread unconditionally — a conversational
+  // reader wants both, and there is no flag to gate them behind. The CLI's copy is the one that had
+  // to change.
   return { task: taskDetails(await api.getTask(client, task)) };
 });
 

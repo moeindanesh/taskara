@@ -37,7 +37,7 @@ Both surfaces read:
 taskara task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                       [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                       [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]
-taskara task view     <key|id> [--comments]
+taskara task view     <key|id> [--comments]   # body always; --comments adds the thread
 taskara task list     [--parent <key|id|none>] [--status unfinished|S,S]
                       [--assignee <id|email>|none|me]
                       [--blockers none|any] [--label <name>|none] [--project <keyPrefix|id>]
