@@ -761,7 +761,9 @@ describe('taskara CLI', () => {
 
       // The owner is the reporter, so the owner is watching it. Unsubscribe as the owner, which is
       // the identity every other command in this file runs as.
-      expect((await run(['task', 'unsubscribe', key])).code).toBe(0);
+      const dropped = await run(['task', 'unsubscribe', key]);
+      expect(dropped.code).toBe(0);
+      expect(dropped.json.state).toBe('muted');
       expect(listedKeys(await run(['task', 'list', '--subscription', 'watching']))).not.toContain(key);
 
       // Re-assigned to the person who unsubscribed — the exact sequence that used to re-add them.
@@ -793,6 +795,12 @@ describe('taskara CLI', () => {
       const tidied = await run(['task', 'unsubscribe', key], asAgent);
 
       expect(tidied.code).toBe(0);
+      // `none`, not `muted`. The server records no decision for an agent — there is nothing to keep
+      // quiet — and the shell relays that rather than printing the state a person would have got.
+      expect(tidied.json.state).toBe('none');
+
+      // The claim the answer makes is checkable, and checked: nothing turned up in the muted list.
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'muted']))).not.toContain(key);
 
       // The other half of the same rule, and the exit code the skill documents. #39: an agent has no
       // inbox, so watching is the one of the two verbs that cannot mean anything for it — refused

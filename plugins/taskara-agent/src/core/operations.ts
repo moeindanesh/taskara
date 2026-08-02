@@ -88,9 +88,16 @@ export interface UpdateTaskInput {
   baseVersion?: number;
 }
 
-/** What the server says the caller's relationship to the task is now. */
+/**
+ * What the server says the caller's relationship to the task is now — its word, not the shell's.
+ *
+ * All three states, including `none`. An agent's unsubscribe records no decision, because #39 keeps
+ * agents out of every fan-out and a mute for one would be a row with no reader; so the honest answer
+ * there is `none`, and a shell that printed `muted` regardless would contradict the very next
+ * `task list --subscription muted`.
+ */
 export interface TaskSubscriptionState {
-  state: 'watching';
+  state: TaskSubscriptionFilterValue | 'none';
 }
 
 export interface ClaimOutcome {
@@ -165,8 +172,10 @@ export function subscribeToTask(client: TaskaraClient, idOrKey: string): Promise
  * Succeeds for an agent as well as a person — an agent tidying up after itself runs the same verb —
  * though for an agent there is nothing to keep quiet and the server records no decision.
  */
-export function unsubscribeFromTask(client: TaskaraClient, idOrKey: string): Promise<void> {
-  return client.request<void>(`/tasks/${encodeURIComponent(idOrKey)}/subscription`, { method: 'DELETE' });
+export function unsubscribeFromTask(client: TaskaraClient, idOrKey: string): Promise<TaskSubscriptionState> {
+  return client.request<TaskSubscriptionState>(`/tasks/${encodeURIComponent(idOrKey)}/subscription`, {
+    method: 'DELETE'
+  });
 }
 
 export function commentOnTask(client: TaskaraClient, idOrKey: string, body: string): Promise<JsonRecord> {

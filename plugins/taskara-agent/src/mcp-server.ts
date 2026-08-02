@@ -407,10 +407,10 @@ registerTool('task_unsubscribe', {
     + 'row. Use task_subscribe to undo it, and task_search with subscription=muted to find what you '
     + 'have silenced.',
   inputSchema: { task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123') }
-}, async ({ task }) => {
-  await api.unsubscribeFromTask(client, task);
-  return { task, state: 'muted' };
-});
+  // The state comes back from the server rather than being assumed here: an agent credential
+  // records no decision and is answered `none`, and a hardcoded `muted` would contradict the next
+  // task_search with subscription=muted.
+}, async ({ task }) => ({ task, ...await api.unsubscribeFromTask(client, task) }));
 
 registerTool('task_set_milestone', {
   title: 'Set a Taskara task milestone',

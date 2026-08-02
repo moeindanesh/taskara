@@ -334,10 +334,11 @@ async function taskUnsubscribe(client: TaskaraClient, flags: Flags, positionals:
   const key = requireTaskRef(positionals, 'task unsubscribe');
   flags.assertNoUnknown();
 
-  await unsubscribeFromTask(client, key);
-  // The server answers 204, so there is no body to relay. Printing the state the caller now holds
-  // keeps stdout a JSON document for every verb rather than "usually, except this one".
-  return { data: { state: 'muted' }, note: `No longer watching ${key}` };
+  // Relayed, never assumed. Under an agent credential the server records no decision and answers
+  // `none`; printing a hardcoded `muted` would be this surface claiming something it did not do,
+  // and the very next `task list --subscription muted` would disagree with it.
+  const result = await unsubscribeFromTask(client, key);
+  return { data: result, note: `No longer watching ${key}` };
 }
 
 /**

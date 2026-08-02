@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from '@taskara/db';
 import type { RequestActor } from './actor';
+import { isNotifiable } from './notifications';
 
 /**
  * Watching a task, and deliberately not watching it — the two deliberate states, and the writes
@@ -38,35 +39,41 @@ import type { RequestActor } from './actor';
  * and "Sara stopped watching this" is a private decision about attention rather than a change to
  * the work. The person who made it can see it in `?subscription=muted`; nobody else needs to.
  *
- * Nothing imports from `./notifications` here, so that `subscribeUsersToTask` can import
- * `mutedUserIds` without the two files forming a cycle. The deliberate writes need no
- * `notifiableMemberWhere`: they act on the request actor, who is a member of the workspace by the
- * time `getRequestActor` has returned.
+ * The dependency runs one way, this file → `./notifications`, and it is kept that way on purpose.
+ * The mute lookup on the automatic path is spelled inline in `subscribeUsersToTask` rather than
+ * exported from here: it has exactly one caller, and a helper reaching back across the seam would
+ * make the two files import each other.
  */
 
+/** The three states, named. The wire and the database agree on these words. */
+export type TaskWatchState = 'watching' | 'muted' | 'none';
+
 /**
- * Stop watching, and record that it was deliberate.
+ * Stop watching, and record that it was deliberate. Answers with the state it actually left.
  *
  * One transaction, because the two writes are one decision: a crash between them would leave a
  * person unsubscribed but not muted, which is the pre-#54 behaviour — silently re-subscribed by the
  * next mention.
  *
- * An **agent** gets the delete and no mute row. #39 settled that an agent is not an audience, so
- * `subscribeUsersToTask` already refuses to subscribe one; a mute for a party that can never be
- * subscribed is a row with no reader, which is the same bookkeeping #39 removed. The verb still
- * succeeds, so an agent tidying up after itself is not a special case at the call site.
+ * An **agent** gets the delete and no mute row, and is told `none` rather than `muted`. #39 settled
+ * that an agent is not an audience, so `subscribeUsersToTask` already refuses to subscribe one; a
+ * mute for a party that can never be subscribed is a row with no reader, which is the same
+ * bookkeeping #39 removed. The verb still succeeds, so an agent tidying up after itself is not a
+ * special case at the call site — but it is told the truth, because a caller that then reads
+ * `?subscription=muted` must not find the answer contradicted.
  */
-export async function unsubscribeFromTask(actor: RequestActor, taskId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+export async function unsubscribeFromTask(actor: RequestActor, taskId: string): Promise<TaskWatchState> {
+  return prisma.$transaction(async (tx) => {
     await tx.taskSubscription.deleteMany({
       where: { workspaceId: actor.workspace.id, taskId, userId: actor.user.id }
     });
-    if (actor.user.kind === 'AGENT') return;
+    if (!isNotifiable(actor.user)) return 'none';
     await tx.taskMute.upsert({
       where: { taskId_userId: { taskId, userId: actor.user.id } },
       create: { workspaceId: actor.workspace.id, taskId, userId: actor.user.id },
       update: {}
     });
+    return 'muted';
   });
 }
 
@@ -78,32 +85,21 @@ export async function unsubscribeFromTask(actor: RequestActor, taskId: string): 
  *
  * The counterpart of the automatic path, and unlike it this one does not care whether the person was
  * ever a participant — asking to watch is the whole justification.
+ *
+ * `tx` is taken rather than assumed, because `claimTask` calls this **inside** its own transaction:
+ * taking a task and being put back on its list is one act, and a nested `prisma.$transaction` would
+ * open a second connection that cannot see the claim it is reacting to.
  */
-export async function subscribeToTask(actor: RequestActor, taskId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
-    await tx.taskSubscription.createMany({
-      data: [{ workspaceId: actor.workspace.id, taskId, userId: actor.user.id }],
-      skipDuplicates: true
-    });
+export async function subscribeToTask(
+  actor: RequestActor,
+  taskId: string,
+  tx: Prisma.TransactionClient = prisma
+): Promise<TaskWatchState> {
+  await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
+  await tx.taskSubscription.createMany({
+    data: [{ workspaceId: actor.workspace.id, taskId, userId: actor.user.id }],
+    skipDuplicates: true
   });
+  return 'watching';
 }
 
-/**
- * Which of these people have decided not to watch this task.
- *
- * The one read of `TaskMute` on the automatic path. Returns a Set rather than a filtered list so the
- * caller keeps its own ordering — `subscribeUsersToTask` returns the ids it subscribed and callers
- * compare against them.
- */
-export async function mutedUserIds(
-  tx: Prisma.TransactionClient,
-  input: { taskId: string; userIds: string[] }
-): Promise<Set<string>> {
-  if (!input.userIds.length) return new Set();
-  const mutes = await tx.taskMute.findMany({
-    where: { taskId: input.taskId, userId: { in: input.userIds } },
-    select: { userId: true }
-  });
-  return new Set(mutes.map((mute) => mute.userId));
-}

@@ -64,7 +64,7 @@ describe('task subscription', () => {
 
     const response = await unsubscribe(task.key, { email: fixture.watcherEmail });
 
-    expect(response.statusCode).toBe(204);
+    expect(response.statusCode).toBe(200);
     expect(await subscriptionCount(task.id)).toBe(0);
 
     await comment(task.key, fixture.reporterEmail, 'something the watcher no longer cares about');
@@ -73,7 +73,7 @@ describe('task subscription', () => {
 
   test('the next assignment does not re-subscribe somebody who unsubscribed', async () => {
     const task = await createTask('handed back and forth', { assigneeId: fixture.watcherId });
-    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
 
     // Away and back again, so this is unambiguously "the next time they are assigned" and not one
     // PATCH that happened to restate the assignee it already had.
@@ -99,7 +99,7 @@ describe('task subscription', () => {
    */
   test('a mention still reaches somebody who muted, and still does not re-subscribe them', async () => {
     const task = await createTask('muted, then mentioned');
-    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
 
     await patch(task.key, { description: mentionBody(fixture.watcherId) });
 
@@ -113,7 +113,7 @@ describe('task subscription', () => {
 
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {
     const task = await createTask('muted, then handed over');
-    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
 
     await patch(task.key, { assigneeId: fixture.watcherId });
 
@@ -123,7 +123,7 @@ describe('task subscription', () => {
 
   test('subscribing again is the way back, and it clears the decision not to watch', async () => {
     const task = await createTask('muted, then wanted again', { assigneeId: fixture.watcherId });
-    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
     expect(await muteCount(task.id)).toBe(1);
 
     const response = await subscribe(task.key, { email: fixture.watcherEmail });
@@ -145,7 +145,7 @@ describe('task subscription', () => {
     // Never touched by this person at all — the third state, and the one that must appear in
     // neither list. Without it both filters could be returning "every task" and still look right.
     const untouched = await createTask('nothing to do with them');
-    expect((await unsubscribe(muted.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+    expect((await unsubscribe(muted.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
 
     const watching = await listKeys('subscription=watching', fixture.watcherEmail);
     expect(watching).toContain(watched.key);
@@ -165,6 +165,59 @@ describe('task subscription', () => {
     expect(await listKeys('subscription=watching', fixture.reporterEmail)).toContain(untouched.key);
   });
 
+  /**
+   * The one place the effort exclusion must not apply.
+   *
+   * An Effort's body is a living document that every resolving session appends to, and #33's own
+   * note in `notifications.ts` says every revision of it fans out to all its subscribers — so an
+   * effort is the *heaviest* thing a person can be subscribed to, and the likeliest thing they want
+   * to mute. Hiding it from this list would make a muted effort unfindable forever, which is the
+   * failure the ticket names: "or the unsubscribe has nothing to aim at".
+   */
+  test('an effort is visible in the subscription lists, unlike everywhere else', async () => {
+    const effort = await createTask('a map with a living body', { kind: 'EFFORT', status: 'IN_PROGRESS' });
+    expect((await subscribe(effort.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
+
+    expect(await listKeys('subscription=watching', fixture.watcherEmail)).toContain(effort.key);
+
+    // And the exclusion is untouched everywhere it belongs: the plain list is still work only.
+    expect(await listKeys('', fixture.watcherEmail)).not.toContain(effort.key);
+
+    expect((await unsubscribe(effort.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
+    expect(await listKeys('subscription=muted', fixture.watcherEmail)).toContain(effort.key);
+  });
+
+  test('unsubscribing answers with the state it actually left behind', async () => {
+    const task = await createTask('answered honestly');
+
+    const response = await unsubscribe(task.key, { email: fixture.watcherEmail });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ state: 'muted' });
+  });
+
+  test('claiming a task you once muted is your own act, so it puts you back on the list', async () => {
+    const task = await createTask('muted, then taken');
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
+
+    const claimed = await app.inject({
+      method: 'POST',
+      url: `/tasks/${task.key}/claim`,
+      headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.watcherEmail },
+      payload: {}
+    });
+
+    expect(claimed.statusCode).toBe(200);
+    // Stickiness protects a decision from *other people's* writes. Taking the work is the muter's
+    // own deliberate act, and holding a task while hearing nothing about it is not what they asked
+    // for — so this withdraws the mute, exactly as an explicit subscribe does.
+    expect(await muteCount(task.id)).toBe(0);
+    expect(await subscriptionCount(task.id)).toBe(1);
+
+    await comment(task.key, fixture.reporterEmail, 'a question about work they now hold');
+    expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+  });
+
   test('the filter composes with the rest of the query rather than replacing it', async () => {
     const open = await createTask('watched and unfinished', { assigneeId: fixture.watcherId });
     const done = await createTask('watched and finished', { assigneeId: fixture.watcherId });
@@ -179,7 +232,7 @@ describe('task subscription', () => {
   test('a member who leaves and comes back is not still silently muted', async () => {
     const leaver = await addMember(fixture.leaverEmail);
     const task = await createTask('muted by somebody on their way out', { assigneeId: leaver.id });
-    expect((await unsubscribe(task.key, { email: leaver.email })).statusCode).toBe(204);
+    expect((await unsubscribe(task.key, { email: leaver.email })).statusCode).toBe(200);
 
     await removeMember(leaver.id);
     await addMember(leaver.email);
@@ -213,8 +266,10 @@ describe('task subscription', () => {
 
       const response = await unsubscribe(task.key, { token: fixture.agentToken });
 
-      // The verb works, so a script does not need to know who is running it.
-      expect(response.statusCode).toBe(204);
+      // The verb works, so a script does not need to know who is running it — and it answers with
+      // the state it really left, which for an agent is "no decision recorded" rather than "muted".
+      expect(response.statusCode).toBe(200);
+      expect(response.json() as unknown).toEqual({ state: 'none' });
       // And leaves nothing behind. `subscribeUsersToTask` already refuses to subscribe an agent, so
       // a mute for one would be a row that can never change any outcome — the bookkeeping #39
       // removed, reintroduced one table over.
