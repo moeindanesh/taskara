@@ -280,22 +280,6 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   return { data: comment, note: noted(`Commented on ${key}`, body) };
 }
 
-/**
- * The outcome line, and the one thing the write did not do.
- *
- * A body that names people notifies none of them — a mention is a node the web editor writes, and
- * this surface only ever sends markdown (#53). The write still lands: the prose is what a human
- * reads, and refusing to store a sentence on the strength of a guess about it would leave the
- * caller no way to write the sentence at all. What it must not do is land in silence.
- */
-function noted(outcome: string, body: string | undefined): string {
-  const notice = mentionNotice(body, MENTION_REACH);
-  return notice ? `${outcome}\n${notice}` : outcome;
-}
-
-/** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
-const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
-
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;
 
 async function taskClose(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -446,6 +430,22 @@ function optionalList(values: string[]): string[] | undefined {
  */
 function optionalUserId(client: TaskaraClient, ref: string | undefined): Promise<string | undefined> {
   return ref === undefined ? Promise.resolve(undefined) : resolveUserId(client, ref);
+}
+
+/** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
+const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
+
+/**
+ * The outcome line, and the one thing the write did not do.
+ *
+ * A body that names people notifies none of them — a mention is a node the web editor writes, and
+ * this surface only ever sends markdown (#53). The write still lands: the prose is what a human
+ * reads, and refusing to store a sentence on the strength of a guess about it would leave the
+ * caller no way to write the sentence at all. What it must not do is land in silence.
+ */
+function noted(outcome: string, body: string | undefined): string {
+  const notice = mentionNotice(body, MENTION_REACH);
+  return notice ? `${outcome}\n${notice}` : outcome;
 }
 
 function dropUndefined<T extends object>(value: T): T {
