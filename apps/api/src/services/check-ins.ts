@@ -15,7 +15,7 @@ import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { openBlockerEdgesInclude } from './blockers';
 import { HttpError } from './http';
-import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
+import { buildMeetingAccessWhere, canAccessMeeting } from './meetings';
 import { measuredMemberWhere } from './measured-people';
 import { isWorkTask } from './measured-work';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
@@ -810,14 +810,13 @@ export async function addOneOnOneAgendaItem(
 }
 
 export async function listMeetingActionItems(actor: RequestActor, input: Partial<MeetingActionItemListInput> = {}) {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const where: Prisma.MeetingActionItemWhereInput = {
     workspaceId: actor.workspace.id,
     assigneeId: input.assigneeId,
     meetingId: input.meetingId,
     ...(input.status && input.status !== 'ALL' ? { status: input.status } : {}),
     ...(input.dueBefore ? { dueAt: { lte: new Date(input.dueBefore) } } : {}),
-    meeting: buildMeetingAccessWhere(actor, accessScope)
+    meeting: buildMeetingAccessWhere(actor)
   };
 
   const [items, total] = await Promise.all([
@@ -840,7 +839,6 @@ export async function createMeetingActionItem(
   input: CreateActionItemInput,
   syncMutation?: SyncMutationMeta
 ) {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     select: {
@@ -854,7 +852,7 @@ export async function createMeetingActionItem(
     }
   });
   if (!meeting) throw new HttpError(404, 'Meeting not found');
-  if (!canAccessMeeting(actor, meeting, accessScope)) throw new HttpError(403, 'Meeting access denied');
+  if (!canAccessMeeting(actor, meeting)) throw new HttpError(403, 'Meeting access denied');
   if (input.assigneeId) await assertWorkspaceMember(actor.workspace.id, input.assigneeId);
 
   const row = await prisma.meetingActionItem.create({
@@ -1183,12 +1181,11 @@ async function requireOneOnOneAccess(actor: RequestActor, seriesId: string): Pro
 }
 
 async function requireMeetingActionItemAccess(actor: RequestActor, actionItemId: string): Promise<MeetingActionItemWithRelations> {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const item = await prisma.meetingActionItem.findFirst({
     where: {
       id: actionItemId,
       workspaceId: actor.workspace.id,
-      meeting: buildMeetingAccessWhere(actor, accessScope)
+      meeting: buildMeetingAccessWhere(actor)
     },
     include: actionItemInclude
   });

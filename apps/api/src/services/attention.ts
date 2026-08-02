@@ -2,7 +2,7 @@ import { prisma, type AttentionItem, type AttentionItemStatus, type Prisma } fro
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
-import { buildMeetingAccessWhere, resolveMeetingAccessScope } from './meetings';
+import { buildMeetingAccessWhere } from './meetings';
 import { measuredMemberWhere } from './measured-people';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import {
@@ -516,8 +516,7 @@ async function buildDueOneOnOneAttentionCandidates(actor: RequestActor, now: Dat
 }
 
 async function buildStaleActionItemAttentionCandidates(actor: RequestActor, now: Date): Promise<AttentionCandidate[]> {
-  const accessScope = await resolveMeetingAccessScope(actor);
-  const meetingAccessWhere = buildMeetingAccessWhere(actor, accessScope);
+  const meetingAccessWhere = buildMeetingAccessWhere(actor);
   const staleCreatedBefore = new Date(now.getTime() - staleActionItemHours * 60 * 60 * 1000);
   const rows = await prisma.meetingActionItem.findMany({
     where: {
