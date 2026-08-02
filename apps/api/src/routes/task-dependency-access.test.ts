@@ -170,6 +170,53 @@ describe('task dependency access', () => {
   });
 
   /**
+   * The third surface carrying a far end, found by sweeping for the shape rather than by fixing
+   * what was reported. `POST /agent/daily-plan` hands an agent its own assigned work with the open
+   * blockers materialised, and returns those rows — so the blocker's whole record rode out on a
+   * route whose reader is only guaranteed to be the *blocked* task's assignee.
+   */
+  test('the agent daily plan redacts a blocker its reader cannot open', async () => {
+    const task = await createTask('assigned to the outsider', fixture.openProjectId);
+    await patch(task.key, { assigneeId: fixture.outsiderId, status: 'TODO' });
+    const blocker = await createTask('in the way, behind the wall', fixture.nearProjectId);
+    await blockOn(task.key, blocker.key);
+
+    const plan = await dailyPlan(fixture.outsiderEmail);
+    const planned = plan.blocked.find((row) => row.key === task.key);
+    expect(planned?.blockingDependencies.map((edge) => edge.blockedByTask)).toEqual([
+      { redacted: true, open: true }
+    ]);
+  });
+
+  /**
+   * The sync payload, checked rather than assumed — and it is clean, which is the finding.
+   *
+   * `taskInclude` carries `_count` and no far-end array at all, so the ambient stream has never
+   * disclosed a blocker's key or title, and #24 chose it deliberately: an edge write emits an event
+   * for the blocked task only, because the blocker's serialized row is byte-identical.
+   *
+   * That is a property of one include, one edit away from being untrue, and the client cache is
+   * exactly where a leak would be least visible. So it is pinned: adding a far end to `taskInclude`
+   * fails here, and whoever adds it has to route it through `redactRelatedTasks` first. The `_count`
+   * is asserted present in the same breath, because deleting the arrays is not the fix — the
+   * unfiltered open-blocker count is what keeps the list badge honest for work behind a wall.
+   */
+  test('the sync payload carries the blocker count and no far end to redact', async () => {
+    const task = await createTask('synced to a client', fixture.openProjectId);
+    const blocker = await createTask('never named in the stream', fixture.nearProjectId);
+    await blockOn(task.key, blocker.key);
+
+    const synced = await bootstrapTasks(fixture.outsiderEmail);
+    const row = synced.find((item) => item.key === task.key);
+
+    expect(row).toBeDefined();
+    expect((row?._count as { blockingDependencies: number }).blockingDependencies).toBe(1);
+    expect(row).not.toHaveProperty('blockingDependencies');
+    expect(row).not.toHaveProperty('blockedTasks');
+    expect(row).not.toHaveProperty('subtasks');
+  });
+
+  /**
    * The other half, and the half #57 learned the hard way: its tenth planted regression was a
    * missing positive case, where deleting the admin branch of `canReadProject` failed nothing.
    *
@@ -212,6 +259,32 @@ describe('task dependency access', () => {
     });
   });
 });
+
+async function bootstrapTasks(email: string): Promise<Array<Record<string, unknown> & { key: string }>> {
+  const response = await app.inject({
+    method: 'GET',
+    url: '/sync/bootstrap',
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email }
+  });
+  expect(response.statusCode).toBe(200);
+  return (response.json() as { tasks: Array<Record<string, unknown> & { key: string }> }).tasks;
+}
+
+interface PlannedTask {
+  key: string;
+  blockingDependencies: Array<{ blockedByTask: FarEnd }>;
+}
+
+async function dailyPlan(email: string): Promise<{ blocked: PlannedTask[]; focus: PlannedTask[] }> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/agent/daily-plan',
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email },
+    payload: {}
+  });
+  expect(response.statusCode).toBe(200);
+  return response.json() as { blocked: PlannedTask[]; focus: PlannedTask[] };
+}
 
 function edgeCount(view: Record<string, unknown>): number {
   return (view.blockingDependencies as unknown[]).length;

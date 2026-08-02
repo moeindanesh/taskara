@@ -87,6 +87,31 @@ export function isRedactedTaskRef(value: object): value is RedactedTaskRef {
 }
 
 /**
+ * The upstream edges — what is in front of this task — with each blocker put through
+ * {@link visibleRelatedTask}.
+ *
+ * Its own export because two routes materialise these edges: the task detail, and
+ * `POST /agent/daily-plan`, which returns the rows it sorted into `focus` and `blocked`. The second
+ * is not in the ticket and is the same disclosure: an agent is guaranteed to be the *blocked*
+ * task's assignee, which says nothing about the blocker.
+ *
+ * The foreign key goes with the row. `blockedByTaskId` names the far end as surely as its key does,
+ * so a redacted edge carries `null` there; the edge's own id stays, because it identifies the
+ * relationship the reader is being told about on purpose.
+ */
+export function redactBlockingEdges<
+  Blocker extends RelatedTaskRow,
+  Edge extends { blockedByTaskId: string; blockedByTask: Blocker }
+>(access: WorkspaceAccess, edges: Edge[]) {
+  return edges.map((edge) => {
+    const blockedByTask = visibleRelatedTask(access, edge.blockedByTask);
+    return isRedactedTaskRef(blockedByTask)
+      ? { ...edge, blockedByTaskId: null, blockedByTask }
+      : { ...edge, blockedByTask };
+  });
+}
+
+/**
  * Every other task a task detail carries, put through {@link visibleRelatedTask} in one pass.
  *
  * All three relations together rather than one call per relation at the call site, because the one
@@ -94,10 +119,6 @@ export function isRedactedTaskRef(value: object): value is RedactedTaskRef {
  * was not in the report. A parent keeps a child that is moved to another project — `updateTask`
  * accepts `projectId` and leaves `parentId` alone — so the subtask list crosses walls by the same
  * route the dependency list does.
- *
- * The foreign key goes with the row. `blockedByTaskId` and `taskId` name the far end as surely as
- * its key does, so a redacted edge carries `null` there; the edge's own id stays, because it
- * identifies the relationship the reader is entitled to know about.
  */
 export function redactRelatedTasks<
   Sub extends RelatedTaskRow,
@@ -112,12 +133,7 @@ export function redactRelatedTasks<
   return {
     ...task,
     subtasks: task.subtasks.map((subtask) => visibleRelatedTask(access, subtask)),
-    blockingDependencies: task.blockingDependencies.map((edge) => {
-      const blockedByTask = visibleRelatedTask(access, edge.blockedByTask);
-      return isRedactedTaskRef(blockedByTask)
-        ? { ...edge, blockedByTaskId: null, blockedByTask }
-        : { ...edge, blockedByTask };
-    }),
+    blockingDependencies: redactBlockingEdges(access, task.blockingDependencies),
     blockedTasks: task.blockedTasks.map((edge) => {
       const blocked = visibleRelatedTask(access, edge.task);
       return isRedactedTaskRef(blocked)
