@@ -55,6 +55,7 @@ import {
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
+import { effortBodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from '@/lib/effort-body';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { editorValueToPlainText, suggestTaskText, type TaskTextSuggestionResult } from '@/lib/task-text-ai';
@@ -484,6 +485,10 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
 
    async function saveDescriptionDraft(value = descriptionDraft) {
       if (!task) return;
+      // The editor is not mounted over an Effort, so this cannot fire from one today. The guard is
+      // here anyway because the rule belongs at the write: the next surface that reaches for this
+      // function will not be reading the render to find out what it is allowed to overwrite.
+      if (isBodyReadOnly(task)) return;
       const nextDescription = value.trim() || null;
       const currentDescription = task.description?.trim() || null;
       if (nextDescription === currentDescription) return;
@@ -497,8 +502,35 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
       }
    }
 
+   /**
+    * Put a converted body back as the markdown that went into it.
+    *
+    * Read-only stops the next conversion and does nothing for the ones already written, and those
+    * are the rows that hurt: the CLI, an agent and the API read `description` and get JSON. This is
+    * the one write the web still makes to an Effort's body, and it is a restoration rather than an
+    * edit -- it writes back the text the row already holds, recovered from the editor's own tree.
+    * It carries `baseVersion` like every other write from here, so a session that has moved the
+    * body on since the page loaded refuses it rather than losing the line.
+    */
+   async function restoreEffortBody() {
+      // Guarded on the description specifically, so the condition matches the one that disables the
+      // button. `savingField` also carries a title save, and a restore that silently did nothing
+      // while a title was in flight would look like a dead button.
+      if (!task || savingField === 'description') return;
+      const restored = effortBodyText(task.description);
+      if (!restored || restored === task.description) return;
+
+      setSavingField('description');
+      try {
+         const updated = await updateTask({ description: restored });
+         if (updated) toast.success(fa.issue.effortBodyRestored);
+      } finally {
+         setSavingField(null);
+      }
+   }
+
    async function requestAiSuggestion() {
-      if (aiSuggestionLoading) return;
+      if (!task || aiSuggestionLoading) return;
       const title = titleDraft.trim();
       const description = editorValueToPlainText(descriptionDraft);
       if (!title && !description) {
@@ -508,7 +540,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
 
       setAiSuggestionLoading(true);
       try {
-         const suggestion = await suggestTaskText({ title, description });
+         const suggestion = withoutBodyRewrite(await suggestTaskText({ title, description }), task);
          if (!suggestion.titleSuggestion && !suggestion.descriptionSuggestion && !suggestion.summarySuggestion) {
             toast.message('پیشنهاد جدیدی برای این متن پیدا نشد.');
          }
@@ -527,6 +559,10 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
       const patch: TaskUpdatePatch = {};
       let nextTitleDraft = titleDraft;
       let nextDescriptionDraft = descriptionDraft;
+      // «اعمال همه پیشنهادها» sends both halves, and a suppressed description arrives here as null
+      // rather than as an absent key -- which would read as «clear the body». An Effort's body is
+      // not the web's to rewrite, least of all with a paraphrase of a map.
+      const writesBody = 'descriptionSuggestion' in next && !isBodyReadOnly(task);
 
       if ('titleSuggestion' in next) {
          const currentTitle = task.title.trim();
@@ -535,7 +571,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
          nextTitleDraft = nextTitle || nextTitleDraft;
       }
 
-      if ('descriptionSuggestion' in next) {
+      if (writesBody) {
          const currentDescription = task.description?.trim() || '';
          const nextDescription = (next.descriptionSuggestion ?? '').trim();
          if (nextDescription !== currentDescription) patch.description = nextDescription || null;
@@ -550,11 +586,11 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
       setAiApplying(true);
       try {
          if ('titleSuggestion' in next) setTitleDraft(nextTitleDraft);
-         if ('descriptionSuggestion' in next) setDescriptionDraft(nextDescriptionDraft);
+         if (writesBody) setDescriptionDraft(nextDescriptionDraft);
          const updated = await updateTask(patch);
          if (updated) {
             if ('titleSuggestion' in next) setTitleDraft(updated.title);
-            if ('descriptionSuggestion' in next) setDescriptionDraft(updated.description || '');
+            if (writesBody) setDescriptionDraft(updated.description || '');
             toast.success('پیشنهاد AI اعمال شد.');
          }
       } finally {
@@ -822,6 +858,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
    const labels = task.labels || [];
+   const bodyReadOnly = isBodyReadOnly(task);
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
          <main className="min-w-0 overflow-y-auto px-6 py-5">
@@ -885,34 +922,42 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
 
             <section className="mt-6">
                <div className="relative">
-                  <DescriptionEditor
-                     value={descriptionDraft}
-                     users={users}
-                     variant="plain"
-                     showToolbar={false}
-                     onBlur={(nextDescription) => {
-                        descriptionFocusedRef.current = false;
-                        void saveDescriptionDraft(nextDescription);
-                     }}
-                     onCancel={() => {
-                        descriptionFocusedRef.current = false;
-                        setDescriptionDraft(task.description || '');
-                     }}
-                     onChange={setDescriptionDraft}
-                     onFocus={() => {
-                        descriptionFocusedRef.current = true;
-                     }}
-                     uploadInlineImages={uploadDescriptionInlineImages}
-                     onInlineImageUploadError={(err) => {
-                        toast.error(err instanceof Error ? err.message : fa.issue.attachmentUploadFailed);
-                     }}
-                     uploadInlineFiles={uploadDescriptionInlineFiles}
-                     onInlineFileUploadError={(err) => {
-                        toast.error(err instanceof Error ? err.message : fa.issue.attachmentUploadFailed);
-                     }}
-                     placeholder={fa.issue.descriptionPlaceholder}
-                     contentClassName="min-h-24 text-right text-sm leading-6 text-zinc-300"
-                  />
+                  {bodyReadOnly ? (
+                     <EffortBody
+                        description={task.description}
+                        restoring={savingField === 'description'}
+                        onRestore={() => void restoreEffortBody()}
+                     />
+                  ) : (
+                     <DescriptionEditor
+                        value={descriptionDraft}
+                        users={users}
+                        variant="plain"
+                        showToolbar={false}
+                        onBlur={(nextDescription) => {
+                           descriptionFocusedRef.current = false;
+                           void saveDescriptionDraft(nextDescription);
+                        }}
+                        onCancel={() => {
+                           descriptionFocusedRef.current = false;
+                           setDescriptionDraft(task.description || '');
+                        }}
+                        onChange={setDescriptionDraft}
+                        onFocus={() => {
+                           descriptionFocusedRef.current = true;
+                        }}
+                        uploadInlineImages={uploadDescriptionInlineImages}
+                        onInlineImageUploadError={(err) => {
+                           toast.error(err instanceof Error ? err.message : fa.issue.attachmentUploadFailed);
+                        }}
+                        uploadInlineFiles={uploadDescriptionInlineFiles}
+                        onInlineFileUploadError={(err) => {
+                           toast.error(err instanceof Error ? err.message : fa.issue.attachmentUploadFailed);
+                        }}
+                        placeholder={fa.issue.descriptionPlaceholder}
+                        contentClassName="min-h-24 text-right text-sm leading-6 text-zinc-300"
+                     />
+                  )}
                   {savingField === 'description' ? (
                      <Loader2 className="absolute left-0 top-1 size-4 animate-spin text-zinc-500" />
                   ) : null}
@@ -1291,6 +1336,73 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                if (!open) setSmsConfirmKind(null);
             }}
          />
+      </div>
+   );
+}
+
+/**
+ * An Effort's body, rendered as the document it is.
+ *
+ * No editor, and no textarea either. A textarea would round-trip the text safely, which is what the
+ * ticket asked for as a minimum, but it would still be an edit surface over a snapshot that cannot
+ * refresh: efforts are kept out of the client task cache and the sync stream it rides on (#34), so
+ * this page's copy of an Effort is a direct read frozen at load and its `version` never advances
+ * while the page is open. Every body write carries the version it was based on (#48), so a hand
+ * edit typed minutes after the page loaded is a 409 by construction — an editor whose ordinary
+ * outcome is a refusal is not an editor. Writing the body is the CLI's job, which reads immediately
+ * before it writes.
+ *
+ * `whitespace-pre-wrap` rather than a markdown renderer, deliberately. The point of this surface is
+ * to show what the column holds — the exact text the CLI and an agent will read — and rendering
+ * `## Destination` as a styled heading would hide the one thing a reader is here to check.
+ */
+function EffortBody({
+   description,
+   restoring,
+   onRestore,
+}: {
+   description?: string | null;
+   restoring: boolean;
+   onRestore: () => void;
+}) {
+   // Memoised on the body and not on nothing. A converted map is a JSON parse and a tree walk, and
+   // this component re-renders on every keystroke in the comment box below it.
+   const body = useMemo(() => effortBodyText(description), [description]);
+   const converted = useMemo(() => isEditorBody(description), [description]);
+
+   return (
+      <div className="space-y-3">
+         {converted ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+               <MessageSquareWarning className="size-4 shrink-0" />
+               <span className="min-w-0 flex-1">{fa.issue.effortBodyConverted}</span>
+               <button
+                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 text-amber-50 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={restoring}
+                  type="button"
+                  onClick={onRestore}
+               >
+                  {restoring ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  {fa.issue.effortBodyRestore}
+               </button>
+            </div>
+         ) : null}
+         {body ? (
+            // The interface font, not a monospace one. Monospace suits a source document and was the
+            // first thing tried here, but the fallback mono family has no Arabic-script shaping: a
+            // Persian body rendered as «مـقـصـد», every letter disjoined. A Persian map is the
+            // ordinary case in this workspace, and the structure of the document is legible from its
+            // own `##` and `-` characters without a typeface helping.
+            <pre
+               className="overflow-x-auto whitespace-pre-wrap break-words font-sans text-sm leading-6 text-zinc-300"
+               dir="auto"
+            >
+               {body}
+            </pre>
+         ) : (
+            <p className="text-sm text-zinc-600">{fa.issue.effortBodyEmpty}</p>
+         )}
+         <p className="text-xs leading-5 text-zinc-600">{fa.issue.effortBodyReadOnly}</p>
       </div>
    );
 }

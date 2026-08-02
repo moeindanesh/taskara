@@ -407,6 +407,13 @@ export const fa = {
       newIssue: 'کار جدید',
       titlePlaceholder: 'عنوان کار',
       descriptionPlaceholder: 'توضیح اضافه کنید...',
+      effortBodyEmpty: 'متنی برای این کار ثبت نشده است.',
+      effortBodyReadOnly:
+         'متن این کار سندی است که ابزارهای بیرونی می‌خوانند. اینجا فقط خوانده می‌شود و نوشتنش با نشست‌هایی است که روی آن کار می‌کنند.',
+      effortBodyConverted:
+         'این متن یک‌بار از ویرایشگر متن گذشته و به JSON ذخیره شده است. هیچ‌چیزی از دست نرفته؛ متن اصلی داخل همان JSON است.',
+      effortBodyRestore: 'بازگرداندن متن اصلی',
+      effortBodyRestored: 'متن اصلی بازگردانده شد.',
       status: 'وضعیت',
       priority: 'اولویت',
       weight: 'وزن',
