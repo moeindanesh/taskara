@@ -785,6 +785,16 @@ export async function addTaskComment(
       task: updatedTask,
       body: comment.body
     });
+    // Named in a comment, and therefore on the list — as on a description. A mention in a comment
+    // is nearly always a question, and the answer to it is the next comment. Subscribed with the
+    // ids that were actually notified rather than with everything the body named, so the two lists
+    // cannot disagree; and through `subscribeUsersToTask`, which is where #54's mute is honoured,
+    // so being spoken to does not quietly undo a decision not to watch.
+    await subscribeUsersToTask(tx, {
+      workspaceId: actor.workspace.id,
+      taskId: task.id,
+      userIds: mentionedUserIds
+    });
     await createTaskSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,

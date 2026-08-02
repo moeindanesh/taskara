@@ -156,6 +156,24 @@ describe('task subscription', () => {
       expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
       expect(await notificationCount(task.id, 'task_commented')).toBe(1);
     });
+
+    /**
+     * Being named in a comment puts you on the list, exactly as being named in a description does.
+     *
+     * A mention in a comment is nearly always a question, and the answer to it is the next comment.
+     * Summoning somebody into a conversation and then not letting them hear it is the same bug this
+     * ticket is about, one message later.
+     */
+    test('puts the person named on the list, so they hear the answer', async () => {
+      const task = await createTask('nothing to do with them until now');
+      expect(await subscriptionCount(task.id)).toBe(0);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+      expect(await subscriptionCount(task.id)).toBe(1);
+
+      await comment(task.key, fixture.reporterEmail, 'and here is the answer to it');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+    });
   });
 
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {
