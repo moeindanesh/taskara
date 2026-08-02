@@ -886,13 +886,34 @@ describe('taskara CLI', () => {
       // But a map body can carry dozens, and a stderr line that reprints half of one is a line
       // nobody finishes reading.
       const reach = 'Use --add-assignee.';
-      expect(mentionNotice('@Robin please look', reach)).toContain('@Robin looks like a mention');
-      expect(mentionNotice('@a @b @c @d @e', reach)).toContain('@a, @b, @c and 2 more look like mentions');
-      expect(mentionNotice('bun add @types/node', reach)).toBeUndefined();
+      const into = 'description' as const;
+      expect(mentionNotice('@Robin please look', reach, into)).toContain('@Robin looks like a mention');
+      expect(mentionNotice('@a @b @c @d @e', reach, into))
+        .toContain('@a, @b, @c and 2 more look like mentions');
+      expect(mentionNotice('bun add @types/node', reach, into)).toBeUndefined();
 
       // The pointer is the caller's: the CLI takes an email on a flag and MCP takes a uuid, so the
       // core states the rule and each shell names verbs its own caller can type.
-      expect(mentionNotice('@Robin please look', reach)).toEndWith(reach);
+      expect(mentionNotice('@Robin please look', reach, into)).toEndWith(reach);
+    });
+
+    test('the notice names a writer for a description and none for a comment', () => {
+      // #56. The rule clause was written for a description and printed on all three verbs, so
+      // `task comment` told a caller that a mention is «a node the web editor writes» — and sent
+      // them at a client that cannot write one either. The web comment box is a plain textarea and
+      // the mention-capable editor is mounted on descriptions only, so a comment mention is a rule
+      // with no writer. The surface has to say that, not name a writer that does not exist.
+      const reach = 'Use --add-assignee.';
+
+      const onDescription = mentionNotice('@Robin please look', reach, 'description');
+      expect(onDescription).toContain('a node the web editor writes');
+
+      const onComment = mentionNotice('@Robin please look', reach, 'comment');
+      expect(onComment).not.toContain('the web editor writes');
+      expect(onComment).toContain('no comment box writes one');
+      // Told once, and then told what does work — the pointer is unchanged by which body it was.
+      expect(onComment).toEndWith(reach);
+      expect(onComment).toContain('@Robin looks like a mention and notified nobody');
     });
 
     test('task create keeps the body and says who it did not reach', async () => {
@@ -951,6 +972,18 @@ describe('taskara CLI', () => {
         where: { taskId: task.id, type: 'task_mentioned' }
       });
       expect(mentions).toEqual([]);
+
+      // But the two verbs do **not** say the same thing about who could have written one, and #56
+      // is the reason. `task edit` writes a description, and a description's mention has a real
+      // writer — a human in the web editor's autocomplete — so the notice names it and a session
+      // can hand the request over. A comment's has none: `TaskComment.body` is plain text and the
+      // web comment box is a plain textarea, so the same sentence there would send the session to
+      // ask a human for something no human can do. Asserted through the spawned binary rather than
+      // on the core, because the wiring is what regresses: the shell passes which body it wrote.
+      expect(edited.stderr).toContain('a node the web editor writes');
+      expect(commented.stderr).not.toContain('the web editor writes');
+      expect(commented.stderr).toContain('no comment box writes one');
+      expect(commented.stderr).toContain('a human cannot make one for you');
     });
 
     test('a comment that carries a mention node does reach the person, and is not warned about', async () => {

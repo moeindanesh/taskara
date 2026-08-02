@@ -18,7 +18,7 @@ import {
 import { z } from 'zod';
 import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
-import { mentionNotice } from './core/mentions';
+import { mentionNotice, type MentionedBody } from './core/mentions';
 import * as api from './core/operations';
 import type { JsonRecord } from './core/types';
 import {
@@ -335,7 +335,11 @@ registerTool('task_create', {
     milestoneId: z.string().uuid().optional()
   }
 }, async (input) => {
-  return withMentionNotice({ task: taskSummary(await api.createTask(client, input)) }, input.description);
+  return withMentionNotice(
+    { task: taskSummary(await api.createTask(client, input)) },
+    input.description,
+    'description'
+  );
 });
 
 registerTool('task_edit', {
@@ -373,7 +377,7 @@ registerTool('task_edit', {
   // request carrying only it asks for nothing and must not report success.
   if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
   const updated = await api.updateTask(client, task, baseVersion === undefined ? body : { ...body, baseVersion });
-  return withMentionNotice({ task: taskSummary(updated) }, patch.description);
+  return withMentionNotice({ task: taskSummary(updated) }, patch.description, 'description');
 });
 
 registerTool('task_claim', {
@@ -426,13 +430,15 @@ registerTool('task_set_milestone', {
 registerTool('task_comment', {
   title: 'Comment on a Taskara task',
   description: 'Add a comment to a Taskara task by UUID or key. The task\'s subscribers are notified; '
-    + 'an @-mention in the comment reaches nobody in addition to them, from any client.',
+    + 'an @-mention in the comment reaches nobody in addition to them, from any client — a mention is a '
+    + 'rich-text node and nothing writes one into a comment, the web\'s comment box included. Do not ask '
+    + 'a human to add the mention in the web; set an assignee to reach a person.',
   inputSchema: {
     task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
     body: z.string().min(1).max(15000)
   }
 }, async ({ task, body }) => {
-  return withMentionNotice({ comment: await api.commentOnTask(client, task, body) }, body);
+  return withMentionNotice({ comment: await api.commentOnTask(client, task, body) }, body, 'comment');
 });
 
 registerTool('task_attach', {
@@ -653,11 +659,20 @@ function registerTool<T extends z.ZodRawShape>(
  * The pointer names uuid rather than email: MCP's `assigneeId` is a uuid by #49's decision, since a
  * conversation holds state and has just called `user_list` while a shell caller has nowhere to keep
  * a resolved id between invocations.
+ *
+ * `into` is the body the tool wrote, because a description's mention has a writer to point at and a
+ * comment's has none (#56) — and this is the shell where getting that wrong costs most, since a
+ * model told «the web editor writes those» will helpfully suggest a human go and do it.
  */
-function withMentionNotice<T extends JsonRecord>(result: T, body: string | null | undefined): T {
+function withMentionNotice<T extends JsonRecord>(
+  result: T,
+  body: string | null | undefined,
+  into: MentionedBody
+): T {
   const notice = mentionNotice(
     body,
-    'Hand work over with task_edit assigneeId; user_list finds the person and their id.'
+    'Hand work over with task_edit assigneeId; user_list finds the person and their id.',
+    into
   );
   return notice ? { ...result, warning: notice } : result;
 }

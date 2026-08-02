@@ -8,7 +8,7 @@ import {
 } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
-import { mentionNotice } from '../core/mentions';
+import { mentionNotice, type MentionedBody } from '../core/mentions';
 import {
   addTaskBlocker,
   claimTask,
@@ -113,9 +113,11 @@ export const usage = `taskara <noun> <verb> [arguments]
 A person is addressed by id or by email — never by name, which carries no unique constraint.
 "user list" is how you find either. Agents are in the roster too, marked by their kind.
 
-An @-mention in a body reaches nobody. A mention is a rich-text node the web editor writes and
-every body sent from here is markdown, so address a person with a flag, not in prose. A body that
-looks like it tried is written as given, with a line on stderr naming who was not told.
+An @-mention in a body reaches nobody. A mention is a rich-text node and every body sent from here
+is markdown, so address a person with a flag, not in prose. The web editor writes those nodes into a
+description; nothing writes one into a comment, whose box in the web is plain text too — so a
+comment mention has no writer in any client. A body that looks like it tried is written as given,
+with a line on stderr naming who was not told.
 
 "task unsubscribe" sticks: being mentioned or assigned again will not put you back on the list.
 "task subscribe" is how you undo it. Find either set with "task list --subscription watching|muted".
@@ -169,7 +171,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
 
   flags.assertNoUnknown();
   const task = await createTask(client, dropUndefined(input));
-  return { data: taskSummary(task), note: noted(`Created ${task.key}`, body) };
+  return { data: taskSummary(task), note: noted(`Created ${task.key}`, body, 'description') };
 }
 
 async function taskView(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -271,7 +273,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   for (const blocker of addBlockers) await addTaskBlocker(client, key, blocker);
 
   const task = await getTask(client, key);
-  return { data: taskSummary(task), note: noted(`Updated ${task.key}`, body) };
+  return { data: taskSummary(task), note: noted(`Updated ${task.key}`, body, 'description') };
 }
 
 async function taskClaim(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -297,7 +299,7 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   if (!body?.trim()) throw usageError('task comment needs --body or --body-file');
 
   const comment = await commentOnTask(client, key, body);
-  return { data: comment, note: noted(`Commented on ${key}`, body) };
+  return { data: comment, note: noted(`Commented on ${key}`, body, 'comment') };
 }
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;
@@ -488,13 +490,16 @@ const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; tas
 /**
  * The outcome line, and the one thing the write did not do.
  *
- * A body that names people notifies none of them — a mention is a node the web editor writes, and
- * this surface only ever sends markdown (#53). The write still lands: the prose is what a human
- * reads, and refusing to store a sentence on the strength of a guess about it would leave the
- * caller no way to write the sentence at all. What it must not do is land in silence.
+ * A body that names people notifies none of them — a mention is a node, and this surface only ever
+ * sends markdown (#53). The write still lands: the prose is what a human reads, and refusing to
+ * store a sentence on the strength of a guess about it would leave the caller no way to write the
+ * sentence at all. What it must not do is land in silence.
+ *
+ * `into` is the body being written, because the two do not have the same explanation — a
+ * description's mention has a writer and a comment's has none (#56). See `MentionedBody`.
  */
-function noted(outcome: string, body: string | undefined): string {
-  const notice = mentionNotice(body, MENTION_REACH);
+function noted(outcome: string, body: string | undefined, into: MentionedBody): string {
+  const notice = mentionNotice(body, MENTION_REACH, into);
   return notice ? `${outcome}\n${notice}` : outcome;
 }
 

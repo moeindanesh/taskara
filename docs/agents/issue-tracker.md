@@ -114,9 +114,15 @@ exit 1: a credential never learns its own user id, and claiming is atomic where 
 ### An @-mention in a body reaches nobody
 
 Writing `@Robin please look at this` into a task body, an effort body or a comment notifies **no
-one**. A mention in Taskara is a rich-text node the web editor writes when a human picks a colleague
-out of an autocomplete; every body you send from here is markdown, and markdown carries no nodes.
-There is no text spelling that works — not a name, not an email, not a UUID.
+one**. A mention in Taskara is a rich-text node, and every body you send from here is markdown, which
+carries no nodes. There is no text spelling that works — not a name, not an email, not a UUID.
+
+**Who *can* write one differs by body, and it matters when you decide what to do instead.** In a
+**description** the web editor writes the node, when a human picks a colleague out of an
+autocomplete — so asking a person to add the mention is a real thing to ask. In a **comment** nothing
+writes one. The web's comment box is a plain textarea and the mention-capable editor is mounted on
+descriptions only, so a comment mention is a rule with no writer, in any client. Do not route around
+it by asking a human; they cannot either.
 
 So a person is reached by a **flag**, never in prose:
 
@@ -137,12 +143,24 @@ markdown body carries none. Hand work over with task edit --add-assignee <email>
 finds the address.
 ```
 
+`task comment` says the other half, because the answer to "then who can?" is nobody:
+
+```
+$ taskara task comment CORE-124 --body "thanks @Robin"
+Commented on CORE-124
+@Robin looks like a mention and notified nobody: a mention is a node and no comment box writes one —
+the web's is plain text too, so a human cannot make one for you. Hand work over with task edit
+--add-assignee <email>; taskara user list finds the address.
+```
+
 Two consequences worth knowing before you rely on the alternative:
 
-- **A comment is a body like any other.** A mention node in a comment notifies the person it names,
-  puts them on the watch list so they hear the reply, and replaces the ambient "commented" row they
-  would otherwise have got — one comment is one notification. But your comment is markdown, so it
-  carries no nodes and reaches nobody by name. What a comment *does* reach is the task's
+- **A comment is a body like any other, and it is the one nobody can write a mention into.** The
+  rule is real: a mention node in a comment notifies the person it names, puts them on the watch
+  list so they hear the reply, and replaces the ambient "commented" row they would otherwise have
+  got — one comment is one notification. But `TaskComment.body` is plain text and stays plain text
+  (`docs/adr/0003`), so no client produces such a node — not this one, whose bodies are markdown,
+  and not the web, whose comment box is a plain textarea. What a comment *does* reach is the task's
   **subscribers** — the reporter, the assignee, anyone already named in the description — so
   commenting still reaches people attached to the work, and only them.
 - **An Effort body can never @-notify.** A map's body is markdown by design, and the inbox filters
@@ -257,7 +275,9 @@ Claiming an Effort exits 6 — an Effort is not a unit of work and holds no assi
 
 Reporting a Task, being assigned one, or being `@`-mentioned in its description or in a comment on
 it subscribes you to it, and every later comment, status change and description edit then reaches
-your inbox.
+your inbox. In practice only the description half of that puts anyone on the list, because nothing
+writes a mention into a comment — see
+[An @-mention in a body reaches nobody](#an--mention-in-a-body-reaches-nobody).
 
 ```bash
 taskara task unsubscribe CORE-123           # stop hearing about it

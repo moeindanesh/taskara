@@ -777,6 +777,17 @@ export async function addTaskComment(
     // happened. Both rows would carry the same `createdAt` — Postgres `now()` is the transaction's
     // start — so leaving both would make the inbox thread show one label or the other at random.
     // The same ordering, and the same exclusion, that a description edit already uses.
+    //
+    // **This stays although almost nothing writes a comment mention.** #56 decided
+    // `TaskComment.body` is plain text, so there is no composer that produces a mention node into
+    // one — not the web's textarea, not a markdown body from the CLI. Read that and the honest
+    // reaction is «then delete it», which #38 would seem to support. It is the wrong call, and the
+    // argument is in `docs/adr/0003`: the path is not zero-producer (a body that *is* an editor
+    // state notifies, and `task comment --body-file -` can send one), what #38 punished was code
+    // implying something false rather than code rarely reached, and removing it would make the
+    // identical node notify in a description and not in a comment — one word, two answers.
+    // If you are here to delete it, read the ADR first; if the comment box ever goes rich, this is
+    // the half that makes it work.
     const mentionedUserIds = await createTaskMentionNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
