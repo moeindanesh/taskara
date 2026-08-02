@@ -1,11 +1,30 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@taskara/db';
-import { createCommentSchema, createTaskSchema, taskListQuerySchema, updateTaskSchema } from '@taskara/shared';
+import {
+  createCommentSchema,
+  createTaskDependencySchema,
+  createTaskSchema,
+  strictQueryBooleanSchema,
+  taskKindSchema,
+  taskListQuerySchema,
+  taskPatchConcurrencySchema,
+  unfinishedTaskStatusFilter,
+  updateTaskSchema,
+  type TaskSortOrderValue
+} from '@taskara/shared';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
+import { redactActivityDependencyPayloads } from '../services/activity-visibility';
+import { openBlockersWhere } from '../services/blockers';
 import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
+import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-people';
+import { workTaskWhere } from '../services/measured-work';
+import { isNotifiable } from '../services/notifications';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
+import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
+import { subscribeToTask, unsubscribeFromTask } from '../services/task-subscriptions';
+import { redactRelatedTasks, relatedTaskAccessInclude } from '../services/task-visibility';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -15,6 +34,7 @@ import { sendTaskCreatedSms, sendTaskFollowUpSms } from '../services/task-sms';
 import {
   addTaskComment,
   addTaskProgressStartedAt,
+  claimTask,
   createTask,
   deleteTask,
   findTaskByIdOrKey,
@@ -34,13 +54,122 @@ const taskArchiveQuerySchema = z.object({
   milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   assigneeId: z.string().uuid().optional(),
   priority: z.enum(['NO_PRIORITY', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  kind: taskKindSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   completedBefore: z.string().datetime().optional(),
   cursor: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
+
+type TaskListQuery = z.infer<typeof taskListQuerySchema>;
+
+function taskStatusWhere(filter: TaskListQuery['status']): Prisma.TaskWhereInput['status'] {
+  if (!filter) return undefined;
+  if (filter === unfinishedTaskStatusFilter) return { notIn: ['DONE', 'CANCELED'] };
+  return { in: filter };
+}
+
+/**
+ * Exact name match on one label, the same semantics `GET /knowledge/pages?label=` already has, plus
+ * the absence sentinel the rest of this query surface uses. A label literally named `none` is
+ * therefore unreachable through this filter.
+ */
+function taskLabelWhere(label: TaskListQuery['label']): Prisma.TaskWhereInput['labels'] {
+  if (!label) return undefined;
+  return label === 'none' ? { none: {} } : { some: { label: { name: label } } };
+}
+
+/**
+ * "What am I watching" and "what did I mute", as a filter on the list everybody already reads.
+ *
+ * #21's shape, not a `/subscriptions` endpoint: the answer wants a status filter, a project filter
+ * and the effort exclusion the moment anybody looks at it, and a parallel endpoint would restate all
+ * three. Scoped to the caller because a subscription is a relationship rather than a property —
+ * there is no workspace-wide answer to give.
+ */
+/**
+ * The effort exclusion, and the one filter that suspends it.
+ *
+ * `kind` unqualified means WORK, because the unqualified task list is the issue list a human reads
+ * and an Effort is not an issue. **`?subscription=` is different in kind**: it does not ask "what
+ * work is there", it asks "what did *I* decide about", and the answer is wrong if it omits things
+ * the caller deliberately subscribed to or deliberately muted.
+ *
+ * An Effort is the sharpest case rather than an edge one. Its body is a living document every
+ * resolving session appends to, so it fans out more notifications than any work task — it is the
+ * likeliest thing a person mutes, and hiding it here would make that decision permanently
+ * unfindable. `--subscription muted` is documented as "what you silenced, when you cannot remember
+ * why", and it cannot answer that about the rows most worth asking about.
+ *
+ * An explicit `kind` still wins, so `?subscription=watching&kind=WORK` narrows as it says.
+ */
+function taskKindWhere(
+  kind: TaskListQuery['kind'],
+  subscription: TaskListQuery['subscription']
+): Pick<Prisma.TaskWhereInput, 'kind'> {
+  if (kind) return { kind };
+  return subscription ? {} : workTaskWhere;
+}
+
+function taskSubscriptionWhere(
+  filter: TaskListQuery['subscription'],
+  userId: string
+): Pick<Prisma.TaskWhereInput, 'subscriptions' | 'mutes'> {
+  if (!filter) return {};
+  if (filter === 'muted') return { mutes: { some: { userId } } };
+  return { subscriptions: { some: { userId } } };
+}
+
+const taskSortOrderBy = {
+  'createdAt:asc': { createdAt: 'asc' },
+  'createdAt:desc': { createdAt: 'desc' },
+  'updatedAt:asc': { updatedAt: 'asc' },
+  'updatedAt:desc': { updatedAt: 'desc' },
+  'dueAt:asc': { dueAt: 'asc' },
+  'dueAt:desc': { dueAt: 'desc' }
+} satisfies Record<TaskSortOrderValue, Prisma.TaskOrderByWithRelationInput>;
+
+/**
+ * `id` is appended to every ordering, including the default, so that offset paging cannot drop or
+ * repeat a row when the leading keys tie — which they routinely do on a freshly imported map.
+ */
+function taskListOrderBy(sort: TaskListQuery['sort']): Prisma.TaskOrderByWithRelationInput[] {
+  const leading: Prisma.TaskOrderByWithRelationInput[] = sort
+    ? [taskSortOrderBy[sort]]
+    : [{ status: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'desc' }];
+  return [...leading, { id: 'asc' }];
+}
+
+/**
+ * A stale write, turned into an answer the loser can act on without asking again.
+ *
+ * "Re-read and retry" is the price of optimistic concurrency, and half of it is a round trip the
+ * server can simply skip: it has just read the row in order to discover the conflict, so it hands it
+ * back. A session whose appended line was refused gets the current body and the current version in
+ * the 409 and can re-apply immediately, which is what keeps the retry a loop of one.
+ *
+ * Returns `null` for anything that is not a 409, so an unrelated failure keeps its own status.
+ */
+async function describeStaleWrite(
+  workspaceId: string,
+  taskId: string,
+  error: unknown
+): Promise<Record<string, unknown> | null> {
+  if (!(error instanceof HttpError) || error.statusCode !== 409) return null;
+
+  const current = await prisma.task.findFirst({ where: { id: taskId, workspaceId }, include: taskInclude });
+  if (!current) return { message: error.message };
+
+  const [decoratedTask] = await addTaskProgressStartedAt(workspaceId, [serializeTaskForResponse(current)]);
+  return {
+    message: `${current.key} changed on another client: it is now version ${current.version}, and this`
+      + ' write was based on an older one. The current row is in this response — re-apply your change'
+      + ' to it and send it back with the version it carries.',
+    ...decoratedTask
+  };
+}
 
 export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
   app.get('/leaderboard', async (request) => {
@@ -73,22 +202,30 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
+    // A `by: ['assigneeId']` rollup is a per-person ranking however task-shaped its rows look, so
+    // both groupBys carry the predicate on the assignee. Today the loop below reads them by measured
+    // member id, which would hide an agent's row anyway — but that safety lives in one `for` line,
+    // and iterating the group rows instead (the obvious way to write "everyone who did work") would
+    // put every agent back on the leaderboard. Filtering at the query is what survives that edit.
     const [assignedCounts, doneCounts, members] = await Promise.all([
       prisma.task.groupBy({
         by: ['assigneeId'],
-        where,
+        where: { ...where, assignee: { is: measuredSubjectWhere(actor.workspace.id) } },
         _count: { _all: true }
       }),
       prisma.task.groupBy({
         by: ['assigneeId'],
         where: {
           ...where,
+          assignee: { is: measuredSubjectWhere(actor.workspace.id) },
           status: 'DONE'
         },
         _count: { _all: true }
       }),
+      // The leaderboard ranks people against each other. An agent on it changes real humans' rank
+      // positions when it is productive and pads the total when it is idle.
       prisma.workspaceMember.findMany({
-        where: { workspaceId: actor.workspace.id },
+        where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
         include: {
           user: {
             select: {
@@ -144,13 +281,27 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const actor = await getRequestActor(request);
     const query = taskListQuerySchema.parse(request.query);
     const access = await resolveWorkspaceAccess(actor);
+    // WORK LIST by default, READ PATH on request. Unqualified, this is the issue list, the
+    // milestone "add existing tasks" picker and the assistant's task search, none of which is
+    // asking about an agent's map. `?kind=EFFORT` is how an effort surface lists efforts, and it
+    // is the only reason "excluded" here does not amount to "deleted".
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
+      ...taskKindWhere(query.kind, query.subscription),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
-      assigneeId: query.mine ? actor.user.id : query.assigneeId,
-      status: query.status,
-      priority: query.priority
+      // Filters the CHILDREN, never the parent, so this composes with the effort exclusion instead
+      // of fighting it: an effort's children are ordinary WORK and stay listable while the effort
+      // itself does not. Reaching the effort row is the `kind` parameter's job, not this one's.
+      parentId: query.parentId === 'none' ? null : query.parentId,
+      assigneeId: query.mine
+        ? actor.user.id
+        : query.assigneeId === 'none' ? null : query.assigneeId,
+      status: taskStatusWhere(query.status),
+      priority: query.priority,
+      labels: taskLabelWhere(query.label),
+      blockingDependencies: openBlockersWhere(query.blockers),
+      ...taskSubscriptionWhere(query.subscription, actor.user.id)
     };
 
     if (query.teamId !== 'all') {
@@ -175,7 +326,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       prisma.task.findMany({
         where,
         include: taskInclude,
-        orderBy: [{ status: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'desc' }],
+        orderBy: taskListOrderBy(query.sort),
         take: query.limit,
         skip: query.offset
       }),
@@ -197,8 +348,13 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const completedBefore = query.completedBefore
       ? new Date(query.completedBefore)
       : completedArchiveCutoff();
+    // WORK LIST by default — the archive is presented to a human as finished and abandoned WORK.
+    // This is a live leak rather than a latent one: `Task_effort_status` permits DONE and CANCELED
+    // for an EFFORT, and the DONE path writes a real completedAt. Same `kind` escape hatch as the
+    // list above, so a future effort surface can show its own archive.
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
+      ...(query.kind ? { kind: query.kind } : workTaskWhere),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       assigneeId: query.mine ? actor.user.id : query.assigneeId,
@@ -278,16 +434,32 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
             attachments: { orderBy: { createdAt: 'asc' } }
           }
         },
-        subtasks: { orderBy: { createdAt: 'asc' } },
-        blockingDependencies: { include: { blockedByTask: true } },
-        blockedTasks: { include: { task: true } }
+        subtasks: { orderBy: { createdAt: 'asc' }, include: relatedTaskAccessInclude },
+        // Filtered on the far end of each edge, not on this task. An effort cannot be an endpoint of
+        // a blocking edge -- assertBothAreWork refuses one -- so this covers only edges predating
+        // that guard, and it costs nothing to keep an effort out of a human's dependencies list.
+        blockingDependencies: {
+          where: { blockedByTask: workTaskWhere },
+          include: { blockedByTask: { include: relatedTaskAccessInclude } }
+        },
+        blockedTasks: {
+          where: { task: workTaskWhere },
+          include: { task: { include: relatedTaskAccessInclude } }
+        }
       }
     });
     if (!fullTask) return null;
-    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(fullTask)]);
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [
+      serializeTaskForResponse(redactRelatedTasks(access, fullTask))
+    ]);
     return decoratedTask;
   });
 
+  // Optimistic concurrency lives here rather than in `updateTask`, because it is a property of this
+  // path and not of the operation. /sync is the web client's mutation queue: it carries its own
+  // `baseVersion` where it has one, and a first push that has no prior version to quote must still
+  // be allowed through. This is the path an agent uses, and an agent editing a body has always just
+  // read one.
   app.patch('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
     const access = await resolveWorkspaceAccess(actor);
@@ -295,14 +467,74 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
+    // Parsed off the body separately, before the patch. `updateTaskSchema` does not declare
+    // `baseVersion` and would strip it silently — a caller that sent the protection would be told
+    // nothing and would believe it had it.
+    const { baseVersion } = taskPatchConcurrencySchema.parse(request.body ?? {});
     const input = updateTaskSchema.parse(request.body);
-    const task = await updateTask(actor, existing.id, input);
+
+    // An Effort's body is an index every resolving session appends a line to, and there is no
+    // recovering a line that was overwritten: the ticket holding the detail is already closed. So
+    // the version is required rather than merely available — an optional guard is one somebody
+    // forgets on the write that mattered, and the failure is silent by construction.
+    //
+    // Scoped to EFFORT on purpose. A work task's description is a value one caller sets, not a
+    // shared document; requiring the round trip there would make every `task edit --body` a
+    // two-step operation to protect a race nothing has ever hit.
+    if (existing.kind === 'EFFORT' && input.description !== undefined && baseVersion === undefined) {
+      return reply.code(400).send({
+        message: `Rewriting an Effort's body requires baseVersion: read ${existing.key}, then send the`
+          + ' version you read back as baseVersion. Two sessions resolve tickets against one Effort at'
+          + ' once, and a write that is no longer based on the current body is refused with 409 rather'
+          + ' than overwriting the other session\'s line.'
+      });
+    }
+
+    let task;
+    try {
+      task = await updateTask(actor, existing.id, input, undefined, baseVersion);
+    } catch (error) {
+      const conflict = await describeStaleWrite(actor.workspace.id, existing.id, error);
+      if (conflict) return reply.code(409).send(conflict);
+      throw error;
+    }
     const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
     return decoratedTask;
   });
 
+  // Taking a task, as opposed to being given one. A distinct route rather than a flag on PATCH
+  // because it is conditional: it succeeds only if nobody holds the task, and folding that into
+  // `assigneeId` would make one field sometimes-conditional depending on its value.
+  //
+  // 409 is the whole contract. A caller that loses gets the holder in the body and must not treat
+  // the task as its own — that misreading is what produced two parallel implementations of #33.
+  app.post('/tasks/:idOrKey/claim', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    const { claimed, task } = await claimTask(actor, existing.id);
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(task)]);
+    if (claimed) return decoratedTask;
+
+    const holder = task.assignee;
+    return reply.code(409).send({
+      message: holder
+        ? `${task.key} is already claimed by ${holder.name}`
+        : `${task.key} could not be claimed`,
+      ...decoratedTask
+    });
+  });
+
   app.delete('/tasks/:idOrKey', async (request, reply) => {
     const actor = await getRequestActor(request);
+    // Destruction is broader than a tracker agent needs. Everything else an agent does to a task —
+    // create, read, update, status, comment, label, dependency, subtask — stays permitted.
+    if (actor.user.kind === 'AGENT') {
+      return reply.code(403).send({ message: 'Agents cannot delete tasks' });
+    }
     const access = await resolveWorkspaceAccess(actor);
     const { idOrKey } = request.params as { idOrKey: string };
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
@@ -312,6 +544,45 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(204).send();
   });
 
+  // Watching a task, as a thing you choose rather than a thing that happens to you.
+  //
+  // A subresource rather than a flag on PATCH, because it is the caller's own relationship to the
+  // task and not a property of the task: two people can hold different answers at the same moment,
+  // and PATCH bodies describe one shared row.
+  app.post('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    // #39 settled that an agent is not an audience for notifications: it has no inbox and never
+    // polls one, so a subscription for one is a row that is written, never read and never cleared.
+    // Refused rather than quietly accepted, because a surface that reports success for something it
+    // did not do is one a caller routes around later.
+    if (!isNotifiable(actor.user)) {
+      return reply.code(400).send({
+        message: 'Agents receive no notifications, so they cannot watch a task. Find work by querying'
+          + ' the frontier instead.'
+      });
+    }
+
+    return { state: await subscribeToTask(actor, existing.id) };
+  });
+
+  app.delete('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    // 200 with the resulting state rather than 204. An agent's unsubscribe records no mute — there
+    // is nothing to keep quiet — and answering `muted` there would be a surface reporting something
+    // it did not do, which is the exact failure the POST above refuses to commit.
+    return { state: await unsubscribeFromTask(actor, existing.id) };
+  });
+
   app.get('/tasks/:idOrKey/activity', async (request, reply) => {
     const actor = await getRequestActor(request);
     const access = await resolveWorkspaceAccess(actor);
@@ -319,7 +590,12 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
-    return prisma.activityLog.findMany({
+    // Row-level access is `findTaskByIdOrKey(..., access)` above: every row here is about that one
+    // task, so re-asking would be a second spelling of a decision already made. What the task gate
+    // cannot answer is the far end of a dependency, which is a *different* task and not constrained
+    // to this project — #58 blanked it everywhere else and deliberately left it here, because a
+    // half-fix behind the unfiltered workspace feed would have been theatre.
+    return redactActivityDependencyPayloads(access, await prisma.activityLog.findMany({
       where: {
         workspaceId: actor.workspace.id,
         entityType: 'task',
@@ -328,7 +604,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { createdAt: 'asc' },
       take: 100,
       include: { actor: { select: { id: true, name: true, email: true, avatarUrl: true } } }
-    });
+    }));
   });
 
   app.get('/tasks/:idOrKey/attachments', async (request, reply) => {
@@ -403,19 +679,30 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const actor = await getRequestActor(request);
     const access = await resolveWorkspaceAccess(actor);
     const { idOrKey } = request.params as { idOrKey: string };
-    const body = request.body as { blockedBy: string };
+    // Parsed, not cast. The old `request.body as { blockedBy: string }` turned a missing body into
+    // a 500 with a TypeError in it, which tells a caller nothing and tells a log reader too much.
+    const input = createTaskDependencySchema.parse(request.body);
     const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
-    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, body.blockedBy, access);
+    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, input.blockedBy, access);
     if (!task || !blockedBy) return reply.code(404).send({ message: 'Task or dependency not found' });
-    if (task.id === blockedBy.id) return reply.code(400).send({ message: 'Task cannot block itself' });
 
-    const dependency = await prisma.taskDependency.upsert({
-      where: { taskId_blockedByTaskId: { taskId: task.id, blockedByTaskId: blockedBy.id } },
-      update: {},
-      create: { taskId: task.id, blockedByTaskId: blockedBy.id }
-    });
-
+    const { dependency } = await addTaskDependency(actor, task, blockedBy);
     return reply.code(201).send(dependency);
+  });
+
+  // The edge is addressed by its two endpoints rather than by a dependency id, because that is what
+  // the caller who wants it gone actually holds — it is the same pair they sent to create it, and
+  // the POST response is not something an agent re-reading a task ever saw.
+  app.delete('/tasks/:idOrKey/dependencies/:blockedByIdOrKey', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey, blockedByIdOrKey } = request.params as { idOrKey: string; blockedByIdOrKey: string };
+    const task = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    const blockedBy = await findTaskByIdOrKey(actor.workspace.id, blockedByIdOrKey, access);
+    if (!task || !blockedBy) return reply.code(404).send({ message: 'Task or dependency not found' });
+
+    await removeTaskDependency(actor, task, blockedBy);
+    return reply.code(204).send();
   });
 }
 

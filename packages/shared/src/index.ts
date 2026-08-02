@@ -18,12 +18,19 @@ export const taskPriorities = [
   'URGENT'
 ] as const;
 export const taskWeights = [1, 2, 3, 4, 8] as const;
+export const taskKinds = ['WORK', 'EFFORT'] as const;
 
 export const taskViewLayouts = ['list', 'board'] as const;
 export const taskViewGroupings = ['status', 'assignee', 'project', 'milestone', 'priority'] as const;
 export const taskViewOrderings = ['priority', 'updatedAt', 'createdAt', 'dueAt', 'title'] as const;
 export const taskViewSubGroupings = ['none', 'status', 'assignee', 'project', 'milestone', 'priority'] as const;
 export const taskViewCompletedIssues = ['all', 'week', 'month', 'none'] as const;
+/**
+ * `blockers` on a *view* is the tri-state filter, spelled the way `GET /tasks?blockers=` is by #21
+ * with `all` standing in for the absent parameter — a saved view serializes every key, so "no
+ * filter" needs a value.
+ */
+export const taskViewBlockersFilters = ['all', 'none', 'any'] as const;
 export const taskViewDisplayProperties = [
   'id',
   'status',
@@ -33,6 +40,7 @@ export const taskViewDisplayProperties = [
   'dueAt',
   'labels',
   'milestone',
+  'blockers',
   'links',
   'timeInStatus',
   'createdAt',
@@ -46,6 +54,8 @@ export const milestoneStatuses = ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELED'] 
 export const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
 export const milestoneUnfinishedTaskPolicies = ['KEEP', 'UNASSIGN', 'MOVE'] as const;
 export const workspaceRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST', 'AGENT'] as const;
+export const userKinds = ['HUMAN', 'AGENT'] as const;
+export const agentCredentialScopes = ['READ_ONLY', 'READ_WRITE'] as const;
 export const announcementStatuses = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
 export const meetingStatuses = ['PLANNED', 'HELD', 'CANCELED', 'ARCHIVED'] as const;
 export const meetingActionItemStatuses = ['OPEN', 'DONE', 'CANCELED'] as const;
@@ -57,12 +67,14 @@ export const taskReviewStatuses = ['REQUESTED', 'CHANGES_REQUESTED', 'APPROVED',
 
 export type TaskStatusValue = (typeof taskStatuses)[number];
 export type TaskPriorityValue = (typeof taskPriorities)[number];
+export type TaskKindValue = (typeof taskKinds)[number];
 export type ProjectUpdateHealthValue = (typeof projectUpdateHealthValues)[number];
 export type MilestoneKindValue = (typeof milestoneKinds)[number];
 export type MilestoneStatusValue = (typeof milestoneStatuses)[number];
 export type MilestoneHealthValue = (typeof milestoneHealthValues)[number];
 export type MilestoneUnfinishedTaskPolicyValue = (typeof milestoneUnfinishedTaskPolicies)[number];
 export type WorkspaceRoleValue = (typeof workspaceRoles)[number];
+export type UserKindValue = (typeof userKinds)[number];
 export type AnnouncementStatusValue = (typeof announcementStatuses)[number];
 export type MeetingStatusValue = (typeof meetingStatuses)[number];
 export type MeetingActionItemStatusValue = (typeof meetingActionItemStatuses)[number];
@@ -76,10 +88,12 @@ export type TaskViewGroupingValue = (typeof taskViewGroupings)[number];
 export type TaskViewOrderingValue = (typeof taskViewOrderings)[number];
 export type TaskViewSubGroupingValue = (typeof taskViewSubGroupings)[number];
 export type TaskViewCompletedIssuesValue = (typeof taskViewCompletedIssues)[number];
+export type TaskViewBlockersFilterValue = (typeof taskViewBlockersFilters)[number];
 export type TaskViewDisplayPropertyValue = (typeof taskViewDisplayProperties)[number];
 
 export const taskStatusSchema = z.enum(taskStatuses);
 export const taskPrioritySchema = z.enum(taskPriorities);
+export const taskKindSchema = z.enum(taskKinds);
 export const taskWeightSchema = z.union([
   z.literal(1),
   z.literal(2),
@@ -94,6 +108,8 @@ export const milestoneStatusSchema = z.enum(milestoneStatuses);
 export const milestoneHealthSchema = z.enum(milestoneHealthValues);
 export const milestoneUnfinishedTaskPolicySchema = z.enum(milestoneUnfinishedTaskPolicies);
 export const workspaceRoleSchema = z.enum(workspaceRoles);
+export const userKindSchema = z.enum(userKinds);
+export const agentCredentialScopeSchema = z.enum(agentCredentialScopes);
 export const announcementStatusSchema = z.enum(announcementStatuses);
 export const meetingStatusSchema = z.enum(meetingStatuses);
 export const meetingActionItemStatusSchema = z.enum(meetingActionItemStatuses);
@@ -107,6 +123,7 @@ export const taskViewGroupingSchema = z.enum(taskViewGroupings);
 export const taskViewOrderingSchema = z.enum(taskViewOrderings);
 export const taskViewSubGroupingSchema = z.enum(taskViewSubGroupings);
 export const taskViewCompletedIssuesSchema = z.enum(taskViewCompletedIssues);
+export const taskViewBlockersFilterSchema = z.enum(taskViewBlockersFilters);
 export const taskViewDisplayPropertySchema = z.enum(taskViewDisplayProperties);
 
 function normalizePhoneNumberInput(value: unknown): unknown {
@@ -129,7 +146,19 @@ export const createUserSchema = z.object({
   phone: optionalPhoneNumberSchema,
   mattermostUsername: z.string().trim().toLowerCase().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).optional(),
   avatarUrl: z.string().trim().url().optional(),
-  role: workspaceRoleSchema.default('MEMBER')
+  role: workspaceRoleSchema.default('MEMBER'),
+  kind: userKindSchema.optional(),
+  operatorId: z.string().uuid().optional()
+});
+
+export const createAgentCredentialSchema = z.object({
+  userId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  // Read-write by default: the tracker skills create and update Tasks, and a credential that
+  // cannot do its job gets replaced by one with a wider grant than anybody intended.
+  scope: agentCredentialScopeSchema.default('READ_WRITE'),
+  // Omitted means never expires -- the whole reason this primitive exists.
+  expiresAt: z.string().datetime().optional()
 });
 
 export const updateUserSchema = z.object({
@@ -147,6 +176,14 @@ export const setWorkspaceRoleSchema = z.object({
 export const userListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   role: workspaceRoleSchema.optional(),
+  /**
+   * HUMAN or AGENT. Species, not permission — `WorkspaceRole.AGENT` is a permission profile and
+   * nothing may infer agent-ness from it, so a caller that wants only people has to say `kind`.
+   *
+   * Filtered here rather than by the caller so `total` keeps describing the rows it is returned
+   * with: a client-side filter over a paged response silently drops members past the page boundary.
+   */
+  kind: userKindSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -308,16 +345,36 @@ export const updateMilestoneSchema = milestoneMetadataSchema.partial().extend({
   }
 });
 
-const strictQueryBooleanSchema = z.preprocess((value) => {
+/**
+ * The only way to spell a boolean in a query string. `true` and `false` mean themselves and every
+ * other value is rejected, so the caller gets a 400 instead of a silently different result set.
+ *
+ * This exists because `z.coerce.boolean()` is `Boolean(string)`: every non-empty value is `true`,
+ * so `?mine=false` means `?mine=true` and there is no spelling of "off" at all. Unrecognized input
+ * is echoed back unchanged for `z.boolean()` to reject, which keeps the field's name in the Zod
+ * error path.
+ *
+ * Anything narrower or wider is a bug: no `1`/`0`, no `yes`/`no`, no case folding. A query string is
+ * written by a program against a documented API, and a second accepted spelling is a second thing
+ * every caller has to agree on. Environment variables answer to the same rule but a wider
+ * vocabulary — see `parseEnvFlag` in the API's config, and issue #42 for why they differ.
+ */
+export const strictQueryBooleanSchema = z.preprocess((value) => {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return value;
 }, z.boolean());
 
-const milestoneStatusFilterSchema = z.preprocess((value) => {
+/** A repeated query filter is written as one comma-separated value, never as a repeated key. */
+function splitCommaSeparated(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   return value.split(',').map((item) => item.trim()).filter(Boolean);
-}, z.array(milestoneStatusSchema).min(1).max(milestoneStatuses.length));
+}
+
+const milestoneStatusFilterSchema = z.preprocess(
+  splitCommaSeparated,
+  z.array(milestoneStatusSchema).min(1).max(milestoneStatuses.length)
+);
 
 export const milestoneListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
@@ -379,13 +436,59 @@ export const milestoneCompletionSchema = milestoneTransitionSchema.extend({
   }
 });
 
+/**
+ * How much prose a Task description may hold, per `kind`, in UTF-16 code units.
+ *
+ * **The unit is code units, and it is the only unit that binds.** `z.string().max()` counts
+ * `String.length`; the column is Postgres `text` (`description String?`, no `@db.VarChar`), so
+ * bytes never bind; and Fastify's body limit is 25 MB, four orders of magnitude away. That makes
+ * the number below the whole of the bound, and it makes it a *character* bound rather than a
+ * storage one — deliberately. Persian runs about 1.9 UTF-8 bytes per code unit, so a Persian body
+ * costs roughly twice the bytes of an English one at the same ceiling. Counting bytes instead
+ * would invert that into the wrong asymmetry for a Persian-speaking workspace: the same document
+ * would be refused in Persian and accepted in English. In bytes the ceilings below are therefore
+ * "up to" figures — about 15 KB and 60 KB in English, about 29 KB and 116 KB in Persian.
+ */
+export const WORK_DESCRIPTION_MAX_CHARS = 15_000;
+
+/**
+ * An Effort's description *is* the wayfinder map — Destination, Notes, and a Decisions-so-far
+ * index that grows by a line every time one of its tickets closes. 15,000 does not hold one: the
+ * map this model was built for measured 22,535 code units with nine of its twenty-five tickets
+ * still open.
+ *
+ * Only efforts are widened, and the reason is not symmetry-breaking for its own sake. The
+ * local-first bootstrap ships up to 500 work descriptions to every client on every cold start
+ * (`sync.ts`, `take: 500`) and there is no payload budget anywhere else in the stack, so the work
+ * ceiling is the only bound on how large that download can get. Efforts are excluded from that
+ * payload at the server — in the bootstrap query *and* in the live stream's in-memory twin — so
+ * widening theirs costs the bootstrap exactly nothing, while widening work's would multiply the
+ * one bound it has.
+ */
+export const EFFORT_DESCRIPTION_MAX_CHARS = 60_000;
+
+export function taskDescriptionMaxChars(kind: TaskKindValue): number {
+  return kind === 'EFFORT' ? EFFORT_DESCRIPTION_MAX_CHARS : WORK_DESCRIPTION_MAX_CHARS;
+}
+
 export const createTaskSchema = z.object({
   projectId: z.string().uuid(),
   parentId: z.string().uuid().optional(),
   cycleId: z.string().uuid().optional(),
   milestoneId: z.string().uuid().optional(),
   title: z.string().min(1).max(300),
-  description: z.string().max(15000).optional(),
+  // Absent means WORK, and that default is the whole compatibility story rather than a tidy touch:
+  // every caller that exists — the web app, the Mattermost bot, the menubar app, and every internal
+  // path that mints a task from a meeting, a check-in or an agent proposal — omits this field. A
+  // required field, or a different default, would silently reclassify everything the team files.
+  kind: taskKindSchema.default('WORK'),
+  // The widest ceiling any task may hold, matching `updateTaskSchema` — this is the transport
+  // bound, and the per-kind one is applied in `createTask()`. The narrowing does not live here even
+  // though `kind` is right above it: a `superRefine` would turn this object into a `ZodEffects`,
+  // and `codexTaskCreateSchema` extends it. The service layer is the better home anyway, because a
+  // Zod issue does not reach a caller — `/sync/push` flattens it and the web client reads only
+  // `message` — whereas the `HttpError` the service throws survives both paths with its number.
+  description: z.string().max(EFFORT_DESCRIPTION_MAX_CHARS).optional(),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('NO_PRIORITY'),
   weight: taskWeightSchema.nullable().optional(),
@@ -395,9 +498,19 @@ export const createTaskSchema = z.object({
   source: z.enum(['WEB', 'API', 'MATTERMOST', 'CODEX', 'AGENT', 'SYSTEM']).default('API')
 });
 
+/**
+ * How many labels one task may carry. Exported because two places enforce it and they must agree:
+ * the schemas cap the array a caller sends, and the additive path caps the resulting set — which is
+ * the only cap that binds once a caller can add twelve at a time, repeatedly.
+ */
+export const maxTaskLabels = 12;
+
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(300).optional(),
-  description: z.string().max(15000).nullable().optional(),
+  // The widest ceiling any task may hold, because a patch body cannot tell WORK from EFFORT — the
+  // kind lives on the row being patched, not in the request. This is the transport bound; the
+  // narrower per-kind one is applied in `updateTask()`, once the row has been read.
+  description: z.string().max(EFFORT_DESCRIPTION_MAX_CHARS).nullable().optional(),
   projectId: z.string().uuid().optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
@@ -407,13 +520,59 @@ export const updateTaskSchema = z.object({
   cycleId: z.string().uuid().nullable().optional(),
   milestoneId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
-  labels: z.array(z.string().min(1).max(40)).max(12).optional()
+  // The whole-array replacement, unchanged. The web client holds the complete set in its editor and
+  // means to replace it, so this is the right idiom for it and stays the default.
+  labels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
+  // The additive idiom, for callers that hold a delta rather than the set. Two agents each adding
+  // one label to the same task must both survive; with `labels` they cannot, because each reads the
+  // set, appends locally and writes the whole thing back. Moving the add server-side makes the two
+  // writes commute instead of racing. A body cannot be fixed this way — it is one string, and the
+  // section a line belongs in is in the middle of it — so it takes `taskPatchConcurrencySchema`.
+  addLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional(),
+  removeLabels: z.array(z.string().min(1).max(40)).max(maxTaskLabels).optional()
+}).superRefine((value, ctx) => {
+  // Replacing and adding in one request is not a merge anyone can predict the outcome of — it is a
+  // caller that has confused the two idioms. Refusing beats picking an order and being quietly
+  // wrong half the time.
+  if (value.labels === undefined) return;
+  for (const field of ['addLabels', 'removeLabels'] as const) {
+    if (value[field] === undefined) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [field],
+      message: 'Use labels to replace the whole set, or addLabels/removeLabels to change it — not both'
+    });
+  }
+});
+
+/**
+ * Optimistic concurrency for `PATCH /tasks/:idOrKey`: the version the write is based on.
+ *
+ * Deliberately a *separate* schema rather than a field on `updateTaskSchema`, because that schema's
+ * key set **is** the changed-field set — `Object.keys(input)` is what the conflict scan tests and
+ * what the sync event announces as `changedFields`. A protocol field living inside it would be
+ * published as a column that moved and would conflict with itself on the next write.
+ *
+ * Not coerced. A JSON body carries numbers, and a caller that sends `"3"` has almost certainly
+ * pasted the version somewhere it was stringified; taking it silently would make the protection
+ * depend on a guess.
+ */
+export const taskPatchConcurrencySchema = z.object({
+  baseVersion: z.number().int().min(1).optional()
 });
 
 export const createCommentSchema = z.object({
   body: z.string().min(1).max(15000),
   source: z.enum(['WEB', 'API', 'MATTERMOST', 'CODEX', 'AGENT', 'SYSTEM']).default('API'),
   mattermostPostId: z.string().optional()
+});
+
+// `blockedBy` is an id or a key, like every other task reference an agent or a script can hold, so
+// it is length-bounded rather than uuid-shaped. Trimmed and non-empty after trimming: a blank
+// string would otherwise reach the lookup and come back as a plain 404, which reads as "no such
+// task" when the truth is "you sent nothing".
+export const createTaskDependencySchema = z.object({
+  blockedBy: z.string().trim().min(1).max(120)
 });
 
 export const requestTaskReviewSchema = z.object({
@@ -511,15 +670,91 @@ export const triageSplitSchema = z.object({
   reason: z.string().trim().max(5000).nullable().optional()
 });
 
+/**
+ * One absence sentinel for the whole task query surface. `milestoneId=none` established it; every
+ * later filter that can ask for "the field is not set" spells it the same way, so a caller learns
+ * the convention once.
+ */
+const taskFilterNone = z.literal('none');
+
+/** Taskara's word for `status NOT IN (DONE, CANCELED)` — see a milestone's `unfinishedTaskPolicy`. */
+export const unfinishedTaskStatusFilter = 'unfinished';
+
+/**
+ * `status` accepts one status, a comma-separated list of them, or `unfinished` on its own.
+ *
+ * `unfinished` is deliberately not spelled `open`: this is a task manager, not a GitHub clone, and
+ * `open` has no meaning in Taskara's language. It is also not spelled `active`, which
+ * `work-health.ts` already uses for the narrower TODO/IN_PROGRESS/IN_REVIEW/BLOCKED set — reusing it
+ * here would give one word two sizes. Mixing `unfinished` with explicit statuses is rejected rather
+ * than guessed at, because both plausible readings (union, intersection) have a real caller.
+ */
+export const taskStatusFilterSchema = z.union(
+  [
+    z.literal(unfinishedTaskStatusFilter),
+    z.preprocess(splitCommaSeparated, z.array(taskStatusSchema).min(1).max(taskStatuses.length))
+  ],
+  {
+    errorMap: () => ({
+      message: `status accepts ${taskStatuses.join(', ')}, a comma-separated list of those, or "${unfinishedTaskStatusFilter}" on its own`
+    })
+  }
+);
+
+/**
+ * Whether the task has an *open* blocker — a blocking task that is itself unfinished. Named for the
+ * dependency edge, not for `status: BLOCKED`, which is a self-declared status and a different claim.
+ */
+export const taskBlockerFilterSchema = z.enum(['none', 'any']);
+
+/**
+ * The caller's own relationship to the task — the one filter here that is about *you* rather than
+ * about the row.
+ *
+ * Three-valued rather than a `subscribed` boolean, because the model has three states and the two
+ * that matter are both deliberate. `watching` is a task you are notified about; `muted` is one you
+ * decided to stop being notified about. There is deliberately no value for the third state, "nobody
+ * has decided anything" — that is almost every task in the workspace, and a filter for it would be
+ * a slower way of asking for the list you already have.
+ */
+export const taskSubscriptionFilters = ['watching', 'muted'] as const;
+export const taskSubscriptionFilterSchema = z.enum(taskSubscriptionFilters);
+export type TaskSubscriptionFilterValue = (typeof taskSubscriptionFilters)[number];
+
+/**
+ * A closed set rather than a free `field:direction` parser: every value here has to stay cheap to
+ * order by, and an open parser invites sorts with no index behind them.
+ */
+export const taskSortOrders = [
+  'createdAt:asc',
+  'createdAt:desc',
+  'updatedAt:asc',
+  'updatedAt:desc',
+  'dueAt:asc',
+  'dueAt:desc'
+] as const;
+
+export type TaskSortOrderValue = (typeof taskSortOrders)[number];
+export const taskSortSchema = z.enum(taskSortOrders);
+
 export const taskListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
-  milestoneId: z.union([z.string().uuid(), z.literal('none')]).optional(),
-  assigneeId: z.string().uuid().optional(),
-  status: taskStatusSchema.optional(),
+  milestoneId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  parentId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  assigneeId: z.union([z.string().uuid(), taskFilterNone]).optional(),
+  // Omitted means WORK: the task list is the issue list a human reads, and an EFFORT is not an
+  // issue. Passing it explicitly is how an effort surface lists efforts — the read half of the
+  // property, without which "excluded" and "deleted" become the same thing.
+  kind: taskKindSchema.optional(),
+  status: taskStatusFilterSchema.optional(),
   priority: taskPrioritySchema.optional(),
+  label: z.string().trim().max(80).optional(),
+  blockers: taskBlockerFilterSchema.optional(),
+  subscription: taskSubscriptionFilterSchema.optional(),
+  sort: taskSortSchema.optional(),
   teamId: z.string().min(1).default('all'),
   q: z.string().max(200).optional(),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -589,7 +824,7 @@ export const announcementPollVoteSchema = z.object({
 export const announcementListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   status: announcementStatusSchema.optional(),
-  unread: z.coerce.boolean().optional(),
+  unread: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -622,7 +857,7 @@ export const meetingListQuerySchema = z.object({
   q: z.string().max(200).optional(),
   status: meetingStatusSchema.optional(),
   teamId: z.string().min(1).default('all'),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -706,7 +941,9 @@ export const createOneOnOneSeriesSchema = z.object({
 
 export const oneOnOneListQuerySchema = z.object({
   participantId: z.string().uuid().optional(),
-  active: z.coerce.boolean().optional(),
+  // Handed straight to Prisma as a `where` clause, so a misread here inverts the answer rather than
+  // widening it.
+  active: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -812,9 +1049,11 @@ export const knowledgePageListQuerySchema = z.object({
   ownerId: z.string().uuid().optional(),
   label: z.string().trim().max(80).optional(),
   status: knowledgePageStatusSchema.optional(),
-  verified: z.coerce.boolean().optional(),
-  expired: z.coerce.boolean().optional(),
-  mine: z.coerce.boolean().optional(),
+  // `verified` is three-valued downstream — verified, unverified, unfiltered — so the false half is
+  // a real query, not just the absence of the true one.
+  verified: strictQueryBooleanSchema.optional(),
+  expired: strictQueryBooleanSchema.optional(),
+  mine: strictQueryBooleanSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
 });
@@ -858,6 +1097,9 @@ export const taskViewStateSchema = z.object({
   nestedSubIssues: z.boolean().default(false),
   orderCompletedByRecency: z.boolean().default(false),
   completedIssues: taskViewCompletedIssuesSchema.default('all'),
+  // Defaulted rather than optional so a view saved before this key existed round-trips as "no
+  // filter" instead of failing to parse on read — `serializeView` parses every stored row.
+  blockers: taskViewBlockersFilterSchema.default('all'),
   displayProperties: z.array(taskViewDisplayPropertySchema).default([
     'id',
     'status',

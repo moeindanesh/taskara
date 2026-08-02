@@ -6,6 +6,7 @@ import type {
   taskReviewDecisionSchema
 } from '@taskara/shared';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { appendMilestoneProgressSyncEvents, lockMilestonesForUpdate } from './milestones';
@@ -18,7 +19,7 @@ import {
   taskReviewRequestedNotificationBody
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent } from './sync';
-import { resolveWorkspaceAccess, taskWhereForAccess } from './team-access';
+import { filterUsersWithTaskAccess, resolveWorkspaceAccess, taskWhereForAccess } from './team-access';
 import { findTaskByIdOrKey, serializeTaskForResponse, taskInclude, updateTask } from './tasks';
 
 type RequestTaskReviewInput = z.infer<typeof requestTaskReviewSchema>;
@@ -102,7 +103,7 @@ export async function listTaskReviews(actor: RequestActor, idOrKey: string): Pro
 
 export async function requestTaskReview(actor: RequestActor, idOrKey: string, input: RequestTaskReviewInput): Promise<SerializedTaskReview> {
   const task = await requireTaskForReview(actor, idOrKey);
-  const reviewer = await requireWorkspaceReviewer(actor.workspace.id, input.reviewerId);
+  const reviewer = await requireWorkspaceReviewer(actor.workspace.id, task.id, input.reviewerId);
   const existing = await prisma.taskReviewRequest.findFirst({
     where: { workspaceId: actor.workspace.id, taskId: task.id, status: 'REQUESTED' },
     include: taskReviewInclude
@@ -149,6 +150,7 @@ export async function requestTaskReview(actor: RequestActor, idOrKey: string, in
           data: {
             workspaceId: actor.workspace.id,
             userId: reviewer.userId,
+            ...attributedTo(actor),
             taskId: task.id,
             type: TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE,
             title: `${task.key}: ${task.title}`,
@@ -205,7 +207,7 @@ export async function reassignTaskReview(actor: RequestActor, reviewId: string, 
   if (accessRecord.status !== 'REQUESTED') throw new HttpError(400, 'Only requested reviews can be reassigned');
   assertCanManageTaskReview(actor, accessRecord);
   const current = await loadReviewWithRelations(accessRecord.id);
-  const reviewer = await requireWorkspaceReviewer(actor.workspace.id, input.reviewerId);
+  const reviewer = await requireWorkspaceReviewer(actor.workspace.id, current.taskId, input.reviewerId);
   const before = serializeTaskReview(current);
 
   let syncEvent: SyncEvent | null = null;
@@ -229,6 +231,7 @@ export async function reassignTaskReview(actor: RequestActor, reviewId: string, 
         data: {
           workspaceId: actor.workspace.id,
           userId: reviewer.userId,
+          ...attributedTo(actor),
           taskId: current.taskId,
           type: TASK_REVIEW_REQUESTED_NOTIFICATION_TYPE,
           title: `${current.task.key}: ${current.task.title}`,
@@ -526,12 +529,37 @@ async function loadReviewWithRelations(reviewId: string): Promise<TaskReviewWith
   });
 }
 
-async function requireWorkspaceReviewer(workspaceId: string, userId: string): Promise<{ userId: string }> {
+/**
+ * The person a review is handed to, checked against the task rather than only the roster.
+ *
+ * #57. Workspace membership was the whole test, so a review could be requested from anybody in the
+ * workspace — writing them a notification titled `KEY: Title` for work they cannot open, and
+ * parking the task in IN_REVIEW under a reviewer who could never act on it.
+ *
+ * Refused rather than dropped, which is the opposite of what the mention path does and for a
+ * reason: a mention that resolves to nobody leaves nothing behind, while this write creates a
+ * `TaskReviewRequest` row and moves the task's status. Reporting success for a review nobody can
+ * perform is the failure, not the missing notification. It is also the answer assignment already
+ * gives — `assertTaskRelations` rejects an assignee who is not on the project's team.
+ */
+async function requireWorkspaceReviewer(
+  workspaceId: string,
+  taskId: string,
+  userId: string
+): Promise<{ userId: string }> {
   const membership = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
     select: { userId: true }
   });
   if (!membership) throw new HttpError(400, 'Reviewer must belong to this workspace');
+
+  const [reviewerWithAccess] = await filterUsersWithTaskAccess(prisma, {
+    workspaceId,
+    taskId,
+    userIds: [userId]
+  });
+  if (!reviewerWithAccess) throw new HttpError(400, 'Reviewer must be able to read this task');
+
   return membership;
 }
 
@@ -574,12 +602,22 @@ async function notifyRequesterOfDecision(
   review: TaskReviewWithRelations,
   body: string
 ): Promise<void> {
-  const recipientIds = [...new Set([review.requesterId, review.task.assigneeId].filter((id): id is string => Boolean(id && id !== actor.user.id)))];
+  const addressed = [...new Set([review.requesterId, review.task.assigneeId].filter((id): id is string => Boolean(id && id !== actor.user.id)))];
+  if (!addressed.length) return;
+  // #57. Both of these people were in reach when they became requester and assignee. A project
+  // change between the request and the decision is enough to make one of them a stranger to the
+  // task, and this row's title is `KEY: Title` like every other.
+  const recipientIds = await filterUsersWithTaskAccess(tx, {
+    workspaceId: actor.workspace.id,
+    taskId: review.taskId,
+    userIds: addressed
+  });
   if (!recipientIds.length) return;
   await tx.notification.createMany({
     data: recipientIds.map((userId) => ({
       workspaceId: actor.workspace.id,
       userId,
+      ...attributedTo(actor),
       taskId: review.taskId,
       type: TASK_REVIEW_DECIDED_NOTIFICATION_TYPE,
       title: `${review.task.key}: ${review.task.title}`,
@@ -598,6 +636,7 @@ async function logReviewActivity(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task_review',
     entityId: review.id,
     action,

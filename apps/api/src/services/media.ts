@@ -24,8 +24,29 @@ export interface UploadedMediaObject {
   sizeBytes?: number;
 }
 
-export function buildMediaUrl(object: string): string {
-  if (/^https?:\/\//i.test(object)) return object;
+/**
+ * The CDN URL for a stored object.
+ *
+ * Pass-through is opt-in. An object that already looks like an absolute URL is returned unchanged,
+ * which is right for a **stored** attachment — `normalizeUploadedMediaInput` accepts a `url` when
+ * the CDN hands one back, so the value in the row genuinely is the address.
+ *
+ * It is wrong wherever the object came from the caller. `GET /media/*` takes its object out of the
+ * request path, so pass-through there turns an unauthenticated redirect into one that will send a
+ * visitor to any origin the caller names, on Taskara's own domain — the harm being that the link
+ * looks like Taskara. That route now passes `allowAbsolute: false`, and nothing is lost by it: a
+ * client holding an attachment whose object *is* a URL already has `attachment.url` and has no
+ * reason to route through this endpoint at all.
+ *
+ * Default `true` so the two stored-attachment callers keep working unchanged; the caller that must
+ * not trust its input is the one that says so.
+ */
+export function buildMediaUrl(object: string, options: { allowAbsolute?: boolean } = {}): string {
+  const allowAbsolute = options.allowAbsolute ?? true;
+  if (/^https?:\/\//i.test(object)) {
+    if (!allowAbsolute) throw new HttpError(400, 'Media object must be a storage key, not a URL');
+    return object;
+  }
   if (!config.TASKARA_CDN_MEDIA_BASE_URL) {
     throw new HttpError(503, 'TASKARA_CDN_MEDIA_BASE_URL is required for media URLs');
   }

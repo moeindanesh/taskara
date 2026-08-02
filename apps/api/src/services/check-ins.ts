@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from '@taskara/db';
+import { prisma, type AttentionItem, type Prisma, type TaskKind, type UserKind } from '@taskara/db';
 import type { z } from 'zod';
 import type {
   carryForwardMeetingActionItemSchema,
@@ -11,11 +11,27 @@ import type {
   updateMeetingActionItemSchema
 } from '@taskara/shared';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
+import { openBlockerEdgesInclude } from './blockers';
 import { HttpError } from './http';
-import { buildMeetingAccessWhere, canAccessMeeting, resolveMeetingAccessScope } from './meetings';
+import {
+  actionItemTaskSelect,
+  meetingProjectSelect,
+  visibleMeetingActionItem
+} from './meeting-visibility';
+import { canAccessMeeting } from './meetings';
+import { measuredMemberWhere } from './measured-people';
+import { isWorkTask } from './measured-work';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import {
+  canReadProject,
+  meetingWhereForAccess,
+  resolveWorkspaceAccess,
+  taskWhereForAccess,
+  type WorkspaceAccess
+} from './team-access';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
 import { dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
 
@@ -53,10 +69,17 @@ const agendaItemInclude = {
   meeting: { select: { id: true, title: true, scheduledAt: true, heldAt: true, status: true } }
 } satisfies Prisma.OneOnOneAgendaItemInclude;
 
+/**
+ * An action item and the two project-walled things it reaches through its meeting.
+ *
+ * Neither is filtered here. `serializeMeetingActionItem` is the **record** — what the activity log
+ * and the sync payload store — and the access facts have to survive into it, because `/sync/pull`
+ * re-reads that payload for a second reader. `visibleMeetingActionItem` is what a response gets.
+ */
 const actionItemInclude = {
   assignee: { select: userSelect },
   createdBy: { select: userSelect },
-  task: { select: { id: true, key: true, title: true, status: true } },
+  task: { select: actionItemTaskSelect },
   meeting: {
     select: {
       id: true,
@@ -68,7 +91,7 @@ const actionItemInclude = {
       projectId: true,
       ownerId: true,
       createdById: true,
-      project: { select: { id: true, name: true, keyPrefix: true, teamId: true } },
+      project: { select: meetingProjectSelect },
       participants: { select: { userId: true } }
     }
   }
@@ -98,10 +121,21 @@ export interface AgendaCandidate {
 export async function createCheckInResponse(actor: RequestActor, input: CreateCheckInInput, syncMutation?: SyncMutationMeta) {
   const targetUserId = input.userId || actor.user.id;
   const submittingForSelf = targetUserId === actor.user.id;
+  // The daily report is a human ritual, and participation is measured against the people who were
+  // asked for one. An agent filing a report puts a row in the numerator that no denominator counts,
+  // so the gate sits on the write rather than on the reads that would have to keep apologising for
+  // it. Not a role check: an agent may legitimately hold MEMBER or ADMIN.
+  if (actor.user.kind === 'AGENT') {
+    throw new HttpError(403, 'Agents do not file daily reports');
+  }
   if (!submittingForSelf && !isWorkspaceAdminRole(actor.role)) {
     throw new HttpError(403, 'Only workspace admins can submit check-ins for another user');
   }
-  await assertWorkspaceMember(actor.workspace.id, targetUserId);
+  const targetKind = await assertWorkspaceMember(actor.workspace.id, targetUserId);
+  // Closes the backfill door too: an admin cannot file one on an agent's behalf either.
+  if (targetKind === 'AGENT') {
+    throw new HttpError(403, 'Agents do not file daily reports');
+  }
 
   const today = workspaceDateKey();
   const requestedDateKey = input.dateKey
@@ -150,6 +184,7 @@ export async function createCheckInResponse(actor: RequestActor, input: CreateCh
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'check_in',
     entityId: row.id,
     action,
@@ -189,6 +224,8 @@ export async function listCheckIns(
   };
 
   const [items, total] = await Promise.all([
+    // measured-people:allow — listCheckIns is a visibility read: an agent report already filed stays readable.
+
     prisma.checkInResponse.findMany({
       where,
       include: checkInInclude,
@@ -196,6 +233,7 @@ export async function listCheckIns(
       take: input.limit ?? 50,
       skip: input.offset ?? 0
     }),
+    // measured-people:allow — That list's total, over the same where.
     prisma.checkInResponse.count({ where })
   ]);
 
@@ -210,13 +248,21 @@ export async function listCheckIns(
 // Day-scoped counterpart of listMissingCheckIns: who owes a report for a specific workspace day.
 // The digest and the reminder job both need this exact answer.
 export async function listMissingForDay(actor: RequestActor, dateKey: string) {
+  const { measuredUserIds: _measuredUserIds, ...response } = await collectMissingForDay(actor, dateKey);
+  return response;
+}
+
+// Same answer, plus the measured population itself. Kept off the wire shape because it exists to
+// let the digest prove its numerator and denominator describe the same people, not to be rendered.
+async function collectMissingForDay(actor: RequestActor, dateKey: string) {
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const [members, submitted] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
     }),
+    // measured-people:allow — Only ever intersected against an already-filtered roster, so it cannot leak into a count.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey },
       select: { userId: true }
@@ -225,7 +271,15 @@ export async function listMissingForDay(actor: RequestActor, dateKey: string) {
 
   const submittedIds = new Set(submitted.map((row) => row.userId));
   const missing = members.filter((member) => !submittedIds.has(member.userId)).map((member) => member.user);
-  return { dateKey, items: missing, total: missing.length, expected: members.length };
+  // measuredUserIds is the denominator's population, handed to the caller so a numerator can be
+  // proven to come from the same set of people instead of from a second, separately written filter.
+  return {
+    dateKey,
+    items: missing,
+    total: missing.length,
+    expected: members.length,
+    measuredUserIds: new Set(members.map((member) => member.userId))
+  };
 }
 
 export async function listMissingCheckIns(actor: RequestActor, hours = 24, now = new Date()) {
@@ -233,10 +287,11 @@ export async function listMissingCheckIns(actor: RequestActor, hours = 24, now =
   const since = new Date(now.getTime() - hours * 60 * 60 * 1000);
   const [members, recent] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
     }),
+    // measured-people:allow — Same: intersected against the filtered roster in listMissingCheckIns.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: { submittedFor: 'desc' },
@@ -301,7 +356,10 @@ export async function buildCheckInDraft(actor: RequestActor, dateKey = workspace
         assigneeId: actor.user.id,
         status: { notIn: ['DONE', 'CANCELED'] }
       },
-      include: { blockingDependencies: { select: { id: true } } },
+      // The same open-blocker filter as the daily plan. This list decides which tasks a human is
+      // offered as "blocked" and which as today's focus in their daily report draft, so an
+      // unfiltered count kept finished prerequisites nagging in the blocked column indefinitely.
+      include: { blockingDependencies: { ...openBlockerEdgesInclude, select: { id: true } } },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 25
     }),
@@ -361,19 +419,28 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const previousDateKey = shiftDateKey(dateKey, -1);
 
+  // The digest answers two different questions and must not conflate them. What a manager READS is
+  // every report filed that day, whoever filed it — filtering the read is how a GUEST human, a real
+  // contributor the ritual simply does not score, vanished from the digest along with their
+  // blockers. What a manager is SCORED BY is the measured roster only. So the rows are fetched
+  // unfiltered and narrowed once, in memory, for the stats.
   const [rows, previousRows, missing] = await Promise.all([
+    // measured-people:allow — Every report filed that day, for a manager to read. Nothing is counted off this list; stats below are drawn from the measured subset of it.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey },
       include: checkInInclude,
       orderBy: { submittedFor: 'asc' }
     }),
+    // measured-people:allow — Yesterday's plans, used as a per-author lookup to pair against today's report. Never counted.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id, dateKey: previousDateKey },
       include: checkInInclude
     }),
-    listMissingForDay(actor, dateKey)
+    collectMissingForDay(actor, dateKey)
   ]);
 
+  // VISIBILITY — reports, blockersFirst, unplanned and planVsDone are what the manager sees. Every
+  // row filed today appears in them, including a guest's and including a legacy agent row.
   const reports = rows.map(serializeCheckIn);
   const previousByUser = new Map(previousRows.map((row) => [row.userId, row]));
 
@@ -392,25 +459,44 @@ export async function buildDailyReportDigest(actor: RequestActor, dateKey = work
     };
   }).filter((entry) => entry.plannedYesterday);
 
-  const expected = missing.expected;
-  const submittedCount = reports.length;
+  // MEASUREMENT — everything in `stats`. The counted set comes from the denominator's own member
+  // ids rather than from a second, separately written filter, so numerator and denominator are
+  // provably one population. One report row per person per day makes `submitted <= expected` true
+  // by construction, and every ratio below divides one counted quantity by another.
+  //
+  // The second axis is the day itself, and the digest used to have no opinion about it while trends
+  // did — so on a Thursday the two endpoints described the same workspace differently: trends said
+  // the day asks for nothing, the digest said 0 of N and named every human as missing. Nobody is
+  // asked for a report on a weekend, so on a non-workday there is no denominator, nothing counted
+  // against it, and nobody owes anything. The reports filed anyway are still read above.
+  const workday = isWorkdayKey(dateKey);
+  const countedReports = workday ? reports.filter((report) => missing.measuredUserIds.has(report.userId)) : [];
+  const countedBlockers = countedReports.filter((report) => report.blockersText || report.helpText);
+  const countedUnplanned = countedReports.filter((report) => report.unplannedText);
+
+  const expected = workday ? missing.expected : 0;
+  const missingItems = workday ? missing.items : [];
+  const submittedCount = countedReports.length;
 
   return {
     dateKey,
+    workday,
     reports,
     blockersFirst,
     unplanned,
     planVsDone,
-    missing: missing.items,
+    missing: missingItems,
     stats: {
       expected,
       submitted: submittedCount,
-      missing: missing.total,
+      missing: missingItems.length,
       participationRate: expected > 0 ? Math.round((submittedCount / expected) * 100) : 0,
-      blockerCount: blockersFirst.length,
-      // Share of the day's reports that included unexpected work — the team-health trend that
-      // matters more than any single day's value.
-      unplannedShare: submittedCount > 0 ? Math.round((unplanned.length / submittedCount) * 100) : 0
+      blockerCount: countedBlockers.length,
+      // Share of the day's counted reports that included unexpected work — the team-health trend
+      // that matters more than any single day's value. Both sides of the division come from
+      // countedReports; mixing an all-rows numerator with a measured denominator is the same class
+      // of bug as counting an agent in a human's participation rate.
+      unplannedShare: submittedCount > 0 ? Math.round((countedUnplanned.length / submittedCount) * 100) : 0
     }
   };
 }
@@ -421,33 +507,67 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
   const from = shiftDateKey(today, -(days - 1));
 
-  const [rows, members] = await Promise.all([
+  // Same two-sided rule as the digest, for the same reason: what the chart SHOWS and what the rates
+  // COUNT are different questions, and answering both from one filtered list is what made people
+  // disappear. Rows arrive unfiltered and are narrowed once, in memory, for the counted set.
+  const [allRows, members] = await Promise.all([
+    // measured-people:allow — Every report filed in the window, for the per-day display counts. Narrowed against the measured roster below before any of it becomes a rate.
     prisma.checkInResponse.findMany({
-      where: { workspaceId: actor.workspace.id, dateKey: { gte: from, lte: today } },
+      where: {
+        workspaceId: actor.workspace.id,
+        dateKey: { gte: from, lte: today }
+      },
       select: { userId: true, dateKey: true, unplannedText: true, blockersText: true, helpText: true }
     }),
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: userSelect } }
     })
   ]);
+
+  // Two axes have to agree with the denominator before any of these numbers mean anything, and
+  // they are independent: WHO is counted, and WHICH DAYS are counted.
+  //   - WHO: `members` is the measured roster, so a report by a guest or an agent is not a
+  //     submission against it. Every rate below is over that roster.
+  //   - WHICH DAYS: `expected` is `members.length` on workdays and 0 otherwise, and `possible` is
+  //     roster × workdays. A report filed on a weekend therefore has no matching slot in any
+  //     denominator here, and counting it produced submitted > expected on that day and a totals
+  //     rate above 100% for a team that simply worked a Friday.
+  // `rows` is that counted set. It feeds every rate — and only the rates. Narrowing what the chart
+  // DISPLAYS to it as well is how a member who filed on a Thursday vanished from their own trends:
+  // the day still had their report, the chart just had nothing left to draw. The per-day display
+  // counts below therefore come from `allRows`, which is why the bar chart bothers to size itself
+  // to `max(expected, submitted)` at all.
+  const measuredUserIds = new Set(members.map((member) => member.userId));
+  // A null dateKey predates the daily-report day key and belongs to no day in the window, so it has
+  // no slot in any denominator either.
+  const rows = allRows.filter(
+    (row) => measuredUserIds.has(row.userId) && row.dateKey !== null && isWorkdayKey(row.dateKey)
+  );
 
   const dayKeys: string[] = [];
   for (let offset = days - 1; offset >= 0; offset -= 1) dayKeys.push(shiftDateKey(today, -offset));
 
   const byDay = dayKeys.map((dateKey) => {
-    const dayRows = rows.filter((row) => row.dateKey === dateKey);
-    const withUnplanned = dayRows.filter((row) => row.unplannedText).length;
     const workday = isWorkdayKey(dateKey);
+    // DISPLAYED — what was filed that day, by anyone. VISIBILITY, exactly like the digest's report
+    // list: a weekend report and a guest's report both happened and both stay on the chart.
+    const filed = allRows.filter((row) => row.dateKey === dateKey);
+    // COUNTED — the subset with a slot in that day's denominator. Empty on a weekend, by design.
+    const counted = rows.filter((row) => row.dateKey === dateKey);
+    const countedUnplanned = counted.filter((row) => row.unplannedText).length;
     return {
       dateKey,
       workday,
-      submitted: dayRows.length,
+      submitted: filed.length,
+      // The rate-bearing count, the one `expected` is comparable to. `counted <= expected` holds by
+      // construction: one report per person per day, and every counted author is in `members`.
+      counted: counted.length,
       // Nobody is asked for a report on a weekend, so nobody is expected to have filed one.
       expected: workday ? members.length : 0,
-      unplanned: withUnplanned,
-      blockers: dayRows.filter((row) => row.blockersText || row.helpText).length,
-      unplannedShare: dayRows.length ? Math.round((withUnplanned / dayRows.length) * 100) : 0
+      unplanned: filed.filter((row) => row.unplannedText).length,
+      blockers: filed.filter((row) => row.blockersText || row.helpText).length,
+      unplannedShare: counted.length ? Math.round((countedUnplanned / counted.length) * 100) : 0
     };
   });
 
@@ -488,11 +608,15 @@ export async function buildDailyReportTrends(actor: RequestActor, days = 14, tod
 // Turns the old copy-to-clipboard nudge into a real, delivered request.
 export async function requestCheckIn(actor: RequestActor, userId: string, message?: string | null) {
   if (!isWorkspaceAdminRole(actor.role)) throw new HttpError(403, 'Workspace admin access required');
-  await assertWorkspaceMember(actor.workspace.id, userId);
+  const targetKind = await assertWorkspaceMember(actor.workspace.id, userId);
+  // Asking an agent for a report is asking it for something it is forbidden to file. The UI never
+  // offers it — the ids come from the filtered missing list — but a direct API call would.
+  if (targetKind === 'AGENT') throw new HttpError(400, 'Agents do not file daily reports');
   const notification = await prisma.notification.create({
     data: {
       workspaceId: actor.workspace.id,
       userId,
+      ...attributedTo(actor),
       type: DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE,
       title: `${actor.user.name} گزارش روزانه‌ات را خواسته است`,
       body: message?.trim() || 'لطفاً گزارش روزانه‌ی امروزت را ثبت کن.'
@@ -502,6 +626,7 @@ export async function requestCheckIn(actor: RequestActor, userId: string, messag
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'check_in',
     entityId: userId,
     action: 'requested',
@@ -536,6 +661,13 @@ function taskFromActivitySnapshot(snapshot: unknown): { key: string; title: stri
   const key = record.key;
   const title = record.title;
   if (typeof key !== 'string' || typeof title !== 'string') return null;
+  // WORK LIST — effort excluded. These become "what I did today" chips in someone's daily report,
+  // and from there a task key in the manager's digest; an agent's map is not a person's day's work.
+  //
+  // Filtered here rather than at the query because ActivityLog has no `kind` column — logActivity
+  // snapshots the whole task into JSON, so `kind` is only readable once the rows are materialised.
+  // A snapshot written before the column existed carries none, and every one of those is WORK.
+  if (typeof record.kind === 'string' && !isWorkTask({ kind: record.kind as TaskKind })) return null;
   return { key, title };
 }
 
@@ -629,6 +761,7 @@ export async function createOneOnOneSeries(actor: RequestActor, input: CreateOne
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'one_on_one',
     entityId: series.id,
     action: 'created',
@@ -648,7 +781,7 @@ export async function getOneOnOneAgenda(actor: RequestActor, seriesId: string, n
       include: agendaItemInclude,
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }]
     }),
-    generateOneOnOneAgendaCandidates(actor.workspace.id, series.participantId, now)
+    generateOneOnOneAgendaCandidates(actor, series.participantId, now)
   ]);
 
   return {
@@ -684,6 +817,7 @@ export async function addOneOnOneAgendaItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'one_on_one_agenda_item',
     entityId: item.id,
     action: 'created',
@@ -695,14 +829,14 @@ export async function addOneOnOneAgendaItem(
 }
 
 export async function listMeetingActionItems(actor: RequestActor, input: Partial<MeetingActionItemListInput> = {}) {
-  const accessScope = await resolveMeetingAccessScope(actor);
+  const access = await resolveWorkspaceAccess(actor);
   const where: Prisma.MeetingActionItemWhereInput = {
     workspaceId: actor.workspace.id,
     assigneeId: input.assigneeId,
     meetingId: input.meetingId,
     ...(input.status && input.status !== 'ALL' ? { status: input.status } : {}),
     ...(input.dueBefore ? { dueAt: { lte: new Date(input.dueBefore) } } : {}),
-    meeting: buildMeetingAccessWhere(actor, accessScope)
+    meeting: meetingWhereForAccess(access)
   };
 
   const [items, total] = await Promise.all([
@@ -716,7 +850,12 @@ export async function listMeetingActionItems(actor: RequestActor, input: Partial
     prisma.meetingActionItem.count({ where })
   ]);
 
-  return { items: items.map(serializeMeetingActionItem), total, limit: input.limit ?? 50, offset: input.offset ?? 0 };
+  return {
+    items: items.map((item) => visibleMeetingActionItem(access, serializeMeetingActionItem(item))),
+    total,
+    limit: input.limit ?? 50,
+    offset: input.offset ?? 0
+  };
 }
 
 export async function createMeetingActionItem(
@@ -725,7 +864,6 @@ export async function createMeetingActionItem(
   input: CreateActionItemInput,
   syncMutation?: SyncMutationMeta
 ) {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     select: {
@@ -739,7 +877,7 @@ export async function createMeetingActionItem(
     }
   });
   if (!meeting) throw new HttpError(404, 'Meeting not found');
-  if (!canAccessMeeting(actor, meeting, accessScope)) throw new HttpError(403, 'Meeting access denied');
+  if (!canAccessMeeting(actor, meeting)) throw new HttpError(403, 'Meeting access denied');
   if (input.assigneeId) await assertWorkspaceMember(actor.workspace.id, input.assigneeId);
 
   const row = await prisma.meetingActionItem.create({
@@ -758,6 +896,7 @@ export async function createMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: row.id,
     action: 'created',
@@ -765,7 +904,7 @@ export async function createMeetingActionItem(
     source: actor.source
   }).catch(() => undefined);
   await emitSyncEvent(actor, 'meeting_action_item', row.id, 'created', { after: serializeMeetingActionItem(row) }, syncMutation);
-  return serializeMeetingActionItem(row);
+  return visibleActionItemFor(actor, row);
 }
 
 export async function updateMeetingActionItem(
@@ -795,6 +934,7 @@ export async function updateMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: updated.id,
     action,
@@ -807,7 +947,7 @@ export async function updateMeetingActionItem(
     after: serializeMeetingActionItem(updated)
   }, syncMutation);
 
-  return serializeMeetingActionItem(updated);
+  return visibleActionItemFor(actor, updated);
 }
 
 export async function completeMeetingActionItem(actor: RequestActor, actionItemId: string, syncMutation?: SyncMutationMeta) {
@@ -862,6 +1002,7 @@ export async function carryForwardMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: actionItem.id,
     action: existing ? 'carry_forward_skipped_duplicate' : 'carried_forward',
@@ -877,7 +1018,7 @@ export async function carryForwardMeetingActionItem(
     await emitSyncEvent(actor, 'one_on_one_agenda_item', agendaItem.id, 'created', { after: serializeAgendaItem(agendaItem) }, syncMutation);
   }
 
-  return { actionItem: serializeMeetingActionItem(actionItem), agendaItem: serializeAgendaItem(agendaItem) };
+  return { actionItem: await visibleActionItemFor(actor, actionItem), agendaItem: serializeAgendaItem(agendaItem) };
 }
 
 export async function createTaskFromMeetingActionItem(
@@ -897,6 +1038,7 @@ export async function createTaskFromMeetingActionItem(
   const task = await createTask(actor, {
     projectId,
     title: actionItem.title,
+    kind: 'WORK',
     description: actionItem.notes || undefined,
     assigneeId: input.assigneeId === undefined ? actionItem.assigneeId ?? undefined : input.assigneeId ?? undefined,
     status: target.status,
@@ -917,6 +1059,7 @@ export async function createTaskFromMeetingActionItem(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'meeting_action_item',
     entityId: updated.id,
     action: 'converted_to_task',
@@ -928,7 +1071,7 @@ export async function createTaskFromMeetingActionItem(
     before: serializeMeetingActionItem(actionItem),
     after: serializeMeetingActionItem(updated)
   }, syncMutation);
-  return { actionItem: serializeMeetingActionItem(updated), task: serializeTaskForResponse(task) };
+  return { actionItem: await visibleActionItemFor(actor, updated), task: serializeTaskForResponse(task) };
 }
 
 export function taskTargetFromMeetingActionItem(
@@ -941,12 +1084,34 @@ export function taskTargetFromMeetingActionItem(
   return { projectId: defaultProjectId ?? null, status: 'BACKLOG' };
 }
 
+/**
+ * The material a 1:1 offers to talk about — narrowed to what the person *running* it may read.
+ *
+ * `requireOneOnOneAccess` admits the manager, the participant and workspace admins, and that is a
+ * decision about the **series**, not about the participant's work. A manager running a 1:1 with
+ * somebody on another team was being handed `KEY: Title` for every open task assigned to them, the
+ * titles of their attention items, and the titles of action items from meetings the manager is not
+ * on. Issue #60, gap 3.
+ *
+ * Four branches, three of which now carry an access clause:
+ *
+ * - **tasks** — `taskWhereForAccess`, the predicate every other task read composes.
+ * - **action items** — `meetingWhereForAccess`, the meeting rule, since an action item is walled
+ *   by its meeting rather than by a project.
+ * - **attention** — {@link visibleAttentionForAgenda}, because the pointer is polymorphic and no
+ *   predicate reaches through it.
+ * - **check-ins** stay open, and that is deliberate rather than missed: daily reports are
+ *   peer-visible by design (`canReadAllCheckIns`, and the same rule restated with its reason at
+ *   `routes/sync.ts`), and a participant's own reports are the substance of their 1:1.
+ */
 export async function generateOneOnOneAgendaCandidates(
-  workspaceId: string,
+  actor: RequestActor,
   participantId: string,
   now = new Date()
 ): Promise<AgendaCandidate[]> {
-  const [attention, tasks, checkIns, actionItems] = await Promise.all([
+  const workspaceId = actor.workspace.id;
+  const access = await resolveWorkspaceAccess(actor);
+  const [attentionRows, tasks, checkIns, actionItems] = await Promise.all([
     prisma.attentionItem.findMany({
       where: {
         workspaceId,
@@ -957,28 +1122,37 @@ export async function generateOneOnOneAgendaCandidates(
         ]
       },
       orderBy: [{ severity: 'desc' }, { lastSeenAt: 'desc' }],
-      take: 5
+      // Read wide and filtered down, so a participant with five unreadable items does not push
+      // every readable one off the end.
+      take: 25
     }),
     prisma.task.findMany({
       where: {
-        workspaceId,
+        ...taskWhereForAccess(access),
         assigneeId: participantId,
         status: { in: ['BLOCKED', 'TODO', 'IN_PROGRESS', 'IN_REVIEW'] }
       },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       select: { id: true, key: true, title: true, status: true, dueAt: true }
     }),
+    // measured-people:allow — 1:1 agenda material for one named participant. No rate, no denominator.
     prisma.checkInResponse.findMany({
       where: { workspaceId, userId: participantId },
       orderBy: { submittedFor: 'desc' },
       take: 3
     }),
     prisma.meetingActionItem.findMany({
-      where: { workspaceId, assigneeId: participantId, status: 'OPEN' },
+      where: {
+        workspaceId,
+        assigneeId: participantId,
+        status: 'OPEN',
+        meeting: meetingWhereForAccess(access)
+      },
       orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
       take: 5
     })
   ]);
+  const attention = (await visibleAttentionForAgenda(actor, access, attentionRows)).slice(0, 5);
 
   const candidates: AgendaCandidate[] = [];
   for (const item of attention) {
@@ -1037,6 +1211,84 @@ export async function generateOneOnOneAgendaCandidates(
     .slice(0, 12);
 }
 
+/**
+ * Of these attention items, the ones the reader may be shown — the polymorphic half of gap 3.
+ *
+ * `AttentionItem.entityType` / `entityId` is a loose pointer with no relation behind it, the same
+ * shape #59 met on the activity log, so no Prisma predicate reaches through it and the rule is a
+ * table with a **deny default**. An entity type nobody has placed here is invisible rather than
+ * leaked, which is the only default that stops the next one arriving as a surprise.
+ *
+ * Nothing here restates an access rule. Each branch resolves the row's entity to the facts an
+ * existing rule already asks about and then calls that rule.
+ */
+async function visibleAttentionForAgenda(
+  actor: RequestActor,
+  access: WorkspaceAccess,
+  rows: AttentionItem[]
+): Promise<AttentionItem[]> {
+  if (access.workspaceWide) return rows;
+
+  const idsOf = (entityType: string) =>
+    [...new Set(rows.filter((row) => row.entityType === entityType).map((row) => row.entityId))];
+  const taskIds = idsOf('task');
+  const projectIds = idsOf('project');
+  const actionItemIds = idsOf('meeting_action_item');
+
+  const [tasks, projects, actionItems] = await Promise.all([
+    taskIds.length
+      ? prisma.task.findMany({
+          where: { id: { in: taskIds }, workspaceId: actor.workspace.id },
+          select: { id: true, project: { select: { id: true, teamId: true, leadId: true } } }
+        })
+      : Promise.resolve([]),
+    projectIds.length
+      ? prisma.project.findMany({
+          where: { id: { in: projectIds }, workspaceId: actor.workspace.id },
+          select: { id: true, teamId: true, leadId: true }
+        })
+      : Promise.resolve([]),
+    actionItemIds.length
+      ? prisma.meetingActionItem.findMany({
+          where: { id: { in: actionItemIds }, workspaceId: actor.workspace.id },
+          select: {
+            id: true,
+            meeting: {
+              select: { ownerId: true, createdById: true, participants: { select: { userId: true } } }
+            }
+          }
+        })
+      : Promise.resolve([])
+  ]);
+
+  const projectOfTask = new Map(tasks.map((task) => [task.id, task.project]));
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const meetingOfActionItem = new Map(actionItems.map((item) => [item.id, item.meeting]));
+
+  return rows.filter((row) => {
+    switch (row.entityType) {
+      // Walled by the project the work lives in.
+      case 'task':
+        return canReadProject(access, projectOfTask.get(row.entityId));
+      case 'project':
+        return canReadProject(access, projectById.get(row.entityId));
+      // Walled by its meeting, not by a project — an action item's meeting may have no project.
+      case 'meeting_action_item': {
+        const meeting = meetingOfActionItem.get(row.entityId);
+        return Boolean(meeting) && canAccessMeeting(actor, meeting!);
+      }
+      // Not project-walled, and already decided: the row is about this participant or about a 1:1
+      // with them, and `requireOneOnOneAccess` admitted this reader for exactly that participant.
+      case 'user':
+      case 'one_on_one':
+        return true;
+      // A type nobody has placed. Deny, per #59's default on the same pointer shape.
+      default:
+        return false;
+    }
+  });
+}
+
 export function dedupeAgendaCandidates(candidates: AgendaCandidate[]): AgendaCandidate[] {
   const seen = new Set<string>();
   const deduped: AgendaCandidate[] = [];
@@ -1047,6 +1299,18 @@ export function dedupeAgendaCandidates(candidates: AgendaCandidate[]): AgendaCan
     deduped.push(candidate);
   }
   return deduped;
+}
+
+/**
+ * One action item on its way out to the reader who asked for it.
+ *
+ * Separate from `serializeMeetingActionItem` on purpose: that one is the record, written to the
+ * activity log and to the sync payload, and redacting it for the actor would blank rows for every
+ * *other* reader of the same event. The redaction belongs on the response, and on `/sync/pull`,
+ * which is the second place a reader meets this row.
+ */
+async function visibleActionItemFor(actor: RequestActor, row: MeetingActionItemWithRelations) {
+  return visibleMeetingActionItem(await resolveWorkspaceAccess(actor), serializeMeetingActionItem(row));
 }
 
 async function requireOneOnOneAccess(actor: RequestActor, seriesId: string): Promise<OneOnOneWithRelations> {
@@ -1062,12 +1326,11 @@ async function requireOneOnOneAccess(actor: RequestActor, seriesId: string): Pro
 }
 
 async function requireMeetingActionItemAccess(actor: RequestActor, actionItemId: string): Promise<MeetingActionItemWithRelations> {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const item = await prisma.meetingActionItem.findFirst({
     where: {
       id: actionItemId,
       workspaceId: actor.workspace.id,
-      meeting: buildMeetingAccessWhere(actor, accessScope)
+      meeting: meetingWhereForAccess(await resolveWorkspaceAccess(actor))
     },
     include: actionItemInclude
   });
@@ -1075,12 +1338,13 @@ async function requireMeetingActionItemAccess(actor: RequestActor, actionItemId:
   return item;
 }
 
-async function assertWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+async function assertWorkspaceMember(workspaceId: string, userId: string): Promise<UserKind> {
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
-    select: { id: true }
+    select: { id: true, user: { select: { kind: true } } }
   });
   if (!member) throw new HttpError(400, 'User must belong to this workspace');
+  return member.user.kind;
 }
 
 function normalizeText(value: string | null | undefined): string | null {

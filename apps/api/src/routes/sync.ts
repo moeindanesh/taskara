@@ -14,6 +14,7 @@ import {
   milestoneCompletionSchema,
   milestoneTransitionSchema,
   reorderMilestoneSchema,
+  strictQueryBooleanSchema,
   updateMeetingActionItemSchema,
   updateMilestoneSchema,
   updateTaskSchema
@@ -46,11 +47,15 @@ import {
   restoreMilestone,
   updateMilestone
 } from '../services/milestones';
+import { workTaskWhere } from '../services/measured-work';
+import { visibleMeetingActionItem } from '../services/meeting-visibility';
 import { createProjectHealthUpdate } from '../services/project-health';
 import {
   assertActorCanAccessTeamSlug,
   canManageProjectPlanning,
   canReadProject,
+  memberWorkCountSelect,
+  ownOrSharedViewWhere,
   projectWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
@@ -79,7 +84,7 @@ import {
 const syncScopeQuerySchema = z.object({
   scope: z.literal('tasks').default('tasks'),
   teamId: z.string().min(1).default('all'),
-  mine: z.coerce.boolean().optional(),
+  mine: strictQueryBooleanSchema.optional(),
   cursor: z.string().regex(/^\d+$/).default('0'),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   clientId: z.string().trim().min(1).max(160).optional(),
@@ -202,7 +207,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       listMilestonesForSync(actor, access, query.completedWindowDays),
       listProjects(access),
       listTeams(access),
-      listUsers(actor.workspace.id),
+      listUsers(access),
       listViews(actor, query.teamId, access),
       latestCursor(actor.workspace.id)
     ]);
@@ -570,8 +575,18 @@ function taskWhereForScope(
   query: z.infer<typeof syncScopeQuerySchema>,
   access: WorkspaceAccess
 ): Prisma.TaskWhereInput {
+  // WORK LIST — effort excluded. This array IS the workspace's work list: the board, the issue list,
+  // the command palette, Today Load, the person sheet and the heartbeat are all client-side filters
+  // over it. Excluding EFFORT once here is what keeps that from becoming twelve independent
+  // predicates in the web app, which is the shape that rotted on the people side.
+  //
+  // Consequence, stated rather than discovered: the web issue page reads task detail out of this
+  // cache, so an effort has no web page until an effort surface is built that fetches
+  // `GET /tasks/:idOrKey` directly. That route is untouched and returns efforts — see the read-path
+  // note in services/measured-work.ts.
   const where: Prisma.TaskWhereInput = {
     ...taskWhereForAccess(access),
+    ...workTaskWhere,
     assigneeId: query.mine ? actor.user.id : undefined
   };
 
@@ -600,7 +615,11 @@ async function listProjects(access: WorkspaceAccess) {
       team: { select: { id: true, name: true, slug: true } },
       parent: { select: { id: true, name: true, keyPrefix: true } },
       lead: { select: { id: true, name: true, email: true, avatarUrl: true } },
-      _count: { select: { tasks: true, subprojects: true, milestones: true } }
+      // MEASUREMENT — effort excluded. This number is rendered as "<N> issues" on every project
+      // card, and a relation count cannot be narrowed by a where on the outer query, so the filter
+      // has to sit inside the count itself. This is the copy the offline client renders; fixing
+      // only routes/projects.ts would leave the number wrong everywhere it is actually seen.
+      _count: { select: { tasks: { where: workTaskWhere }, subprojects: true, milestones: true } }
     }
   });
 }
@@ -613,9 +632,10 @@ async function listTeams(access: WorkspaceAccess) {
   });
 }
 
-async function listUsers(workspaceId: string) {
+async function listUsers(access: WorkspaceAccess) {
+  // measured-people:allow — Bootstrap roster behind the graph and every picker.
   const members = await prisma.workspaceMember.findMany({
-    where: { workspaceId },
+    where: { workspaceId: access.workspaceId },
     orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
     take: 200,
     include: {
@@ -625,12 +645,19 @@ async function listUsers(workspaceId: string) {
           email: true,
           name: true,
           phone: true,
+          // Deliberately unfiltered above: this roster backs the graph and every picker, and agents
+          // are teammates who must appear in it. `kind` is what lets the client tell them apart.
+          kind: true,
           mattermostUserId: true,
           mattermostUsername: true,
           avatarUrl: true,
           createdAt: true,
           updatedAt: true,
-          _count: { select: { assignedTasks: true, reportedTasks: true, comments: true } }
+          // MEASUREMENT and ACCESS, both, and both explained at `memberWorkCountSelect`. The
+          // offline roster is deliberately workspace-wide; the counts beside it are not, and this
+          // block and `GET /users` are the same block — they now compose the same predicate rather
+          // than being two copies that could drift apart.
+          _count: { select: memberWorkCountSelect(access) }
         }
       }
     }
@@ -662,10 +689,7 @@ async function listViews(actor: RequestActor, teamId: string, access: WorkspaceA
     : null;
 
   const views = await prisma.view.findMany({
-    where: {
-      workspaceId: actor.workspace.id,
-      OR: [{ isShared: true }, { ownerId: actor.user.id }]
-    },
+    where: ownOrSharedViewWhere(access),
     orderBy: [{ updatedAt: 'desc' }]
   });
 
@@ -711,6 +735,9 @@ export function mapSyncEventForScope(
     if (!managerEventVisibleInScope(event, actor, access)) return null;
     if (event.entityType === 'milestone') {
       return mapMilestoneSyncEvent(serialized, event, actor, access);
+    }
+    if (event.entityType === 'meeting_action_item') {
+      return mapMeetingActionItemSyncEvent(serialized, event, access);
     }
     return mapGenericSyncEvent(serialized, event);
   }
@@ -773,6 +800,52 @@ function mapMilestoneSyncEvent(
     };
   }
   return serialized;
+}
+
+/**
+ * The second place a reader meets a meeting action item, and it needs the same redaction as the
+ * first.
+ *
+ * `meetingActionItemEventVisible` decides *whether* the event is delivered — participants, owner,
+ * creator, assignee — which is the same population `GET /meeting-action-items` serves, and says
+ * nothing about the project the linked task lives in or the project the meeting belongs to. So
+ * closing #60's second gap only on the REST handlers would have left it reachable in one call from
+ * a cursor. `visibleMeetingActionItem` is the same function the routes use, over the stored payload.
+ *
+ * An access that is not a resolved `WorkspaceAccess` cannot answer the question, so it redacts.
+ * `/sync/pull` always resolves one; the other shapes are legacy and denying is the safe direction.
+ */
+function mapMeetingActionItemSyncEvent(
+  serialized: ReturnType<typeof serializeSyncEvent>,
+  event: SyncEvent,
+  access: string[] | WorkspaceAccess | null
+) {
+  const payload = syncPayloadRecord(event.payload);
+  const before = syncPayloadRecord(payload?.before);
+  const after = syncPayloadRecord(payload?.after);
+
+  if (after) {
+    return { ...serialized, type: 'upsert' as const, entity: visibleActionItemPayload(after, access) };
+  }
+  if (before) {
+    return {
+      ...serialized,
+      type: event.operation === 'deleted' ? 'delete' as const : 'removeFromScope' as const,
+      entityId: event.entityId
+    };
+  }
+  return serialized;
+}
+
+function visibleActionItemPayload(item: Record<string, unknown>, access: string[] | WorkspaceAccess | null) {
+  const resolved: WorkspaceAccess | null = access && !Array.isArray(access) ? access : null;
+  if (resolved?.workspaceWide) return item;
+  return visibleMeetingActionItem(
+    // A deny-everything access when none was resolved: `canReadProject` admits nobody on a walled
+    // project with no team match, no project match and no lead match.
+    resolved ?? { workspaceId: '', userId: '', workspaceWide: false, teamIds: [], projectIds: [] },
+    item as Parameters<typeof visibleMeetingActionItem>[1]
+  );
 }
 
 function mapGenericSyncEvent(serialized: ReturnType<typeof serializeSyncEvent>, event: SyncEvent) {
@@ -941,6 +1014,17 @@ function taskVisibleInScope(
   actor: RequestActor,
   access: string[] | WorkspaceAccess | null
 ): boolean {
+  // WORK LIST — effort excluded, and this MUST stay in step with `taskWhereForScope`. This is the
+  // in-memory twin used by the live `/sync/pull` stream: if only the bootstrap query filtered,
+  // the very next edit to an effort would upsert it straight back into every client cache, and an
+  // exclusion that quietly undoes itself is worse than none.
+  //
+  // A snapshot with no `kind` at all is WORK: sync events written before the column existed are
+  // still replayable from an old cursor, and reading their silence as EFFORT would empty every
+  // returning client's cache.
+  const kind = stringValue(task.kind);
+  if (kind && kind !== 'WORK') return false;
+
   if (query.mine) {
     const assignee = task.assignee as { id?: string } | null | undefined;
     if (assignee?.id !== actor.user.id) return false;
@@ -1093,8 +1177,23 @@ function writeSse(reply: FastifyReply, id: string | undefined, event: string, da
   reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+/**
+ * A push answers 200 with a per-mutation verdict, so this string is the *entire* diagnosis a
+ * rejected mutation ever gets — the REST handler's `{ message, issues }` shape has no equivalent
+ * here, and the issues were previously dropped on the floor. That made every schema failure
+ * indistinguishable: an over-long description and a malformed uuid both came back as "Validation
+ * failed", and a caller could not learn what the limit it had just exceeded actually was. The
+ * issues are folded into the message instead, and capped at five so a batch rejection cannot turn
+ * one bad field into an unbounded string.
+ */
 function mutationErrorMessage(error: unknown): string {
-  if (error instanceof ZodError) return 'Validation failed';
+  if (error instanceof ZodError) {
+    const named = error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
+    return named ? `Validation failed — ${named}` : 'Validation failed';
+  }
   if (error instanceof Error && error.message) return error.message;
   return 'Mutation failed';
 }

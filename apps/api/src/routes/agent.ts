@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@taskara/db';
 import { proposeThreadTasksSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
+import { openBlockerEdgesInclude } from '../services/blockers';
+import { workTaskWhere } from '../services/measured-work';
+import { redactBlockingEdges, relatedTaskAccessInclude } from '../services/task-visibility';
+import { resolveWorkspaceAccess } from '../services/team-access';
 import { createTask, ensureDefaultProject } from '../services/tasks';
 
 interface ProposedTaskPayload {
@@ -60,22 +64,43 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/agent/daily-plan', async (request) => {
     const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    // WORK LIST — effort excluded. The focus/blocked lists an agent is handed as its day's work.
+    // Unreachable today (an effort cannot hold an assignee), and written for the same reason as the
+    // assignment slice: so the guard has nothing here to excuse.
     const tasks = await prisma.task.findMany({
       where: {
+        ...workTaskWhere,
         workspaceId: actor.workspace.id,
         assigneeId: actor.user.id,
         status: { notIn: ['DONE', 'CANCELED'] }
       },
       include: {
         project: { select: { id: true, name: true, keyPrefix: true } },
-        blockingDependencies: { include: { blockedByTask: true } }
+        // Only the blockers still in the way. Unfiltered, a task whose prerequisites were all
+        // finished stayed in `blocked` forever and never reached `focus` — a daily plan that told a
+        // real person their available work was unavailable.
+        blockingDependencies: {
+          ...openBlockerEdgesInclude,
+          include: { blockedByTask: { include: relatedTaskAccessInclude } }
+        }
       },
       orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
       take: 25
     });
 
-    const blocked = tasks.filter((task) => task.status === 'BLOCKED' || task.blockingDependencies.length > 0);
-    const focus = tasks
+    // Being assigned the blocked task says nothing about whether its blocker is readable, so the
+    // far end is redacted before these rows go back. The partition below is unaffected: redaction
+    // replaces an edge's far end and never drops the edge, so `.length` still counts every blocker
+    // in the way — a plan that moved a task to `focus` because its blocker was invisible to the
+    // agent would be the same lie as an unblocked-looking task on the issue page.
+    const rows = tasks.map((task) => ({
+      ...task,
+      blockingDependencies: redactBlockingEdges(access, task.blockingDependencies)
+    }));
+
+    const blocked = rows.filter((task) => task.status === 'BLOCKED' || task.blockingDependencies.length > 0);
+    const focus = rows
       .filter((task) => task.status !== 'BLOCKED' && task.blockingDependencies.length === 0)
       .sort((a, b) => priorityScore(b.priority) - priorityScore(a.priority))
       .slice(0, 5);
@@ -116,7 +141,10 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const payload = action.payload as unknown as ProposedTaskPayload;
-    const task = await createTask(actor, payload);
+    // `kind` is pinned rather than spread from the payload, and the order matters: `payload` is
+    // untyped JSON read back out of the database and cast, so a row that carried `kind: 'EFFORT'`
+    // would otherwise mint an effort from an agent proposal. A proposal is work by construction.
+    const task = await createTask(actor, { ...payload, kind: 'WORK' });
     await prisma.agentAction.update({
       where: { id },
       data: {

@@ -533,8 +533,27 @@ const heartbeatTaskDateToneClasses: Record<HeartbeatTaskDateKind, string> = {
    progress: 'text-indigo-700 dark:text-indigo-200/70',
 };
 
+/**
+ * Agents are teammates and show up everywhere the app lists who exists — the graph, the pickers,
+ * the assignee of a task. They are dropped only where the panel is scoring people, which is what
+ * the two builders below do: "nobody is working on anything" and "who is carrying the most today"
+ * are both judgements about humans, and a process that never idles or never tires distorts them.
+ *
+ * BOTH clauses, matching measuredMemberWhere on the server (apps/api/src/services/measured-people.ts).
+ * Neither implies the other: a GUEST is an outside contributor the server leaves out of every
+ * participation denominator, so ranking them here shows a person the API says is not being measured;
+ * and an agent may hold an ordinary MEMBER or ADMIN role, so the role clause alone never finds it.
+ *
+ * Both fields are optional because they are absent on bootstrap snapshots cached before agents
+ * existed, and `role` is unknowable from a task row — undefined reads as an ordinary human.
+ */
+function isMeasuredPerson(person: { id: string; kind?: string; role?: string }): boolean {
+   return person.kind !== 'AGENT' && person.role !== 'GUEST';
+}
+
 function buildNoInProgressUsers(users: TaskaraUser[], tasks: TaskaraTask[]): HeartbeatIdleUser[] {
-   const people = users.length > 0 ? users : uniqueTaskAssignees(tasks);
+   // Measurement: the idle panel and its headline count judge who is not working right now.
+   const people = (users.length > 0 ? users : uniqueTaskAssignees(tasks)).filter(isMeasuredPerson);
    const inProgressAssigneeIds = new Set(
       tasks
          .filter((task) => task.assignee && progressStatuses.includes(task.status))
@@ -566,7 +585,9 @@ function buildNoInProgressUsers(users: TaskaraUser[], tasks: TaskaraTask[]): Hea
 }
 
 function buildUserPlans(users: TaskaraUser[], tasks: TaskaraTask[]): TodayPlanUser[] {
-   const people = users.length > 0 ? users : uniqueTaskAssignees(tasks);
+   // Measurement: this is a per-person load ranking against a daily weight limit, so an agent in it
+   // would both take a rank and set the bar the humans below it are read against.
+   const people = (users.length > 0 ? users : uniqueTaskAssignees(tasks)).filter(isMeasuredPerson);
    const tasksByAssignee = new Map<string, TaskaraTask[]>();
 
    for (const task of tasks) {
@@ -639,8 +660,24 @@ function formatTaskWeight(weight: number | null | undefined) {
       : fa.todayPlan.noWeight;
 }
 
-function uniqueTaskAssignees(tasks: TaskaraTask[]): Array<Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl'>> {
-   const assignees = new Map<string, Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl'>>();
+/**
+ * The people behind a set of tasks, for the panels above to fall back on when the roster is empty.
+ *
+ * `kind` is part of the returned shape on purpose. Leaving it out did not make this list neutral —
+ * it made every agent in it read as a human, because `kind === undefined` is how a pre-agent cached
+ * snapshot spells "human". The fallback then quietly re-admitted agents to the idle panel and the
+ * load ranking, and no call site could fix it: the type had thrown the field away before
+ * `isMeasuredPerson` ever saw a person.
+ *
+ * `role` cannot be carried the same way — it belongs to a workspace membership, not to the assignee
+ * on a task row — so this fallback can only enforce the kind clause. That is a reason to keep it a
+ * fallback: the roster from the bootstrap carries both fields, and it is what these panels use
+ * whenever it has loaded.
+ */
+type TaskAssigneePerson = Pick<TaskaraUser, 'id' | 'name' | 'email' | 'avatarUrl' | 'kind'>;
+
+function uniqueTaskAssignees(tasks: TaskaraTask[]): TaskAssigneePerson[] {
+   const assignees = new Map<string, TaskAssigneePerson>();
 
    for (const task of tasks) {
       if (!task.assignee || assignees.has(task.assignee.id)) continue;
@@ -648,6 +685,7 @@ function uniqueTaskAssignees(tasks: TaskaraTask[]): Array<Pick<TaskaraUser, 'id'
          id: task.assignee.id,
          name: task.assignee.name,
          email: task.assignee.email,
+         kind: task.assignee.kind,
          avatarUrl: task.assignee.avatarUrl,
       });
    }

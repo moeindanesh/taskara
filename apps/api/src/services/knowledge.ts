@@ -20,11 +20,12 @@ import type {
 } from '@taskara/shared';
 import type { RequestActor } from './actor';
 import { isWorkspaceAdminRole } from './actor';
+import { attributedTo, type ActorAttribution } from './actor-provenance';
 import { logActivity } from './audit';
 import { buildMediaUrl, type UploadedMediaObject } from './media';
 import { HttpError } from './http';
 import { appendSyncEvent, publishSyncEvent } from './sync';
-import { projectWhereForAccess, resolveWorkspaceAccess } from './team-access';
+import { knowledgeSpaceWhereForAccess, resolveWorkspaceAccess } from './team-access';
 
 type CreateKnowledgeSpaceInput = z.infer<typeof createKnowledgeSpaceSchema>;
 type UpdateKnowledgeSpaceInput = z.infer<typeof updateKnowledgeSpaceSchema>;
@@ -158,6 +159,7 @@ export async function createKnowledgeSpace(actor: RequestActor, input: CreateKno
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_space',
     entityId: space.id,
     action: 'created',
@@ -222,6 +224,7 @@ export async function updateKnowledgeSpace(actor: RequestActor, idOrKey: string,
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_space',
     entityId: updated.id,
     action: 'updated',
@@ -349,6 +352,7 @@ export async function createKnowledgePage(actor: RequestActor, input: CreateKnow
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_page',
     entityId: page.id,
     action: 'created',
@@ -446,6 +450,7 @@ export async function updateKnowledgePage(actor: RequestActor, pageId: string, i
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_page',
     entityId: page.id,
     action: page.status === 'ARCHIVED' ? 'archived' : 'updated',
@@ -481,6 +486,7 @@ export async function verifyKnowledgePage(actor: RequestActor, pageId: string, i
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_page',
     entityId: page.id,
     action: 'verified',
@@ -570,6 +576,7 @@ export async function createKnowledgePageComment(actor: RequestActor, pageId: st
     await createKnowledgePageSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
+      attribution: attributedTo(actor),
       page,
       type: KNOWLEDGE_PAGE_COMMENTED_NOTIFICATION_TYPE,
       body: `${actor.user.name} دیدگاهی روی این صفحه گذاشت.`
@@ -581,6 +588,7 @@ export async function createKnowledgePageComment(actor: RequestActor, pageId: st
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'knowledge_page',
     entityId: page.id,
     action: 'commented',
@@ -794,23 +802,14 @@ async function findKnowledgePageForActor(
   });
 }
 
+/**
+ * The rule itself now lives in `services/team-access.ts` as `knowledgeSpaceWhereForAccess`, beside
+ * every other entity's, because #60 needed it from two places that hold an `access` and no actor:
+ * the inbox's `knowledgePageId` branch and the activity classifier. This is the actor-shaped
+ * wrapper the routes here already call.
+ */
 async function knowledgeSpaceWhereForActor(actor: RequestActor): Promise<Prisma.KnowledgeSpaceWhereInput> {
-  if (isWorkspaceAdminRole(actor.role)) {
-    return { workspaceId: actor.workspace.id };
-  }
-
-  const access = await resolveWorkspaceAccess(actor);
-  return {
-    workspaceId: actor.workspace.id,
-    OR: [
-      { type: 'WORKSPACE' },
-      { teamId: { in: access.teamIds } },
-      {
-        type: 'PROJECT',
-        project: projectWhereForAccess(access)
-      }
-    ]
-  };
+  return knowledgeSpaceWhereForAccess(await resolveWorkspaceAccess(actor));
 }
 
 async function knowledgePageWhereForQuery(actor: RequestActor, query: Partial<KnowledgePageListQuery>) {
@@ -982,6 +981,7 @@ async function subscribeUsersToKnowledgePage(
 ): Promise<void> {
   const requestedUserIds = [...new Set(input.userIds.filter((userId): userId is string => Boolean(userId)))];
   if (!requestedUserIds.length) return;
+  // measured-people:allow — Subscribes named people to a page: a delivery list, nothing counted.
   const members = await tx.workspaceMember.findMany({
     where: { workspaceId: input.workspaceId, userId: { in: requestedUserIds } },
     select: { userId: true }
@@ -1001,6 +1001,7 @@ async function createKnowledgePageSubscriberNotifications(
   input: {
     workspaceId: string;
     actorUserId: string;
+    attribution: ActorAttribution;
     page: Pick<KnowledgePage, 'id' | 'title'>;
     type: string;
     body: string;
@@ -1022,6 +1023,7 @@ async function createKnowledgePageSubscriberNotifications(
     data: recipientIds.map((userId) => ({
       workspaceId: input.workspaceId,
       userId,
+      ...input.attribution,
       knowledgePageId: input.page.id,
       type: input.type,
       title: input.page.title,

@@ -1,4 +1,4 @@
-import { prisma, type Prisma, type WorkspaceRole } from '@taskara/db';
+import { prisma, type Prisma, type UserKind, type WorkspaceRole } from '@taskara/db';
 import type { z } from 'zod';
 import type { assignmentRecommendationSchema } from '@taskara/shared';
 import type { RequestActor } from './actor';
@@ -8,6 +8,8 @@ import {
   resolveWorkspaceAccess,
   taskWhereForAccess
 } from './team-access';
+import { isMeasuredMember } from './measured-people';
+import { workTaskWhere } from './measured-work';
 import { findTaskByIdOrKey } from './tasks';
 
 type AssignmentRecommendationInput = z.infer<typeof assignmentRecommendationSchema>;
@@ -28,6 +30,8 @@ export interface AssignmentUser {
 export interface AssignmentCandidateFacts {
   user: AssignmentUser;
   workspaceRole: WorkspaceRole;
+  /** Agents are teammates who may be assigned deliberately, but are never recommended. */
+  userKind: UserKind;
   teamIds: string[];
   projectIds: string[];
   capacity: number;
@@ -136,6 +140,7 @@ type CandidateMember = Prisma.WorkspaceMemberGetPayload<{
         name: true;
         email: true;
         phone: true;
+        kind: true;
         mattermostUsername: true;
         avatarUrl: true;
         teamMemberships: { select: { teamId: true } };
@@ -180,9 +185,19 @@ export async function recommendAssignment(
     prisma.userCapacity.findMany({
       where: { workspaceId: actor.workspace.id }
     }),
+    // MEASUREMENT — effort excluded. This slice becomes every candidate's activeCount, activeWeight
+    // and loadRatio, and `normalizeAssignmentWeight` coerces a null weight to 1, so an effort would
+    // count as a full unit of load and cost 45 points in the score.
+    //
+    // Unreachable today: `assigneeId: { not: null }` cannot match an effort, because
+    // `Task_effort_has_no_work_fields` forbids one from holding an assignee. Written anyway so the
+    // runtime guard has nothing to excuse here — a reviewed entry reading "safe because of a
+    // constraint in another file" is a claim every future reader has to re-verify, and this clause
+    // costs a line.
     prisma.task.findMany({
       where: {
         ...taskWhereForAccess(access),
+        ...workTaskWhere,
         status: { in: [...assignmentActiveStatuses] },
         assigneeId: { not: null }
       },
@@ -281,7 +296,9 @@ export function eligibleAssignmentCandidates(
       excluded.inactive += 1;
       continue;
     }
-    if (candidate.workspaceRole === 'GUEST' || candidate.workspaceRole === 'AGENT') {
+    // Kept in memory rather than pushed into the query, because `excluded` is shown to the user:
+    // filtering at the database would silently zero the reason counters instead of explaining them.
+    if (!isMeasuredMember({ role: candidate.workspaceRole, userKind: candidate.userKind })) {
       excluded.unsupportedRole += 1;
       continue;
     }
@@ -437,6 +454,7 @@ function buildAssignmentCandidateFacts(input: {
         avatarUrl: member.user.avatarUrl
       },
       workspaceRole: member.role,
+      userKind: member.user.kind,
       teamIds: member.user.teamMemberships.map((membership) => membership.teamId),
       projectIds: member.user.projectMemberships.map((membership) => membership.projectId),
       capacity: capacity?.dailyWeightLimit ?? defaultDailyCapacity,
@@ -457,6 +475,7 @@ function buildAssignmentCandidateFacts(input: {
 }
 
 async function listWorkspaceCandidateMembers(workspaceId: string): Promise<CandidateMember[]> {
+  // measured-people:allow — Candidates are materialised in full and excluded in memory, so the per-reason counters shown to the user survive.
   return prisma.workspaceMember.findMany({
     where: { workspaceId },
     include: {
@@ -466,6 +485,7 @@ async function listWorkspaceCandidateMembers(workspaceId: string): Promise<Candi
           name: true,
           email: true,
           phone: true,
+          kind: true,
           mattermostUsername: true,
           avatarUrl: true,
           teamMemberships: { select: { teamId: true } },

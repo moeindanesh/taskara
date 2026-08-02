@@ -35,7 +35,13 @@ export interface GraphPersonInput {
    id: string;
    name: string;
    role: string;
+   /** Undefined on snapshots cached before agents existed; read as HUMAN. */
+   kind?: string;
    avatarUrl?: string | null;
+}
+
+function isAgent(person: GraphPersonInput): boolean {
+   return person.kind === 'AGENT';
 }
 
 export interface BuildTeamOverviewGraphInput {
@@ -65,7 +71,8 @@ export function buildTeamOverviewGraph({
 
    for (const task of tasks) {
       const assigneeId = task.assignee?.id;
-      if (!assigneeId || !members.has(assigneeId) || !isInTodayLoad(task, day)) continue;
+      const assignee = assigneeId ? members.get(assigneeId) : undefined;
+      if (!assigneeId || !assignee || !isInTodayLoad(task, day)) continue;
 
       const weight = task.weight ?? null;
       const node: TaskGraphNode = {
@@ -80,6 +87,7 @@ export function buildTeamOverviewGraph({
          overdue: isOverdue(task, day),
          dueAt: task.dueAt ?? null,
          assigneeId,
+         agent: isAgent(assignee),
       };
 
       const existing = loadByPerson.get(assigneeId);
@@ -87,8 +95,11 @@ export function buildTeamOverviewGraph({
       else loadByPerson.set(assigneeId, [node]);
    }
 
+   // An agent is a teammate, so it keeps its seat whether or not it is holding work — a colleague
+   // who flickers off the graph the moment they go idle is not a colleague. Guests keep the
+   // conditional seat they always had: they are outside contributors, visible while they carry work.
    const visiblePeople = people
-      .filter((person) => alwaysVisibleRoles.has(person.role) || loadByPerson.has(person.id))
+      .filter((person) => isAgent(person) || alwaysVisibleRoles.has(person.role) || loadByPerson.has(person.id))
       .sort((left, right) => byName(left.name, right.name));
 
    const nodes: GraphNode[] = [
@@ -113,6 +124,7 @@ export function buildTeamOverviewGraph({
          userId: person.id,
          avatarUrl: person.avatarUrl ?? null,
          role: person.role,
+         agent: isAgent(person),
          taskCount: load.length,
          totalWeight: load.reduce((total, task) => total + (task.weight ?? 0), 0),
       };

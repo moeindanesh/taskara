@@ -154,6 +154,39 @@ export interface TaskaraProjectHealthUpdateListResponse {
    offset: number;
 }
 
+/** WORK is a unit of work; EFFORT is the root of an effort — a map, not something anyone does. */
+export type TaskaraTaskKind = 'WORK' | 'EFFORT';
+
+/**
+ * A task hanging off another task that this reader may not open (#58).
+ *
+ * A blocker, a task being blocked and a subtask are not confined to the project the reader came in
+ * through, so `GET /tasks/:idOrKey` withholds the ones behind a wall. It **redacts rather than
+ * omits**: an edge that disappeared by reader would make a blocked task read as takeable, and the
+ * frontier depends on that being true. One bit survives — whether the hidden task is still in the
+ * way — and there is nothing else to render, not even an id.
+ */
+export interface RedactedTaskRef {
+   redacted: true;
+   open: boolean;
+}
+
+/** The far end of an edge: the task, or the fact that there is one. Ask `lib/takeability.ts`. */
+export type TaskEdgeTarget = { id: string; key: string; title: string; status: string } | RedactedTaskRef;
+
+/**
+ * Something walled off, with no bit beyond the fact that it is there (#60).
+ *
+ * {@link RedactedTaskRef}'s `open` exists because takeability is computed from a blocker list. A
+ * meeting's tasks, its project and its team decide nothing, so they carry nothing — the shape says
+ * "there is one and you may not open it" and stops. Ask `lib/redacted.ts` rather than testing the
+ * field by hand, and never render a redacted relation as absence: a meeting whose project is hidden
+ * is not a meeting with no project.
+ */
+export interface RedactedRef {
+   redacted: true;
+}
+
 export interface TaskaraTask {
    id: string;
    key: string;
@@ -161,6 +194,12 @@ export interface TaskaraTask {
    description?: string | null;
    status: string;
    priority: string;
+   /**
+    * Optional because cached snapshots written before efforts existed carry no `kind` — and those
+    * snapshots contain only work, so absence genuinely means WORK here rather than merely defaulting
+    * to it. See `isEffort` in `@/lib/work-tasks`, which is the only place that reads this.
+    */
+   kind?: TaskaraTaskKind;
    parentId?: string | null;
    weight?: number | null;
    dueAt?: string | null;
@@ -199,16 +238,46 @@ export interface TaskaraTask {
       archivedAt?: string | null;
       projectId?: string;
    } | null;
-   assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
+   /**
+    * `kind` is carried on the assignee because people lists get derived from tasks when the roster
+    * has not loaded, and a person-shaped object without it reads as HUMAN — which is how agents
+    * re-entered the panels that score people. Absent on snapshots cached before agents existed, so
+    * undefined still means HUMAN.
+    */
+   assignee?: {
+      id: string;
+      name: string;
+      email: string;
+      kind?: 'HUMAN' | 'AGENT';
+      phone?: string | null;
+      avatarUrl?: string | null;
+   } | null;
    reporter?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    version?: number;
    syncState?: 'pending';
    syncMutationId?: string;
    attachments?: TaskaraAttachment[];
    comments?: TaskaraTaskComment[];
-   subtasks?: Array<{ id: string; key: string; title: string; status: string }>;
-   blockingDependencies?: Array<{ id: string; blockedByTask?: { id: string; key: string; title: string } }>;
-   blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string } }>;
+   subtasks?: Array<TaskEdgeTarget>;
+   /**
+    * The dependency edges, both directions, delivered only by `GET /tasks/:idOrKey`.
+    *
+    * `status` is the load-bearing field and it has always been on the wire — the route includes the
+    * whole blocking Task — but this declaration used to stop at `{ id, key, title }`, which is the
+    * only reason no component could render takeability. See
+    * https://github.com/moeindanesh/taskara/issues/26.
+    *
+    * The arrays are **unfiltered on purpose** (#24: "the count is the predicate, the list is the
+    * record"), so a finished blocker is still a member. Ask `lib/takeability.ts` whether a blocker is
+    * open; never infer it from membership, or a blocker that was finished last month reads as still
+    * in the way. `_count.blockingDependencies` below is the opposite — it *is* filtered to open
+    * blockers server-side, which is why the list badge can trust it.
+    *
+    * They are unfiltered by **access** too, and that is also on purpose — a far end this reader may
+    * not open arrives as a {@link RedactedTaskRef} rather than being dropped (#58).
+    */
+   blockingDependencies?: Array<{ id: string; blockedByTask?: TaskEdgeTarget }>;
+   blockedTasks?: Array<{ id: string; task?: TaskEdgeTarget }>;
    labels?: Array<{ label: { id: string; name: string; color?: string } }>;
    _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
 }
@@ -275,8 +344,18 @@ export interface TaskaraMeeting {
    heldAt?: string | null;
    createdAt: string;
    updatedAt: string;
-   team?: { id: string; name: string; slug: string } | null;
-   project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+   /**
+    * The three things a meeting carries that its participants are not automatically entitled to
+    * (#60). A meeting's readers are its participants, its owner, its creator and admins; none of
+    * that says which projects or teams those people may open, and a linked task is not constrained
+    * to the meeting's project at all.
+    *
+    * Each arrives as itself or as a {@link RedactedRef}. The task list is **never shortened** — the
+    * length has to keep matching `_count.tasks`, which no server-side filter narrows — so an entry
+    * the reader may not open keeps its slot and loses its contents.
+    */
+   team?: { id: string; name: string; slug: string } | RedactedRef | null;
+   project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | RedactedRef | null;
    owner?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    createdBy?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    participants?: Array<{
@@ -288,9 +367,9 @@ export interface TaskaraMeeting {
    }>;
    tasks?: Array<{
       meetingId: string;
-      taskId: string;
+      taskId: string | null;
       createdAt: string;
-      task: TaskaraTask;
+      task: TaskaraTask | RedactedRef;
    }>;
    _count?: { participants?: number; tasks?: number };
 }
@@ -357,7 +436,10 @@ export interface TaskaraDailyReportTrends {
    byDay: Array<{
       dateKey: string;
       workday: boolean;
+      /** Everything filed that day, by anyone: what the chart shows. Never a numerator. */
       submitted: number;
+      /** The measured, workday subset — the only count `expected` may be read against. */
+      counted: number;
       expected: number;
       unplanned: number;
       blockers: number;
@@ -375,6 +457,8 @@ export interface TaskaraDailyReportTrends {
 
 export interface TaskaraDailyReportDigest {
    dateKey: string;
+   /** False on a weekend: nobody was asked for a report, so `stats` has no denominator that day. */
+   workday: boolean;
    reports: TaskaraCheckInResponse[];
    blockersFirst: TaskaraCheckInResponse[];
    unplanned: TaskaraCheckInResponse[];
@@ -460,7 +544,12 @@ export interface TaskaraMeetingActionItem {
    updatedAt: string;
    assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    createdBy?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
-   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | null;
+   /**
+    * Two more relations that reach out of the meeting into project-walled data, redacted by the same
+    * rule as {@link TaskaraMeeting}'s (#60). The linked task may sit in any project at all — nothing
+    * ties it to the meeting's — so it is decided separately from the meeting's project.
+    */
+   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | RedactedRef | null;
    meeting?: {
       id: string;
       title: string;
@@ -468,7 +557,7 @@ export interface TaskaraMeetingActionItem {
       scheduledAt?: string | null;
       heldAt?: string | null;
       projectId?: string | null;
-      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | RedactedRef | null;
    } | null;
 }
 
@@ -590,6 +679,12 @@ export type TaskViewGrouping = 'status' | 'assignee' | 'project' | 'milestone' |
 export type TaskViewSubGrouping = 'none' | TaskViewGrouping;
 export type TaskViewOrdering = 'priority' | 'updatedAt' | 'createdAt' | 'dueAt' | 'title';
 export type TaskViewCompletedIssues = 'all' | 'week' | 'month' | 'none';
+/**
+ * The list/board blockers filter. `all` is no filter, `none` is the frontier, `any` is what is
+ * stuck. The last two are the API's `?blockers=` spelling from #21; see `lib/takeability.ts`.
+ */
+export type TaskBlockersFilter = 'all' | 'none' | 'any';
+
 export type TaskViewDisplayProperty =
    | 'id'
    | 'status'
@@ -599,6 +694,7 @@ export type TaskViewDisplayProperty =
    | 'dueAt'
    | 'labels'
    | 'milestone'
+   | 'blockers'
    | 'links'
    | 'timeInStatus'
    | 'createdAt'
@@ -623,6 +719,8 @@ export interface TaskaraTaskViewState {
    nestedSubIssues: boolean;
    orderCompletedByRecency: boolean;
    completedIssues: TaskViewCompletedIssues;
+   /** See `lib/takeability.ts`: `all` is no filter, `none` is the frontier, `any` is what is stuck. */
+   blockers: TaskBlockersFilter;
    displayProperties: TaskViewDisplayProperty[];
 }
 
@@ -675,6 +773,8 @@ export interface TaskaraUser {
    email: string;
    name: string;
    phone?: string | null;
+   /** Absent on bootstrap snapshots cached before agents existed; treat undefined as HUMAN. */
+   kind?: 'HUMAN' | 'AGENT';
    role: string;
    joinedAt: string;
    mattermostUsername?: string | null;

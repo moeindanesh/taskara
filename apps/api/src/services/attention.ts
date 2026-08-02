@@ -2,7 +2,7 @@ import { prisma, type AttentionItem, type AttentionItemStatus, type Prisma } fro
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
-import { buildMeetingAccessWhere, resolveMeetingAccessScope } from './meetings';
+import { measuredMemberWhere } from './measured-people';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import {
   getWorkHealthSummary,
@@ -10,7 +10,7 @@ import {
   type WorkHealthAttentionItem,
   type WorkHealthSummary
 } from './work-health';
-import { resolveWorkspaceAccess, type WorkspaceAccess } from './team-access';
+import { meetingWhereForAccess, resolveWorkspaceAccess, type WorkspaceAccess } from './team-access';
 
 export const trackedAttentionReasons = [
   'overdue_task',
@@ -404,9 +404,10 @@ async function buildCadenceAttentionCandidates(actor: RequestActor, now: Date): 
 async function buildMissingCheckInAttentionCandidates(actor: RequestActor, now: Date): Promise<AttentionCandidate[]> {
   const [members, recent, scheduled] = await Promise.all([
     prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id, role: { notIn: ['AGENT', 'GUEST'] } },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } }
     }),
+    // measured-people:allow — Intersected against the filtered roster above it.
     prisma.checkInResponse.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: { submittedFor: 'desc' },
@@ -514,8 +515,7 @@ async function buildDueOneOnOneAttentionCandidates(actor: RequestActor, now: Dat
 }
 
 async function buildStaleActionItemAttentionCandidates(actor: RequestActor, now: Date): Promise<AttentionCandidate[]> {
-  const accessScope = await resolveMeetingAccessScope(actor);
-  const meetingAccessWhere = buildMeetingAccessWhere(actor, accessScope);
+  const meetingAccessWhere = meetingWhereForAccess(await resolveWorkspaceAccess(actor));
   const staleCreatedBefore = new Date(now.getTime() - staleActionItemHours * 60 * 60 * 1000);
   const rows = await prisma.meetingActionItem.findMany({
     where: {
@@ -807,6 +807,7 @@ async function createAttentionFromCandidate(actor: RequestActor, candidate: Atte
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'attention',
     entityId: created.item.id,
     action: 'created',
@@ -885,6 +886,7 @@ async function updateExistingFromCandidate(actor: RequestActor, current: Attenti
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'attention',
     entityId: result.updated.id,
     action: result.updated.status === 'OPEN' && current.status !== 'OPEN' ? 'reopened' : 'updated',
@@ -937,6 +939,7 @@ async function markAttentionConditionCleared(actor: RequestActor, current: Atten
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'attention',
     entityId: result.updated.id,
     action: 'auto_resolved',
@@ -992,6 +995,7 @@ async function updateAttentionLifecycle(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'attention',
     entityId: result.updated.id,
     action,

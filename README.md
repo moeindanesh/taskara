@@ -199,14 +199,23 @@ Repo-local plugin scaffold:
 plugins/taskara-agent
 ```
 
-Use the helper script:
+Use the CLI. It is `taskara <noun> <verb>`, and it is the surface an agent drives — the MCP server is
+the same operations wearing a different shell, for conversation rather than for a script.
 
 ```bash
 cd plugins/taskara-agent
-TASKARA_API_URL="<api-url>" TASKARA_USER_EMAIL="<user-email>" TASKARA_WORKSPACE_SLUG="<workspace-slug>" bun scripts/taskara.mjs list-my-tasks
-TASKARA_API_URL="<api-url>" TASKARA_USER_EMAIL="<user-email>" TASKARA_WORKSPACE_SLUG="<workspace-slug>" bun scripts/taskara.mjs search-tasks --query "blocked"
-TASKARA_API_URL="<api-url>" TASKARA_USER_EMAIL="<user-email>" TASKARA_WORKSPACE_SLUG="<workspace-slug>" bun scripts/taskara.mjs create-task --project-id "<uuid>" --title "Implement audit trail"
+export TASKARA_API_URL="<api-url>" TASKARA_WORKSPACE_SLUG="<workspace-slug>" TASKARA_AGENT_TOKEN="<agent-credential>"
+bun src/cli.ts task list --assignee me
+bun src/cli.ts task list --query "blocked"
+bun src/cli.ts task create --project "<uuid>" --title "Implement audit trail"
 ```
+
+Run it with no arguments for the full grammar. It exits `0` on success and uses distinct codes for the
+ways a command can fail — `1` usage, `2` config, `3` auth, `4` not found, `5` conflict, `6` rejected,
+`7` server error, `8` unreachable — so a script can branch on the reason rather than on stderr.
+
+An agent authenticates with an agent credential (`TASKARA_AGENT_TOKEN`), not with `TASKARA_USER_EMAIL`:
+a User whose kind is `AGENT` is refused on the email path.
 
 ## Data Model Highlights
 
@@ -257,5 +266,5 @@ After restarting Codex, install/enable `Taskara Agent` from the local marketplac
 Smoke-test MCP discovery without Codex:
 
 ```bash
-bun -e 'import { Client } from "@modelcontextprotocol/sdk/client/index.js"; import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"; const t = new StdioClientTransport({ command: "bun", args: ["scripts/mcp-server.ts"], cwd: "plugins/taskara-agent", env: { TASKARA_API_URL: process.env.TASKARA_API_URL, TASKARA_USER_EMAIL: process.env.TASKARA_USER_EMAIL, TASKARA_WORKSPACE_SLUG: process.env.TASKARA_WORKSPACE_SLUG } }); const c = new Client({ name: "smoke", version: "0.1.0" }, { capabilities: {} }); await c.connect(t); console.log((await c.listTools()).tools.map((tool) => tool.name)); await c.close();'
+bun -e 'import { Client } from "@modelcontextprotocol/sdk/client/index.js"; import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"; const t = new StdioClientTransport({ command: "bun", args: ["src/mcp-server.ts"], cwd: "plugins/taskara-agent", env: { TASKARA_API_URL: process.env.TASKARA_API_URL, TASKARA_USER_EMAIL: process.env.TASKARA_USER_EMAIL, TASKARA_WORKSPACE_SLUG: process.env.TASKARA_WORKSPACE_SLUG } }); const c = new Client({ name: "smoke", version: "0.1.0" }, { capabilities: {} }); await c.connect(t); console.log((await c.listTools()).tools.map((tool) => tool.name)); await c.close();'
 ```

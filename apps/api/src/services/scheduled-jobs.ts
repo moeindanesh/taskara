@@ -1,5 +1,7 @@
 import { prisma } from '@taskara/db';
 import { config } from '../config';
+import { SYSTEM_ATTRIBUTION } from './actor-provenance';
+import { measuredMemberWhere } from './measured-people';
 import { sendMessageSimple } from './sms';
 import {
   DAILY_REPORT_DIGEST_NOTIFICATION_TYPE,
@@ -100,10 +102,13 @@ export async function runJobOnce(job: ScheduledJob, dateKey: string): Promise<bo
 // Nudges only people who still owe today's report — never anyone who already filed.
 export async function sendDailyReportReminders(dateKey: string): Promise<Record<string, number>> {
   const [members, submitted] = await Promise.all([
+    // Deliberately cross-workspace: the nudge runs for every workspace at once, and
+    // measuredMemberWhere carries no workspace of its own.
     prisma.workspaceMember.findMany({
-      where: { role: { notIn: ['AGENT', 'GUEST'] } },
+      where: measuredMemberWhere,
       select: { workspaceId: true, userId: true }
     }),
+    // measured-people:allow — Who already filed, subtracted from a filtered roster; a stray row can only remove a nudge.
     prisma.checkInResponse.findMany({ where: { dateKey }, select: { workspaceId: true, userId: true } })
   ]);
 
@@ -115,6 +120,7 @@ export async function sendDailyReportReminders(dateKey: string): Promise<Record<
     data: pending.map((member) => ({
       workspaceId: member.workspaceId,
       userId: member.userId,
+      ...SYSTEM_ATTRIBUTION,
       type: DAILY_REPORT_REMINDER_NOTIFICATION_TYPE,
       title: 'گزارش روزانه‌ات را ثبت کن',
       body: 'سه خط کافی است: چه کردی، چه چیز غیرمنتظره‌ای پیش آمد و بعد چه می‌کنی.'
@@ -128,6 +134,7 @@ export async function sendDailyReportReminders(dateKey: string): Promise<Record<
 // Off by default. When a workspace opts in, people who ignored the in-app nudge get exactly one
 // SMS, audited per recipient with a masked number like every other SMS path.
 async function escalateBySms(pending: Array<{ workspaceId: string; userId: string }>): Promise<number> {
+  // measured-people:allow — Phone numbers for an already-measured pending list; this read cannot widen who is nudged, only look them up.
   const users = await prisma.user.findMany({
     where: { id: { in: pending.map((member) => member.userId) }, phone: { not: null } },
     select: { id: true, phone: true }
@@ -176,19 +183,31 @@ async function logReminderSms(
 // they need to act right now.
 export async function notifyDigestReady(dateKey: string): Promise<Record<string, number>> {
   const previousDateKey = shiftDateKey(dateKey, -1);
-  const [admins, reports] = await Promise.all([
+  const [admins, reports, measured] = await Promise.all([
+    // measured-people:allow — Digest recipients (OWNER/ADMIN allow-list), not a counted set.
     prisma.workspaceMember.findMany({
       where: { role: { in: ['OWNER', 'ADMIN'] } },
       select: { workspaceId: true, userId: true }
     }),
+    // measured-people:allow — Raw report rows, intersected against the measured roster before anything is counted.
     prisma.checkInResponse.findMany({
       where: { dateKey: previousDateKey },
-      select: { workspaceId: true, blockersText: true, helpText: true }
+      select: { workspaceId: true, userId: true, blockersText: true, helpText: true }
+    }),
+    // The counted set has to match the population the digest itself reports on. A report row
+    // carries no role, and Prisma cannot correlate its workspaceId against the subject's membership
+    // row inside one `where` across every workspace at once, so the two lists are intersected on
+    // workspace-and-user here — the same idiom sendDailyReportReminders uses above.
+    prisma.workspaceMember.findMany({
+      where: measuredMemberWhere,
+      select: { workspaceId: true, userId: true }
     })
   ]);
 
+  const measuredKeys = new Set(measured.map((member) => `${member.workspaceId}:${member.userId}`));
   const byWorkspace = new Map<string, { submitted: number; blockers: number }>();
   for (const report of reports) {
+    if (!measuredKeys.has(`${report.workspaceId}:${report.userId}`)) continue;
     const current = byWorkspace.get(report.workspaceId) || { submitted: 0, blockers: 0 };
     current.submitted += 1;
     if (report.blockersText || report.helpText) current.blockers += 1;
@@ -202,6 +221,7 @@ export async function notifyDigestReady(dateKey: string): Promise<Record<string,
       return {
         workspaceId: admin.workspaceId,
         userId: admin.userId,
+        ...SYSTEM_ATTRIBUTION,
         type: DAILY_REPORT_DIGEST_NOTIFICATION_TYPE,
         title: 'گزارش‌های دیروز آماده است',
         body: `${summary.submitted.toLocaleString('fa-IR')} گزارش، ${summary.blockers.toLocaleString('fa-IR')} گیر.`

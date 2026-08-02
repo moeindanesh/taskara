@@ -29,6 +29,8 @@ import {
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
+import { bodyText } from '@/lib/effort-body';
+import { isRedacted, readable } from '@/lib/redacted';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceInboxSync } from '@/lib/inbox-sync';
 import { formatJalaliDateTime } from '@/lib/jalali';
@@ -638,14 +640,30 @@ function MeetingDetailPane({
             <section>
                <h3 className="mb-3 text-base font-semibold text-zinc-100">{fa.meeting.actionItems}</h3>
                <div className="space-y-2">
-                  {(meeting?.tasks || []).slice(0, 8).map((link) => (
-                     <div key={`${link.meetingId}-${link.taskId}`} className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
-                        <span className="ltr me-2 text-xs text-zinc-500">{link.task.key}</span>
-                        <IssueTitleTooltip title={link.task.title}>
-                           <span>{link.task.title}</span>
-                        </IssueTitleTooltip>
-                     </div>
-                  ))}
+                  {(meeting?.tasks || []).slice(0, 8).map((link, index) => {
+                     const linked = readable(link.task);
+                     // Kept in place rather than dropped, so the list length is still the number of
+                     // tasks this meeting produced (#60).
+                     if (!linked) {
+                        return (
+                           <div
+                              key={`${link.meetingId}-redacted-${index}`}
+                              className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-600"
+                              title={fa.blockers.redactedHint}
+                           >
+                              {fa.blockers.redacted}
+                           </div>
+                        );
+                     }
+                     return (
+                        <div key={`${link.meetingId}-${link.taskId}`} className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
+                           <span className="ltr me-2 text-xs text-zinc-500">{linked.key}</span>
+                           <IssueTitleTooltip title={linked.title}>
+                              <span>{linked.title}</span>
+                           </IssueTitleTooltip>
+                        </div>
+                     );
+                  })}
                </div>
             </section>
          ) : null}
@@ -728,8 +746,11 @@ function EntityProperties({
                </PropertyPanel>
                <PropertyPanel title={fa.meeting.project}>
                   <PropertyRow
-                     icon={<ProjectGlyph name={meeting.project?.name} className="size-5 rounded" iconClassName="size-3.5" />}
-                     label={meeting.project?.name || fa.app.unset}
+                     icon={<ProjectGlyph name={readable(meeting.project)?.name} className="size-5 rounded" iconClassName="size-3.5" />}
+                     label={
+                        readable(meeting.project)?.name
+                        || (isRedacted(meeting.project) ? fa.communications.redactedProject : fa.app.unset)
+                     }
                   />
                </PropertyPanel>
             </>
@@ -779,7 +800,16 @@ function CommentTimelineItem({ comment }: { comment: TaskaraTaskComment }) {
                <span className="truncate text-sm font-medium text-zinc-300">{comment.author?.name || fa.app.unknown}</span>
                <span className="shrink-0 text-xs text-zinc-600">{formatJalaliDateTime(comment.createdAt)}</span>
             </div>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-400">{comment.body}</p>
+            {/*
+              Through `bodyText`, for the reason the issue page's twin of this component reads
+              through it — and this is the copy that matters more. #56 keeps `TaskComment.body`
+              plain text, so almost every comment is already the characters somebody typed and the
+              walk hands them straight back. The exception is the one case #55 created a path for:
+              a comment that carries mention nodes, which notifies the person it names and lands
+              them **here**, in the inbox, before they ever open the task. Rendering it raw would
+              greet them with the serialised document instead of the question they were asked.
+            */}
+            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-400">{bodyText(comment.body)}</p>
          </div>
       </div>
    );

@@ -267,6 +267,7 @@ export async function splitBacklogTask(actor: RequestActor, idOrKey: string, inp
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'task',
       entityId: task.id,
       action: 'triage.split',
@@ -310,6 +311,7 @@ async function reserveSplitTaskKey(tx: Prisma.TransactionClient, projectId: stri
     select: { keyPrefix: true, nextTaskNumber: true }
   });
   const reservedSequence = incrementedProject.nextTaskNumber - 1;
+  // measured-people:allow — Same key reservation for a split task. Nothing about people.
   const highestTaskSequence = await tx.task.aggregate({
     where: { projectId },
     _max: { sequence: true }

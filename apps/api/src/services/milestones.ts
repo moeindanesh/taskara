@@ -16,6 +16,7 @@ import type {
 } from '@taskara/shared';
 import { type RequestActor } from './actor';
 import { logActivity } from './audit';
+import { openBlockerCountSelect } from './blockers';
 import { HttpError } from './http';
 import { serializeTaskAttachment } from './task-attachments';
 import {
@@ -104,7 +105,16 @@ const milestoneTaskSyncInclude = {
       updatedAt: true
     }
   },
-  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+  // Same filtered count as taskInclude — this shape feeds the sync stream, so an unfiltered number
+  // here would overwrite the filtered one in the client cache on the next milestone edit.
+  _count: {
+    select: {
+      comments: true,
+      subtasks: true,
+      blockingDependencies: openBlockerCountSelect,
+      attachments: true
+    }
+  }
 } satisfies Prisma.TaskInclude;
 
 type MilestoneTaskSyncShape = Prisma.TaskGetPayload<{ include: typeof milestoneTaskSyncInclude }>;
@@ -175,12 +185,14 @@ export async function milestoneProgressById(
   if (!uniqueIds.length) return result;
 
   const [statusGroups, overdueGroups] = await Promise.all([
+    // measured-people:allow — Milestone progress by status and weight. Grouped by milestone, not by person: no assignee is named or ranked.
     client.task.groupBy({
       by: ['milestoneId', 'status'],
       where: { milestoneId: { in: uniqueIds } },
       _count: { _all: true },
       _sum: { weight: true }
     }),
+    // measured-people:allow — Overdue count per milestone, same rollup on the same axis.
     client.task.groupBy({
       by: ['milestoneId'],
       where: {
@@ -387,6 +399,7 @@ export async function listMilestoneOwnerCandidates(actor: RequestActor, input: M
   };
 
   const [members, total] = await Promise.all([
+    // measured-people:allow — Milestone owner picker.
     prisma.workspaceMember.findMany({
       where,
     include: {
@@ -397,6 +410,7 @@ export async function listMilestoneOwnerCandidates(actor: RequestActor, input: M
       orderBy: [{ user: { name: 'asc' } }, { user: { email: 'asc' } }],
       take: input.limit
     }),
+    // measured-people:allow — That picker's total, over the same where.
     prisma.workspaceMember.count({ where })
   ]);
 
@@ -899,6 +913,7 @@ async function finishMilestone(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: id,
     action: input.unfinishedTaskPolicy === 'MOVE' ? 'milestone_moved' : 'milestone_unassigned',
@@ -1130,6 +1145,7 @@ async function logMilestoneActivity(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'milestone',
     entityId: milestoneId,
     action,

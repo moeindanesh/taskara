@@ -8,6 +8,8 @@ import { appendSyncEvent } from '../services/sync';
 let app: FastifyInstance;
 const cleanupWorkspaceIds: string[] = [];
 
+const EMAIL_DOMAIN = 'manager-access.test';
+
 describe('manager route access boundaries', () => {
   beforeAll(async () => {
     app = Fastify({ logger: false });
@@ -21,6 +23,9 @@ describe('manager route access boundaries', () => {
       if (!workspaceId) continue;
       await prisma.workspace.deleteMany({ where: { id: workspaceId } });
     }
+    // Users outlive their workspace: no cascade reaches them. The domain is unique
+    // to this file, so this also sweeps rows stranded by an interrupted earlier run.
+    await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
   });
 
   afterAll(async () => {
@@ -618,7 +623,7 @@ async function injectAs(fixture: ManagerAccessFixture, persona: Persona, options
 async function createUser(key: string, name: string) {
   return prisma.user.create({
     data: {
-      email: `${key}@manager-access.test`.toLowerCase(),
+      email: `${key}@${EMAIL_DOMAIN}`.toLowerCase(),
       name
     },
     select: { id: true, email: true, name: true }

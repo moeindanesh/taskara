@@ -22,6 +22,8 @@ export interface PersonGraphNode extends GraphNodeBase {
    userId: string;
    avatarUrl?: string | null;
    role: string;
+   /** An agent teammate. Rendered like anyone else, but never announced or counted as a person. */
+   agent: boolean;
    /** Today Load task count, for the person's tooltip. */
    taskCount: number;
    /** Summed weight of that load; unweighted tasks count as zero. */
@@ -38,6 +40,8 @@ export interface TaskGraphNode extends GraphNodeBase {
    overdue: boolean;
    dueAt?: string | null;
    assigneeId: string;
+   /** Whether the assignee is an agent, so agent work can animate in without chiming. */
+   agent: boolean;
 }
 
 export type GraphNode = WorkspaceGraphNode | PersonGraphNode | TaskGraphNode;

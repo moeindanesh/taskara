@@ -7,7 +7,8 @@ import { appendSyncEvent } from '../services/sync';
 
 let app: FastifyInstance;
 const cleanupWorkspaceIds: string[] = [];
-const cleanupUserIds: string[] = [];
+
+const EMAIL_DOMAIN = 'milestones.test';
 
 describe('milestone routes and invariants', () => {
   beforeAll(async () => {
@@ -21,8 +22,9 @@ describe('milestone routes and invariants', () => {
       const workspaceId = cleanupWorkspaceIds.pop();
       if (workspaceId) await prisma.workspace.deleteMany({ where: { id: workspaceId } });
     }
-    const userIds = cleanupUserIds.splice(0);
-    if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    // Tracking ids only cleans up runs that reach this hook. Sweeping by a domain
+    // unique to this file also reclaims rows stranded by an interrupted earlier run.
+    await prisma.user.deleteMany({ where: { email: { endsWith: `@${EMAIL_DOMAIN}` } } });
   });
 
   afterAll(async () => {
@@ -945,11 +947,10 @@ async function createFixture(): Promise<Fixture> {
   const users = {} as Fixture['users'];
   for (const persona of ['owner', 'admin', 'lead', 'member', 'viewer', 'guest', 'agentGranted', 'agentDenied', 'outsider'] as Persona[]) {
     const user = await prisma.user.create({
-      data: { email: `${persona}-${suffix}@milestones.test`.toLowerCase(), name: persona },
+      data: { email: `${persona}-${suffix}@${EMAIL_DOMAIN}`.toLowerCase(), name: persona },
       select: { id: true, email: true, name: true }
     });
     users[persona] = user;
-    cleanupUserIds.push(user.id);
   }
 
   const roles: Record<Persona, WorkspaceRole> = {

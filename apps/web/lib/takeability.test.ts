@@ -1,0 +1,285 @@
+import { describe, expect, test } from 'bun:test';
+import type { TaskaraTask } from '@/lib/taskara-types';
+import {
+   isOpenBlocker,
+   isRedactedBlocker,
+   isTakeable,
+   matchesBlockersFilter,
+   openBlockerCount,
+   readTakeability,
+   type BlockerEdgeEntry,
+} from './takeability';
+
+describe('what counts as still in the way', () => {
+   test('an unfinished blocker is open', () => {
+      for (const status of ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED']) {
+         expect(isOpenBlocker({ status })).toBe(true);
+      }
+   });
+
+   test('a finished or abandoned blocker is not', () => {
+      expect(isOpenBlocker({ status: 'DONE' })).toBe(false);
+      expect(isOpenBlocker({ status: 'CANCELED' })).toBe(false);
+   });
+});
+
+describe('reading takeability off the detail payload', () => {
+   test('openness comes from the blocker status, not from edge membership', () => {
+      const state = readTakeability(
+         task({
+            blockingDependencies: [
+               edge('dep-1', blocker('B-1', 'IN_PROGRESS')),
+               edge('dep-2', blocker('B-2', 'DONE')),
+            ],
+         })
+      );
+
+      expect(visibleKeys(state.openBlockers)).toEqual(['B-1']);
+      expect(state.takeable).toBe(false);
+   });
+
+   test('a task whose only blocker is finished is takeable, though the edge remains', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', blocker('B-1', 'DONE'))] })
+      );
+
+      expect(state.takeable).toBe(true);
+      expect(state.openBlockers).toEqual([]);
+      expect(visibleKeys(state.closedBlockers)).toEqual(['B-1']);
+   });
+
+   test('a canceled blocker is closed too, so cancelling a prerequisite unblocks the task', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', blocker('B-1', 'CANCELED'))] })
+      );
+
+      expect(state.takeable).toBe(true);
+      expect(visibleKeys(state.closedBlockers)).toEqual(['B-1']);
+   });
+
+   test('closed blockers are kept as history rather than dropped', () => {
+      const state = readTakeability(
+         task({
+            blockingDependencies: [
+               edge('dep-1', blocker('B-1', 'DONE')),
+               edge('dep-2', blocker('B-2', 'CANCELED')),
+            ],
+         })
+      );
+
+      expect(visibleKeys(state.closedBlockers)).toEqual(['B-1', 'B-2']);
+   });
+
+   test('the downstream direction is carried too, unfiltered', () => {
+      const state = readTakeability(
+         task({
+            blockedTasks: [
+               reverseEdge('dep-1', blocker('D-1', 'TODO')),
+               reverseEdge('dep-2', blocker('D-2', 'DONE')),
+            ],
+         })
+      );
+
+      expect(visibleKeys(state.blocks)).toEqual(['D-1', 'D-2']);
+   });
+
+   test('a task with nothing at either end has no dependencies to draw', () => {
+      const state = readTakeability(task({ blockingDependencies: [], blockedTasks: [] }));
+
+      expect(state.hasDependencies).toBe(false);
+      expect(state.takeable).toBe(true);
+   });
+
+   test('a row from a list payload, with no edge arrays at all, is silent rather than broken', () => {
+      const state = readTakeability(task({}));
+
+      expect(state.hasDependencies).toBe(false);
+      expect(state.openBlockers).toEqual([]);
+      expect(state.blocks).toEqual([]);
+   });
+
+   // The reason the section exists at all rather than a rail-only chip: a map needs the downstream
+   // direction as much as the upstream one, and this task is takeable *and* worth drawing.
+   test('a takeable task that blocks something else still has dependencies to draw', () => {
+      const state = readTakeability(
+         task({ blockedTasks: [reverseEdge('dep-1', blocker('D-1', 'TODO'))] })
+      );
+
+      expect(state.takeable).toBe(true);
+      expect(state.hasDependencies).toBe(true);
+   });
+
+   test('a task whose every blocker is finished still has dependencies to draw', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', blocker('B-1', 'DONE'))] })
+      );
+
+      expect(state.hasDependencies).toBe(true);
+   });
+
+   test('an edge with nothing on the far end is dropped rather than counted as a blocker', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [{ id: 'dep-1' }, edge('dep-2', blocker('B-2', 'TODO'))] })
+      );
+
+      expect(visibleKeys(state.openBlockers)).toEqual(['B-2']);
+   });
+});
+
+/**
+ * A far end the reader may not open (#58). The API sends `{ redacted, open }` in place of the task
+ * rather than dropping the edge, and the distinction this group protects is the reason: an edge
+ * that disappeared by reader would make a blocked task read as takeable to exactly the person least
+ * able to find out why.
+ */
+describe('a blocker the reader cannot open', () => {
+   test('still blocks, and is not confused with a missing far end', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', redacted(true))] })
+      );
+
+      expect(state.takeable).toBe(false);
+      expect(state.openBlockers).toHaveLength(1);
+      expect(state.hasDependencies).toBe(true);
+   });
+
+   test('stops blocking once it is finished, though nobody can see that it was', () => {
+      const state = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', redacted(false))] })
+      );
+
+      expect(state.takeable).toBe(true);
+      expect(state.closedBlockers).toHaveLength(1);
+   });
+
+   test('is identifiable, so a line can say so instead of rendering a blank task', () => {
+      const [entry] = readTakeability(
+         task({ blockingDependencies: [edge('dep-1', redacted(true))] })
+      ).openBlockers;
+
+      expect(isRedactedBlocker(entry)).toBe(true);
+      // The edge's own id: a redacted far end has none, and a list still needs a stable key.
+      expect(entry.id).toBe('dep-1');
+   });
+
+   test('mixes with readable blockers without hiding either', () => {
+      const state = readTakeability(
+         task({
+            blockingDependencies: [
+               edge('dep-1', blocker('B-1', 'IN_PROGRESS')),
+               edge('dep-2', redacted(true)),
+               edge('dep-3', blocker('B-3', 'DONE')),
+            ],
+         })
+      );
+
+      expect(state.openBlockers).toHaveLength(2);
+      expect(visibleKeys(state.openBlockers)).toEqual(['B-1']);
+      expect(visibleKeys(state.closedBlockers)).toEqual(['B-3']);
+   });
+
+   test('is carried in the downstream direction too', () => {
+      const state = readTakeability(task({ blockedTasks: [reverseEdge('dep-1', redacted(true))] }));
+
+      expect(state.blocks).toHaveLength(1);
+      expect(isRedactedBlocker(state.blocks[0])).toBe(true);
+   });
+});
+
+describe('the count a list row carries', () => {
+   test('is the server-filtered open-blocker count', () => {
+      expect(openBlockerCount(task({ _count: { blockingDependencies: 2 } }))).toBe(2);
+   });
+
+   test('is zero for a row that carries no count, such as one created offline', () => {
+      expect(openBlockerCount(task({}))).toBe(0);
+   });
+});
+
+describe('the blockers filter', () => {
+   const blocked = task({ id: 'blocked', _count: { blockingDependencies: 1 } });
+   const free = task({ id: 'free', _count: { blockingDependencies: 0 } });
+
+   test('all admits everything', () => {
+      expect(matchesBlockersFilter(blocked, 'all')).toBe(true);
+      expect(matchesBlockersFilter(free, 'all')).toBe(true);
+   });
+
+   test('none is the frontier', () => {
+      expect(matchesBlockersFilter(free, 'none')).toBe(true);
+      expect(matchesBlockersFilter(blocked, 'none')).toBe(false);
+   });
+
+   test('any is what is stuck', () => {
+      expect(matchesBlockersFilter(blocked, 'any')).toBe(true);
+      expect(matchesBlockersFilter(free, 'any')).toBe(false);
+   });
+});
+
+describe('the takeable view', () => {
+   test('takes unstarted work with nothing in front of it', () => {
+      expect(isTakeable(task({ status: 'BACKLOG' }))).toBe(true);
+      expect(isTakeable(task({ status: 'TODO' }))).toBe(true);
+   });
+
+   test('leaves out work that has already been taken', () => {
+      expect(isTakeable(task({ status: 'IN_PROGRESS' }))).toBe(false);
+      expect(isTakeable(task({ status: 'IN_REVIEW' }))).toBe(false);
+   });
+
+   test('leaves out finished work', () => {
+      expect(isTakeable(task({ status: 'DONE' }))).toBe(false);
+      expect(isTakeable(task({ status: 'CANCELED' }))).toBe(false);
+   });
+
+   // The self-declared status wins over the graph. Someone set it by hand to say "not ready".
+   test('leaves out work whose owner declared it blocked, edges or no edges', () => {
+      expect(isTakeable(task({ status: 'BLOCKED' }))).toBe(false);
+      expect(isTakeable(task({ status: 'BLOCKED', _count: { blockingDependencies: 0 } }))).toBe(
+         false
+      );
+   });
+
+   test('leaves out work with an open blocker', () => {
+      expect(isTakeable(task({ status: 'TODO', _count: { blockingDependencies: 1 } }))).toBe(false);
+   });
+
+   // The whole point: the count is already filtered to open blockers, so a task whose only blocker
+   // finished is back on the frontier rather than stuck behind a permanent edge.
+   test('takes work whose blockers have all finished', () => {
+      expect(isTakeable(task({ status: 'TODO', _count: { blockingDependencies: 0 } }))).toBe(true);
+   });
+});
+
+function task(overrides: Partial<TaskaraTask>): TaskaraTask {
+   return {
+      id: 'task-1',
+      key: 'CORE-1',
+      title: 'کار نمونه',
+      status: 'TODO',
+      priority: 'NO_PRIORITY',
+      ...overrides,
+   };
+}
+
+function blocker(key: string, status: string) {
+   return { id: `id-${key}`, key, title: `عنوان ${key}`, status };
+}
+
+/** What the API sends in place of a far end the reader may not open. */
+function redacted(open: boolean) {
+   return { redacted: true as const, open };
+}
+
+function edge(id: string, blockedByTask: ReturnType<typeof blocker> | ReturnType<typeof redacted>) {
+   return { id, blockedByTask };
+}
+
+function reverseEdge(id: string, downstream: ReturnType<typeof blocker> | ReturnType<typeof redacted>) {
+   return { id, task: downstream };
+}
+
+/** The keys of the entries that have one — a redacted entry contributes nothing rather than a hole. */
+function visibleKeys(entries: BlockerEdgeEntry[]): string[] {
+   return entries.filter((entry) => !isRedactedBlocker(entry)).map((entry) => entry.key);
+}

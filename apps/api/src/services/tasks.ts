@@ -1,7 +1,10 @@
 import { prisma, type Prisma, type SyncEvent, type Task, type TaskSource } from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { attributedTo } from './actor-provenance';
 import { logActivity, snapshot } from './audit';
+import { openBlockerCountSelect } from './blockers';
 import type { z } from 'zod';
+import { maxTaskLabels, taskDescriptionMaxChars, type TaskKindValue } from '@taskara/shared';
 import type { createTaskSchema, updateTaskSchema } from '@taskara/shared';
 import { serializeTaskAttachment } from './task-attachments';
 import { HttpError } from './http';
@@ -13,6 +16,7 @@ import {
   TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
   createTaskSubscriberNotifications,
   createTaskMentionNotifications,
+  isNotifiable,
   subscribeTaskParticipants,
   subscribeUsersToTask,
   taskAssignedNotificationBody,
@@ -21,6 +25,7 @@ import {
   taskStatusChangedNotificationBody
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import { subscribeToTask } from './task-subscriptions';
 import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -71,7 +76,9 @@ export const taskInclude = {
       projectId: true
     }
   },
-  assignee: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
+  // `kind` travels with the assignee because clients derive people lists from tasks when the roster
+  // is unavailable, and a person-shaped object with no `kind` reads as HUMAN everywhere it lands.
+  assignee: { select: { id: true, name: true, email: true, kind: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   reporter: { select: { id: true, name: true, email: true, phone: true, mattermostUsername: true, avatarUrl: true } },
   attachments: { where: { commentId: null }, orderBy: { createdAt: 'asc' } },
   labels: { include: { label: true } },
@@ -87,8 +94,19 @@ export const taskInclude = {
       updatedAt: true
     }
   },
-  _count: { select: { comments: true, subtasks: true, blockingDependencies: true, attachments: true } }
+  // `blockingDependencies` counts only the blockers still in the way — see services/blockers.ts.
+  // Every consumer of this number already read it as "is this task blocked", so filtering it here
+  // is not a change of meaning, it is the number finally meaning what it is used for.
+  _count: {
+    select: {
+      comments: true,
+      subtasks: true,
+      blockingDependencies: openBlockerCountSelect,
+      attachments: true
+    }
+  }
 } satisfies Prisma.TaskInclude;
+
 
 export async function ensureDefaultProject(workspaceId: string): Promise<{ id: string; keyPrefix: string }> {
   return prisma.project.upsert({
@@ -105,6 +123,9 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
 }
 
 export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
+  assertDescriptionFitsKind(input.description, input.kind);
+  assertEffortShape(input);
+
   let syncEvents: SyncEvent[] = [];
   const task = await prisma.$transaction(async (tx) => {
     await assertActorCanAccessProject(tx, actor, input.projectId);
@@ -122,6 +143,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
         key,
         sequence,
         title: input.title,
+        kind: input.kind,
         description: input.description,
         status: input.status,
         priority: input.priority,
@@ -145,13 +167,16 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
-      task
+      attribution: attributedTo(actor),
+      task,
+      body: task.description
     });
     if (task.assigneeId && task.assigneeId !== actor.user.id) {
       await tx.notification.create({
         data: {
           workspaceId: actor.workspace.id,
           userId: task.assigneeId,
+          ...attributedTo(actor),
           taskId: task.id,
           type: TASK_ASSIGNED_NOTIFICATION_TYPE,
           title: `${task.key}: ${task.title}`,
@@ -189,6 +214,7 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'created',
@@ -210,6 +236,7 @@ async function reserveTaskKey(
   });
   const reservedSequence = incrementedProject.nextTaskNumber - 1;
 
+  // measured-people:allow — Reserves the next task key from the highest sequence in the project. Nothing about people.
   const highestTaskSequence = await tx.task.aggregate({
     where: { projectId },
     _max: { sequence: true }
@@ -230,6 +257,83 @@ async function reserveTaskKey(
   };
 }
 
+/**
+ * The per-kind half of the description ceiling, applied here rather than in the schemas. On update
+ * it has to be: a patch body carries no `kind`, because the kind belongs to the row being patched.
+ * On create the kind *is* in the body, and this still does not live in `createTaskSchema` — a
+ * `superRefine` would make that object a `ZodEffects` and `codexTaskCreateSchema` extends it, and
+ * the message reaches further from here (see below). Either way the schema bounds the field at the
+ * widest ceiling any task may hold and this narrows it to the ceiling that applies to *this* row.
+ *
+ * Refusing beats trimming, and not marginally: an Effort's description is a wayfinder map, and the
+ * part a silent truncation would take is the tail of the Decisions-so-far index — the newest
+ * entries, the ones a reader navigates by. That failure would arrive as a 200.
+ *
+ * The message carries the number because nothing else does. A `ZodError` is flattened to a bare
+ * "Validation failed" on the `/sync/push` path the web app writes through, and the web client
+ * reads only `message` and never `issues` on the REST path, so a limit named solely in a Zod issue
+ * reaches no caller — human or agent — in either place. An `HttpError` message survives both.
+ */
+function assertDescriptionFitsKind(description: string | null | undefined, kind: TaskKindValue): void {
+  if (typeof description !== 'string') return;
+
+  const max = taskDescriptionMaxChars(kind);
+  if (description.length <= max) return;
+
+  throw new HttpError(
+    400,
+    `Description is ${description.length} characters; a ${kind} task allows ${max}.`
+      + (kind === 'WORK' ? ' Only an EFFORT may hold a longer body.' : '')
+  );
+}
+
+/**
+ * The fields an effort may not carry, and the statuses it may not sit in — the two `CHECK`
+ * constraints from #19, restated here as a refusal a caller can read.
+ *
+ * The constraints stay where they are and stay load-bearing: ten of the thirteen task write paths
+ * never reach this function, so a service-layer assertion alone would be a sieve. What this adds is
+ * the *diagnosis*. A caller that hands an effort an assignee currently gets Postgres' own words —
+ * a constraint name and a dump of the failing row, as a 500 — and an agent that pasted a command
+ * cannot act on that. It needs to be told which argument to drop.
+ *
+ * Every offending field is named in one message rather than the first one found, because the cost
+ * of the alternative is a round trip per field for a caller assembling a command by trial.
+ *
+ * Status is the one that will be met most often, and not by mistake: `status` defaults to `TODO`
+ * for every task and an effort may not be `TODO`, so anyone who omits it lands here. The message
+ * therefore names the status to use rather than merely listing what is allowed. Defaulting an
+ * effort to `IN_PROGRESS` instead was rejected — the schema default is applied before this code can
+ * tell an omitted `status` from an explicit `TODO`, so it would silently overrule a caller that
+ * asked for one thing and got another.
+ */
+const effortWorkFields = ['assigneeId', 'dueAt', 'weight', 'milestoneId', 'cycleId', 'parentId'] as const;
+const effortStatuses = new Set(['IN_PROGRESS', 'DONE', 'CANCELED']);
+
+function assertEffortShape(input: CreateTaskInput): void {
+  if (input.kind !== 'EFFORT') return;
+
+  const problems: string[] = [];
+
+  const carried = effortWorkFields.filter((field) => input[field] !== undefined && input[field] !== null);
+  if (carried.length > 0) {
+    problems.push(
+      `An effort cannot carry ${carried.join(', ')} — it is the root of a piece of work, not a unit of`
+        + ' work, and every such field belongs to the tasks underneath it.'
+    );
+  }
+
+  if (!effortStatuses.has(input.status)) {
+    problems.push(
+      `An effort cannot be created with status ${input.status} — a charted effort has already begun,`
+        + ' so pass status IN_PROGRESS, or DONE or CANCELED for one that is over.'
+    );
+  }
+
+  if (problems.length === 0) return;
+  throw new HttpError(400, problems.join(' '));
+}
+
 export async function updateTask(
   actor: RequestActor,
   taskId: string,
@@ -242,6 +346,7 @@ export async function updateTask(
     include: taskInclude
   });
   if (!existing) throw new Error('Task not found in this workspace');
+  assertDescriptionFitsKind(input.description, existing.kind);
   await assertNoConflictingTaskUpdate(actor.workspace.id, taskId, input, existing.version, baseVersion);
 
   let syncEvents: SyncEvent[] = [];
@@ -267,26 +372,74 @@ export async function updateTask(
       taskId,
       [existing.milestoneId, resolvedMilestoneId === undefined ? existing.milestoneId : resolvedMilestoneId]
     );
-    const currentTaskState = await tx.task.findUnique({
-      where: { id: taskId },
-      select: { version: true, milestoneId: true, projectId: true }
-    });
-    if (
-      !currentTaskState
-      || currentTaskState.version !== existing.version
-      || currentTaskState.milestoneId !== existing.milestoneId
-      || currentTaskState.projectId !== existing.projectId
-    ) {
+    // `FOR UPDATE`, not a plain read. Without the lock this is a check-then-act: two transactions
+    // both read version 1, both pass the comparison below, and the second `UPDATE` merely waits for
+    // the first to commit before overwriting it — so two simultaneous body rewrites both answered
+    // 200 and one line vanished, which is the bug this guard was supposed to catch. Ten concurrent
+    // writers used to produce six winners. The lock makes the second transaction block here and
+    // read the version the first one committed, so the comparison is against reality.
+    //
+    // Taken for every patch, including a label delta that will not compare versions: the row is
+    // locked by the `UPDATE` a few statements later regardless, so this only moves the wait earlier,
+    // and one code path is worth more than the microseconds.
+    const [currentTaskState] = await tx.$queryRaw<Array<{
+      version: number;
+      milestoneId: string | null;
+      projectId: string;
+    }>>`
+      SELECT "version", "milestoneId", "projectId" FROM "Task" WHERE "id" = ${taskId}::uuid FOR UPDATE
+    `;
+    if (!currentTaskState) {
       throw new HttpError(409, 'Task changed on another client');
     }
-    const reservedKey = isProjectChange ? await reserveTaskKey(tx, targetProjectId) : null;
+    // This guard protects a read-modify-write: everything above derives from `existing`, which was
+    // read before the transaction, so a row that moved underneath us invalidates the derivation.
+    //
+    // A label delta derives nothing from it. `addLabels`/`removeLabels` are applied against the row
+    // as it is now, after the update below has taken the row lock, so there is no stale read to
+    // protect and the version having moved is not evidence of anything. Left in, this check would
+    // hand a 409 to whichever of two concurrent relabels arrived second and undo the entire point
+    // of moving the add server-side — the writes would no longer race, but one would still fail.
+    //
+    // Narrow on purpose: the moment a patch also carries a scalar field, it is a read-modify-write
+    // again and gets the guard back.
+    if (!isLabelDeltaOnly(input)) {
+      if (
+        currentTaskState.version !== existing.version
+        || currentTaskState.milestoneId !== existing.milestoneId
+        || currentTaskState.projectId !== existing.projectId
+      ) {
+        throw new HttpError(409, 'Task changed on another client');
+      }
+    }
+    // A key is issued once and never again. Only the sequence moves with the task.
+    //
+    // Moving a task used to re-issue its key, so CORE-42 became PLAT-7 and every reference anybody
+    // had written down -- in a commit message, a branch name, another task's body, a Mattermost
+    // post, a bookmarked /issue/CORE-42 URL -- silently stopped resolving. Nothing announced it and
+    // nothing redirected. An identifier that a move can revoke is not an identifier.
+    //
+    // Taskara had in fact already decided this, in the other direction, on the other path:
+    // mergeProjects moves tasks between projects and deliberately keeps their keys, under a test
+    // named for it. That shipped, and nothing broke, because uniqueness is [workspaceId, key] and
+    // no code anywhere reads a project out of a prefix. This makes the two paths agree.
+    //
+    // An alias table was the alternative and it is worse rather than merely larger: it does not
+    // stop the rename, so both names circulate forever and every reader has to know they are the
+    // same task.
+    //
+    // The sequence still has to be re-reserved -- @@unique([projectId, sequence]) means a task
+    // carrying 42 cannot enter a project that already has one. So after a move `key` is a name and
+    // `sequence` is an ordinal in the current project, and the `prefix-sequence` equality that
+    // holds at creation stops holding. Nothing reads sequence, so nothing observes it; merge has
+    // behaved this way all along.
+    const reservedSequence = isProjectChange ? (await reserveTaskKey(tx, targetProjectId)).sequence : null;
 
     const updated = await tx.task.update({
       where: { id: taskId },
       data: {
         projectId: isProjectChange ? targetProjectId : undefined,
-        key: reservedKey?.key,
-        sequence: reservedKey?.sequence,
+        sequence: reservedSequence ?? undefined,
         title: input.title,
         description: input.description === undefined ? undefined : input.description,
         status: input.status,
@@ -306,6 +459,8 @@ export async function updateTask(
     if (input.labels) {
       await tx.taskLabel.deleteMany({ where: { taskId } });
       await syncTaskLabels(tx, actor.workspace.id, taskId, input.labels);
+    } else if (input.addLabels || input.removeLabels) {
+      await applyTaskLabelDelta(tx, actor.workspace.id, taskId, input.addLabels, input.removeLabels);
     }
 
     const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
@@ -330,8 +485,10 @@ export async function updateTask(
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
         actorName: actor.user.name,
+        attribution: attributedTo(actor),
         task,
-        previousDescription: existing.description
+        body: task.description,
+        previousBody: existing.description
       });
     }
 
@@ -340,6 +497,7 @@ export async function updateTask(
         data: {
           workspaceId: actor.workspace.id,
           userId: input.assigneeId,
+          ...attributedTo(actor),
           taskId: task.id,
           type: TASK_ASSIGNED_NOTIFICATION_TYPE,
           title: `${task.key}: ${task.title}`,
@@ -352,6 +510,7 @@ export async function updateTask(
       await createTaskSubscriberNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
+        attribution: attributedTo(actor),
         task,
         type: TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
         body: taskStatusChangedNotificationBody(actor.user.name, existing.status, input.status)
@@ -362,6 +521,7 @@ export async function updateTask(
       await createTaskSubscriberNotifications(tx, {
         workspaceId: actor.workspace.id,
         actorUserId: actor.user.id,
+        attribution: attributedTo(actor),
         task,
         type: TASK_DESCRIPTION_CHANGED_NOTIFICATION_TYPE,
         body: taskDescriptionChangedNotificationBody(actor.user.name),
@@ -370,7 +530,10 @@ export async function updateTask(
     }
 
     const changedFields = [...new Set([
-      ...Object.keys(input),
+      // A sync client diffs task fields, and the task field that moved is `labels` however the
+      // caller spelled the request. `addLabels` is a verb on the wire, not a column, and a client
+      // that has never heard of it would otherwise be told nothing changed.
+      ...Object.keys(input).map((field) => (labelDeltaFields.has(field) ? 'labels' : field)),
       ...(isProjectChange && input.milestoneId === undefined && existing.milestoneId ? ['milestoneId'] : [])
     ])];
     const taskEvent = await appendSyncEvent(tx, {
@@ -404,6 +567,7 @@ export async function updateTask(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'updated',
@@ -418,6 +582,7 @@ export async function updateTask(
         workspaceId: actor.workspace.id,
         actorId: actor.user.id,
         actorType: actor.actorType,
+        actorRuntime: actor.actorRuntime,
         entityType: 'task_review',
         entityId: audit.reviewId,
         action: 'canceled',
@@ -429,6 +594,92 @@ export async function updateTask(
   );
 
   return task;
+}
+
+export interface ClaimTaskResult {
+  claimed: boolean;
+  task: Awaited<ReturnType<typeof findTaskWithInclude>>;
+}
+
+async function findTaskWithInclude(workspaceId: string, taskId: string) {
+  return prisma.task.findFirstOrThrow({
+    where: { id: taskId, workspaceId },
+    include: taskInclude
+  });
+}
+
+/**
+ * Take an unassigned task, or fail and say who holds it.
+ *
+ * The mutual exclusion is the `where` clause, not a check the caller performs first: one
+ * `updateMany` filtered on `assigneeId: null`, and the row count is the answer. Two agents racing
+ * for the same ticket both issue this, Postgres serialises them on the row, and exactly one sees a
+ * count of 1. Reading the assignee and then assigning — the convention that let #33 be built twice
+ * — cannot be made safe from the client no matter how carefully it is done.
+ *
+ * Deliberately not idempotent for a caller that already holds the task: `claimed: false` means "you
+ * did not take this now", which is the only question a caller racing for exclusive work is asking.
+ * Answering "yes, you had it already" would let a re-run of an orchestrating script conclude it had
+ * just won a race it never entered.
+ */
+export async function claimTask(actor: RequestActor, taskId: string): Promise<ClaimTaskResult> {
+  const existing = await prisma.task.findFirst({
+    where: { id: taskId, workspaceId: actor.workspace.id },
+    select: { id: true, kind: true }
+  });
+  if (!existing) throw new HttpError(404, 'Task not found');
+  // An effort carries no assignee — a CHECK constraint says so — so a claim on one is not a race
+  // that was lost, it is a category error. Caught here because the alternative is the constraint
+  // rejecting the write and the caller receiving a 500 with Postgres in it.
+  if (existing.kind === 'EFFORT') {
+    throw new HttpError(400, 'An effort cannot be claimed: it is not a unit of work');
+  }
+
+  const { count } = await prisma.task.updateMany({
+    where: { id: taskId, workspaceId: actor.workspace.id, assigneeId: null },
+    data: { assigneeId: actor.user.id, version: { increment: 1 } }
+  });
+
+  const task = await findTaskWithInclude(actor.workspace.id, taskId);
+  if (count === 0) return { claimed: false, task };
+
+  // The deliberate path, not the automatic one, and the distinction is the whole of #54's stickiness
+  // rule: a mute survives what *other people* do to a task, and yields to what its owner does. A
+  // claim is the claimant's own act — holding a task while hearing nothing about it is not what
+  // anybody who muted it meant — so this withdraws their mute exactly as an explicit subscribe does.
+  // An agent claiming still gets no subscription: `subscribeToTask` writes one, but #39 keeps agents
+  // out of every fan-out, so the row is inert. Left as it is rather than special-cased, because the
+  // claim path already treats agents and people alike everywhere else.
+  if (isNotifiable(actor.user)) await subscribeToTask(actor, taskId);
+
+  const event = await appendSyncEvent(prisma, {
+    workspaceId: actor.workspace.id,
+    entityType: 'task',
+    entityId: taskId,
+    operation: 'updated',
+    entityVersion: task.version,
+    actorId: actor.user.id,
+    payload: {
+      before: serializeTaskForResponse({ ...task, assignee: null, assigneeId: null }),
+      after: serializeTaskForResponse(task),
+      changedFields: ['assigneeId']
+    }
+  });
+  publishSyncEvent(event);
+
+  await logActivity({
+    workspaceId: actor.workspace.id,
+    actorId: actor.user.id,
+    actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
+    entityType: 'task',
+    entityId: taskId,
+    action: 'claimed',
+    after: task,
+    source: actor.source
+  }).catch(() => undefined);
+
+  return { claimed: true, task };
 }
 
 export async function deleteTask(actor: RequestActor, taskId: string, syncMutation?: SyncMutationMeta) {
@@ -483,6 +734,7 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: existing.id,
     action: 'deleted',
@@ -520,12 +772,48 @@ export async function addTaskComment(
       }
     });
     const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    // #55. The mention runs first because its recipients are then excluded from the fan-out: one
+    // comment is one event, and somebody who was named should be told *that*, not that a comment
+    // happened. Both rows would carry the same `createdAt` — Postgres `now()` is the transaction's
+    // start — so leaving both would make the inbox thread show one label or the other at random.
+    // The same ordering, and the same exclusion, that a description edit already uses.
+    //
+    // **This stays although almost nothing writes a comment mention.** #56 decided
+    // `TaskComment.body` is plain text, so there is no composer that produces a mention node into
+    // one — not the web's textarea, not a markdown body from the CLI. Read that and the honest
+    // reaction is «then delete it», which #38 would seem to support. It is the wrong call, and the
+    // argument is in `docs/adr/0003`: the path is not zero-producer (a body that *is* an editor
+    // state notifies, and `task comment --body-file -` can send one), what #38 punished was code
+    // implying something false rather than code rarely reached, and removing it would make the
+    // identical node notify in a description and not in a comment — one word, two answers.
+    // If you are here to delete it, read the ADR first; if the comment box ever goes rich, this is
+    // the half that makes it work.
+    const mentionedUserIds = await createTaskMentionNotifications(tx, {
+      workspaceId: actor.workspace.id,
+      actorUserId: actor.user.id,
+      actorName: actor.user.name,
+      attribution: attributedTo(actor),
+      task: updatedTask,
+      body: comment.body
+    });
+    // Named in a comment, and therefore on the list — as on a description. A mention in a comment
+    // is nearly always a question, and the answer to it is the next comment. Subscribed with the
+    // ids that were actually notified rather than with everything the body named, so the two lists
+    // cannot disagree; and through `subscribeUsersToTask`, which is where #54's mute is honoured,
+    // so being spoken to does not quietly undo a decision not to watch.
+    await subscribeUsersToTask(tx, {
+      workspaceId: actor.workspace.id,
+      taskId: task.id,
+      userIds: mentionedUserIds
+    });
     await createTaskSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
+      attribution: attributedTo(actor),
       task: updatedTask,
       type: TASK_COMMENTED_NOTIFICATION_TYPE,
-      body: taskCommentedNotificationBody(actor.user.name)
+      body: taskCommentedNotificationBody(actor.user.name),
+      excludeUserIds: mentionedUserIds
     });
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
@@ -550,6 +838,7 @@ export async function addTaskComment(
     workspaceId: actor.workspace.id,
     actorId: actor.user.id,
     actorType: actor.actorType,
+    actorRuntime: actor.actorRuntime,
     entityType: 'task',
     entityId: task.id,
     action: 'commented',
@@ -637,18 +926,30 @@ function serializeTaskReviewLifecycle(review: TaskReviewForCancellation) {
   };
 }
 
+/**
+ * Resolve a task by id or key, as this reader may see it.
+ *
+ * **`access` is required**, and that is the whole of the change #59 made here. It used to default
+ * to `null`, which degraded the lookup to `{ workspaceId }` — and an ungated call site read exactly
+ * like the eighteen gated ones, so three of them in `routes/mattermost.ts` were quietly resolving
+ * and then *mutating* any task in the workspace.
+ *
+ * `services/notifications.ts` had already made this argument for `taskInboxNotificationWhere` and
+ * was right: "an optional access argument is one that gets left off somewhere, and that call site
+ * would have looked correct". A required parameter means the type checker asks the question, and
+ * `resolveWorkspaceAccess(actor)` is the answer at every one of them.
+ */
 export async function findTaskByIdOrKey(
   workspaceId: string,
   idOrKey: string,
-  access: string[] | WorkspaceAccess | null = null
+  access: WorkspaceAccess
 ): Promise<Task | null> {
   const normalized = idOrKey.trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
-  const accessWhere = taskLookupAccessWhere(workspaceId, access);
 
   return prisma.task.findFirst({
     where: {
-      ...accessWhere,
+      ...taskWhereForAccess(access),
       OR: [
         ...(isUuid ? [{ id: normalized }] : []),
         { key: normalized.toUpperCase() }
@@ -674,6 +975,73 @@ async function syncTaskLabels(
   }
 }
 
+/**
+ * Add and remove labels against whatever the row holds right now, rather than against a set the
+ * caller read a moment ago. That is the whole difference from `syncTaskLabels`: no caller state
+ * takes part, so two concurrent deltas touching different labels both survive.
+ *
+ * Removals run first so `--remove-label x --add-label x` settles on present rather than on
+ * whichever query the database happened to order last.
+ */
+async function applyTaskLabelDelta(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  taskId: string,
+  addLabels: string[] | undefined,
+  removeLabels: string[] | undefined
+): Promise<void> {
+  const remove = normalizeLabelNames(removeLabels ?? []);
+  const add = normalizeLabelNames(addLabels ?? []);
+
+  if (remove.length > 0) {
+    await tx.taskLabel.deleteMany({
+      where: { taskId, label: { workspaceId, name: { in: remove } } }
+    });
+  }
+
+  for (const name of add) {
+    const label = await tx.label.upsert({
+      where: { workspaceId_name: { workspaceId, name } },
+      update: {},
+      create: { workspaceId, name }
+    });
+    // `TaskLabel` is keyed on the pair, so re-adding a label the task already carries is a no-op
+    // rather than a unique violation. An add has to be idempotent: a retried request must not be
+    // the difference between success and a 500.
+    await tx.taskLabel.upsert({
+      where: { taskId_labelId: { taskId, labelId: label.id } },
+      update: {},
+      create: { taskId, labelId: label.id }
+    });
+  }
+
+  // The cap `labels` enforces per-request, enforced here on the result instead. Checking the input
+  // array would let a task grow without bound twelve labels at a time, which is the one thing the
+  // cap exists to stop.
+  const total = await tx.taskLabel.count({ where: { taskId } });
+  if (total > maxTaskLabels) {
+    throw new HttpError(400, `A task cannot carry more than ${maxTaskLabels} labels`);
+  }
+}
+
+function normalizeLabelNames(rawLabels: string[]): string[] {
+  return [...new Set(rawLabels.map((label) => label.trim()).filter(Boolean))];
+}
+
+const labelDeltaFields = new Set(['addLabels', 'removeLabels']);
+
+/**
+ * Whether a patch changes nothing but labels, additively. Keyed off the actual request keys rather
+ * than off the parsed defaults, because an absent field and a field set to undefined mean the same
+ * thing here and neither is a change.
+ */
+function isLabelDeltaOnly(input: UpdateTaskInput): boolean {
+  const present = Object.entries(input)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+  return present.length > 0 && present.every((key) => labelDeltaFields.has(key));
+}
+
 async function assertTaskRelations(
   tx: Prisma.TransactionClient,
   workspaceId: string,
@@ -689,6 +1057,9 @@ async function assertTaskRelations(
 ): Promise<void> {
   if (input.parentId && input.parentId === taskId) {
     throw new HttpError(400, 'Task cannot be its own parent');
+  }
+  if (input.parentId && taskId) {
+    await assertParentIsNotDescendant(tx, workspaceId, taskId, input.parentId);
   }
 
   const lockedMilestones = await lockMilestonesForUpdate(tx, workspaceId, milestoneLockIds);
@@ -747,6 +1118,53 @@ function selectableMilestoneStatus(status: string): boolean {
   return status === 'PLANNED' || status === 'ACTIVE';
 }
 
+/**
+ * How deep a subtask chain may go. Generous enough that no real breakdown reaches it, small enough
+ * that the ancestor walk below is a handful of round trips rather than an unbounded one.
+ */
+const MAX_TASK_TREE_DEPTH = 50;
+
+/**
+ * `parentId` is the other edge that has to stay acyclic, and it had the same hole the blocking
+ * edges did: only self-parenting was refused, so a task could be reparented under its own child and
+ * the pair would then be its own ancestry. Nothing that walks the tree — breadcrumbs, subtask
+ * rollups, a map's children — survives that.
+ *
+ * Walking up from the *proposed parent* answers both questions at once: reaching the task means the
+ * task is an ancestor of its own parent-to-be, which is exactly a cycle. The visited set is there
+ * because the ancestry may already be circular from before this check existed, and the walk must
+ * refuse such a graph instead of spinning on it.
+ */
+async function assertParentIsNotDescendant(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  taskId: string,
+  parentId: string
+): Promise<void> {
+  const visited = new Set<string>([parentId]);
+  let cursor: string | null = parentId;
+
+  for (let depth = 0; cursor; depth += 1) {
+    if (depth >= MAX_TASK_TREE_DEPTH) {
+      throw new HttpError(400, 'Task hierarchy is too deep');
+    }
+    const ancestor: { parentId: string | null } | null = await tx.task.findFirst({
+      where: { id: cursor, workspaceId },
+      select: { parentId: true }
+    });
+    const next: string | null = ancestor?.parentId ?? null;
+    if (!next) return;
+    if (next === taskId) {
+      throw new HttpError(400, 'Task cannot become a descendant of itself');
+    }
+    if (visited.has(next)) {
+      throw new HttpError(400, 'Task hierarchy already contains a cycle');
+    }
+    visited.add(next);
+    cursor = next;
+  }
+}
+
 async function assertActorCanAccessProject(
   tx: Prisma.TransactionClient,
   actor: RequestActor,
@@ -786,21 +1204,6 @@ async function assertActorCanAccessProject(
   return project;
 }
 
-function taskLookupAccessWhere(
-  workspaceId: string,
-  access: string[] | WorkspaceAccess | null
-): Prisma.TaskWhereInput {
-  if (!access) return { workspaceId };
-  if (Array.isArray(access)) {
-    return {
-      workspaceId,
-      project: { OR: [{ teamId: null }, { teamId: { in: access } }] }
-    };
-  }
-
-  return taskWhereForAccess(access);
-}
-
 async function assertNoConflictingTaskUpdate(
   workspaceId: string,
   taskId: string,
@@ -810,6 +1213,11 @@ async function assertNoConflictingTaskUpdate(
 ): Promise<void> {
   if (baseVersion === undefined || baseVersion >= currentVersion) return;
 
+  // Raw keys, deliberately unmapped — the mirror image of the sync event above, which rewrites
+  // `addLabels` to `labels`. There it is being announced, and a listener needs the column name.
+  // Here it is being tested for conflict, and an additive delta conflicts with nothing: it does not
+  // depend on the set it is applied to. Mapping it would resurrect exactly the false conflict this
+  // idiom exists to remove.
   const changedFields = new Set(Object.keys(input));
   if (changedFields.size === 0) return;
 

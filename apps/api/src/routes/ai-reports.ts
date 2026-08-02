@@ -8,8 +8,12 @@ import { getRequestActor, isWorkspaceAdminRole, requireWorkspaceAdmin } from '..
 import { createAnnouncement } from '../services/announcements';
 import { buildDailyReportDigest } from '../services/check-ins';
 import { HttpError } from '../services/http';
-import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
+import { isMeasuredMember } from '../services/measured-people';
+import { workTaskWhere } from '../services/measured-work';
+import { canAccessMeeting, createMeeting } from '../services/meetings';
 import {
+  canReadProject,
+  canReadTeam,
   projectWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
@@ -1548,6 +1552,7 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
         lead: { select: { id: true } }
       }
     }),
+    // measured-people:allow — Assignable-people directory for the assistant.
     prisma.workspaceMember.findMany({
       where: { workspaceId: actor.workspace.id },
       orderBy: [{ user: { name: 'asc' } }],
@@ -1566,8 +1571,11 @@ async function loadAssistantContext(actor: Awaited<ReturnType<typeof getRequestA
         where: { projectId: { in: access.projectIds } },
         select: { projectId: true, userId: true }
       }),
+    // WORK LIST — effort excluded. 80 slots of task context the assistant reasons over and offers
+    // back to the user as real tasks. An effort is among the most frequently updated rows in a
+    // workspace, so it reliably occupies one.
     prisma.task.findMany({
-      where: taskWhereForAccess(access),
+      where: { ...taskWhereForAccess(access), ...workTaskWhere },
       orderBy: [{ updatedAt: 'desc' }],
       take: 80,
       select: { id: true, key: true, title: true, projectId: true }
@@ -1738,6 +1746,7 @@ async function executeCreateTaskPlan(
   const task = await createTask(actor, {
     projectId: project.id,
     title: draft.title,
+    kind: 'WORK',
     description: draft.description || undefined,
     assigneeId: assignee?.id,
     status: draft.status || 'TODO',
@@ -1824,7 +1833,11 @@ async function executeQueryTasksPlan(
   const limit = safeQuery.limit;
   const resolvedProject = resolveAssistantProject(safeQuery.projectId || undefined, safeQuery.projectHint || undefined, context);
   const resolvedAssignee = resolveOptionalAssistantUser(safeQuery.assigneeId, safeQuery.assigneeHint, context);
-  const baseWhere: Prisma.TaskWhereInput = taskWhereForAccess(context.access);
+  // WORK LIST — effort excluded. `search_tasks` is satisfied by a single filter (one project, one
+  // keyword) and renders a Persian task list straight to a human. The done-tasks branch that also
+  // composes this base is already assignee-gated and structurally safe; filtering the base is one
+  // edit instead of two.
+  const baseWhere: Prisma.TaskWhereInput = { ...taskWhereForAccess(context.access), ...workTaskWhere };
   const andFilters: Prisma.TaskWhereInput[] = [];
   if (resolvedProject) andFilters.push({ projectId: resolvedProject.id });
   if (safeQuery.statuses.length > 0) andFilters.push({ status: { in: safeQuery.statuses } });
@@ -1989,8 +2002,14 @@ async function executeBulkUpdateTasksPlan(
   const resolvedProject = resolveAssistantProject(input.projectId || undefined, input.projectHint || undefined, context);
   const resolvedAssignee = resolveOptionalAssistantUser(input.assigneeId, input.assigneeHint, context);
   const targetAssignee = resolveOptionalAssistantUser(input.setAssigneeId, input.setAssigneeHint, context);
+  // WORK LIST — effort excluded, and this is the highest-risk of the assistant's task queries: it
+  // is not a read, it loops updateTask over up to 30 keyword-matched rows. An effort caught by a
+  // keyword would be bulk status-flipped, or — if the plan sets an assignee or a due date — would
+  // raise the Postgres CHECK constraint and 500 halfway through the loop. Excluding it at selection
+  // is both the exclusion and the crash guard.
   const where: Prisma.TaskWhereInput = {
     ...taskWhereForAccess(context.access),
+    ...workTaskWhere,
     ...(resolvedProject ? { projectId: resolvedProject.id } : {}),
     ...(resolvedAssignee ? { assigneeId: resolvedAssignee.id } : {}),
     ...(input.statuses.length ? { status: { in: input.statuses } } : {}),
@@ -2184,15 +2203,24 @@ async function executeQueryMeetingsPlan(
     orderBy: input.mode === 'upcoming' ? [{ scheduledAt: 'asc' }] : [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
     take: input.limit,
     include: {
-      team: { select: { name: true } },
-      project: { select: { name: true, teamId: true } },
+      team: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true, teamId: true, leadId: true } },
       owner: { select: { name: true } },
       participants: { select: { userId: true } }
     }
   });
 
-  const accessScope = await resolveMeetingAccessScope(actor);
-  const visible = meetings.filter((item) => canAccessMeeting(actor, item, accessScope));
+  // Same wall crossing as `meetingInclude` and closed the same way (#60): reading a meeting says
+  // nothing about the project it belongs to or the team that owns it, so the two names are dropped
+  // for a reader who could not open either. The meeting itself is still listed.
+  const access = await resolveWorkspaceAccess(actor);
+  const visible = meetings
+    .filter((item) => canAccessMeeting(actor, item))
+    .map((item) => ({
+      ...item,
+      team: canReadTeam(access, item.teamId) ? item.team : null,
+      project: canReadProject(access, item.project) ? item.project : null
+    }));
   const lines = visible.length
     ? visible.map((item) => [
         `- ${item.title}`,
@@ -3068,9 +3096,15 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
       guidance: planner.plan.guidance || input.request
     };
 
+    // MEASUREMENT — effort excluded. This one query produces statusCounts, priorityCounts,
+    // doneCount, completionRate, the task samples and the per-person topAssignees table that are
+    // shipped into the management-analysis prompt. An effort is always in the denominator (any
+    // updatedAt in the window qualifies) and only in doneCount if it was closed, so leaving it in
+    // permanently distorts the narrative a manager reads.
     const where: Prisma.TaskWhereInput = {
       AND: [
         taskWhereForAccess(access),
+        workTaskWhere,
         {
           OR: [
             { createdAt: { gte: range.startsAt, lt: range.endsAt } },
@@ -3142,7 +3176,18 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
             team: { select: { id: true, name: true, slug: true } }
           }
         },
-        assignee: { select: { id: true, name: true, email: true } },
+        // Both halves of the shared predicate are here for the per-assignee ranking below, which is
+        // a people metric: `kind` because an agent may hold any membership role, and the membership
+        // role itself because a GUEST human is outside every denominator the API draws.
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            kind: true,
+            workspaces: { where: { workspaceId: actor.workspace.id }, select: { role: true } }
+          }
+        },
         reporter: { select: { id: true, name: true, email: true } },
         labels: {
           include: {
@@ -3176,8 +3221,19 @@ export async function registerAiReportRoutes(app: FastifyInstance): Promise<void
       }
     }
 
+    // This ranks people against each other and ships the order into the management-analysis prompt,
+    // so it is a measurement: an agent that closes tickets around the clock would top the table and
+    // make every human below it read as underperforming. Agents are dropped; the unassigned bucket
+    // stays, because it is a backlog signal about the workspace rather than about a person.
     const byAssignee = new Map<string, { name: string; total: number; done: number }>();
     for (const task of filteredTasks) {
+      // The same two clauses the server-side denominators use, via the shared in-memory predicate:
+      // a kind-only test left GUEST humans in a ranking that participation and workload already
+      // exclude them from. An assignee with no membership row here is in no denominator either.
+      if (task.assignee) {
+        const membership = task.assignee.workspaces[0];
+        if (!membership || !isMeasuredMember({ role: membership.role, userKind: task.assignee.kind })) continue;
+      }
       const key = task.assigneeId || 'unassigned';
       const name = task.assignee?.name || 'بدون مسئول';
       const current = byAssignee.get(key) || { name, total: 0, done: 0 };

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma, type Prisma, type SyncEvent, type WorkspaceRole } from '@taskara/db';
+import { prisma, type Prisma, type SyncEvent, type UserKind, type WorkspaceRole } from '@taskara/db';
 import {
   createUserSchema,
   createWorkspaceInviteSchema,
@@ -12,6 +12,7 @@ import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity, snapshot } from '../services/audit';
 import { buildInviteUrl, createRawToken, hashToken, normalizeEmail } from '../services/auth';
 import { HttpError } from '../services/http';
+import { memberWorkCountSelect, resolveWorkspaceAccess } from '../services/team-access';
 import {
   lockMilestonesForUpdate,
   milestoneInclude,
@@ -25,6 +26,8 @@ const userSelect = {
   id: true,
   email: true,
   name: true,
+  kind: true,
+  operatorId: true,
   phone: true,
   mattermostUserId: true,
   mattermostUsername: true,
@@ -54,14 +57,21 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
   app.get('/users', async (request) => {
     const actor = await getRequestActor(request);
     const query = userListQuerySchema.parse(request.query);
-    const userFilter: Prisma.UserWhereInput | undefined = query.q
+    // `kind` sits beside the search rather than replacing it, so `?q=…&kind=HUMAN` narrows twice.
+    // Both clauses land on the User row; `role` lives on the membership and stays outside.
+    const userFilter: Prisma.UserWhereInput | undefined = query.q || query.kind
       ? {
-          OR: [
-            { email: { contains: query.q, mode: 'insensitive' } },
-            { name: { contains: query.q, mode: 'insensitive' } },
-            { phone: { contains: query.q, mode: 'insensitive' } },
-            { mattermostUsername: { contains: query.q, mode: 'insensitive' } }
-          ]
+          kind: query.kind,
+          ...(query.q
+            ? {
+                OR: [
+                  { email: { contains: query.q, mode: 'insensitive' } },
+                  { name: { contains: query.q, mode: 'insensitive' } },
+                  { phone: { contains: query.q, mode: 'insensitive' } },
+                  { mattermostUsername: { contains: query.q, mode: 'insensitive' } }
+                ]
+              }
+            : {})
         }
       : undefined;
 
@@ -72,6 +82,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const [members, total] = await Promise.all([
+      // measured-people:allow — Member directory. Agents are teammates and belong in it.
       prisma.workspaceMember.findMany({
         where,
         orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
@@ -81,17 +92,16 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
           user: {
             select: {
               ...userSelect,
-              _count: {
-                select: {
-                  assignedTasks: true,
-                  reportedTasks: true,
-                  comments: true
-                }
-              }
+              // MEASUREMENT and ACCESS, both, and both explained at `memberWorkCountSelect`. The
+              // roster itself is deliberately workspace-wide; the numbers beside it are not, and
+              // that was #59's shape D — the measurement axis had been swept through every `_count`
+              // in the codebase and the access axis had never had the same pass.
+              _count: { select: memberWorkCountSelect(await resolveWorkspaceAccess(actor)) }
             }
           }
         }
       }),
+      // measured-people:allow — That directory's total, over the same where.
       prisma.workspaceMember.count({ where })
     ]);
 
@@ -173,6 +183,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'workspace_invite',
       entityId: invite.id,
       action: 'created',
@@ -214,6 +225,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'workspace_invite',
       entityId: updated.id,
       action: 'link_created',
@@ -241,6 +253,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'workspace_invite',
       entityId: invite.id,
       action: 'revoked',
@@ -267,20 +280,24 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const nature = await resolveUserNature(tx, actor.workspace.id, input.email, input.kind, input.operatorId);
+
       const user = await tx.user.upsert({
         where: { email: input.email },
         update: {
           name: input.name,
           phone: input.phone,
           mattermostUsername: input.mattermostUsername,
-          avatarUrl: input.avatarUrl
+          avatarUrl: input.avatarUrl,
+          ...nature.update
         },
         create: {
           email: input.email,
           name: input.name,
           phone: input.phone,
           mattermostUsername: input.mattermostUsername,
-          avatarUrl: input.avatarUrl
+          avatarUrl: input.avatarUrl,
+          ...nature.create
         },
         select: userSelect
       });
@@ -307,6 +324,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'user',
       entityId: result.id,
       action: 'upserted',
@@ -344,6 +362,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'user',
       entityId: user.id,
       action: 'updated',
@@ -379,6 +398,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'workspace_member',
       entityId: updated.id,
       action: 'role_updated',
@@ -434,6 +454,13 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       const taskSubscriptions = await tx.taskSubscription.deleteMany({
         where: { workspaceId: actor.workspace.id, userId: id }
       });
+      // Both halves of the person's watching state leave with them, for the same reason. A mute
+      // that outlives the membership is a decision about a workspace they had left, and it silently
+      // comes back into force if they are re-added — keeping them quiet on tasks they would have no
+      // memory of having muted, with no row anywhere they could see to explain it.
+      const taskMutes = await tx.taskMute.deleteMany({
+        where: { workspaceId: actor.workspace.id, userId: id }
+      });
 
       const ownedMilestones = await tx.milestone.findMany({
         where: { workspaceId: actor.workspace.id, ownerId: id },
@@ -474,6 +501,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
             workspaceId: actor.workspace.id,
             actorId: actor.user.id,
             actorType: actor.actorType,
+            actorRuntime: actor.actorRuntime,
             entityType: 'milestone',
             entityId: milestone.before.id,
             action: 'owner_cleared',
@@ -492,7 +520,8 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         assignedTasks: assignedTasks.count,
         ownedMilestones: ownedMilestones.length,
         notifications: notifications.count,
-        taskSubscriptions: taskSubscriptions.count
+        taskSubscriptions: taskSubscriptions.count,
+        taskMutes: taskMutes.count
       };
     });
 
@@ -502,6 +531,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,
       actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
       entityType: 'workspace_member',
       entityId: membership.id,
       action: 'removed',
@@ -512,6 +542,69 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.code(204).send();
   });
+}
+
+type UserNature = { kind: UserKind; operatorId: string | null };
+
+// Resolves the kind/operatorId pair a provisioned User should carry, for the create and update halves
+// of the upsert separately — they differ, because an omitted operatorId means "null" on create but
+// "leave as it is" on update.
+//
+// The database enforces only the single-row half of the rule ("a HUMAN has no operator"). The other
+// half -- "an agent must not operate an agent" -- is a cross-row invariant that a plain CHECK cannot
+// see, so it is enforced here, and it takes TWO guards to close: reject attaching an operator that is
+// already an agent, AND reject turning a user that already operates agents into one. Blocking only the
+// first leaves promotion as an open back door to the same forbidden shape.
+//
+// Every read runs on `tx` so it sees the same snapshot as the write. Under READ COMMITTED two
+// concurrent promotions could still interleave; that race is left open deliberately, as this route is
+// workspace-admin-only and agent provisioning is rare.
+async function resolveUserNature(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  email: string,
+  kind: UserKind | undefined,
+  operatorId: string | undefined
+): Promise<{ create: UserNature | Record<string, never>; update: Partial<UserNature> }> {
+  if (kind === undefined && operatorId === undefined) return { create: {}, update: {} };
+
+  const subject = await tx.user.findUnique({
+    where: { email },
+    select: { id: true, kind: true, _count: { select: { agents: true } } }
+  });
+
+  const nextKind: UserKind = kind ?? subject?.kind ?? 'HUMAN';
+
+  if (nextKind !== 'AGENT') {
+    if (operatorId) throw new HttpError(400, 'Only an agent user can have an operator');
+    return { create: { kind: nextKind, operatorId: null }, update: { kind: nextKind, operatorId: null } };
+  }
+
+  // Becoming an agent is only legal for a user that operates nobody.
+  if (subject && subject.kind !== 'AGENT' && subject._count.agents > 0) {
+    throw new HttpError(400, 'A user that operates agents cannot become an agent');
+  }
+
+  if (operatorId === undefined) {
+    // Nature named, operator not: keep whatever link the row already has rather than silently detaching.
+    return { create: { kind: nextKind, operatorId: null }, update: { kind: nextKind } };
+  }
+
+  if (subject && operatorId === subject.id) {
+    throw new HttpError(400, 'A user cannot operate itself');
+  }
+
+  const operator = await tx.user.findFirst({
+    where: { id: operatorId, workspaces: { some: { workspaceId } } },
+    select: { id: true, kind: true }
+  });
+  if (!operator) throw new HttpError(400, 'Operator must be a user in this workspace');
+  if (operator.kind === 'AGENT') throw new HttpError(400, 'An agent cannot operate another agent');
+
+  return {
+    create: { kind: nextKind, operatorId: operator.id },
+    update: { kind: nextKind, operatorId: operator.id }
+  };
 }
 
 function assertOwnerRoleManageAllowed(actorRole: WorkspaceRole, currentRole: WorkspaceRole | undefined, nextRole: WorkspaceRole): void {
@@ -532,6 +625,7 @@ async function assertOwnerChangeIsSafeWithClient(
 ): Promise<void> {
   if (currentRole !== 'OWNER' || nextRole === 'OWNER') return;
 
+  // measured-people:allow — Last-owner safety check: a permission invariant about the OWNER role, and an agent holding it still keeps the workspace administrable.
   const ownerCount = await client.workspaceMember.count({
     where: { workspaceId, role: 'OWNER' }
   });

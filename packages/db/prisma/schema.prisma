@@ -16,6 +16,16 @@ enum WorkspaceRole {
   AGENT
 }
 
+enum UserKind {
+  HUMAN
+  AGENT
+}
+
+enum AgentCredentialScope {
+  READ_ONLY
+  READ_WRITE
+}
+
 enum ProjectRole {
   LEAD
   MEMBER
@@ -27,6 +37,11 @@ enum ProjectStatus {
   PAUSED
   COMPLETED
   ARCHIVED
+}
+
+enum TaskKind {
+  WORK
+  EFFORT
 }
 
 enum TaskStatus {
@@ -62,6 +77,16 @@ enum ActorType {
   AGENT
   MATTERMOST
   CODEX
+}
+
+/// Which agent runtime performed an action. One agent User serves all four runtimes, so the
+/// identity cannot carry this — it rides per-action and is snapshotted onto the row it produced.
+/// Client-asserted, unlike ActorType, which is derived from the authenticated User's kind.
+enum AgentRuntime {
+  CLAUDE_CODE
+  CODEX
+  OPENCLAW
+  HERMES
 }
 
 enum IntegrationProvider {
@@ -234,18 +259,22 @@ model Workspace {
   userCapacities         UserCapacity[]
   teamWorkingAgreements  TeamWorkingAgreement[]
   taskSubscriptions      TaskSubscription[]
+  taskMutes              TaskMute[]
   activityLogs           ActivityLog[]
   smsDeliveries          SmsDelivery[]
   integrations           IntegrationAccount[]
   mattermostBindings     MattermostBinding[]
   agentRuns              AgentRun[]
   invites                WorkspaceInvite[]
+  agentCredentials       AgentCredential[]
 }
 
 model User {
   id                    String    @id @default(uuid()) @db.Uuid
   email                 String    @unique
   name                  String
+  kind                  UserKind  @default(HUMAN)
+  operatorId            String?   @db.Uuid
   aiModel               String?
   phone                 String?   @unique
   passwordHash          String?
@@ -255,6 +284,9 @@ model User {
   onboardingCompletedAt DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+
+  operator User?  @relation("AgentOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  agents   User[] @relation("AgentOperator")
 
   workspaces                    WorkspaceMember[]
   authSessions                  AuthSession[]
@@ -289,8 +321,10 @@ model User {
   resolvedKnowledgePageComments KnowledgePageComment[]      @relation("KnowledgePageCommentResolver")
   knowledgePageSubscriptions    KnowledgePageSubscription[]
   taskSubscriptions             TaskSubscription[]
+  taskMutes                     TaskMute[]
   comments                      TaskComment[]
-  notifications                 Notification[]
+  notifications                 Notification[]              @relation("NotificationRecipient")
+  causedNotifications           Notification[]              @relation("NotificationActor")
   assignedAttentionItems        AttentionItem[]              @relation("AttentionAssignee")
   managedAttentionItems         AttentionItem[]              @relation("AttentionManager")
   requestedTaskReviews          TaskReviewRequest[]          @relation("TaskReviewRequester")
@@ -303,6 +337,15 @@ model User {
   approvedActions               AgentAction[]
   sentInvites                   WorkspaceInvite[]           @relation("WorkspaceInviteInviter")
   acceptedInvites               WorkspaceInvite[]           @relation("WorkspaceInviteAccepter")
+  agentCredentials              AgentCredential[]           @relation("AgentCredentialAgent")
+  issuedAgentCredentials        AgentCredential[]           @relation("AgentCredentialIssuer")
+  revokedAgentCredentials       AgentCredential[]           @relation("AgentCredentialRevoker")
+
+  // Lets AgentCredential carry a composite foreign key to (id, kind), which is what makes
+  // "a credential can only ever belong to an AGENT" a database fact rather than a convention.
+  @@unique([id, kind])
+  @@index([operatorId])
+  @@index([kind])
 }
 
 model AuthSession {
@@ -317,6 +360,40 @@ model AuthSession {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// A long-lived, non-expiring-by-default, revocable secret that lets one agent User act in exactly
+/// one Workspace. Only `tokenHash` is ever stored; the plaintext is returned once, at creation.
+model AgentCredential {
+  id          String               @id @default(uuid()) @db.Uuid
+  workspaceId String               @db.Uuid
+  userId      String               @db.Uuid
+  /// Pinned to AGENT by a CHECK constraint and carried into the composite FK on (userId, userKind).
+  userKind    UserKind             @default(AGENT)
+  name        String
+  /// The public half of the token. Safe to display and to log; it identifies the row so the secret
+  /// half can be compared in constant time instead of being looked up by its own hash.
+  lookupId    String               @unique
+  tokenHash   String
+  scope       AgentCredentialScope @default(READ_WRITE)
+  createdById String?              @db.Uuid
+  revokedById String?              @db.Uuid
+  lastUsedAt  DateTime?
+  rotatedAt   DateTime?
+  /// Null means never expires. That is the point of the primitive: a headless agent on a bearer
+  /// session silently 401s once TASKARA_SESSION_TTL_DAYS elapses.
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     User      @relation("AgentCredentialAgent", fields: [userId, userKind], references: [id, kind], onDelete: Cascade)
+  createdBy User?     @relation("AgentCredentialIssuer", fields: [createdById], references: [id], onDelete: SetNull)
+  revokedBy User?     @relation("AgentCredentialRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([userId])
 }
 
 model WorkspaceInvite {
@@ -512,6 +589,7 @@ model Task {
   sequence    Int
   title       String
   description String?
+  kind        TaskKind     @default(WORK)
   status      TaskStatus   @default(TODO)
   priority    TaskPriority @default(NO_PRIORITY)
   weight      Float?
@@ -536,6 +614,7 @@ model Task {
   attachments          TaskAttachment[]
   labels               TaskLabel[]
   subscriptions        TaskSubscription[]
+  mutes                TaskMute[]
   reviewRequests       TaskReviewRequest[]
   triageState          TaskTriageState?
   meetingLinks         MeetingTask[]
@@ -550,6 +629,7 @@ model Task {
   @@index([workspaceId, assigneeId])
   @@index([workspaceId, dueAt])
   @@index([milestoneId, status])
+  @@index([workspaceId, kind, status])
 }
 
 model TaskTriageState {
@@ -644,6 +724,44 @@ model TaskLabel {
 }
 
 model TaskSubscription {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  taskId      String   @db.Uuid
+  userId      String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId, createdAt])
+  @@index([taskId])
+}
+
+/// A person's recorded decision **not** to watch a task.
+///
+/// Deliberately a second table rather than a column on TaskSubscription, because the two rows say
+/// different things and only one of them is a delivery list. `TaskSubscription` keeps the property
+/// every reader already relies on — **a row here means notify this person** — so a future fan-out
+/// written the obvious way stays correct without knowing this table exists. A `mutedAt` column on
+/// TaskSubscription would have inverted that silently: presence would no longer mean delivery, and
+/// the one reader who forgot the predicate would notify exactly the people who asked not to be.
+///
+/// Only the *write* side consults this table: `subscribeUsersToTask` skips a muted user, which is
+/// what makes an unsubscribe survive the next mention or assignment. Forgetting that check
+/// re-subscribes somebody, which they can see and undo; forgetting a read-side predicate would
+/// notify somebody who muted, which they cannot.
+///
+/// After this table exists, absence still means what it always meant: **no row in either table is
+/// "nobody has decided anything"** — the default, which auto-subscribe is free to fill. A row here
+/// is a decision, and it outranks the automatic one.
+///
+/// The pair (subscription AND mute for one person on one task) is contradictory and unreachable
+/// through the API: both writes are transactional and each clears the other. Postgres cannot CHECK
+/// across tables, so a direct Prisma write could still create one — the same app-layer-only limit
+/// #36 accepted for the agent operator rule.
+model TaskMute {
   id          String   @id @default(uuid()) @db.Uuid
   workspaceId String   @db.Uuid
   taskId      String   @db.Uuid
@@ -1178,6 +1296,12 @@ model Notification {
   id              String    @id @default(uuid()) @db.Uuid
   workspaceId     String    @db.Uuid
   userId          String    @db.Uuid
+  /// Who caused this notification, and what they were. Required on write so a new notification
+  /// site cannot silently ship without provenance; SYSTEM with a null actorId is the honest
+  /// answer for scheduled jobs, and is what rows written before this column carry.
+  actorId         String?   @db.Uuid
+  actorType       ActorType
+  actorRuntime    AgentRuntime?
   taskId          String?   @db.Uuid
   announcementId  String?   @db.Uuid
   meetingId       String?   @db.Uuid
@@ -1190,7 +1314,8 @@ model Notification {
   createdAt       DateTime  @default(now())
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User           @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor         User?          @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
   task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
   announcement  Announcement?  @relation(fields: [announcementId], references: [id], onDelete: SetNull)
   meeting       Meeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull)
@@ -1199,6 +1324,7 @@ model Notification {
   @@index([userId, readAt])
   @@index([userId, deliveredAt])
   @@index([userId, createdAt, id])
+  @@index([actorId])
   @@index([announcementId])
   @@index([meetingId])
   @@index([knowledgePageId])
@@ -1284,10 +1410,14 @@ model ClientMutation {
 }
 
 model ActivityLog {
-  id          String     @id @default(uuid()) @db.Uuid
-  workspaceId String     @db.Uuid
-  actorId     String?    @db.Uuid
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  actorId     String?       @db.Uuid
+  /// Snapshot of the author's nature at write time, derived from User.kind. Never re-joined:
+  /// kind carries no history, so a later identity change must not reinterpret this row.
   actorType   ActorType
+  /// Only ever set when actorType is AGENT — enforced by a CHECK constraint.
+  actorRuntime AgentRuntime?
   entityType  String
   entityId    String
   action      String

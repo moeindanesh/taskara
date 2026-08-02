@@ -339,6 +339,8 @@ export const fa = {
       requested: 'درخواست ارسال شد',
       submittedStat: (submitted: number, expected: number) =>
          `${submitted.toLocaleString('fa-IR')} از ${expected.toLocaleString('fa-IR')} گزارش`,
+      // Shown instead of the ratio on a day nobody was asked: "۰ از ۰ گزارش" reads as a failure.
+      weekend: 'روز تعطیل — گزارشی خواسته نشده',
       blockerStat: (count: number) => `${count.toLocaleString('fa-IR')} گیر`,
       // This is the share of a single day's reports, not a share of days — the trends panel is
       // where the day-over-day figure lives.
@@ -405,6 +407,13 @@ export const fa = {
       newIssue: 'کار جدید',
       titlePlaceholder: 'عنوان کار',
       descriptionPlaceholder: 'توضیح اضافه کنید...',
+      effortBodyEmpty: 'متنی برای این کار ثبت نشده است.',
+      effortBodyReadOnly:
+         'متن این کار سندی است که ابزارهای بیرونی می‌خوانند. اینجا فقط خوانده می‌شود و نوشتنش با نشست‌هایی است که روی آن کار می‌کنند.',
+      effortBodyConverted:
+         'این متن یک‌بار از ویرایشگر متن گذشته و به JSON ذخیره شده است. هیچ‌چیزی از دست نرفته؛ متن اصلی داخل همان JSON است.',
+      effortBodyRestore: 'بازگرداندن متن اصلی',
+      effortBodyRestored: 'متن اصلی بازگردانده شد.',
       status: 'وضعیت',
       priority: 'اولویت',
       weight: 'وزن',
@@ -508,6 +517,29 @@ export const fa = {
       currentUser: 'کاربر فعلی',
       noAssignee: 'بدون مسئول',
    },
+   // CONTEXT.md's word for a task that must finish first is «مسدودکننده» (Blocker); the edge itself
+   // is «وابستگی» and lives on fa.issue.dependencies. A blocker is *open* while it is unfinished,
+   // which is what «باز» means in every string here — never "the edge exists".
+   blockers: {
+      blockedBy: 'مسدود شده توسط',
+      blocks: 'مسدود می‌کند',
+      noBlockers: 'مسدودکننده‌ای ندارد',
+      blocksNothing: 'کاری را مسدود نمی‌کند',
+      takeState: 'وضعیت برداشت',
+      takeable: 'آماده برداشت',
+      openCount: (count: number) => `${count.toLocaleString('fa-IR')} مسدودکنندهٔ باز`,
+      blockedBadge: 'مسدود',
+      filter: 'مسدودکننده‌ها',
+      filterAll: 'همه',
+      filterNone: 'بدون مسدودکنندهٔ باز',
+      filterAny: 'دارای مسدودکنندهٔ باز',
+      takeableView: 'آماده برداشت',
+      // A far end behind a team wall (#58). Named as a task with an access problem, not as an
+      // error and not as a blank row: the reader is being told something true, and the next move
+      // is to ask whoever owns that team rather than to reload the page.
+      redacted: 'کاری که دسترسی به آن ندارید',
+      redactedHint: 'این کار در تیمی است که عضو آن نیستید. برای دیدنش از مسئول آن تیم دسترسی بگیرید.',
+   },
    sync: {
       mutationQueued: 'تغییر ذخیره شد و پس از اتصال دوباره اعمال می‌شود.',
       mutationConflict: (action: string) =>
@@ -574,6 +606,8 @@ export const fa = {
       sms: 'ارسال پیامک',
       createPrimary: 'ایجاد اعلان یا جلسه',
       linkedTasks: 'کارهای ساخته‌شده',
+      redactedProject: 'پروژه‌ای که دسترسی به آن ندارید',
+      redactedProjectHint: 'این جلسه برای پروژه‌ای است که عضو تیم آن نیستید.',
       loadFailed: 'بارگذاری اعلان‌ها و جلسه‌ها ناموفق بود.',
       noItems: 'اعلان یا جلسه‌ای برای نمایش وجود ندارد.',
       noSearchResults: 'نتیجه‌ای برای این جستجو پیدا نشد.',

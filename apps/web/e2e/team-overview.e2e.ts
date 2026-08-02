@@ -40,9 +40,14 @@ const projects = [
    },
 ];
 
-const membership = (role: string, user: (typeof people)[keyof typeof people]) => ({
+const membership = (
+   role: string,
+   user: (typeof people)[keyof typeof people],
+   kind: 'HUMAN' | 'AGENT' = 'HUMAN'
+) => ({
    membershipId: `membership-${user.id}`,
    role,
+   kind,
    joinedAt: iso(-30),
    _count: { assignedTasks: 0, reportedTasks: 0, comments: 0 },
    ...user,
@@ -52,7 +57,8 @@ const taskaraUsers = [
    membership('ADMIN', people.admin),
    membership('MEMBER', people.member),
    membership('GUEST', people.guest),
-   membership('AGENT', people.agent),
+   // Role MEMBER with kind AGENT: agent-ness lives on the user, not on the membership role.
+   membership('MEMBER', people.agent, 'AGENT'),
 ];
 
 const taskBase = {
@@ -91,10 +97,11 @@ test.describe('@team-overview workspace graph', () => {
       await expect(graph.locator('[data-node-kind="workspace"]')).toHaveCount(1);
       await expect(graph.locator(`[data-node-label="${workspace.name}"]`)).toHaveCount(1);
 
-      // Humans keep their seat; the idle guest and agent stay off the graph.
+      // Humans and agents keep their seat even when idle; only the idle guest stays off the graph.
       const persons = graph.locator('[data-node-kind="person"]');
-      await expect(persons).toHaveCount(2);
+      await expect(persons).toHaveCount(3);
       await expect(graph.locator(`[data-node-label="${people.member.name}"]`)).toHaveCount(1);
+      await expect(graph.locator(`[data-node-label="${people.agent.name}"]`)).toHaveCount(1);
       await expect(graph.locator(`[data-node-label="${people.guest.name}"]`)).toHaveCount(0);
 
       // Overdue, due-today and done-today only — future, undated, canceled, stale-done and
@@ -313,7 +320,7 @@ function countOscillators(page: Page): Promise<number> {
    return page.evaluate(() => (window as unknown as { __oscillators?: number[] }).__oscillators?.length ?? 0);
 }
 
-/** Injects a task the way the sync engine broadcasts one, as manager-os.spec.ts does. */
+/** Injects a task the way the sync engine broadcasts one, as manager-os.e2e.ts does. */
 async function addTaskViaSync(page: Page, task: unknown) {
    await page.evaluate(
       ({ scopeKey, syncedTask }) => {

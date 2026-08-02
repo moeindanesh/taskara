@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { UserKind } from '@taskara/db';
 import type { WorkspaceAccess } from './team-access';
 import {
   computeWorkHealthSummary,
@@ -292,11 +293,14 @@ function isoFromNow(hours: number): string {
   return dateFromNow(hours).toISOString();
 }
 
-function user(id: string) {
+function user(id: string, kind: UserKind = 'HUMAN') {
   return {
     id,
     name: `User ${id}`,
     email: `${id}@example.test`,
+    // Task assignees carry their kind now: a person-shaped object without one reads as HUMAN
+    // wherever it lands, which is exactly how agents got back into people metrics.
+    kind,
     phone: null,
     mattermostUsername: null,
     avatarUrl: null

@@ -8,6 +8,7 @@ import {
    Check,
    CheckCircle2,
    Circle,
+   EyeOff,
    ListChecks,
    Loader2,
    Megaphone,
@@ -53,6 +54,7 @@ import { UserMultiSelectCombobox } from '@/components/taskara/user-multi-select-
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { dispatchWorkspaceRefresh, useLiveRefresh, workspaceRefreshSourceMatches } from '@/lib/live-refresh';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
+import { isRedacted, readable } from '@/lib/redacted';
 import { taskaraRequest, uploadMedia } from '@/lib/taskara-client';
 import type {
    AnnouncementsResponse,
@@ -615,7 +617,7 @@ export function CommunicationsView() {
             {
                method: 'POST',
                body: JSON.stringify({
-                  projectId: selectedMeeting.project?.id || undefined,
+                  projectId: readable(selectedMeeting.project)?.id || undefined,
                   assigneeId: actionItem.assigneeId || undefined,
                   dueAt: actionItem.dueAt || undefined,
                }),
@@ -772,10 +774,18 @@ export function CommunicationsView() {
                   <h2 className="mb-3 break-words text-2xl font-semibold leading-9 text-zinc-50">{currentTitle}</h2>
                   {selectedMeeting ? (
                      <div className="mb-5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                        {selectedMeeting.project ? (
+                        {readable(selectedMeeting.project) ? (
                            <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.035] px-2.5 py-1">
-                              <ProjectGlyph name={selectedMeeting.project.name} className="size-4 rounded" iconClassName="size-3" />
-                              <span className="truncate">{selectedMeeting.project.name}</span>
+                              <ProjectGlyph name={readable(selectedMeeting.project)?.name} className="size-4 rounded" iconClassName="size-3" />
+                              <span className="truncate">{readable(selectedMeeting.project)?.name}</span>
+                           </span>
+                        ) : isRedacted(selectedMeeting.project) ? (
+                           <span
+                              className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.035] px-2.5 py-1 text-zinc-600"
+                              title={fa.communications.redactedProjectHint}
+                           >
+                              <EyeOff className="size-3 shrink-0" />
+                              <span className="truncate">{fa.communications.redactedProject}</span>
                            </span>
                         ) : null}
                         {selectedMeeting.owner ? (
@@ -890,11 +900,18 @@ export function CommunicationsView() {
                      </CommunicationActionRailPanel>
                      <CommunicationActionRailPanel title={fa.meeting.project}>
                         <div className="flex min-w-0 items-center gap-2 text-sm text-zinc-300">
-                           {selectedMeeting.project ? (
+                           {readable(selectedMeeting.project) ? (
                               <>
-                                 <ProjectGlyph name={selectedMeeting.project.name} className="size-5 rounded" iconClassName="size-3.5" />
-                                 <span className="truncate">{selectedMeeting.project.name}</span>
+                                 <ProjectGlyph name={readable(selectedMeeting.project)?.name} className="size-5 rounded" iconClassName="size-3.5" />
+                                 <span className="truncate">{readable(selectedMeeting.project)?.name}</span>
                               </>
+                           ) : isRedacted(selectedMeeting.project) ? (
+                              // Not `fa.app.unset`: this meeting has a project, and saying it has
+                              // none would be the client turning a withholding into a falsehood.
+                              <span className="inline-flex min-w-0 items-center gap-1.5 text-zinc-500" title={fa.communications.redactedProjectHint}>
+                                 <EyeOff className="size-3.5 shrink-0" />
+                                 <span className="truncate">{fa.communications.redactedProject}</span>
+                              </span>
                            ) : (
                               <span>{fa.app.unset}</span>
                            )}
@@ -1083,7 +1100,16 @@ function MeetingDetail({
                                     </span>
                                  ) : null}
                                  {item.dueAt ? <span>{formatJalaliDateTime(item.dueAt)}</span> : null}
-                                 {item.task ? <span>{item.task.key}</span> : null}
+                                 {readable(item.task) ? (
+                                    <span>{readable(item.task)?.key}</span>
+                                 ) : isRedacted(item.task) ? (
+                                    // The item does have a task — the button below stays hidden
+                                    // because `item.task` is truthy — the reader just may not open it.
+                                    <span className="inline-flex items-center gap-1" title={fa.blockers.redactedHint}>
+                                       <EyeOff className="size-3" />
+                                       {fa.blockers.redacted}
+                                    </span>
+                                 ) : null}
                               </div>
                            </div>
                            {!item.task ? (
@@ -1110,15 +1136,32 @@ function MeetingDetail({
             <section className="mt-6 space-y-3">
                <h3 className="text-base font-semibold text-zinc-100">{fa.communications.linkedTasks}</h3>
                <div className="space-y-2">
-                  {(meeting.tasks || []).slice(0, 10).map((link) => (
-                     <div key={`${link.meetingId}-${link.taskId}`} className="flex min-w-0 items-center gap-3 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
-                        <StatusIcon status={link.task.status} />
-                        <IssueTitleTooltip title={link.task.title}>
-                           <span className="min-w-0 flex-1 truncate">{link.task.title}</span>
-                        </IssueTitleTooltip>
-                        <span className="shrink-0 text-xs text-zinc-500">{link.task.key}</span>
-                     </div>
-                  ))}
+                  {(meeting.tasks || []).slice(0, 10).map((link, index) => {
+                     const task = readable(link.task);
+                     // The entry keeps its slot even when it is blank, so the length of this list
+                     // stays the number of tasks the meeting produced (#60).
+                     if (!task) {
+                        return (
+                           <div
+                              key={`${link.meetingId}-redacted-${index}`}
+                              className="flex min-w-0 items-center gap-3 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-600"
+                              title={fa.blockers.redactedHint}
+                           >
+                              <EyeOff className="size-3.5 shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">{fa.blockers.redacted}</span>
+                           </div>
+                        );
+                     }
+                     return (
+                        <div key={`${link.meetingId}-${link.taskId}`} className="flex min-w-0 items-center gap-3 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-sm text-zinc-300">
+                           <StatusIcon status={task.status} />
+                           <IssueTitleTooltip title={task.title}>
+                              <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                           </IssueTitleTooltip>
+                           <span className="shrink-0 text-xs text-zinc-500">{task.key}</span>
+                        </div>
+                     );
+                  })}
                </div>
             </section>
          ) : null}
@@ -1561,11 +1604,11 @@ function buildCommunicationItems(
       kind: 'meeting',
       id: meeting.id,
       title: meeting.title,
-      preview: descriptionText(meeting.description) || meeting.project?.name || '',
+      preview: descriptionText(meeting.description) || readable(meeting.project)?.name || '',
       status: meetingStatusLabel(meeting.status),
       date: meeting.scheduledAt || meeting.heldAt || meeting.createdAt,
       audienceCount: meeting._count?.participants || meeting.participants?.length || 0,
-      projectName: meeting.project?.name,
+      projectName: readable(meeting.project)?.name,
       source: meeting,
    }));
 
@@ -1608,7 +1651,7 @@ function communicationSearchValues(item: CommunicationListItem) {
    return [
       item.title,
       item.preview,
-      meeting.project?.name,
+      readable(meeting.project)?.name,
       meeting.owner?.name,
       ...(meeting.participants || []).map((participant) => participant.user.name),
    ];

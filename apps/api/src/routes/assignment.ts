@@ -8,6 +8,7 @@ import {
 import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { HttpError } from '../services/http';
 import { recommendAssignment } from '../services/assignment';
+import { measuredMemberWhere } from '../services/measured-people';
 
 const capacityUserSelect = {
   id: true,
@@ -27,8 +28,10 @@ export async function registerAssignmentRoutes(app: FastifyInstance): Promise<vo
 
   app.get('/capacity/users', async (request) => {
     const actor = await requireWorkspaceAdmin(request);
+    // Capacity is a human-capacity tool — a daily weight limit is a statement about someone's day.
+    // Agents are teammates, but they are never recommended work and have no day to budget.
     const members = await prisma.workspaceMember.findMany({
-      where: { workspaceId: actor.workspace.id },
+      where: { workspaceId: actor.workspace.id, ...measuredMemberWhere },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: {
         user: {
