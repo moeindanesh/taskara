@@ -1100,7 +1100,16 @@ function MeetingDetail({
                                     </span>
                                  ) : null}
                                  {item.dueAt ? <span>{formatJalaliDateTime(item.dueAt)}</span> : null}
-                                 {item.task ? <span>{item.task.key}</span> : null}
+                                 {readable(item.task) ? (
+                                    <span>{readable(item.task)?.key}</span>
+                                 ) : isRedacted(item.task) ? (
+                                    // The item does have a task — the button below stays hidden
+                                    // because `item.task` is truthy — the reader just may not open it.
+                                    <span className="inline-flex items-center gap-1" title={fa.blockers.redactedHint}>
+                                       <EyeOff className="size-3" />
+                                       {fa.blockers.redacted}
+                                    </span>
+                                 ) : null}
                               </div>
                            </div>
                            {!item.task ? (

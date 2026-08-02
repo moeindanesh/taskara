@@ -15,11 +15,17 @@ import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { openBlockerEdgesInclude } from './blockers';
 import { HttpError } from './http';
+import {
+  actionItemTaskSelect,
+  meetingProjectSelect,
+  visibleMeetingActionItem
+} from './meeting-visibility';
 import { buildMeetingAccessWhere, canAccessMeeting } from './meetings';
 import { measuredMemberWhere } from './measured-people';
 import { isWorkTask } from './measured-work';
 import { DAILY_REPORT_REQUESTED_NOTIFICATION_TYPE } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import { resolveWorkspaceAccess } from './team-access';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
 import { dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
 
@@ -57,10 +63,17 @@ const agendaItemInclude = {
   meeting: { select: { id: true, title: true, scheduledAt: true, heldAt: true, status: true } }
 } satisfies Prisma.OneOnOneAgendaItemInclude;
 
+/**
+ * An action item and the two project-walled things it reaches through its meeting.
+ *
+ * Neither is filtered here. `serializeMeetingActionItem` is the **record** — what the activity log
+ * and the sync payload store — and the access facts have to survive into it, because `/sync/pull`
+ * re-reads that payload for a second reader. `visibleMeetingActionItem` is what a response gets.
+ */
 const actionItemInclude = {
   assignee: { select: userSelect },
   createdBy: { select: userSelect },
-  task: { select: { id: true, key: true, title: true, status: true } },
+  task: { select: actionItemTaskSelect },
   meeting: {
     select: {
       id: true,
@@ -72,7 +85,7 @@ const actionItemInclude = {
       projectId: true,
       ownerId: true,
       createdById: true,
-      project: { select: { id: true, name: true, keyPrefix: true, teamId: true } },
+      project: { select: meetingProjectSelect },
       participants: { select: { userId: true } }
     }
   }
@@ -830,7 +843,13 @@ export async function listMeetingActionItems(actor: RequestActor, input: Partial
     prisma.meetingActionItem.count({ where })
   ]);
 
-  return { items: items.map(serializeMeetingActionItem), total, limit: input.limit ?? 50, offset: input.offset ?? 0 };
+  const access = await resolveWorkspaceAccess(actor);
+  return {
+    items: items.map((item) => visibleMeetingActionItem(access, serializeMeetingActionItem(item))),
+    total,
+    limit: input.limit ?? 50,
+    offset: input.offset ?? 0
+  };
 }
 
 export async function createMeetingActionItem(
@@ -879,7 +898,7 @@ export async function createMeetingActionItem(
     source: actor.source
   }).catch(() => undefined);
   await emitSyncEvent(actor, 'meeting_action_item', row.id, 'created', { after: serializeMeetingActionItem(row) }, syncMutation);
-  return serializeMeetingActionItem(row);
+  return visibleActionItemFor(actor, row);
 }
 
 export async function updateMeetingActionItem(
@@ -922,7 +941,7 @@ export async function updateMeetingActionItem(
     after: serializeMeetingActionItem(updated)
   }, syncMutation);
 
-  return serializeMeetingActionItem(updated);
+  return visibleActionItemFor(actor, updated);
 }
 
 export async function completeMeetingActionItem(actor: RequestActor, actionItemId: string, syncMutation?: SyncMutationMeta) {
@@ -993,7 +1012,7 @@ export async function carryForwardMeetingActionItem(
     await emitSyncEvent(actor, 'one_on_one_agenda_item', agendaItem.id, 'created', { after: serializeAgendaItem(agendaItem) }, syncMutation);
   }
 
-  return { actionItem: serializeMeetingActionItem(actionItem), agendaItem: serializeAgendaItem(agendaItem) };
+  return { actionItem: await visibleActionItemFor(actor, actionItem), agendaItem: serializeAgendaItem(agendaItem) };
 }
 
 export async function createTaskFromMeetingActionItem(
@@ -1046,7 +1065,7 @@ export async function createTaskFromMeetingActionItem(
     before: serializeMeetingActionItem(actionItem),
     after: serializeMeetingActionItem(updated)
   }, syncMutation);
-  return { actionItem: serializeMeetingActionItem(updated), task: serializeTaskForResponse(task) };
+  return { actionItem: await visibleActionItemFor(actor, updated), task: serializeTaskForResponse(task) };
 }
 
 export function taskTargetFromMeetingActionItem(
@@ -1166,6 +1185,18 @@ export function dedupeAgendaCandidates(candidates: AgendaCandidate[]): AgendaCan
     deduped.push(candidate);
   }
   return deduped;
+}
+
+/**
+ * One action item on its way out to the reader who asked for it.
+ *
+ * Separate from `serializeMeetingActionItem` on purpose: that one is the record, written to the
+ * activity log and to the sync payload, and redacting it for the actor would blank rows for every
+ * *other* reader of the same event. The redaction belongs on the response, and on `/sync/pull`,
+ * which is the second place a reader meets this row.
+ */
+async function visibleActionItemFor(actor: RequestActor, row: MeetingActionItemWithRelations) {
+  return visibleMeetingActionItem(await resolveWorkspaceAccess(actor), serializeMeetingActionItem(row));
 }
 
 async function requireOneOnOneAccess(actor: RequestActor, seriesId: string): Promise<OneOnOneWithRelations> {

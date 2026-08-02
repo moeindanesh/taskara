@@ -48,6 +48,7 @@ import {
   updateMilestone
 } from '../services/milestones';
 import { workTaskWhere } from '../services/measured-work';
+import { visibleMeetingActionItem } from '../services/meeting-visibility';
 import { createProjectHealthUpdate } from '../services/project-health';
 import {
   assertActorCanAccessTeamSlug,
@@ -737,6 +738,9 @@ export function mapSyncEventForScope(
     if (event.entityType === 'milestone') {
       return mapMilestoneSyncEvent(serialized, event, actor, access);
     }
+    if (event.entityType === 'meeting_action_item') {
+      return mapMeetingActionItemSyncEvent(serialized, event, access);
+    }
     return mapGenericSyncEvent(serialized, event);
   }
 
@@ -798,6 +802,52 @@ function mapMilestoneSyncEvent(
     };
   }
   return serialized;
+}
+
+/**
+ * The second place a reader meets a meeting action item, and it needs the same redaction as the
+ * first.
+ *
+ * `meetingActionItemEventVisible` decides *whether* the event is delivered — participants, owner,
+ * creator, assignee — which is the same population `GET /meeting-action-items` serves, and says
+ * nothing about the project the linked task lives in or the project the meeting belongs to. So
+ * closing #60's second gap only on the REST handlers would have left it reachable in one call from
+ * a cursor. `visibleMeetingActionItem` is the same function the routes use, over the stored payload.
+ *
+ * An access that is not a resolved `WorkspaceAccess` cannot answer the question, so it redacts.
+ * `/sync/pull` always resolves one; the other shapes are legacy and denying is the safe direction.
+ */
+function mapMeetingActionItemSyncEvent(
+  serialized: ReturnType<typeof serializeSyncEvent>,
+  event: SyncEvent,
+  access: string[] | WorkspaceAccess | null
+) {
+  const payload = syncPayloadRecord(event.payload);
+  const before = syncPayloadRecord(payload?.before);
+  const after = syncPayloadRecord(payload?.after);
+
+  if (after) {
+    return { ...serialized, type: 'upsert' as const, entity: visibleActionItemPayload(after, access) };
+  }
+  if (before) {
+    return {
+      ...serialized,
+      type: event.operation === 'deleted' ? 'delete' as const : 'removeFromScope' as const,
+      entityId: event.entityId
+    };
+  }
+  return serialized;
+}
+
+function visibleActionItemPayload(item: Record<string, unknown>, access: string[] | WorkspaceAccess | null) {
+  const resolved: WorkspaceAccess | null = access && !Array.isArray(access) ? access : null;
+  if (resolved?.workspaceWide) return item;
+  return visibleMeetingActionItem(
+    // A deny-everything access when none was resolved: `canReadProject` admits nobody on a walled
+    // project with no team match, no project match and no lead match.
+    resolved ?? { workspaceId: '', userId: '', workspaceWide: false, teamIds: [], projectIds: [] },
+    item as Parameters<typeof visibleMeetingActionItem>[1]
+  );
 }
 
 function mapGenericSyncEvent(serialized: ReturnType<typeof serializeSyncEvent>, event: SyncEvent) {

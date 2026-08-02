@@ -95,6 +95,21 @@ export const meetingProjectSelect = {
 type TaskWithProject = { project: ProjectRef };
 type MeetingTaskLink = { taskId: string; task: TaskWithProject };
 
+/**
+ * An action item, from either of the two places one is read back.
+ *
+ * `project` is optional because the same decision runs over a **stored sync payload** as well as
+ * over a freshly selected row, and a payload written before this shipped has no project on it. An
+ * absent project resolves to a deny through `canReadProject`, which is the right default for a
+ * replayed event: the reader sees a blank where a key used to be until the next write refreshes it,
+ * rather than seeing the key.
+ */
+type ActionItemForReader = {
+  taskId?: string | null;
+  task?: { project?: ProjectRef | null } | null;
+  meeting?: { projectId?: string | null; project?: ProjectRef | null } | null;
+};
+
 type MeetingForReader = {
   teamId: string | null;
   team: unknown;
@@ -161,13 +176,7 @@ export const actionItemTaskSelect = {
  * The action item's own fields (title, notes, assignee, due date) stay: they belong to the meeting,
  * which this reader is already entitled to.
  */
-export function visibleMeetingActionItem<
-  T extends {
-    taskId: string | null;
-    task: TaskWithProject | null;
-    meeting: { projectId: string | null; project: ProjectRef | null } | null;
-  }
->(access: WorkspaceAccess, item: T) {
+export function visibleMeetingActionItem<T extends ActionItemForReader>(access: WorkspaceAccess, item: T) {
   const taskReadable = !item.task || canReadProject(access, item.task.project);
   const meeting = item.meeting;
   const meetingProjectReadable = !meeting?.project || canReadProject(access, meeting.project);
@@ -198,7 +207,7 @@ function withoutProjectAccessFacts<P extends ProjectRef, T extends { project: P 
 }
 
 /** The same, where the project was fetched only to ask the question and was never on the wire. */
-function withoutProject<T extends { project: unknown }>(row: T): Omit<T, 'project'> {
-  const { project: _project, ...rest } = row;
-  return rest;
+function withoutProject<T extends object>(row: T): Omit<T, 'project'> {
+  const { project: _project, ...rest } = row as T & { project?: unknown };
+  return rest as Omit<T, 'project'>;
 }

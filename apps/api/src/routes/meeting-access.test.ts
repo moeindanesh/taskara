@@ -46,10 +46,24 @@ interface Fixture {
   walledTaskTitle: string;
   openTaskId: string;
   openTaskTitle: string;
+  /** An action item on the walled meeting, already converted into a task in the walled project. */
+  actionItemId: string;
+  actionItemTitle: string;
 }
 
 interface RedactedRef {
   redacted?: true;
+}
+
+interface ActionItemView {
+  id: string;
+  taskId: string | null;
+  task: (RedactedRef & { id?: string; key?: string; title?: string; status?: string }) | null;
+  meeting: {
+    id: string;
+    projectId: string | null;
+    project: (RedactedRef & { name?: string; keyPrefix?: string }) | null;
+  } | null;
 }
 
 interface MeetingView {
@@ -173,6 +187,84 @@ describe('meeting read access', () => {
     expect(created.tasks).toEqual([]);
   });
 
+  /**
+   * Gap 2. An action item reaches two project-walled things through its meeting: the task it was
+   * converted into, which may sit in any project at all, and the meeting's own project.
+   */
+  test('the action item list blanks the linked task and the meeting project for a guest', async () => {
+    const guestItem = await listActionItems(fixture.guestEmail);
+    expect(guestItem.task).toEqual({ redacted: true });
+    expect(guestItem.taskId).toBeNull();
+    expect(guestItem.meeting?.project).toEqual({ redacted: true });
+    expect(guestItem.meeting?.projectId).toBeNull();
+    expect(bodyOf(guestItem)).not.toContain(fixture.walledTaskKey);
+    expect(bodyOf(guestItem)).not.toContain(fixture.walledProjectName);
+    // The item's own fields belong to the meeting, which the guest may read.
+    expect(bodyOf(guestItem)).toContain(fixture.actionItemTitle);
+
+    const hostItem = await listActionItems(fixture.hostEmail);
+    expect(hostItem.taskId).toBe(fixture.walledTaskId);
+    expect(hostItem.task?.key).toBe(fixture.walledTaskKey);
+    expect(hostItem.meeting?.project?.name).toBe(fixture.walledProjectName);
+  });
+
+  test('a workspace admin sees the action item whole', async () => {
+    const adminItem = await listActionItems(fixture.adminEmail);
+    expect(adminItem.task?.key).toBe(fixture.walledTaskKey);
+    expect(adminItem.meeting?.project?.name).toBe(fixture.walledProjectName);
+  });
+
+  /** `complete` and `cancel` both run through the same update, so one of the three stands for all. */
+  test('editing and completing an action item answer with the redacted row for a guest', async () => {
+    const patched = await patchActionItem(fixture.guestEmail, { notes: 'guest note' });
+    expect(patched.task).toEqual({ redacted: true });
+    expect(patched.meeting?.project).toEqual({ redacted: true });
+
+    const hostPatched = await patchActionItem(fixture.hostEmail, { notes: 'host note' });
+    expect(hostPatched.task?.key).toBe(fixture.walledTaskKey);
+    expect(hostPatched.meeting?.project?.name).toBe(fixture.walledProjectName);
+  });
+
+  test('creating an action item on a walled meeting answers without naming the project', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/meetings/${fixture.meetingId}/action-items`,
+      headers: headers(fixture.guestEmail),
+      payload: { title: 'guest raised this' }
+    });
+    expect(response.statusCode).toBe(201);
+    const created = response.json() as ActionItemView;
+    expect(created.meeting?.project).toEqual({ redacted: true });
+    expect(created.task).toBeNull();
+
+    const asHost = await app.inject({
+      method: 'POST',
+      url: `/meetings/${fixture.meetingId}/action-items`,
+      headers: headers(fixture.hostEmail),
+      payload: { title: 'host raised this' }
+    });
+    expect(asHost.statusCode).toBe(201);
+    expect((asHost.json() as ActionItemView).meeting?.project?.name).toBe(fixture.walledProjectName);
+  });
+
+  /**
+   * The second surface, and the reason fixing only the six handlers would not have been enough:
+   * `/sync/pull` replays the stored payload of the very same row to the very same population.
+   */
+  test('the sync stream redacts the action item payload for a guest and not for the host', async () => {
+    await patchActionItem(fixture.hostEmail, { notes: `synced ${Date.now()}` });
+
+    const guestEvent = await pullActionItemEvent(fixture.guestEmail);
+    expect(guestEvent.task).toEqual({ redacted: true });
+    expect(guestEvent.taskId).toBeNull();
+    expect(guestEvent.meeting?.project).toEqual({ redacted: true });
+    expect(bodyOf(guestEvent)).not.toContain(fixture.walledTaskKey);
+
+    const hostEvent = await pullActionItemEvent(fixture.hostEmail);
+    expect(hostEvent.task?.key).toBe(fixture.walledTaskKey);
+    expect(hostEvent.meeting?.project?.name).toBe(fixture.walledProjectName);
+  });
+
   /** A meeting with no project and no team is nobody's wall, so nothing is withheld from anybody. */
   test('a project on no team is readable by a guest', async () => {
     const guestView = await readMeeting(fixture.guestEmail);
@@ -222,6 +314,41 @@ async function patchMeeting(email: string, title: string): Promise<MeetingView> 
   });
   expect(response.statusCode).toBe(200);
   return response.json() as MeetingView;
+}
+
+async function listActionItems(email: string): Promise<ActionItemView> {
+  const response = await app.inject({
+    method: 'GET',
+    url: `/meeting-action-items?meetingId=${fixture.meetingId}`,
+    headers: headers(email)
+  });
+  expect(response.statusCode).toBe(200);
+  const body = response.json() as { items: ActionItemView[] };
+  const item = body.items.find((row) => row.id === fixture.actionItemId);
+  expect(item).toBeDefined();
+  return item as ActionItemView;
+}
+
+async function patchActionItem(email: string, payload: Record<string, unknown>): Promise<ActionItemView> {
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/meeting-action-items/${fixture.actionItemId}`,
+    headers: headers(email),
+    payload
+  });
+  expect(response.statusCode).toBe(200);
+  return response.json() as ActionItemView;
+}
+
+async function pullActionItemEvent(email: string): Promise<ActionItemView> {
+  const response = await app.inject({ method: 'GET', url: '/sync/pull?cursor=0', headers: headers(email) });
+  expect(response.statusCode).toBe(200);
+  const body = response.json() as { events: Array<{ entityType: string; entityId: string; entity?: ActionItemView }> };
+  const event = body.events
+    .filter((row) => row.entityType === 'meeting_action_item' && row.entityId === fixture.actionItemId)
+    .at(-1);
+  expect(event?.entity).toBeDefined();
+  return event?.entity as ActionItemView;
 }
 
 async function createFixture(): Promise<Fixture> {
@@ -296,7 +423,21 @@ async function createFixture(): Promise<Fixture> {
     data: { meetingId: meeting.id, taskId: walledTask.id, createdById: host.id }
   });
 
+  const actionItemTitle = `walled action item ${suffix}`;
+  const actionItem = await prisma.meetingActionItem.create({
+    data: {
+      workspaceId: workspace.id,
+      meetingId: meeting.id,
+      createdById: host.id,
+      assigneeId: guest.id,
+      taskId: walledTask.id,
+      title: actionItemTitle
+    }
+  });
+
   return {
+    actionItemId: actionItem.id,
+    actionItemTitle,
     workspaceSlug: workspace.slug,
     workspaceId: workspace.id,
     adminEmail,

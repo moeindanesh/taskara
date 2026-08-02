@@ -544,7 +544,12 @@ export interface TaskaraMeetingActionItem {
    updatedAt: string;
    assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    createdBy?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
-   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | null;
+   /**
+    * Two more relations that reach out of the meeting into project-walled data, redacted by the same
+    * rule as {@link TaskaraMeeting}'s (#60). The linked task may sit in any project at all — nothing
+    * ties it to the meeting's — so it is decided separately from the meeting's project.
+    */
+   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | RedactedRef | null;
    meeting?: {
       id: string;
       title: string;
@@ -552,7 +557,7 @@ export interface TaskaraMeetingActionItem {
       scheduledAt?: string | null;
       heldAt?: string | null;
       projectId?: string | null;
-      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | RedactedRef | null;
    } | null;
 }
 
