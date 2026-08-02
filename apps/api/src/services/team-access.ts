@@ -185,6 +185,85 @@ export function taskWhereForAccess(access: WorkspaceAccess): Prisma.TaskWhereInp
   };
 }
 
+/** Everything `filterUsersWithTaskAccess` touches, so a transaction client satisfies it too. */
+type TaskAccessClient = Pick<
+  Prisma.TransactionClient,
+  'task' | 'workspaceMember' | 'teamMember' | 'projectMember'
+>;
+
+/**
+ * Of these people, the ones who could open this task — asked about a list rather than about the
+ * caller.
+ *
+ * Every other function here answers "what may *the actor* read", because a request has one reader.
+ * A notification has a recipient who is not the actor, and #57 is what happens when nobody asks:
+ * a mention resolved against workspace membership writes a row naming a task behind a team wall.
+ *
+ * **It does not restate the access rule.** The decision is `canReadProject`, called once per
+ * candidate with that candidate's own facts; the queries below only gather those facts in bulk. A
+ * mirror-image predicate over `WorkspaceMember` would have been one query instead of three and a
+ * second spelling of a rule that already exists — which is the drift #37 was filed about, in the
+ * one place where the two copies disagreeing means a disclosure rather than a wrong number.
+ *
+ * A teamless project short-circuits before any of it: `canReadProject` returns true for one without
+ * consulting the reader at all, so there is nothing to look up.
+ */
+export async function filterUsersWithTaskAccess(
+  client: TaskAccessClient,
+  input: { workspaceId: string; taskId: string; userIds: string[] }
+): Promise<string[]> {
+  if (!input.userIds.length) return [];
+
+  const task = await client.task.findFirst({
+    where: { id: input.taskId, workspaceId: input.workspaceId },
+    select: { project: { select: { id: true, teamId: true, leadId: true } } }
+  });
+  const project = task?.project;
+  if (!project) return [];
+  if (!project.teamId) return [...input.userIds];
+  const teamId = project.teamId;
+
+  const [members, teamMemberships, projectMemberships] = await Promise.all([
+    // The role is read to spot an admin, who reads the whole workspace. Without it a workspace
+    // owner on no team would stop being notified about their own team's work.
+    //
+    // measured-people:allow — Resolves each candidate's role to answer an access question; not a people metric.
+    client.workspaceMember.findMany({
+      where: { workspaceId: input.workspaceId, userId: { in: input.userIds } },
+      select: { userId: true, role: true }
+    }),
+    client.teamMember.findMany({
+      where: { teamId, userId: { in: input.userIds } },
+      select: { userId: true }
+    }),
+    client.projectMember.findMany({
+      where: { projectId: project.id, userId: { in: input.userIds } },
+      select: { userId: true }
+    })
+  ]);
+
+  const roleByUserId = new Map(members.map((member) => [member.userId, member.role]));
+  const onTeam = new Set(teamMemberships.map((membership) => membership.userId));
+  const onProject = new Set(projectMemberships.map((membership) => membership.userId));
+
+  return input.userIds.filter((userId) => {
+    const role = roleByUserId.get(userId);
+    // Not a member of this workspace at all. Nothing should be addressing them, and a membership
+    // that vanished mid-transaction is not a reason to widen the answer.
+    if (!role) return false;
+    return canReadProject(
+      {
+        workspaceId: input.workspaceId,
+        userId,
+        workspaceWide: isWorkspaceAdminRole(role),
+        teamIds: onTeam.has(userId) ? [teamId] : [],
+        projectIds: onProject.has(userId) ? [project.id] : []
+      },
+      project
+    );
+  });
+}
+
 export function viewWhereForAccess(access: WorkspaceAccess): Prisma.ViewWhereInput {
   if (access.workspaceWide) return { workspaceId: access.workspaceId };
   return {

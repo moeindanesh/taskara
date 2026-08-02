@@ -73,6 +73,17 @@ function mockMentionTransaction(
   let subscriptionCreateManyCalls = 0;
 
   const tx = {
+    // #57 made the mention path ask whether each recipient can open the task. This stub answers
+    // with a **teamless** project, which `canReadProject` admits for the whole workspace before it
+    // looks at the reader — so the access filter is a pass-through here and these cases keep
+    // asserting what they were written to assert: who a body names, and who it names twice.
+    //
+    // Access itself is not testable at this seam and is deliberately not attempted: it is a
+    // property of team and project rows, and a stub that decided it would be asserting its own
+    // answer. `routes/notification-access.test.ts` drives it against a real database.
+    task: {
+      findFirst: async () => ({ project: { id: 'project-1', teamId: null, leadId: null } })
+    },
     workspaceMember: {
       findMany: async (args: WorkspaceMemberFindManyArgs) => {
         const where = args?.where as { userId?: { in?: string[] } } | undefined;

@@ -2,7 +2,7 @@ import type { Prisma, TaskStatus, UserKind } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
-import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
+import { filterUsersWithTaskAccess, taskWhereForAccess, type WorkspaceAccess } from './team-access';
 
 /**
  * Who a notification can be delivered to: a person.
@@ -418,7 +418,17 @@ export async function createTaskMentionNotifications(
     },
     select: { userId: true }
   });
-  const validUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  const notifiableUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  // #57. Membership in the workspace was never the question — being able to open the task is. The
+  // title of the row about to be written is `KEY: Title`, so notifying somebody who then gets a 404
+  // discloses the work by delivering it. Silently, like every other way a mention resolves to
+  // nobody: naming a non-member and naming an agent already write no row, and a body is a place
+  // people write freely rather than a form with a validation message.
+  const validUserIds = await filterUsersWithTaskAccess(tx, {
+    workspaceId: input.workspaceId,
+    taskId: input.task.id,
+    userIds: notifiableUserIds
+  });
   if (!validUserIds.length) return [];
 
   await tx.notification.createMany({

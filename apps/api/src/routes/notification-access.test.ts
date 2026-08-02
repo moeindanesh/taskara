@@ -118,7 +118,78 @@ describe('notification task access', () => {
 
     expect(await inboxKeys(fixture.ownerEmail)).toContain(task.key);
   });
+
+  /**
+   * The write half, asserted against the **table** and never through the inbox.
+   *
+   * Reading these back through `GET /notifications` would prove nothing once the gate above exists:
+   * the row would be hidden either way, and the test would pass with no write-side filter at all.
+   * A row that is written and never shown is still a row — countable, exportable, and there for
+   * whatever reads `Notification` next.
+   */
+  describe('the row is not written in the first place', () => {
+    test('a mention in a description does not notify somebody who cannot open the task', async () => {
+      const task = await createTask('named in a body they cannot read', fixture.projectId, {
+        description: mentionBody([fixture.outsiderId, fixture.insiderId])
+      });
+
+      expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(0);
+      expect(await mentionRowCount(task.id, fixture.insiderId)).toBe(1);
+    });
+
+    test('a mention in a comment does not notify somebody who cannot open the task', async () => {
+      const task = await createTask('named in a comment they cannot read', fixture.projectId);
+
+      await comment(task.key, mentionBody([fixture.outsiderId, fixture.insiderId]));
+
+      expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(0);
+      expect(await mentionRowCount(task.id, fixture.insiderId)).toBe(1);
+    });
+
+    test('a mention on a teamless task still reaches every member', async () => {
+      const task = await createTask('named where everyone can read', fixture.openProjectId, {
+        description: mentionBody([fixture.outsiderId])
+      });
+
+      expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(1);
+    });
+  });
 });
+
+async function comment(idOrKey: string, body: string): Promise<void> {
+  const response = await app.inject({
+    method: 'POST',
+    url: `/tasks/${idOrKey}/comments`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    payload: { body }
+  });
+  expect(response.statusCode).toBe(201);
+}
+
+function mentionRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_mentioned' } });
+}
+
+/**
+ * A body carrying `@`-mentions, in the editor's serialized form.
+ *
+ * Lexical JSON rather than markdown because `extractTaskMentionUserIds` bails unless the body starts
+ * with `{` — a markdown `@name` mentions nobody, and a test written that way would assert zero rows
+ * for a reason that has nothing to do with access.
+ */
+function mentionBody(userIds: string[]): string {
+  return JSON.stringify({
+    root: {
+      type: 'root',
+      children: [{
+        type: 'paragraph',
+        children: userIds.map((userId) => ({
+          type: 'mention', version: 1, text: '@Someone', mentionUserId: userId
+        }))
+      }]
+    }
+  });
+}
 
 async function inboxKeys(email: string): Promise<string[]> {
   const response = await app.inject({
