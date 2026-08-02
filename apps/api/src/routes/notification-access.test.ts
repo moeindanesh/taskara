@@ -187,6 +187,51 @@ describe('notification task access', () => {
       expect(await inboxKeys(fixture.insiderEmail)).toContain(task.key);
     });
 
+    /**
+     * The other path that names one person by hand, and the one place this ticket refuses rather
+     * than drops.
+     *
+     * A mention is dropped silently because a body is somewhere people write freely. A review
+     * request is not: it creates a `TaskReviewRequest` row pointing at that person and moves the
+     * task to IN_REVIEW. Notifying nobody would leave a task parked in review under a reviewer who
+     * was never told and could not open it if they had been — a broken state reported as success.
+     *
+     * 400 is also what assignment already does one file over: `assertTaskRelations` rejects an
+     * assignee who is not on the project's team. Two named-recipient writes, one answer.
+     */
+    test('a review cannot be requested from somebody who cannot open the task', async () => {
+      const task = await createTask('reviewed by someone who could not read it', fixture.projectId);
+
+      const refused = await requestReview(task.key, fixture.outsiderId);
+
+      expect(refused.statusCode).toBe(400);
+      expect((refused.json() as { message: string }).message).toContain('read this task');
+      // The task did not move to IN_REVIEW behind the refusal, and no row was written for them.
+      expect(await prisma.taskReviewRequest.count({ where: { taskId: task.id } })).toBe(0);
+      expect(await reviewRowCount(task.id, fixture.outsiderId)).toBe(0);
+
+      const accepted = await requestReview(task.key, fixture.insiderId);
+      expect(accepted.statusCode).toBe(201);
+      expect(await reviewRowCount(task.id, fixture.insiderId)).toBe(1);
+    });
+
+    test('a review cannot be reassigned to somebody who cannot open the task', async () => {
+      const task = await createTask('handed to a stranger', fixture.projectId);
+      const created = await requestReview(task.key, fixture.insiderId);
+      expect(created.statusCode).toBe(201);
+      const reviewId = (created.json() as { id: string }).id;
+
+      const refused = await app.inject({
+        method: 'PATCH',
+        url: `/reviews/${reviewId}/reassign`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+        payload: { reviewerId: fixture.outsiderId }
+      });
+
+      expect(refused.statusCode).toBe(400);
+      expect(await reviewRowCount(task.id, fixture.outsiderId)).toBe(0);
+    });
+
     test('a status change on a walled-off task writes nothing to a stale subscriber', async () => {
       const task = await createTask('moved, then progressed', fixture.openProjectId);
       await subscribe(task.key, fixture.outsiderEmail);
@@ -234,6 +279,19 @@ function commentedRowCount(taskId: string, userId: string): Promise<number> {
 
 function statusRowCount(taskId: string, userId: string): Promise<number> {
   return prisma.notification.count({ where: { taskId, userId, type: 'task_status_changed' } });
+}
+
+function reviewRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_review_requested' } });
+}
+
+function requestReview(idOrKey: string, reviewerId: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/tasks/${idOrKey}/reviews`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    payload: { reviewerId }
+  });
 }
 
 async function comment(idOrKey: string, body: string): Promise<void> {
