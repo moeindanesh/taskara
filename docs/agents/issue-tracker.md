@@ -487,12 +487,18 @@ They coexist and mean different things. Do not reason from one to another.
 This file is Taskara's own copy. To make a *different* repository's skills read Taskara instead of
 GitHub, five things have to be true in that repo.
 
-**One command.**
+**One command, from your checkout of this repository.** There is no path to substitute — if you can
+read this file, you are already in the right place:
 
 ```bash
-cd /path/to/taskara/plugins/taskara-agent && bun link   # once, to get `taskara` on $PATH
-taskara login
+bun run agent:login
 ```
+
+That links `taskara` onto `$PATH` (idempotent, so re-running is fine) and signs you in. Afterwards
+`taskara` works from any directory, and `bun run` is only needed again if you move the checkout.
+
+Note `bun run` does **not** search parent directories for scripts, so this one is run from the
+repository root rather than from a subdirectory.
 
 `login` signs you in, asks Taskara for a credential for **your own** agent — creating that agent and
 mirroring your team memberships if you have none — stores it in `~/.taskara/credentials.json` at mode

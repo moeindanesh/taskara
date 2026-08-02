@@ -24,6 +24,18 @@ async function main(): Promise<number> {
   // Help comes before configuration on purpose. Someone running `taskara` for the first time has
   // nothing set up yet, and answering "TASKARA_API_URL is required" to a request for the command
   // list is the least useful true thing the program could say.
+  // `login` is dispatched before everything, including the global --help. It runs before readConfig
+  // because it is the command that PRODUCES a configuration — demanding one first would make the fix
+  // for "no credentials" itself require credentials — and before --help because it has its own,
+  // which the global one would otherwise answer instead.
+  if (argv[0] === 'login') {
+    try {
+      return await runLoginCommand(argv.slice(1));
+    } catch (error) {
+      return fail(error);
+    }
+  }
+
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(`${usage}\n`);
     return exitCodes.ok;
@@ -31,16 +43,6 @@ async function main(): Promise<number> {
   if (argv.length === 0) {
     process.stderr.write(`${usage}\n`);
     return exitCodes.usage;
-  }
-
-  // `login` runs before readConfig, and has to: it is the command that produces a configuration, so
-  // demanding one first would make the fix for "no credentials" itself require credentials.
-  if (argv[0] === 'login') {
-    try {
-      return await runLoginCommand(argv.slice(1));
-    } catch (error) {
-      return fail(error);
-    }
   }
 
   let config;
