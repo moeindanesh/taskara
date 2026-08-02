@@ -16,6 +16,8 @@
     "build:menubar": "bun run --filter @taskara/menubar build",
     "release:menubar": "bun run --filter @taskara/menubar release",
     "dev:mattermost": "bun run --filter @taskara/mattermost-bot dev",
+    "agent:provision": "bun plugins/taskara-agent/scripts/setup.ts provision",
+    "agent:setup": "bun plugins/taskara-agent/scripts/setup.ts setup",
     "db:generate": "PRISMA_GENERATE_SKIP_AUTOINSTALL=1 bun prisma generate --schema packages/db/prisma/schema.prisma",
     "db:migrate": "bun prisma migrate dev --schema packages/db/prisma/schema.prisma",
     "db:push": "bun prisma db push --schema packages/db/prisma/schema.prisma",

@@ -487,6 +487,24 @@ They coexist and mean different things. Do not reason from one to another.
 This file is Taskara's own copy. To make a *different* repository's skills read Taskara instead of
 GitHub, five things have to be true in that repo.
 
+**Two commands, and the split is the security model.** Minting a credential is an admin act
+([#29](https://github.com/moeindanesh/taskara/issues/29)); using one is not. So there are two, and a
+teammate only ever runs the second:
+
+```bash
+bun run agent:provision <workspace-slug> <teammate-email>   # an admin, once per person
+bun run agent:setup                                          # each person, on their own machine
+```
+
+`agent:provision` creates the agent User, mirrors its operator's team memberships — the step whose
+absence looks exactly like a bad token — mints one credential, and prints it once. `agent:setup`
+needs no database and no API checkout: it links `taskara` onto `$PATH`, merges the credentials into
+`~/.claude/settings.json` (with a backup, preserving everything already there), and then **proves it
+works** rather than declaring success. An agent that connects but sees no projects gets told that it
+is a team-membership problem, not a token problem.
+
+The rest of this section is what those two commands do, for anyone setting it up by hand.
+
 **1. `taskara` is on `$PATH`.** One command, from the plugin directory:
 
 ```bash
