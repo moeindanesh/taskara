@@ -55,6 +55,7 @@ import {
   canManageProjectPlanning,
   canReadProject,
   memberWorkCountSelect,
+  ownOrSharedViewWhere,
   projectWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
@@ -688,10 +689,7 @@ async function listViews(actor: RequestActor, teamId: string, access: WorkspaceA
     : null;
 
   const views = await prisma.view.findMany({
-    where: {
-      workspaceId: actor.workspace.id,
-      OR: [{ isShared: true }, { ownerId: actor.user.id }]
-    },
+    where: ownOrSharedViewWhere(access),
     orderBy: [{ updatedAt: 'desc' }]
   });
 

@@ -8,6 +8,7 @@ import {
 } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
 import { appendSyncEvent, publishSyncEvent } from '../services/sync';
+import { ownOrSharedViewWhere } from '../services/team-access';
 
 function serializeView(view: {
   id: string;
@@ -36,10 +37,7 @@ export async function registerViewRoutes(app: FastifyInstance): Promise<void> {
     const actor = await getRequestActor(request);
     const query = taskViewQuerySchema.parse(request.query);
     const views = await prisma.view.findMany({
-      where: {
-        workspaceId: actor.workspace.id,
-        OR: [{ isShared: true }, { ownerId: actor.user.id }]
-      },
+      where: ownOrSharedViewWhere({ workspaceId: actor.workspace.id, userId: actor.user.id }),
       orderBy: [{ updatedAt: 'desc' }]
     });
 
