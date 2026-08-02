@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@taskara/db';
 import { updateUserSchema } from '@taskara/shared';
+import { readWorkspaceActivity, redactActivityDependencyPayloads } from '../services/activity-visibility';
 import { logActivity } from '../services/audit';
 import { getRequestActor, getWorkspaceRole } from '../services/actor';
 import { requireSessionUser } from '../services/auth';
@@ -22,6 +23,8 @@ const meUserSelect = {
   updatedAt: true,
   onboardingCompletedAt: true
 };
+
+const ACTIVITY_FEED_LIMIT = 50;
 
 export async function registerSystemRoutes(app: FastifyInstance): Promise<void> {
   app.get('/health', async () => ({ ok: true, service: 'taskara-api' }));
@@ -113,13 +116,14 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
     return { workspace: actor.workspace, user, role, unreadNotifications: notifications };
   });
 
+  /**
+   * The workspace feed, holding only rows this reader may be shown — see
+   * `services/activity-visibility.ts` for why a row is dropped here and a dependency's far end is
+   * blanked rather than dropped.
+   */
   app.get('/activity', async (request) => {
     const actor = await getRequestActor(request);
-    return prisma.activityLog.findMany({
-      where: { workspaceId: actor.workspace.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      include: { actor: { select: { id: true, name: true, email: true, avatarUrl: true } } }
-    });
+    const access = await resolveWorkspaceAccess(actor);
+    return redactActivityDependencyPayloads(access, await readWorkspaceActivity(access, ACTIVITY_FEED_LIMIT));
   });
 }
