@@ -111,6 +111,25 @@ describe('task subscription', () => {
     expect(await notificationCount(task.id, 'task_commented')).toBe(0);
   });
 
+  /**
+   * Issue #55 — the same question, asked about the other body a task has.
+   *
+   * `addTaskComment` never scanned the comment body, so a mention there notified nobody in any
+   * client. These live here rather than in a file of their own because every question #55 had to
+   * answer is a question about *watching*: whether being named puts you on the list, and whether a
+   * mute you already recorded survives being named. The description twin is directly above, and a
+   * refactor that breaks one should break both without having to find two files.
+   */
+  describe('a mention in a comment', () => {
+    test('reaches the person it names', async () => {
+      const task = await createTask('a question for somebody not yet involved');
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+    });
+  });
+
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {
     const task = await createTask('muted, then handed over');
     expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);

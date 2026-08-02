@@ -168,7 +168,8 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
       actorUserId: actor.user.id,
       actorName: actor.user.name,
       attribution: attributedTo(actor),
-      task
+      task,
+      body: task.description
     });
     if (task.assigneeId && task.assigneeId !== actor.user.id) {
       await tx.notification.create({
@@ -486,7 +487,8 @@ export async function updateTask(
         actorName: actor.user.name,
         attribution: attributedTo(actor),
         task,
-        previousDescription: existing.description
+        body: task.description,
+        previousBody: existing.description
       });
     }
 
@@ -770,6 +772,14 @@ export async function addTaskComment(
       }
     });
     const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    await createTaskMentionNotifications(tx, {
+      workspaceId: actor.workspace.id,
+      actorUserId: actor.user.id,
+      actorName: actor.user.name,
+      attribution: attributedTo(actor),
+      task: updatedTask,
+      body: comment.body
+    });
     await createTaskSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,

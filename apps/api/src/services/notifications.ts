@@ -229,11 +229,12 @@ function notificationTimestamp(value: Date | string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-type MentionNotificationTask = {
+/** What the automatic path needs off a task to know who is already involved in it. */
+type ParticipantNotificationTask = {
   id: string;
-  key: string;
-  title: string;
   description?: string | null;
+  assigneeId?: string | null;
+  reporterId?: string | null;
 };
 
 type SubscriberNotificationTask = {
@@ -299,7 +300,7 @@ export async function subscribeTaskParticipants(
   tx: Prisma.TransactionClient,
   input: {
     workspaceId: string;
-    task: MentionNotificationTask & { assigneeId?: string | null; reporterId?: string | null };
+    task: ParticipantNotificationTask;
     userIds?: Array<string | null | undefined>;
   }
 ): Promise<string[]> {
@@ -354,6 +355,19 @@ export async function createTaskSubscriberNotifications(
   return recipientIds;
 }
 
+/**
+ * Tell whoever a body names that they were named.
+ *
+ * The subject is the **body**, not the task's description — #55. A task has two of them: the
+ * description, which is revised, and a comment, which is written once. Both are bodies a person can
+ * be addressed in, and passing the text explicitly is what lets one rule serve both rather than one
+ * rule serving the field it happened to be written for.
+ *
+ * `previousBody` is what that same text said before this write, so re-saving a description does not
+ * re-notify everyone still named in it. A comment has no previous version — there is no edit route
+ * — so it omits the argument and every mention in it is new, which is right: a second comment
+ * naming you is a second time you were addressed.
+ */
 export async function createTaskMentionNotifications(
   tx: Prisma.TransactionClient,
   input: {
@@ -361,14 +375,15 @@ export async function createTaskMentionNotifications(
     actorUserId: string;
     actorName: string;
     attribution: ActorAttribution;
-    task: MentionNotificationTask;
-    previousDescription?: string | null;
+    task: SubscriberNotificationTask;
+    body?: string | null;
+    previousBody?: string | null;
   }
 ): Promise<string[]> {
-  const currentMentions = extractTaskMentionUserIds(input.task.description);
+  const currentMentions = extractTaskMentionUserIds(input.body);
   if (!currentMentions.length) return [];
 
-  const previousMentions = new Set(extractTaskMentionUserIds(input.previousDescription));
+  const previousMentions = new Set(extractTaskMentionUserIds(input.previousBody));
   const mentionedUserIds = currentMentions.filter(
     (userId) => userId !== input.actorUserId && !previousMentions.has(userId)
   );
