@@ -146,6 +146,11 @@ A blocker can live in a project your credential cannot read. `task view` prints 
 number of things in the way. Treat a `null` as blocking: it is real work, and the only thing you are
 missing is permission to name it. Ask the person who owns that team.
 
+The workspace activity feed behind `report_weekly` is filtered the other way — a row about work your
+credential cannot read is **dropped**, not marked. So `recentActivity` is "what happened in work you
+can see", never a complete history of the workspace, and a quiet week there may just mean a quiet
+week in your projects. Do not read an empty feed as nothing having happened.
+
 ### Bodies
 
 `--body-file -` reads the body from stdin. Use it for anything long: an effort body is tens of
