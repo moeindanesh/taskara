@@ -1,4 +1,11 @@
-import { taskKinds, taskPriorities, taskStatuses, userKinds, workspaceRoles } from '@taskara/shared';
+import {
+  taskKinds,
+  taskPriorities,
+  taskStatuses,
+  taskSubscriptionFilters,
+  userKinds,
+  workspaceRoles
+} from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
 import {
@@ -15,6 +22,8 @@ import {
   resolveProjectId,
   resolveTaskId,
   resolveUserId,
+  subscribeToTask,
+  unsubscribeFromTask,
   updateTask,
   type CreateProjectInput,
   type CreateTaskInput,
@@ -41,7 +50,9 @@ const taskVerbs: Record<string, Handler> = {
   edit: taskEdit,
   claim: taskClaim,
   comment: taskComment,
-  close: taskClose
+  close: taskClose,
+  subscribe: taskSubscribe,
+  unsubscribe: taskUnsubscribe
 };
 
 const projectVerbs: Record<string, Handler> = {
@@ -79,6 +90,7 @@ export const usage = `taskara <noun> <verb> [arguments]
   task list     [--parent <key|id|none>] [--status unfinished|S,S]
                 [--assignee <id|email>|none|me]
                 [--blockers none|any] [--label <name>|none] [--kind WORK|EFFORT]
+                [--subscription watching|muted]
                 [--project <keyPrefix|id>] [--sort createdAt:asc] [--query <s>] [--team <slug>]
                 [--limit n] [--offset n]
   task edit     <key|id> [--add-label L] [--remove-label L] [--add-blocker K] [--remove-blocker K]
@@ -88,6 +100,8 @@ export const usage = `taskara <noun> <verb> [arguments]
   task claim    <key|id>
   task comment  <key|id> [--body <s> | --body-file <path|->]
   task close    <key|id> [--reason completed|canceled]
+  task subscribe   <key|id>
+  task unsubscribe <key|id>
 
   project list   [--include-archived]
   project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
@@ -97,6 +111,11 @@ export const usage = `taskara <noun> <verb> [arguments]
 
 A person is addressed by id or by email — never by name, which carries no unique constraint.
 "user list" is how you find either. Agents are in the roster too, marked by their kind.
+
+"task unsubscribe" sticks: being mentioned or assigned again will not put you back on the list.
+"task subscribe" is how you undo it. Find either set with "task list --subscription watching|muted".
+An agent may unsubscribe — it changes nothing, since agents receive no notifications — but may not
+subscribe, and is told so rather than quietly succeeding.
 
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
@@ -165,6 +184,7 @@ async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandRes
     kind: flags.oneOf('kind', taskKinds),
     label: flags.get('label'),
     blockers: flags.oneOf('blockers', ['none', 'any'] as const),
+    subscription: flags.oneOf('subscription', taskSubscriptionFilters),
     sort: flags.get('sort'),
     teamId: flags.get('team'),
     q: flags.get('query'),
@@ -282,6 +302,35 @@ async function taskClose(client: TaskaraClient, flags: Flags, positionals: strin
 
   const task = await updateTask(client, key, { status: closeReasons[reason] });
   return { data: taskSummary(task), note: `Closed ${task.key} as ${reason}` };
+}
+
+/**
+ * Watching a task, and deliberately not watching it.
+ *
+ * Two verbs rather than `task edit --watch true|false`, because this is the caller's own
+ * relationship to the task and not a field on the shared row: two people hold different answers at
+ * the same moment, and `task edit` writes what everybody sees.
+ *
+ * `unsubscribe` **sticks**. It is not "remove my row" but "I have decided not to watch this", and
+ * the next mention or assignment will not undo it — otherwise it would be a verb that reports
+ * success and stops working an hour later. `subscribe` is the withdrawal of that decision.
+ */
+async function taskSubscribe(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
+  const key = requireTaskRef(positionals, 'task subscribe');
+  flags.assertNoUnknown();
+
+  const result = await subscribeToTask(client, key);
+  return { data: result, note: `Watching ${key}` };
+}
+
+async function taskUnsubscribe(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
+  const key = requireTaskRef(positionals, 'task unsubscribe');
+  flags.assertNoUnknown();
+
+  await unsubscribeFromTask(client, key);
+  // The server answers 204, so there is no body to relay. Printing the state the caller now holds
+  // keeps stdout a JSON document for every verb rather than "usually, except this one".
+  return { data: { state: 'muted' }, note: `No longer watching ${key}` };
 }
 
 /**

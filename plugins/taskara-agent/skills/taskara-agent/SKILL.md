@@ -41,13 +41,16 @@ taskara task view     <key|id> [--comments]
 taskara task list     [--parent <key|id|none>] [--status unfinished|S,S]
                       [--assignee <id|email>|none|me]
                       [--blockers none|any] [--label <name>|none] [--project <keyPrefix|id>]
-                      [--kind WORK|EFFORT] [--sort createdAt:asc] [--query <s>] [--limit n]
+                      [--kind WORK|EFFORT] [--subscription watching|muted]
+                      [--sort createdAt:asc] [--query <s>] [--limit n]
 taskara task edit     <key|id> [--add-label L] [--remove-label L]
                       [--add-blocker K] [--remove-blocker K] [--add-assignee <id|email>]
                       [...fields] [--base-version n]
 taskara task claim    <key|id>
 taskara task comment  <key|id> [--body <s> | --body-file <path|->]
 taskara task close    <key|id> [--reason completed|canceled]
+taskara task subscribe   <key|id>
+taskara task unsubscribe <key|id>
 
 taskara project list  [--include-archived]
 taskara project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
@@ -102,6 +105,19 @@ effort, and treat exit 5 as "pick a different ticket" — never as "the claim lo
 
 It is deliberately not idempotent. Re-claiming a task you already hold also exits 5, because "you
 hold this" and "you just took this" are different answers.
+
+### Watching
+
+Reporting a task, being assigned one, or being mentioned in a body subscribes you to it. `taskara
+task unsubscribe <key>` stops that, and it **sticks**: being mentioned or assigned again will not
+put you back on the list. `taskara task subscribe <key>` withdraws the decision.
+
+`taskara task list --subscription watching` is what you are notified about; `--subscription muted`
+is what you silenced, which is the only way to find a decision you made months ago.
+
+An agent may unsubscribe — harmlessly, since agents receive no notifications at all — but
+`task subscribe` under an agent credential exits **6** and says why. Find work with the frontier
+query above, not with an inbox.
 
 ### Labels and blockers
 

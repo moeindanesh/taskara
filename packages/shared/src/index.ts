@@ -717,8 +717,9 @@ export const taskBlockerFilterSchema = z.enum(['none', 'any']);
  * has decided anything" — that is almost every task in the workspace, and a filter for it would be
  * a slower way of asking for the list you already have.
  */
-export const taskSubscriptionFilterSchema = z.enum(['watching', 'muted']);
-export type TaskSubscriptionFilterValue = z.infer<typeof taskSubscriptionFilterSchema>;
+export const taskSubscriptionFilters = ['watching', 'muted'] as const;
+export const taskSubscriptionFilterSchema = z.enum(taskSubscriptionFilters);
+export type TaskSubscriptionFilterValue = (typeof taskSubscriptionFilters)[number];
 
 /**
  * A closed set rather than a free `field:direction` parser: every value here has to stay cheap to
