@@ -1,3 +1,4 @@
+import { readStoredCredentials } from '../cli/login';
 import { configError } from './errors';
 
 export const agentRuntimes = ['CLAUDE_CODE', 'CODEX', 'OPENCLAW', 'HERMES'] as const;
@@ -18,24 +19,35 @@ export interface TaskaraConfig {
 }
 
 /**
- * Read the configuration from the environment.
+ * Read the configuration from the environment, falling back to what `taskara login` stored.
  *
  * Two authentication paths, and the token wins. #29 gave agents a credential of their own and #38
  * closed the email header to them, so an agent that sets both is still an agent; a human running MCP
  * in conversation has only the email. Requiring neither is a config error rather than a 401 later,
  * because the fix is in a file the caller controls and saying so early costs a round trip less.
+ *
+ * **The environment wins over the stored file, field by field.** CI sets variables and has no home
+ * directory worth writing to; a laptop runs `login` once and sets nothing. Preferring the file would
+ * make a machine that had ever logged in ignore the variables its pipeline sets, which is the
+ * failure that takes longest to see.
  */
 export function readConfig(env: Record<string, string | undefined> = process.env): TaskaraConfig {
-  const apiUrl = optional(env.TASKARA_API_URL);
-  if (!apiUrl) throw configError('TASKARA_API_URL is required');
+  const stored = readStoredCredentials();
 
-  const workspaceSlug = optional(env.TASKARA_WORKSPACE_SLUG);
-  if (!workspaceSlug) throw configError('TASKARA_WORKSPACE_SLUG is required');
+  const apiUrl = optional(env.TASKARA_API_URL) ?? stored?.apiUrl;
+  if (!apiUrl) throw configError('TASKARA_API_URL is required — or run `taskara login`');
 
-  const token = optional(env.TASKARA_AGENT_TOKEN);
+  const workspaceSlug = optional(env.TASKARA_WORKSPACE_SLUG) ?? stored?.workspaceSlug;
+  if (!workspaceSlug) throw configError('TASKARA_WORKSPACE_SLUG is required — or run `taskara login`');
+
+  // Only honour the stored token for the workspace it was issued against: a credential is scoped to
+  // one workspace, so pairing it with a different slug would send a key to a door it cannot open and
+  // report the 403 as if the workspace were wrong.
+  const storedToken = stored && stored.workspaceSlug === workspaceSlug ? stored.token : undefined;
+  const token = optional(env.TASKARA_AGENT_TOKEN) ?? storedToken;
   const userEmail = optional(env.TASKARA_USER_EMAIL);
   if (!token && !userEmail) {
-    throw configError('Set TASKARA_AGENT_TOKEN (an agent credential) or TASKARA_USER_EMAIL');
+    throw configError('Run `taskara login`, or set TASKARA_AGENT_TOKEN or TASKARA_USER_EMAIL');
   }
 
   return {

@@ -84,6 +84,8 @@ const nouns: Record<string, Record<string, Handler>> = {
 
 export const usage = `taskara <noun> <verb> [arguments]
 
+  login         [--api-url <url>] [--workspace <slug>] [--email <address>]
+
   task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                 [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                 [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]

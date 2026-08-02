@@ -487,23 +487,36 @@ They coexist and mean different things. Do not reason from one to another.
 This file is Taskara's own copy. To make a *different* repository's skills read Taskara instead of
 GitHub, five things have to be true in that repo.
 
-**Two commands, and the split is the security model.** Minting a credential is an admin act
-([#29](https://github.com/moeindanesh/taskara/issues/29)); using one is not. So there are two, and a
-teammate only ever runs the second:
+**One command.**
 
 ```bash
-bun run agent:provision <workspace-slug> <teammate-email>   # an admin, once per person
-bun run agent:setup                                          # each person, on their own machine
+cd /path/to/taskara/plugins/taskara-agent && bun link   # once, to get `taskara` on $PATH
+taskara login
 ```
 
-`agent:provision` creates the agent User, mirrors its operator's team memberships — the step whose
-absence looks exactly like a bad token — mints one credential, and prints it once. `agent:setup`
-needs no database and no API checkout: it links `taskara` onto `$PATH`, merges the credentials into
-`~/.claude/settings.json` (with a backup, preserving everything already there), and then **proves it
-works** rather than declaring success. An agent that connects but sees no projects gets told that it
-is a team-membership problem, not a token problem.
+`login` signs you in, asks Taskara for a credential for **your own** agent — creating that agent and
+mirroring your team memberships if you have none — stores it in `~/.taskara/credentials.json` at mode
+600, and then proves it works by counting what the agent can see. No admin has to be involved and no
+token is ever pasted anywhere.
 
-The rest of this section is what those two commands do, for anyone setting it up by hand.
+Your password is never stored: it buys one session, the session buys the credential, and the session
+is deleted before the command returns.
+
+`POST /agent-credentials/self` is deliberately **not** admin-gated. An agent minted this way carries
+`operatorId = you` and sits on exactly your teams, so it reaches nothing you cannot — it is a second
+key to your own door. Minting one for *somebody else* is still an admin act, on the original route.
+A credential cannot call it at all, so a leaked token still cannot mint a successor.
+
+The environment always wins over the stored file, field by field, so CI keeps setting variables and a
+laptop stops having to.
+
+For provisioning somebody else — a shared machine, a bot account — the admin path is still there:
+
+```bash
+bun run agent:provision <workspace-slug> <teammate-email>
+```
+
+The rest of this section is what those commands do, for anyone setting it up by hand.
 
 **1. `taskara` is on `$PATH`.** One command, from the plugin directory:
 

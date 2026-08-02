@@ -112,6 +112,96 @@ describe('agent credential routes', () => {
     });
   });
 
+  /**
+   * The self-service half. Admin-only minting was the whole reason setting an agent up needed
+   * somebody else's attention and a token pasted into a chat window.
+   */
+  describe('minting your own', () => {
+    test('a plain member gets a credential, and an agent that did not exist', async () => {
+      const fixture = await createFixture();
+
+      const response = await injectAs(fixture, 'operator', {
+        method: 'POST',
+        url: '/agent-credentials/self',
+        payload: { name: 'laptop' }
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().token).toBeTruthy();
+
+      const agent = await prisma.user.findFirstOrThrow({
+        where: { kind: 'AGENT', operatorId: fixture.operator.id }
+      });
+      // It acts for this person and nobody else — that is what makes self-service not an escalation.
+      expect(agent.operatorId).toBe(fixture.operator.id);
+      const membership = await prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: fixture.workspace.id, userId: agent.id } }
+      });
+      expect(membership?.role).toBe('MEMBER');
+    });
+
+    test('asking twice reuses the one agent and issues a second credential', async () => {
+      const fixture = await createFixture();
+
+      const first = await injectAs(fixture, 'operator', {
+        method: 'POST', url: '/agent-credentials/self', payload: { name: 'laptop' }
+      });
+      const second = await injectAs(fixture, 'operator', {
+        method: 'POST', url: '/agent-credentials/self', payload: { name: 'desktop' }
+      });
+
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(201);
+      expect(first.json().token).not.toBe(second.json().token);
+      // One agent per operator (#20) — a second machine is a second key, not a second identity.
+      expect(await prisma.user.count({ where: { kind: 'AGENT', operatorId: fixture.operator.id } })).toBe(1);
+      expect(await prisma.agentCredential.count({ where: { userId: first.json().agent.id } })).toBe(2);
+    });
+
+    test('the agent inherits exactly the operator\'s teams, and no others', async () => {
+      const fixture = await createFixture();
+      const mine = await prisma.team.create({
+        data: { workspaceId: fixture.workspace.id, name: 'Mine', slug: `mine-${Date.now()}` }
+      });
+      const theirs = await prisma.team.create({
+        data: { workspaceId: fixture.workspace.id, name: 'Theirs', slug: `theirs-${Date.now()}` }
+      });
+      await prisma.teamMember.create({ data: { teamId: mine.id, userId: fixture.operator.id } });
+
+      const response = await injectAs(fixture, 'operator', {
+        method: 'POST', url: '/agent-credentials/self', payload: { name: 'laptop' }
+      });
+      expect(response.statusCode).toBe(201);
+
+      const agentTeams = await prisma.teamMember.findMany({
+        where: { userId: response.json().agent.id },
+        select: { teamId: true }
+      });
+      expect(agentTeams.map((row) => row.teamId)).toEqual([mine.id]);
+      expect(agentTeams.map((row) => row.teamId)).not.toContain(theirs.id);
+    });
+
+    test('a credential cannot mint a successor, which is what kept a leak from lasting', async () => {
+      const fixture = await createFixture();
+      const issued = await injectAs(fixture, 'operator', {
+        method: 'POST', url: '/agent-credentials/self', payload: { name: 'laptop' }
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/agent-credentials/self',
+        headers: {
+          'x-workspace-slug': fixture.workspace.slug,
+          authorization: `Bearer ${issued.json().token}`
+        },
+        payload: { name: 'successor' }
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(await prisma.agentCredential.count({ where: { userId: issued.json().agent.id } })).toBe(1);
+    });
+  });
+
   describe('authenticating', () => {
     test('resolves to the agent user, in its workspace, with agent provenance', async () => {
       const fixture = await createFixture();

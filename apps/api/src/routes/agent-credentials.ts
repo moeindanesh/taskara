@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type AgentCredential } from '@taskara/db';
-import { createAgentCredentialSchema } from '@taskara/shared';
-import { requireWorkspaceAdmin } from '../services/actor';
+import { createAgentCredentialSchema, selfAgentCredentialSchema } from '@taskara/shared';
+import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { mintAgentCredentialToken } from '../services/agent-credential';
 import { logActivity } from '../services/audit';
 import { HttpError } from '../services/http';
@@ -60,6 +60,99 @@ export async function registerAgentCredentialRoutes(app: FastifyInstance): Promi
     });
 
     // `serializeCredential` carries no secret material, so neither does the audit trail.
+    await logActivity({
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
+      entityType: 'agent_credential',
+      entityId: created.id,
+      action: 'issued',
+      after: serializeCredential(created),
+      source: actor.source
+    });
+
+    return reply.code(201).send({ ...serializeCredential(created), token: minted.token });
+  });
+
+  /**
+   * Mint a credential for **your own** agent, creating the agent if you have none.
+   *
+   * Not admin-gated, and that is the decision rather than an oversight. #29 made every route here
+   * admin-only on the reasoning that minting is a privileged act — true when you are minting for
+   * somebody else, and false here. An agent created this way carries `operatorId = you` and is put
+   * on exactly the teams you are on, so it can reach nothing you cannot; the credential is a second
+   * key to your own door, not a wider one.
+   *
+   * What that buys is the entire setup experience. Admin-only meant every teammate needed an admin's
+   * attention and a token handed over in a chat message — which is both a bottleneck and the worst
+   * possible place to put a secret. This makes `taskara login` a thing one person can do alone.
+   *
+   * A credential still may not call this: `getRequestActor` yields `credential` on that path and it
+   * is refused below, so a leaked token cannot mint a successor. That was #29's real protection and
+   * it is untouched.
+   */
+  app.post('/agent-credentials/self', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    if (actor.credential) {
+      throw new HttpError(403, 'An agent credential cannot mint another. Sign in as yourself.');
+    }
+    if (actor.user.kind !== 'HUMAN') {
+      throw new HttpError(403, 'Only a person can own an agent.');
+    }
+    const input = selfAgentCredentialSchema.parse(request.body ?? {});
+
+    const agent = await prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findFirst({
+        where: { kind: 'AGENT', operatorId: actor.user.id },
+        select: { id: true, name: true, email: true }
+      });
+      const row = existing ?? await tx.user.create({
+        // Derived from the operator's id rather than their email: an email can change, and the
+        // address is only ever an internal handle for a row nobody signs in as.
+        data: {
+          email: `agent+${actor.user.id.slice(0, 8)}@${actor.workspace.slug}.agent`,
+          name: `${actor.user.name} (agent)`,
+          kind: 'AGENT',
+          operatorId: actor.user.id
+        },
+        select: { id: true, name: true, email: true }
+      });
+
+      await tx.workspaceMember.upsert({
+        where: { workspaceId_userId: { workspaceId: actor.workspace.id, userId: row.id } },
+        update: {},
+        create: { workspaceId: actor.workspace.id, userId: row.id, role: 'MEMBER' }
+      });
+
+      // Mirror the operator's teams. Without this the agent is a workspace member on no team, which
+      // reads as an empty workspace and is indistinguishable from a rejected token.
+      const teams = await tx.teamMember.findMany({
+        where: { userId: actor.user.id, team: { workspaceId: actor.workspace.id } },
+        select: { teamId: true }
+      });
+      for (const { teamId } of teams) {
+        const already = await tx.teamMember.findFirst({ where: { teamId, userId: row.id } });
+        if (!already) await tx.teamMember.create({ data: { teamId, userId: row.id } });
+      }
+
+      return row;
+    });
+
+    const minted = mintAgentCredentialToken();
+    const created = await prisma.agentCredential.create({
+      data: {
+        workspaceId: actor.workspace.id,
+        userId: agent.id,
+        name: input.name,
+        lookupId: minted.lookupId,
+        tokenHash: minted.tokenHash,
+        scope: 'READ_WRITE',
+        createdById: actor.user.id
+      },
+      include: { agent: { select: { id: true, name: true, email: true } } }
+    });
+
     await logActivity({
       workspaceId: actor.workspace.id,
       actorId: actor.user.id,

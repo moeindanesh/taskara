@@ -151,6 +151,15 @@ export const createUserSchema = z.object({
   operatorId: z.string().uuid().optional()
 });
 
+/**
+ * Minting a credential for your own agent. No `userId` and no `scope`, on purpose: the agent is
+ * whichever one this operator already owns, and the grant is the operator's own reach. A caller who
+ * could choose either would be choosing them for somebody else, which is the admin route.
+ */
+export const selfAgentCredentialSchema = z.object({
+  name: z.string().trim().min(1).max(120).default('cli')
+});
+
 export const createAgentCredentialSchema = z.object({
   userId: z.string().uuid(),
   name: z.string().trim().min(1).max(120),

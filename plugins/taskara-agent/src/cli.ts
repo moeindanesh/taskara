@@ -3,6 +3,7 @@ import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
 import { TaskaraError, exitCodes, type ExitCode } from './core/errors';
 import { ClaimLostError, StaleWriteError, runCommand, usage } from './cli/commands';
+import { runLoginCommand } from './cli/login-command';
 
 /**
  * `taskara <noun> <verb>` — the tracker surface a skill can actually reach.
@@ -30,6 +31,16 @@ async function main(): Promise<number> {
   if (argv.length === 0) {
     process.stderr.write(`${usage}\n`);
     return exitCodes.usage;
+  }
+
+  // `login` runs before readConfig, and has to: it is the command that produces a configuration, so
+  // demanding one first would make the fix for "no credentials" itself require credentials.
+  if (argv[0] === 'login') {
+    try {
+      return await runLoginCommand(argv.slice(1));
+    } catch (error) {
+      return fail(error);
+    }
   }
 
   let config;
