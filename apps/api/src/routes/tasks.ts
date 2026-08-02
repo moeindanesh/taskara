@@ -23,6 +23,7 @@ import { isNotifiable } from '../services/notifications';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
 import { subscribeToTask, unsubscribeFromTask } from '../services/task-subscriptions';
+import { redactRelatedTasks, relatedTaskAccessInclude } from '../services/task-visibility';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -432,16 +433,24 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
             attachments: { orderBy: { createdAt: 'asc' } }
           }
         },
-        subtasks: { orderBy: { createdAt: 'asc' } },
+        subtasks: { orderBy: { createdAt: 'asc' }, include: relatedTaskAccessInclude },
         // Filtered on the far end of each edge, not on this task. An effort cannot be an endpoint of
         // a blocking edge -- assertBothAreWork refuses one -- so this covers only edges predating
         // that guard, and it costs nothing to keep an effort out of a human's dependencies list.
-        blockingDependencies: { where: { blockedByTask: workTaskWhere }, include: { blockedByTask: true } },
-        blockedTasks: { where: { task: workTaskWhere }, include: { task: true } }
+        blockingDependencies: {
+          where: { blockedByTask: workTaskWhere },
+          include: { blockedByTask: { include: relatedTaskAccessInclude } }
+        },
+        blockedTasks: {
+          where: { task: workTaskWhere },
+          include: { task: { include: relatedTaskAccessInclude } }
+        }
       }
     });
     if (!fullTask) return null;
-    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [serializeTaskForResponse(fullTask)]);
+    const [decoratedTask] = await addTaskProgressStartedAt(actor.workspace.id, [
+      serializeTaskForResponse(redactRelatedTasks(access, fullTask))
+    ]);
     return decoratedTask;
   });
 

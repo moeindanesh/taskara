@@ -157,6 +157,23 @@ export interface TaskaraProjectHealthUpdateListResponse {
 /** WORK is a unit of work; EFFORT is the root of an effort — a map, not something anyone does. */
 export type TaskaraTaskKind = 'WORK' | 'EFFORT';
 
+/**
+ * A task hanging off another task that this reader may not open (#58).
+ *
+ * A blocker, a task being blocked and a subtask are not confined to the project the reader came in
+ * through, so `GET /tasks/:idOrKey` withholds the ones behind a wall. It **redacts rather than
+ * omits**: an edge that disappeared by reader would make a blocked task read as takeable, and the
+ * frontier depends on that being true. One bit survives — whether the hidden task is still in the
+ * way — and there is nothing else to render, not even an id.
+ */
+export interface RedactedTaskRef {
+   redacted: true;
+   open: boolean;
+}
+
+/** The far end of an edge: the task, or the fact that there is one. Ask `lib/takeability.ts`. */
+export type TaskEdgeTarget = { id: string; key: string; title: string; status: string } | RedactedTaskRef;
+
 export interface TaskaraTask {
    id: string;
    key: string;
@@ -228,7 +245,7 @@ export interface TaskaraTask {
    syncMutationId?: string;
    attachments?: TaskaraAttachment[];
    comments?: TaskaraTaskComment[];
-   subtasks?: Array<{ id: string; key: string; title: string; status: string }>;
+   subtasks?: Array<TaskEdgeTarget>;
    /**
     * The dependency edges, both directions, delivered only by `GET /tasks/:idOrKey`.
     *
@@ -242,12 +259,12 @@ export interface TaskaraTask {
     * open; never infer it from membership, or a blocker that was finished last month reads as still
     * in the way. `_count.blockingDependencies` below is the opposite — it *is* filtered to open
     * blockers server-side, which is why the list badge can trust it.
+    *
+    * They are unfiltered by **access** too, and that is also on purpose — a far end this reader may
+    * not open arrives as a {@link RedactedTaskRef} rather than being dropped (#58).
     */
-   blockingDependencies?: Array<{
-      id: string;
-      blockedByTask?: { id: string; key: string; title: string; status: string };
-   }>;
-   blockedTasks?: Array<{ id: string; task?: { id: string; key: string; title: string; status: string } }>;
+   blockingDependencies?: Array<{ id: string; blockedByTask?: TaskEdgeTarget }>;
+   blockedTasks?: Array<{ id: string; task?: TaskEdgeTarget }>;
    labels?: Array<{ label: { id: string; name: string; color?: string } }>;
    _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
 }

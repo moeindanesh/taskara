@@ -3,7 +3,12 @@ import type { RequestActor } from './actor';
 import { attributedTo } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
-import { TASK_BLOCKED_NOTIFICATION_TYPE, createTaskSubscriberNotifications, taskBlockedNotificationBody } from './notifications';
+import {
+  TASK_BLOCKED_NOTIFICATION_TYPE,
+  createTaskSubscriberNotifications,
+  taskBlockedByHiddenNotificationBody,
+  taskBlockedNotificationBody
+} from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { serializeTaskForResponse, taskInclude } from './tasks';
 
@@ -69,7 +74,10 @@ export async function addTaskDependency(
       attribution: attributedTo(actor),
       task: after,
       type: TASK_BLOCKED_NOTIFICATION_TYPE,
-      body: taskBlockedNotificationBody(actor.user.name, blocker.key, blocker.title)
+      body: taskBlockedNotificationBody(actor.user.name, blocker.key, blocker.title),
+      // The one body that names a second task. Watching the blocked task is what earns the row;
+      // reading the blocker is a separate question, and #58 is what made it one.
+      namedTask: { taskId: blocker.id, bodyWithout: taskBlockedByHiddenNotificationBody(actor.user.name) }
     });
 
     const event = await appendDependencySyncEvent(tx, actor, before, after, syncMutation);

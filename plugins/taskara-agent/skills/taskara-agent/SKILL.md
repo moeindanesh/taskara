@@ -140,6 +140,12 @@ not overwrite each other. Both flags repeat, and accept comma-separated lists.
 `--add-blocker K` means *K blocks this task*. Blocker edges are separate rows on separate endpoints,
 so a `task edit` touching both fields and blockers is not one atomic write.
 
+A blocker can live in a project your credential cannot read. `task view` prints **`null`** in
+`blockers` where its key would be, and a subtask you cannot open prints `{ "redacted": true,
+"open": … }` — the entry is kept rather than dropped, so the length of `blockers` is still the
+number of things in the way. Treat a `null` as blocking: it is real work, and the only thing you are
+missing is permission to name it. Ask the person who owns that team.
+
 ### Bodies
 
 `--body-file -` reads the body from stdin. Use it for anything long: an effort body is tens of

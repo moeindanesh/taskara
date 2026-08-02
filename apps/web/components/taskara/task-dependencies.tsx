@@ -17,14 +17,16 @@
  * how humans read them.
  */
 import { Link } from 'react-router-dom';
-import { Lock, Unlock } from 'lucide-react';
+import { EyeOff, Lock, Unlock } from 'lucide-react';
 import { StatusIcon, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { cn } from '@/lib/utils';
 import { fa } from '@/lib/fa-copy';
 import {
    isOpenBlocker,
+   isRedactedBlocker,
    openBlockerCount,
    readTakeability,
+   type BlockerEdgeEntry,
    type BlockerEdgeTask,
    type Takeability,
 } from '@/lib/takeability';
@@ -167,7 +169,7 @@ function DependencyColumn({
    emptyLabel: string;
    icon: React.ReactNode;
    orgId: string;
-   tasks: BlockerEdgeTask[];
+   tasks: BlockerEdgeEntry[];
    title: string;
 }) {
    return (
@@ -177,10 +179,43 @@ function DependencyColumn({
             {title}
          </div>
          {tasks.length ? (
-            tasks.map((item) => <DependencyLine key={item.id} orgId={orgId} task={item} />)
+            tasks.map((item) =>
+               isRedactedBlocker(item) ? (
+                  <RedactedDependencyLine key={item.id} open={item.open} />
+               ) : (
+                  <DependencyLine key={item.id} orgId={orgId} task={item} />
+               )
+            )
          ) : (
             <p className="py-1 text-xs text-zinc-600">{emptyLabel}</p>
          )}
+      </div>
+   );
+}
+
+/**
+ * A far end this reader may not open (#58).
+ *
+ * A line rather than a gap, and this is the whole argument for redacting instead of omitting: a
+ * dependency that is invisible because of who is looking makes a blocked task read as takeable to
+ * exactly the person who cannot find out otherwise. So the row is drawn, counted in the chip above
+ * it, and says what it is — no link, no key, no title, because there are none to show.
+ *
+ * A closed one is struck through like any other resolved blocker, but with no status label beside
+ * it: DONE and CANCELED are the hidden task's business, and the reader is told only that it stopped
+ * being in the way.
+ */
+function RedactedDependencyLine({ open }: { open: boolean }) {
+   return (
+      <div
+         className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1"
+         data-testid="task-dependency-redacted"
+         title={fa.blockers.redactedHint}
+      >
+         <EyeOff className="size-3.5 shrink-0 text-zinc-600" />
+         <span className={cn('min-w-0 truncate text-xs', open ? 'text-zinc-400' : 'text-zinc-600 line-through')}>
+            {fa.blockers.redacted}
+         </span>
       </div>
    );
 }

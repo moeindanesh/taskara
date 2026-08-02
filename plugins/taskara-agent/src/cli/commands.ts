@@ -32,6 +32,7 @@ import {
   type UpdateTaskInput,
   type UserListFilters
 } from '../core/operations';
+import { isRedactedTaskRef } from '../core/types';
 import type { Project, Task, WorkspaceMember } from '../core/types';
 import { Flags, parseArgs, readBody, splitValues } from './args';
 
@@ -564,7 +565,13 @@ export function taskSummary(task: Task): Record<string, unknown> {
     assignee: task.assignee ? { id: task.assignee.id, name: task.assignee.name, email: task.assignee.email } : null,
     labels: task.labels?.map(({ label }) => label.name) ?? [],
     parentId: task.parentId ?? null,
-    blockers: task.blockingDependencies?.map((dependency) => dependency.blockedByTask.key)
+    // `null` for a blocker behind a team wall (#58). The array's *length* is the count of things
+    // in the way, so a hidden one has to occupy a slot — dropping it would report a blocked task
+    // as free to the reader least able to check. There is no key to print, and inventing one
+    // would be worse than a hole that reads as one.
+    blockers: task.blockingDependencies?.map((dependency) =>
+      isRedactedTaskRef(dependency.blockedByTask) ? null : dependency.blockedByTask.key
+    )
       ?? task._count?.blockingDependencies
       ?? 0,
     comments: task._count?.comments ?? task.comments?.length ?? 0
@@ -578,7 +585,11 @@ export function taskDetails(task: Task): Record<string, unknown> {
     createdAt: task.createdAt ?? null,
     updatedAt: task.updatedAt ?? null,
     completedAt: task.completedAt ?? null,
-    subtasks: task.subtasks?.map((subtask) => ({ key: subtask.key, title: subtask.title, status: subtask.status })) ?? [],
+    subtasks: task.subtasks?.map((subtask) =>
+      isRedactedTaskRef(subtask)
+        ? { redacted: true, open: subtask.open }
+        : { key: subtask.key, title: subtask.title, status: subtask.status }
+    ) ?? [],
     commentThread: task.comments?.map((comment) => ({
       body: comment.body,
       createdAt: comment.createdAt,

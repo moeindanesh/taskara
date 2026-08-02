@@ -1,4 +1,4 @@
-import type { TaskBlockersFilter, TaskaraTask } from '@/lib/taskara-types';
+import type { TaskBlockersFilter, TaskEdgeTarget, TaskaraTask } from '@/lib/taskara-types';
 
 /**
  * Whether a task can be picked up, and what is standing in front of it.
@@ -34,13 +34,34 @@ export interface BlockerEdgeTask {
    status: string;
 }
 
+/**
+ * A far end this reader may not open (#58).
+ *
+ * The API redacts it rather than dropping the edge, and the difference is the whole point: an edge
+ * that vanished because of who was asking would make a blocked task read as takeable, to precisely
+ * the person with no way to find out otherwise. So the edge arrives with one bit — whether the
+ * hidden task is still in the way — and no key, title or status to render.
+ *
+ * `id` is the **edge's** id, substituted here because a redacted far end has none and a list still
+ * needs a stable key. It identifies the relationship, which is the part the reader is being told
+ * about on purpose.
+ */
+export interface RedactedBlockerEdge {
+   id: string;
+   redacted: true;
+   open: boolean;
+}
+
+/** Either end state of a dependency edge: the task, or the fact that there is one. */
+export type BlockerEdgeEntry = BlockerEdgeTask | RedactedBlockerEdge;
+
 export interface Takeability {
    /** Blockers still in the way, in the order the API returned them. */
-   openBlockers: BlockerEdgeTask[];
+   openBlockers: BlockerEdgeEntry[];
    /** Blockers that were in the way and are not any more. Shown as history, never hidden. */
-   closedBlockers: BlockerEdgeTask[];
+   closedBlockers: BlockerEdgeEntry[];
    /** Tasks waiting on this one. Unfinished and finished alike — the downstream record. */
-   blocks: BlockerEdgeTask[];
+   blocks: BlockerEdgeEntry[];
    /** Nothing open in front of it. True for a task with no blockers at all. */
    takeable: boolean;
    /**
@@ -52,9 +73,22 @@ export interface Takeability {
    hasDependencies: boolean;
 }
 
-/** Is this blocker still in the way? */
-export function isOpenBlocker(task: { status: string }): boolean {
-   return !closedBlockerStatuses.includes(task.status as (typeof closedBlockerStatuses)[number]);
+/** Whether the far end was withheld — the wire's discriminant, asked in one place. */
+export function isRedactedBlocker(entry: BlockerEdgeEntry): entry is RedactedBlockerEdge {
+   return 'redacted' in entry && entry.redacted;
+}
+
+/**
+ * Is this blocker still in the way?
+ *
+ * A redacted one answers from its own bit, because there is no status to read. Reading a missing
+ * status would call every hidden blocker open, and a task whose only prerequisite was cancelled
+ * behind a wall it cannot see would be unpickable forever — the one-way door this module exists to
+ * keep shut, arriving by a new route.
+ */
+export function isOpenBlocker(entry: { status: string } | RedactedBlockerEdge): boolean {
+   if ('redacted' in entry) return entry.open;
+   return !closedBlockerStatuses.includes(entry.status as (typeof closedBlockerStatuses)[number]);
 }
 
 /**
@@ -63,14 +97,17 @@ export function isOpenBlocker(task: { status: string }): boolean {
  * Tolerates a missing edge target (`blockedByTask` / `task` are optional on the type because a
  * cached row can predate the include) by dropping the edge — an edge with nothing on the far end has
  * nothing to render and must not be counted as a blocker.
+ *
+ * A **redacted** far end is the opposite case and must never be confused with that one: there is
+ * something there, and the only thing missing is permission to name it.
  */
 export function readTakeability(task: TaskaraTask): Takeability {
    const blockers = (task.blockingDependencies ?? [])
-      .map((edge) => edge.blockedByTask)
-      .filter((value): value is BlockerEdgeTask => Boolean(value));
+      .map((edge) => edgeEntry(edge.id, edge.blockedByTask))
+      .filter((value): value is BlockerEdgeEntry => Boolean(value));
    const blocks = (task.blockedTasks ?? [])
-      .map((edge) => edge.task)
-      .filter((value): value is BlockerEdgeTask => Boolean(value));
+      .map((edge) => edgeEntry(edge.id, edge.task))
+      .filter((value): value is BlockerEdgeEntry => Boolean(value));
 
    const openBlockers = blockers.filter(isOpenBlocker);
    const closedBlockers = blockers.filter((blocker) => !isOpenBlocker(blocker));
@@ -82,6 +119,13 @@ export function readTakeability(task: TaskaraTask): Takeability {
       takeable: openBlockers.length === 0,
       hasDependencies: blockers.length > 0 || blocks.length > 0
    };
+}
+
+/** One edge's far end, in whichever of the two states the API delivered it. */
+function edgeEntry(edgeId: string, farEnd: TaskEdgeTarget | undefined): BlockerEdgeEntry | null {
+   if (!farEnd) return null;
+   if ('redacted' in farEnd) return { id: edgeId, redacted: true, open: farEnd.open };
+   return farEnd;
 }
 
 /**
