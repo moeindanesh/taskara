@@ -53,6 +53,22 @@ export function findMentionAttempts(body: string | null | undefined): string[] {
 }
 
 /**
+ * Which of a Task's two bodies a write is landing in.
+ *
+ * They are the same rule and they do **not** have the same explanation, which is the whole reason
+ * this argument exists rather than a default. A description has a writer — a human picking a
+ * colleague out of the web editor's autocomplete — so a caller told «you cannot, the web can» has
+ * somewhere to send the request. A comment has none: the web comment box is a plain `<textarea>`
+ * and the mention-capable editor is mounted on descriptions only (#56). Naming the same writer
+ * there would send a session to ask a human for something no human can do.
+ *
+ * `'description'` covers `task create --body` and `task edit --body`, which both write
+ * `Task.description`. It is spelled for the field and not for the verb so that a fourth writing
+ * surface has to answer the question rather than inherit an answer.
+ */
+export type MentionedBody = 'description' | 'comment';
+
+/**
  * The line a writing surface says back when a body reads as if it addressed somebody.
  *
  * It names the handles rather than only stating the rule, for two reasons: a true one is
@@ -63,8 +79,16 @@ export function findMentionAttempts(body: string | null | undefined): string[] {
  * `reach` is the caller's, because the two shells over this core do not spell the same act the same
  * way: the CLI takes an email on `--add-assignee` while MCP's `assigneeId` is a uuid (#49). One
  * rule, and each surface names verbs its own caller can actually type.
+ *
+ * `into` is the body's, for the reason on `MentionedBody`. The rule is identical in both — nodes,
+ * never a spelling — and only the sentence explaining *who could have written one* differs, so both
+ * sentences live here and neither shell composes its own.
  */
-export function mentionNotice(body: string | null | undefined, reach: string): string | undefined {
+export function mentionNotice(
+  body: string | null | undefined,
+  reach: string,
+  into: MentionedBody
+): string | undefined {
   const attempts = findMentionAttempts(body);
   if (!attempts.length) return undefined;
 
@@ -73,8 +97,16 @@ export function mentionNotice(body: string | null | undefined, reach: string): s
   const listed = rest > 0 ? `${shown} and ${rest} more` : shown;
 
   const reads = attempts.length === 1 ? 'looks like a mention' : 'look like mentions';
-  return `${listed} ${reads} and notified nobody: `
-    + `a mention is a node the web editor writes, and a markdown body carries none. ${reach}`;
+  const rule =
+    into === 'comment'
+      // Not «and a markdown body carries none», which would read as a limit of this surface. The
+      // limit is Taskara's: the rule notifies correctly and nothing can trigger it, so the honest
+      // thing to say is that there is no writer at all rather than to point at a better client.
+      ? 'a mention is a node and no comment box writes one — the web\'s is plain text too, '
+        + 'so a human cannot make one for you.'
+      : 'a mention is a node the web editor writes, and a markdown body carries none.';
+
+  return `${listed} ${reads} and notified nobody: ${rule} ${reach}`;
 }
 
 function isSerializedEditorValue(body: string): boolean {
