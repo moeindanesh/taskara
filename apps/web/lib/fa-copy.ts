@@ -534,6 +534,11 @@ export const fa = {
       filterNone: 'بدون مسدودکنندهٔ باز',
       filterAny: 'دارای مسدودکنندهٔ باز',
       takeableView: 'آماده برداشت',
+      // A far end behind a team wall (#58). Named as a task with an access problem, not as an
+      // error and not as a blank row: the reader is being told something true, and the next move
+      // is to ask whoever owns that team rather than to reload the page.
+      redacted: 'کاری که دسترسی به آن ندارید',
+      redactedHint: 'این کار در تیمی است که عضو آن نیستید. برای دیدنش از مسئول آن تیم دسترسی بگیرید.',
    },
    sync: {
       mutationQueued: 'تغییر ذخیره شد و پس از اتصال دوباره اعمال می‌شود.',
