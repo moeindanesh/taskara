@@ -29,6 +29,7 @@ import {
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
+import { bodyText } from '@/lib/effort-body';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceInboxSync } from '@/lib/inbox-sync';
 import { formatJalaliDateTime } from '@/lib/jalali';
@@ -779,7 +780,16 @@ function CommentTimelineItem({ comment }: { comment: TaskaraTaskComment }) {
                <span className="truncate text-sm font-medium text-zinc-300">{comment.author?.name || fa.app.unknown}</span>
                <span className="shrink-0 text-xs text-zinc-600">{formatJalaliDateTime(comment.createdAt)}</span>
             </div>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-400">{comment.body}</p>
+            {/*
+              Through `bodyText`, for the reason the issue page's twin of this component reads
+              through it — and this is the copy that matters more. #56 keeps `TaskComment.body`
+              plain text, so almost every comment is already the characters somebody typed and the
+              walk hands them straight back. The exception is the one case #55 created a path for:
+              a comment that carries mention nodes, which notifies the person it names and lands
+              them **here**, in the inbox, before they ever open the task. Rendering it raw would
+              greet them with the serialised document instead of the question they were asked.
+            */}
+            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-400">{bodyText(comment.body)}</p>
          </div>
       </div>
    );
