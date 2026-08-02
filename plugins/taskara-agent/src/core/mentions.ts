@@ -1,13 +1,19 @@
 /**
  * What in a body looks like an attempt to address a person — and never does.
  *
- * An @-mention in Taskara is a **mention node** in the rich-text body the web editor writes. The
- * server reads those nodes and nothing else, so a markdown body — which is every body this surface
- * sends — notifies nobody, whatever it says. #53 settled that this stays true: a text spelling
- * would be a second addressing form that only one client can write and no client renders.
+ * An @-mention in Taskara is a **mention node** in a rich-text body. The server reads those nodes
+ * and nothing else, so a markdown body — which is every body this surface sends — notifies nobody,
+ * whatever it says. #53 settled that this stays true: a text spelling would be a second addressing
+ * form that only one client can write and no client renders.
  *
  * So this module exists to end the *silence*, not the rule. A body that reads as if it addressed
  * somebody gets said back to the caller, who can then reach the person by a means that works.
+ *
+ * Which means differs by body, and that is `MentionedBody` below. A description's nodes are written
+ * by a human in the web editor's autocomplete; a comment's are written by nothing at all, because
+ * #56 keeps `TaskComment.body` plain text and the editor is mounted on descriptions only. Telling a
+ * session «the web editor writes those» about a comment would be a true-sounding sentence that
+ * sends it to ask a colleague for something the colleague cannot do either.
  *
  * The bar for firing is deliberately high. A warning that goes off on `@types/node` is one a caller
  * learns to ignore, and an ignored warning is worse than none — it costs a line of stderr on every
