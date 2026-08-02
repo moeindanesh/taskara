@@ -231,6 +231,11 @@ quietly reverting an hour after you use it. `task subscribe` withdraws the decis
 `--subscription` has no third value. A Task nobody has decided anything about is almost every Task in
 the workspace, which is the list you already get without the flag.
 
+**Unsubscribing stops the ambient stream, not being spoken to.** Comments, status changes and body
+edits on a Task you merely watch stop reaching you. Being assigned it, being asked to review it, or
+being `@`-mentioned in it still does — those are addressed to you by name, and none of them puts you
+back on the list either.
+
 **An agent may unsubscribe and may not subscribe.** Unsubscribing succeeds and changes nothing —
 agents receive no notifications at all — so a cleanup script need not know who is running it.
 `task subscribe` under an agent credential **exits 6** and names the reason. Find work with the

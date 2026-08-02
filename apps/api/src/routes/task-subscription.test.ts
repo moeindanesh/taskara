@@ -85,6 +85,42 @@ describe('task subscription', () => {
     expect(await notificationCount(task.id, 'task_commented')).toBe(0);
   });
 
+  /**
+   * What a mute is, and what it deliberately is not.
+   *
+   * It governs the **subscriber fan-out** — the ambient stream of comments, status changes and body
+   * edits on a task you are merely watching. It does not govern being spoken to. Assignment, a
+   * review request and an `@`-mention each write a notification addressed to one person by name, and
+   * silencing those would turn "stop telling me about this task" into "never contact me about this
+   * task again", which nobody asked for and nobody could discover they had done.
+   *
+   * The two halves are pinned together on purpose: the message still arrives, **and** it still does
+   * not put the person back on the fan-out list.
+   */
+  test('a mention still reaches somebody who muted, and still does not re-subscribe them', async () => {
+    const task = await createTask('muted, then mentioned');
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+
+    await patch(task.key, { description: mentionBody(fixture.watcherId) });
+
+    expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+    expect(await subscriptionCount(task.id)).toBe(0);
+
+    // And the fan-out really is still silent for them: somebody else commenting reaches nobody.
+    await comment(task.key, fixture.reporterEmail, 'ambient chatter they opted out of');
+    expect(await notificationCount(task.id, 'task_commented')).toBe(0);
+  });
+
+  test('being assigned a muted task still tells you, because that is addressed to you', async () => {
+    const task = await createTask('muted, then handed over');
+    expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
+
+    await patch(task.key, { assigneeId: fixture.watcherId });
+
+    expect(await notificationCount(task.id, 'task_assigned')).toBe(1);
+    expect(await subscriptionCount(task.id)).toBe(0);
+  });
+
   test('subscribing again is the way back, and it clears the decision not to watch', async () => {
     const task = await createTask('muted, then wanted again', { assigneeId: fixture.watcherId });
     expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(204);
@@ -222,6 +258,25 @@ async function comment(idOrKey: string, email: string, body: string): Promise<vo
     payload: { body }
   });
   expect(response.statusCode).toBe(201);
+}
+
+/**
+ * A description carrying one `@`-mention, in the editor's serialized form.
+ *
+ * Written as Lexical JSON rather than markdown because `extractTaskMentionUserIds` bails unless the
+ * body starts with `{` — the gap #53 owns. A markdown `@name` would yield no mention at all, and
+ * this test would pass without exercising anything.
+ */
+function mentionBody(userId: string): string {
+  return JSON.stringify({
+    root: {
+      type: 'root',
+      children: [{
+        type: 'paragraph',
+        children: [{ type: 'mention', version: 1, text: '@Watcher', mentionUserId: userId }]
+      }]
+    }
+  });
 }
 
 async function addMember(email: string): Promise<{ id: string; email: string }> {

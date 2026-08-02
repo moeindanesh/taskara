@@ -21,6 +21,23 @@ import type { RequestActor } from './actor';
  * not deliver — so no existing reader had to learn anything. What is new is that absence is no
  * longer the *only* way to be un-notified, and only a mute row is a decision.
  *
+ * ## What a mute governs, and what it does not
+ *
+ * It governs the **subscriber fan-out**: the ambient stream of comments, status changes and body
+ * edits on a task you are merely watching. It does not govern being spoken to. Assignment, a review
+ * request and an `@`-mention each write a notification addressed to one person by name, through
+ * `notification.create` rather than `createTaskSubscriberNotifications`, and none of them consults
+ * this. Silencing those would turn "stop telling me about this task" into "never contact me about
+ * this task again" — a much larger promise, made by accident, that the person could not discover
+ * they had made. Pinned by tests in `routes/task-subscription.test.ts`, because the boundary is one
+ * a later refactor could erase by routing an assignment through the fan-out.
+ *
+ * ## Not written to the activity log
+ *
+ * Deliberately. Every other write here logs, but a task's activity feed is read by the whole team,
+ * and "Sara stopped watching this" is a private decision about attention rather than a change to
+ * the work. The person who made it can see it in `?subscription=muted`; nobody else needs to.
+ *
  * Nothing imports from `./notifications` here, so that `subscribeUsersToTask` can import
  * `mutedUserIds` without the two files forming a cycle. The deliberate writes need no
  * `notifiableMemberWhere`: they act on the request actor, who is a member of the workspace by the

@@ -115,6 +115,9 @@ put you back on the list. `taskara task subscribe <key>` withdraws the decision.
 `taskara task list --subscription watching` is what you are notified about; `--subscription muted`
 is what you silenced, which is the only way to find a decision you made months ago.
 
+It stops the ambient stream, not being spoken to: being assigned the task, asked to review it, or
+`@`-mentioned in it still reaches you, and still does not put you back on the list.
+
 An agent may unsubscribe — harmlessly, since agents receive no notifications at all — but
 `task subscribe` under an agent credential exits **6** and says why. Find work with the frontier
 query above, not with an inbox.
