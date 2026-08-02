@@ -1,6 +1,7 @@
 import { taskKinds, taskPriorities, taskStatuses, userKinds, workspaceRoles } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
+import { mentionNotice } from '../core/mentions';
 import {
   addTaskBlocker,
   claimTask,
@@ -98,6 +99,10 @@ export const usage = `taskara <noun> <verb> [arguments]
 A person is addressed by id or by email — never by name, which carries no unique constraint.
 "user list" is how you find either. Agents are in the roster too, marked by their kind.
 
+An @-mention in a body reaches nobody. A mention is a rich-text node the web editor writes and
+every body sent from here is markdown, so address a person with a flag, not in prose. A body that
+looks like it tried is written as given, with a line on stderr naming who was not told.
+
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
 rewrite an Effort's body, which several sessions append to at once.
@@ -125,10 +130,11 @@ export async function runCommand(client: TaskaraClient, argv: string[]): Promise
 }
 
 async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const body = await readBody(flags);
   const input: CreateTaskInput = {
     projectId: await resolveProjectId(client, flags.require('project')),
     title: flags.require('title'),
-    description: await readBody(flags),
+    description: body,
     kind: flags.oneOf('kind', taskKinds),
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
@@ -144,7 +150,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
 
   flags.assertNoUnknown();
   const task = await createTask(client, dropUndefined(input));
-  return { data: taskSummary(task), note: `Created ${task.key}` };
+  return { data: taskSummary(task), note: noted(`Created ${task.key}`, body) };
 }
 
 async function taskView(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -200,9 +206,10 @@ async function taskList(client: TaskaraClient, flags: Flags): Promise<CommandRes
 async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
   const key = requireTaskRef(positionals, 'task edit');
 
+  const body = await readBody(flags);
   const patch: UpdateTaskInput = {
     title: flags.get('title'),
-    description: await readBody(flags),
+    description: body,
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
     dueAt: flags.get('due-at'),
@@ -244,7 +251,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   for (const blocker of addBlockers) await addTaskBlocker(client, key, blocker);
 
   const task = await getTask(client, key);
-  return { data: taskSummary(task), note: `Updated ${task.key}` };
+  return { data: taskSummary(task), note: noted(`Updated ${task.key}`, body) };
 }
 
 async function taskClaim(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -270,7 +277,7 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   if (!body?.trim()) throw usageError('task comment needs --body or --body-file');
 
   const comment = await commentOnTask(client, key, body);
-  return { data: comment, note: `Commented on ${key}` };
+  return { data: comment, note: noted(`Commented on ${key}`, body) };
 }
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;
@@ -423,6 +430,22 @@ function optionalList(values: string[]): string[] | undefined {
  */
 function optionalUserId(client: TaskaraClient, ref: string | undefined): Promise<string | undefined> {
   return ref === undefined ? Promise.resolve(undefined) : resolveUserId(client, ref);
+}
+
+/** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
+const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
+
+/**
+ * The outcome line, and the one thing the write did not do.
+ *
+ * A body that names people notifies none of them — a mention is a node the web editor writes, and
+ * this surface only ever sends markdown (#53). The write still lands: the prose is what a human
+ * reads, and refusing to store a sentence on the strength of a guess about it would leave the
+ * caller no way to write the sentence at all. What it must not do is land in silence.
+ */
+function noted(outcome: string, body: string | undefined): string {
+  const notice = mentionNotice(body, MENTION_REACH);
+  return notice ? `${outcome}\n${notice}` : outcome;
 }
 
 function dropUndefined<T extends object>(value: T): T {
