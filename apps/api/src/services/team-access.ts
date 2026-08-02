@@ -5,6 +5,7 @@ import {
   type WorkspaceRole
 } from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { workTaskWhere } from './measured-work';
 import { HttpError } from './http';
 
 export interface WorkspaceAccess {
@@ -334,6 +335,38 @@ export function knowledgeSpaceWhereForAccess(access: WorkspaceAccess): Prisma.Kn
       { teamId: { in: access.teamIds } },
       { type: 'PROJECT', project: projectWhereForAccess(access) }
     ]
+  };
+}
+
+/**
+ * The per-member rollup the member directory shows, narrowed on **both** axes.
+ *
+ * The measurement axis was swept long ago: `workTaskWhere` appears inside seven `_count` selects,
+ * each with a comment explaining that an outer `where` does not narrow a relation count. The
+ * **access** axis never got the same pass, and that is #59's shape D. `GET /users` and
+ * `/sync/bootstrap` published, for every member of the workspace, how many tasks they hold and how
+ * many comments they have written — counted over every project including the ones the reader cannot
+ * open. Counts only, but a headcount of work behind a wall is still a fact about that work, and
+ * `GET /leaderboard` already puts `taskWhereForAccess` on the identical per-person rollup. Two
+ * places disagreed and one of them was wrong on purpose; this is the other one catching up.
+ *
+ * Consequence, accepted and worth stating: two readers now see **different numbers** beside the same
+ * person. That is the honest answer — "work you can see, held by this person" is a number a reader
+ * can act on, where the old one silently mixed in work they cannot open.
+ *
+ * `assignedTasks` deliberately carries no `workTaskWhere`: an EFFORT cannot hold an `assigneeId` at
+ * all (CHECK `Task_effort_has_no_work_fields`), so a filter there would change no row and would read
+ * as distrust of the constraint. `reportedTasks` does carry it, because `createTask` force-sets
+ * `reporterId` and this count is lifetime — whoever files an effort would otherwise be permanently
+ * +1 in the directory's "reported tasks" column.
+ */
+export function memberWorkCountSelect(access: WorkspaceAccess) {
+  const readable = taskWhereForAccess(access);
+  return {
+    assignedTasks: { where: readable },
+    reportedTasks: { where: { ...readable, ...workTaskWhere } },
+    // A comment has no project of its own; it inherits the one its task lives in.
+    comments: { where: { task: { is: readable } } }
   };
 }
 

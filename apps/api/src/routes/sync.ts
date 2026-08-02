@@ -54,6 +54,7 @@ import {
   assertActorCanAccessTeamSlug,
   canManageProjectPlanning,
   canReadProject,
+  memberWorkCountSelect,
   projectWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
@@ -205,7 +206,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       listMilestonesForSync(actor, access, query.completedWindowDays),
       listProjects(access),
       listTeams(access),
-      listUsers(actor.workspace.id),
+      listUsers(access),
       listViews(actor, query.teamId, access),
       latestCursor(actor.workspace.id)
     ]);
@@ -630,10 +631,10 @@ async function listTeams(access: WorkspaceAccess) {
   });
 }
 
-async function listUsers(workspaceId: string) {
+async function listUsers(access: WorkspaceAccess) {
   // measured-people:allow — Bootstrap roster behind the graph and every picker.
   const members = await prisma.workspaceMember.findMany({
-    where: { workspaceId },
+    where: { workspaceId: access.workspaceId },
     orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
     take: 200,
     include: {
@@ -651,12 +652,11 @@ async function listUsers(workspaceId: string) {
           avatarUrl: true,
           createdAt: true,
           updatedAt: true,
-          // MEASUREMENT — effort excluded from `reportedTasks`. createTask force-sets reporterId,
-          // and this count is lifetime and unfiltered, so whoever files an effort is permanently
-          // +1 in the Members table's "reported tasks" column. `assignedTasks` is deliberately NOT
-          // filtered: an EFFORT cannot hold an assigneeId at all (CHECK Task_effort_has_no_work_
-          // fields), so a filter there would change no row and imply the constraint is not trusted.
-          _count: { select: { assignedTasks: true, reportedTasks: { where: workTaskWhere }, comments: true } }
+          // MEASUREMENT and ACCESS, both, and both explained at `memberWorkCountSelect`. The
+          // offline roster is deliberately workspace-wide; the counts beside it are not, and this
+          // block and `GET /users` are the same block — they now compose the same predicate rather
+          // than being two copies that could drift apart.
+          _count: { select: memberWorkCountSelect(access) }
         }
       }
     }
