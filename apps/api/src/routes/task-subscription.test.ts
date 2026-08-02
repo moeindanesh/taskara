@@ -111,6 +111,101 @@ describe('task subscription', () => {
     expect(await notificationCount(task.id, 'task_commented')).toBe(0);
   });
 
+  /**
+   * Issue #55 — the same question, asked about the other body a task has.
+   *
+   * `addTaskComment` never scanned the comment body, so a mention there notified nobody in any
+   * client. These live here rather than in a file of their own because every question #55 had to
+   * answer is a question about *watching*: whether being named puts you on the list, and whether a
+   * mute you already recorded survives being named. The description twin is directly above, and a
+   * refactor that breaks one should break both without having to find two files.
+   */
+  describe('a mention in a comment', () => {
+    test('reaches the person it names', async () => {
+      const task = await createTask('a question for somebody not yet involved');
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+    });
+
+    /**
+     * One comment is one event, so it is one row — and the mention is the row that survives.
+     *
+     * Both would arrive at the same instant: `createdAt` defaults to `now()`, which in Postgres is
+     * the transaction's start time, so two rows written by one comment carry the *identical*
+     * timestamp. `collapseInboxNotificationsByThread` then keys both to `task:<id>` and breaks the
+     * tie on id — so without this the inbox would show "commented" or "mentioned" at random for the
+     * same event, and the unread badge would count it twice.
+     *
+     * The mention wins because it is the more specific truth: being named is why this comment is
+     * yours to read. Same rule, and the same `excludeUserIds` mechanism, that a description edit
+     * already applies to `task_description_changed`.
+     */
+    test('supersedes the task_commented row rather than arriving beside it', async () => {
+      const task = await createTask('already watching, and now named', { assigneeId: fixture.watcherId });
+
+      // The control. A plain comment on this same task is exactly one ambient row — so if the
+      // assertion below saw zero, it would be because the mention path suppressed it and not
+      // because nothing was listening.
+      await comment(task.key, fixture.reporterEmail, 'ordinary chatter first');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+    });
+
+    /**
+     * Being named in a comment puts you on the list, exactly as being named in a description does.
+     *
+     * A mention in a comment is nearly always a question, and the answer to it is the next comment.
+     * Summoning somebody into a conversation and then not letting them hear it is the same bug this
+     * ticket is about, one message later.
+     */
+    test('puts the person named on the list, so they hear the answer', async () => {
+      const task = await createTask('nothing to do with them until now');
+      expect(await subscriptionCount(task.id)).toBe(0);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+      expect(await subscriptionCount(task.id)).toBe(1);
+
+      await comment(task.key, fixture.reporterEmail, 'and here is the answer to it');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+    });
+
+    /**
+     * A mute does not silence a comment mention — and this is the decision #55 had to make, not a
+     * behaviour inherited by accident.
+     *
+     * A mute governs the ambient stream; being addressed by name is not ambient. Silencing a
+     * comment mention would be the strictest reading of "stop telling me about this task", and it
+     * would make a mute the only way in Taskara to become unreachable by a colleague who is looking
+     * straight at you — a promise nobody asked for and nobody could discover they had made. It
+     * would also be inconsistent one field over, where a mention in a *description* already reaches
+     * a muter (test above).
+     *
+     * What keeps the mute meaningful is the second half: it is one message, not a re-subscription.
+     * They are spoken to once and the ambient stream stays off, so the cost of ignoring a mention
+     * is bounded — which is exactly why the loud half is affordable.
+     */
+    test('reaches somebody who muted, once, and does not put them back on the list', async () => {
+      const task = await createTask('muted, then named in the thread');
+      expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+      expect(await subscriptionCount(task.id)).toBe(0);
+      expect(await muteCount(task.id)).toBe(1);
+
+      // And the stream really is still off: the next comment reaches them not at all.
+      await comment(task.key, fixture.reporterEmail, 'the conversation carries on without them');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(0);
+    });
+  });
+
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {
     const task = await createTask('muted, then handed over');
     expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);

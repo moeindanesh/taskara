@@ -34,7 +34,7 @@ type CreatedSubscription = {
   userId: string;
 };
 
-function serializedDescription(
+function serializedBody(
   mentions: Array<{ userId: string; name?: string; attrs?: boolean }>
 ): string {
   return JSON.stringify({
@@ -158,12 +158,8 @@ describe('task mention notifications', () => {
       actorUserId,
       actorName: 'Raha',
       attribution: humanAttribution('user-actor'),
-      task: {
-        id: 'task-1',
-        key: 'CORE-12',
-        title: 'Mention notification',
-        description: serializedDescription([{ userId: mentionedUserId, name: 'Sara' }])
-      }
+      task: { id: 'task-1', key: 'CORE-12', title: 'Mention notification' },
+      body: serializedBody([{ userId: mentionedUserId, name: 'Sara' }])
     });
 
     expect(mock.createManyCalls).toBe(1);
@@ -193,25 +189,44 @@ describe('task mention notifications', () => {
       actorUserId,
       actorName: 'Raha',
       attribution: humanAttribution('user-actor'),
-      task: {
-        id: 'task-1',
-        key: 'CORE-12',
-        title: 'Mention notification',
-        description: serializedDescription([
-          { userId: actorUserId, name: 'Raha' },
-          { userId: existingMentionUserId, name: 'Sara' },
-          { userId: newMentionUserId, name: 'Navid', attrs: true },
-          { userId: nonMemberUserId, name: 'Outside' }
-        ])
-      },
-      previousDescription: serializedDescription([{ userId: existingMentionUserId, name: 'Sara' }])
+      task: { id: 'task-1', key: 'CORE-12', title: 'Mention notification' },
+      body: serializedBody([
+        { userId: actorUserId, name: 'Raha' },
+        { userId: existingMentionUserId, name: 'Sara' },
+        { userId: newMentionUserId, name: 'Navid', attrs: true },
+        { userId: nonMemberUserId, name: 'Outside' }
+      ]),
+      previousBody: serializedBody([{ userId: existingMentionUserId, name: 'Sara' }])
     });
 
     expect(mock.createManyCalls).toBe(1);
     expect(mock.createdNotifications.map((notification) => notification.userId)).toEqual([newMentionUserId]);
   });
 
-  test('does not create notifications when the description has no mention nodes', async () => {
+  test('with no previous body every mention is new, which is what a comment is', async () => {
+    // #55. `previousBody` exists so that re-saving a description does not re-notify everyone still
+    // named in it — the body is one revised document. A comment is not: there is no edit route, so
+    // each one is its own utterance, and naming the same person in two of them is addressing them
+    // twice. Deduplicating a comment against an earlier comment would silently drop the second
+    // question somebody asked you.
+    const body = serializedBody([{ userId: 'user-sara', name: 'Sara' }]);
+    const input = {
+      workspaceId: 'workspace-1',
+      actorUserId: 'user-actor',
+      actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
+      task: { id: 'task-1', key: 'CORE-12', title: 'Asked twice' },
+      body
+    };
+
+    const first = mockMentionTransaction(['user-sara']);
+    const second = mockMentionTransaction(['user-sara']);
+
+    expect(await createTaskMentionNotifications(first.tx, input)).toEqual(['user-sara']);
+    expect(await createTaskMentionNotifications(second.tx, input)).toEqual(['user-sara']);
+  });
+
+  test('does not create notifications when the body has no mention nodes', async () => {
     const mock = mockMentionTransaction(['user-mentioned']);
 
     await createTaskMentionNotifications(mock.tx, {
@@ -219,12 +234,8 @@ describe('task mention notifications', () => {
       actorUserId: 'user-actor',
       actorName: 'Raha',
       attribution: humanAttribution('user-actor'),
-      task: {
-        id: 'task-1',
-        key: 'CORE-12',
-        title: 'Mention notification',
-        description: 'Plain @Sara text without mention metadata'
-      }
+      task: { id: 'task-1', key: 'CORE-12', title: 'Mention notification' },
+      body: 'Plain @Sara text without mention metadata'
     });
 
     expect(mock.createManyCalls).toBe(0);
@@ -251,18 +262,19 @@ describe('task mention notifications', () => {
       '- [ ] ask @Sara\n\nand @Navid too'
     ];
 
-    for (const description of spellings) {
+    for (const body of spellings) {
       const mock = mockMentionTransaction([mentionedUserId]);
       const recipients = await createTaskMentionNotifications(mock.tx, {
         workspaceId: 'workspace-1',
         actorUserId: 'user-actor',
         actorName: 'Raha',
         attribution: humanAttribution('user-actor'),
-        task: { id: 'task-1', key: 'CORE-12', title: 'Written in markdown', description }
+        task: { id: 'task-1', key: 'CORE-12', title: 'Written in markdown' },
+        body
       });
 
-      expect({ description, recipients, calls: mock.createManyCalls }).toEqual({
-        description,
+      expect({ body, recipients, calls: mock.createManyCalls }).toEqual({
+        body,
         recipients: [],
         calls: 0
       });
@@ -281,12 +293,8 @@ describe('task mention notifications', () => {
       actorUserId: 'user-actor',
       actorName: 'Raha',
       attribution: humanAttribution('user-actor'),
-      task: {
-        id: 'task-1',
-        key: 'CORE-12',
-        title: 'Round-tripped body',
-        description: serializedDescription([{ userId: 'user-sara', name: 'Sara' }])
-      }
+      task: { id: 'task-1', key: 'CORE-12', title: 'Round-tripped body' },
+      body: serializedBody([{ userId: 'user-sara', name: 'Sara' }])
     });
 
     expect(recipients).toEqual(['user-sara']);
@@ -449,12 +457,8 @@ describe('notification recipients are people', () => {
       actorUserId: 'user-actor',
       actorName: 'Actor',
       attribution: { actorId: 'user-actor', actorType: 'USER', actorRuntime: null } as ActorAttribution,
-      task: {
-        id: 'task-1',
-        key: 'CORE-1',
-        title: 'Mentioning somebody',
-        description: serializedDescription([{ userId: 'user-agent', name: 'Claude' }])
-      }
+      task: { id: 'task-1', key: 'CORE-1', title: 'Mentioning somebody' },
+      body: serializedBody([{ userId: 'user-agent', name: 'Claude' }])
     });
 
     expect(capture.seen).toHaveLength(1);

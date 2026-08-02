@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { TaskaraTask } from '@/lib/taskara-types';
 import { editorValueToPlainText } from '@/lib/task-text-ai';
-import { effortBodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from './effort-body';
+import { bodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from './effort-body';
 
 /**
  * The body of `TKR-35` as the editor left it, copied out of the workspace it was measured in.
@@ -57,18 +57,40 @@ describe('recognising a body the editor has already converted', () => {
 
 describe('recovering a converted body', () => {
    test('the measured conversion comes back as the markdown that went in', () => {
-      expect(effortBodyText(convertedBody)).toBe(
+      expect(bodyText(convertedBody)).toBe(
          ['## Heading', '', 'A paragraph with **bold**.', '', '- one', '- two', 'ZZTOP'].join('\n')
       );
    });
 
    test('a body the editor never touched is returned exactly as stored', () => {
-      expect(effortBodyText(mapBody)).toBe(mapBody);
+      expect(bodyText(mapBody)).toBe(mapBody);
    });
 
    test('an empty body is empty rather than absent', () => {
-      expect(effortBodyText(null)).toBe('');
-      expect(effortBodyText('')).toBe('');
+      expect(bodyText(null)).toBe('');
+      expect(bodyText('')).toBe('');
+   });
+
+   test('a mention chip comes back as the handle it renders', () => {
+      // #55 gave the comment thread a reason to walk a body: a comment carrying mention nodes now
+      // notifies the person it names, and the notification lands them on a page that would
+      // otherwise print the whole document at them. A mention is a text node with its own `@Sara`
+      // text, so the walk already recovers it — this pins that, because the comment renderer has no
+      // fallback if it stops being true.
+      const commented = JSON.stringify({
+         root: {
+            type: 'root',
+            children: [{
+               type: 'paragraph',
+               children: [
+                  { type: 'mention', text: '@Sara', mentionName: 'Sara', mentionUserId: 'user-sara' },
+                  { type: 'text', text: ' does this look right to you?' },
+               ],
+            }],
+         },
+      });
+
+      expect(bodyText(commented)).toBe('@Sara does this look right to you?');
    });
 
    test('a body that only looks like a document is never walked for text', () => {
@@ -77,7 +99,7 @@ describe('recovering a converted body', () => {
       const decoy = '{"root":"see the Destination section"}';
 
       expect(editorValueToPlainText(decoy)).toBe('');
-      expect(effortBodyText(decoy)).toBe(decoy);
+      expect(bodyText(decoy)).toBe(decoy);
    });
 });
 

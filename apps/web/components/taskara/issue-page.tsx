@@ -55,7 +55,7 @@ import {
    linearPriorityMeta,
    linearStatusMeta,
 } from '@/components/taskara/linear-ui';
-import { effortBodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from '@/lib/effort-body';
+import { bodyText, isBodyReadOnly, isEditorBody, withoutBodyRewrite } from '@/lib/effort-body';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { editorValueToPlainText, suggestTaskText, type TaskTextSuggestionResult } from '@/lib/task-text-ai';
@@ -517,7 +517,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
       // button. `savingField` also carries a title save, and a restore that silently did nothing
       // while a title was in flight would look like a dead button.
       if (!task || savingField === 'description') return;
-      const restored = effortBodyText(task.description);
+      const restored = bodyText(task.description);
       if (!restored || restored === task.description) return;
 
       setSavingField('description');
@@ -1367,7 +1367,7 @@ function EffortBody({
 }) {
    // Memoised on the body and not on nothing. A converted map is a JSON parse and a tree walk, and
    // this component re-renders on every keystroke in the comment box below it.
-   const body = useMemo(() => effortBodyText(description), [description]);
+   const body = useMemo(() => bodyText(description), [description]);
    const converted = useMemo(() => isEditorBody(description), [description]);
 
    return (
@@ -1544,7 +1544,16 @@ function CommentTimelineItem({ comment }: { comment: TaskaraTaskComment }) {
                   </span>
                   <span className="shrink-0 text-xs text-zinc-500">{formatJalaliDateTime(comment.createdAt)}</span>
                </div>
-               <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-200">{comment.body}</p>
+               {/*
+                  Read through `bodyText` because a comment is not always the plain text this box
+                  writes. #55 made a comment carrying mention nodes notify the person it names, and
+                  a client that sends the editor's own document would otherwise land that person
+                  here in front of the serialised tree. A body nothing converted comes back
+                  byte-identical, so every comment already stored reads exactly as it did.
+               */}
+               <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                  {bodyText(comment.body)}
+               </p>
                <AttachmentList attachments={comment.attachments || []} compact className="mt-2.5" />
             </div>
          </div>

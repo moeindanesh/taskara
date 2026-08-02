@@ -38,6 +38,10 @@ _Avoid_: Open; Active (Today Load's active set is narrower — it drops BACKLOG)
 A Task that must finish before another Task can start, recorded as a dependency edge. A blocker is *open* while it is unfinished. Unrelated to the BLOCKED status, which a person sets by hand.
 _Avoid_: Dependency (that names the edge, not the task)
 
+**Mention** (منشن):
+Being addressed by name inside a body — a Task's description, or a comment on it. A mention is a **node** the rich-text editor writes when a human picks a colleague out of an autocomplete; it is never a spelling, so `@robin`, an email address or a UUID typed as text mentions nobody, in any client. Being mentioned notifies that person, subscribes them to the Task, and *replaces* the ambient notification for the same write rather than arriving beside it — one write is one notification.
+_Avoid_: Tag, @-reference
+
 **Watching** (دنبال‌کردن):
 A person's relationship to one Task, in exactly three states. **Watching** — a `TaskSubscription` row — means the ambient stream of that Task reaches their inbox: comments, status changes, description edits. **Muted** — a `TaskMute` row — is the recorded decision *not* to watch, and it is sticky: reporting, assignment and mentions may not undo it, only the person's own act may. **No decision** is neither row, and it is the default that auto-subscribe is free to fill. Muting stops the ambient stream and never stops being addressed by name — assignment, a review request and a mention still arrive. Only a person watches; an agent is not an audience and holds none of the three.
 _Avoid_: Subscribed (the row and the API path are `subscription`, but the state a human is in is *watching*), Ignored, Following, Unwatched

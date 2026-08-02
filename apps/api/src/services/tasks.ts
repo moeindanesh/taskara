@@ -168,7 +168,8 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
       actorUserId: actor.user.id,
       actorName: actor.user.name,
       attribution: attributedTo(actor),
-      task
+      task,
+      body: task.description
     });
     if (task.assigneeId && task.assigneeId !== actor.user.id) {
       await tx.notification.create({
@@ -486,7 +487,8 @@ export async function updateTask(
         actorName: actor.user.name,
         attribution: attributedTo(actor),
         task,
-        previousDescription: existing.description
+        body: task.description,
+        previousBody: existing.description
       });
     }
 
@@ -770,13 +772,37 @@ export async function addTaskComment(
       }
     });
     const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+    // #55. The mention runs first because its recipients are then excluded from the fan-out: one
+    // comment is one event, and somebody who was named should be told *that*, not that a comment
+    // happened. Both rows would carry the same `createdAt` — Postgres `now()` is the transaction's
+    // start — so leaving both would make the inbox thread show one label or the other at random.
+    // The same ordering, and the same exclusion, that a description edit already uses.
+    const mentionedUserIds = await createTaskMentionNotifications(tx, {
+      workspaceId: actor.workspace.id,
+      actorUserId: actor.user.id,
+      actorName: actor.user.name,
+      attribution: attributedTo(actor),
+      task: updatedTask,
+      body: comment.body
+    });
+    // Named in a comment, and therefore on the list — as on a description. A mention in a comment
+    // is nearly always a question, and the answer to it is the next comment. Subscribed with the
+    // ids that were actually notified rather than with everything the body named, so the two lists
+    // cannot disagree; and through `subscribeUsersToTask`, which is where #54's mute is honoured,
+    // so being spoken to does not quietly undo a decision not to watch.
+    await subscribeUsersToTask(tx, {
+      workspaceId: actor.workspace.id,
+      taskId: task.id,
+      userIds: mentionedUserIds
+    });
     await createTaskSubscriberNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       attribution: attributedTo(actor),
       task: updatedTask,
       type: TASK_COMMENTED_NOTIFICATION_TYPE,
-      body: taskCommentedNotificationBody(actor.user.name)
+      body: taskCommentedNotificationBody(actor.user.name),
+      excludeUserIds: mentionedUserIds
     });
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
