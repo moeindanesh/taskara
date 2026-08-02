@@ -513,7 +513,10 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
     * body on since the page loaded refuses it rather than losing the line.
     */
    async function restoreEffortBody() {
-      if (!task || savingField) return;
+      // Guarded on the description specifically, so the condition matches the one that disables the
+      // button. `savingField` also carries a title save, and a restore that silently did nothing
+      // while a title was in flight would look like a dead button.
+      if (!task || savingField === 'description') return;
       const restored = effortBodyText(task.description);
       if (!restored || restored === task.description) return;
 
@@ -1362,8 +1365,10 @@ function EffortBody({
    restoring: boolean;
    onRestore: () => void;
 }) {
-   const body = effortBodyText(description);
-   const converted = isEditorBody(description);
+   // Memoised on the body and not on nothing. A converted map is a JSON parse and a tree walk, and
+   // this component re-renders on every keystroke in the comment box below it.
+   const body = useMemo(() => effortBodyText(description), [description]);
+   const converted = useMemo(() => isEditorBody(description), [description]);
 
    return (
       <div className="space-y-3">
