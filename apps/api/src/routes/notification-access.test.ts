@@ -232,6 +232,56 @@ describe('notification task access', () => {
       expect(await reviewRowCount(task.id, fixture.outsiderId)).toBe(0);
     });
 
+    /**
+     * The decision half of a review, which does not go through the fan-out: it addresses the
+     * requester and the assignee by name. Both were in reach when they took those roles, and a move
+     * between the request and the decision is enough to make one of them a stranger.
+     */
+    test('a review decision does not report back to a requester the task moved away from', async () => {
+      const task = await createTask('decided after it moved', fixture.openProjectId);
+      const created = await app.inject({
+        method: 'POST',
+        url: `/tasks/${task.key}/reviews`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.outsiderEmail },
+        payload: { reviewerId: fixture.insiderId }
+      });
+      expect(created.statusCode).toBe(201);
+      const reviewId = (created.json() as { id: string }).id;
+
+      await moveToProject(task.key, fixture.projectId);
+      const approved = await app.inject({
+        method: 'POST',
+        url: `/reviews/${reviewId}/approve`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.insiderEmail },
+        payload: {}
+      });
+      expect(approved.statusCode).toBe(200);
+
+      expect(await decidedRowCount(task.id, fixture.outsiderId)).toBe(0);
+    });
+
+    test('a review decision does still report back to a requester who can read the task', async () => {
+      const task = await createTask('decided while everyone could read it', fixture.openProjectId);
+      const created = await app.inject({
+        method: 'POST',
+        url: `/tasks/${task.key}/reviews`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.outsiderEmail },
+        payload: { reviewerId: fixture.insiderId }
+      });
+      expect(created.statusCode).toBe(201);
+      const reviewId = (created.json() as { id: string }).id;
+
+      const approved = await app.inject({
+        method: 'POST',
+        url: `/reviews/${reviewId}/approve`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.insiderEmail },
+        payload: {}
+      });
+      expect(approved.statusCode).toBe(200);
+
+      expect(await decidedRowCount(task.id, fixture.outsiderId)).toBe(1);
+    });
+
     test('a status change on a walled-off task writes nothing to a stale subscriber', async () => {
       const task = await createTask('moved, then progressed', fixture.openProjectId);
       await subscribe(task.key, fixture.outsiderEmail);
@@ -279,6 +329,10 @@ function commentedRowCount(taskId: string, userId: string): Promise<number> {
 
 function statusRowCount(taskId: string, userId: string): Promise<number> {
   return prisma.notification.count({ where: { taskId, userId, type: 'task_status_changed' } });
+}
+
+function decidedRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_review_decided' } });
 }
 
 function reviewRowCount(taskId: string, userId: string): Promise<number> {

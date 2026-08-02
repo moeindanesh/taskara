@@ -602,7 +602,16 @@ async function notifyRequesterOfDecision(
   review: TaskReviewWithRelations,
   body: string
 ): Promise<void> {
-  const recipientIds = [...new Set([review.requesterId, review.task.assigneeId].filter((id): id is string => Boolean(id && id !== actor.user.id)))];
+  const addressed = [...new Set([review.requesterId, review.task.assigneeId].filter((id): id is string => Boolean(id && id !== actor.user.id)))];
+  if (!addressed.length) return;
+  // #57. Both of these people were in reach when they became requester and assignee. A project
+  // change between the request and the decision is enough to make one of them a stranger to the
+  // task, and this row's title is `KEY: Title` like every other.
+  const recipientIds = await filterUsersWithTaskAccess(tx, {
+    workspaceId: actor.workspace.id,
+    taskId: review.taskId,
+    userIds: addressed
+  });
   if (!recipientIds.length) return;
   await tx.notification.createMany({
     data: recipientIds.map((userId) => ({
