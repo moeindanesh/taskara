@@ -11,6 +11,7 @@ import {
   taskKindSchema,
   taskPrioritySchema,
   taskStatusSchema,
+  taskSubscriptionFilterSchema,
   userKindSchema,
   workspaceRoleSchema
 } from '@taskara/shared';
@@ -253,6 +254,8 @@ registerTool('task_search', {
     priority: taskPrioritySchema.optional(),
     label: z.string().max(80).optional().describe('A label name, or "none" for unlabelled'),
     blockers: z.enum(['none', 'any']).optional().describe('Whether the task has an OPEN blocker'),
+    subscription: taskSubscriptionFilterSchema.optional()
+      .describe('The caller\'s own relationship: watching, or deliberately muted'),
     sort: z.enum([
       'createdAt:asc', 'createdAt:desc',
       'updatedAt:asc', 'updatedAt:desc',
@@ -274,6 +277,7 @@ registerTool('task_search', {
     priority: input.priority,
     label: input.label,
     blockers: input.blockers,
+    subscription: input.subscription,
     sort: input.sort,
     mine: input.mine || undefined,
     limit: input.limit,
@@ -385,6 +389,28 @@ registerTool('task_claim', {
   }
   return { task: taskSummary(outcome.task) };
 });
+
+registerTool('task_subscribe', {
+  title: 'Watch a Taskara task',
+  description:
+    'Start receiving notifications about a task, and withdraw any earlier decision not to. Not '
+    + 'available to an agent credential: an agent has no inbox, so it is not an audience for '
+    + 'notifications and finds work by querying the frontier instead.',
+  inputSchema: { task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123') }
+}, async ({ task }) => api.subscribeToTask(client, task));
+
+registerTool('task_unsubscribe', {
+  title: 'Stop watching a Taskara task',
+  description:
+    'Stop receiving notifications about a task. This sticks: being mentioned in it or assigned it '
+    + 'again will not put you back on the list, which is what makes it different from deleting a '
+    + 'row. Use task_subscribe to undo it, and task_search with subscription=muted to find what you '
+    + 'have silenced.',
+  inputSchema: { task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123') }
+  // The state comes back from the server rather than being assumed here: an agent credential
+  // records no decision and is answered `none`, and a hardcoded `muted` would contradict the next
+  // task_search with subscription=muted.
+}, async ({ task }) => ({ task, ...await api.unsubscribeFromTask(client, task) }));
 
 registerTool('task_set_milestone', {
   title: 'Set a Taskara task milestone',

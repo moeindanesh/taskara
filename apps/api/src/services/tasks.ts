@@ -16,6 +16,7 @@ import {
   TASK_STATUS_CHANGED_NOTIFICATION_TYPE,
   createTaskSubscriberNotifications,
   createTaskMentionNotifications,
+  isNotifiable,
   subscribeTaskParticipants,
   subscribeUsersToTask,
   taskAssignedNotificationBody,
@@ -24,6 +25,7 @@ import {
   taskStatusChangedNotificationBody
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
+import { subscribeToTask } from './task-subscriptions';
 import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -639,11 +641,14 @@ export async function claimTask(actor: RequestActor, taskId: string): Promise<Cl
   const task = await findTaskWithInclude(actor.workspace.id, taskId);
   if (count === 0) return { claimed: false, task };
 
-  await subscribeUsersToTask(prisma, {
-    workspaceId: actor.workspace.id,
-    taskId,
-    userIds: [actor.user.id]
-  });
+  // The deliberate path, not the automatic one, and the distinction is the whole of #54's stickiness
+  // rule: a mute survives what *other people* do to a task, and yields to what its owner does. A
+  // claim is the claimant's own act — holding a task while hearing nothing about it is not what
+  // anybody who muted it meant — so this withdraws their mute exactly as an explicit subscribe does.
+  // An agent claiming still gets no subscription: `subscribeToTask` writes one, but #39 keeps agents
+  // out of every fan-out, so the row is inert. Left as it is rather than special-cased, because the
+  // claim path already treats agents and people alike everywhere else.
+  if (isNotifiable(actor.user)) await subscribeToTask(actor, taskId);
 
   const event = await appendSyncEvent(prisma, {
     workspaceId: actor.workspace.id,

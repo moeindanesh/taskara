@@ -1,4 +1,4 @@
-import type { Prisma, TaskStatus } from '@taskara/db';
+import type { Prisma, TaskStatus, UserKind } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
@@ -19,6 +19,18 @@ import { workTaskWhere } from './measured-work';
  * provable; they simply are not an audience for it.
  */
 export const notifiableMemberWhere = { user: { kind: 'HUMAN' } } satisfies Prisma.WorkspaceMemberWhereInput;
+
+/**
+ * The same rule as `notifiableMemberWhere`, asked about one user the request already holds.
+ *
+ * Two forms of one rule rather than two rules: the predicate filters a query, this answers about an
+ * actor in hand, and both must widen together if "audience" ever means more than HUMAN. Written as
+ * a function so the sites that need it stop spelling `user.kind === 'AGENT'` inline — there were
+ * three by the time #54 landed, and finding all of them is not a thing to leave to grep.
+ */
+export function isNotifiable(user: { kind: UserKind }): boolean {
+  return user.kind === notifiableMemberWhere.user.kind;
+}
 
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = 'task_assigned';
 export const TASK_MENTIONED_NOTIFICATION_TYPE = 'task_mentioned';
@@ -254,7 +266,21 @@ export async function subscribeUsersToTask(
     },
     select: { userId: true }
   });
-  const validUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  const memberUserIds = [...new Set(workspaceMembers.map((member) => member.userId))];
+  if (!memberUserIds.length) return [];
+
+  // #54: a person who unsubscribed is not offered again. This is the ONE place the automatic path
+  // consults a mute, and it is what turns unsubscribe from a button into a decision — without it,
+  // the next mention or assignment silently re-adds them. Everything that auto-subscribes anybody
+  // funnels through this function, which is why one check is enough. Spelled here rather than
+  // imported from `./task-subscriptions`, which imports this file: one caller does not justify a
+  // helper that would make the two import each other.
+  const mutes = await tx.taskMute.findMany({
+    where: { taskId: input.taskId, userId: { in: memberUserIds } },
+    select: { userId: true }
+  });
+  const muted = new Set(mutes.map((mute) => mute.userId));
+  const validUserIds = memberUserIds.filter((userId) => !muted.has(userId));
   if (!validUserIds.length) return [];
 
   await tx.taskSubscription.createMany({

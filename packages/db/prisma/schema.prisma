@@ -259,6 +259,7 @@ model Workspace {
   userCapacities         UserCapacity[]
   teamWorkingAgreements  TeamWorkingAgreement[]
   taskSubscriptions      TaskSubscription[]
+  taskMutes              TaskMute[]
   activityLogs           ActivityLog[]
   smsDeliveries          SmsDelivery[]
   integrations           IntegrationAccount[]
@@ -320,6 +321,7 @@ model User {
   resolvedKnowledgePageComments KnowledgePageComment[]      @relation("KnowledgePageCommentResolver")
   knowledgePageSubscriptions    KnowledgePageSubscription[]
   taskSubscriptions             TaskSubscription[]
+  taskMutes                     TaskMute[]
   comments                      TaskComment[]
   notifications                 Notification[]              @relation("NotificationRecipient")
   causedNotifications           Notification[]              @relation("NotificationActor")
@@ -612,6 +614,7 @@ model Task {
   attachments          TaskAttachment[]
   labels               TaskLabel[]
   subscriptions        TaskSubscription[]
+  mutes                TaskMute[]
   reviewRequests       TaskReviewRequest[]
   triageState          TaskTriageState?
   meetingLinks         MeetingTask[]
@@ -721,6 +724,44 @@ model TaskLabel {
 }
 
 model TaskSubscription {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  taskId      String   @db.Uuid
+  userId      String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId, createdAt])
+  @@index([taskId])
+}
+
+/// A person's recorded decision **not** to watch a task.
+///
+/// Deliberately a second table rather than a column on TaskSubscription, because the two rows say
+/// different things and only one of them is a delivery list. `TaskSubscription` keeps the property
+/// every reader already relies on — **a row here means notify this person** — so a future fan-out
+/// written the obvious way stays correct without knowing this table exists. A `mutedAt` column on
+/// TaskSubscription would have inverted that silently: presence would no longer mean delivery, and
+/// the one reader who forgot the predicate would notify exactly the people who asked not to be.
+///
+/// Only the *write* side consults this table: `subscribeUsersToTask` skips a muted user, which is
+/// what makes an unsubscribe survive the next mention or assignment. Forgetting that check
+/// re-subscribes somebody, which they can see and undo; forgetting a read-side predicate would
+/// notify somebody who muted, which they cannot.
+///
+/// After this table exists, absence still means what it always meant: **no row in either table is
+/// "nobody has decided anything"** — the default, which auto-subscribe is free to fill. A row here
+/// is a decision, and it outranks the automatic one.
+///
+/// The pair (subscription AND mute for one person on one task) is contradictory and unreachable
+/// through the API: both writes are transactional and each clears the other. Postgres cannot CHECK
+/// across tables, so a direct Prisma write could still create one — the same app-layer-only limit
+/// #36 accepted for the agent operator rule.
+model TaskMute {
   id          String   @id @default(uuid()) @db.Uuid
   workspaceId String   @db.Uuid
   taskId      String   @db.Uuid

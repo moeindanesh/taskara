@@ -38,6 +38,10 @@ _Avoid_: Open; Active (Today Load's active set is narrower — it drops BACKLOG)
 A Task that must finish before another Task can start, recorded as a dependency edge. A blocker is *open* while it is unfinished. Unrelated to the BLOCKED status, which a person sets by hand.
 _Avoid_: Dependency (that names the edge, not the task)
 
+**Watching** (دنبال‌کردن):
+A person's relationship to one Task, in exactly three states. **Watching** — a `TaskSubscription` row — means the ambient stream of that Task reaches their inbox: comments, status changes, description edits. **Muted** — a `TaskMute` row — is the recorded decision *not* to watch, and it is sticky: reporting, assignment and mentions may not undo it, only the person's own act may. **No decision** is neither row, and it is the default that auto-subscribe is free to fill. Muting stops the ambient stream and never stops being addressed by name — assignment, a review request and a mention still arrive. Only a person watches; an agent is not an audience and holds none of the three.
+_Avoid_: Subscribed (the row and the API path are `subscription`, but the state a human is in is *watching*), Ignored, Following, Unwatched
+
 **Team Overview**:
 The workspace's main page: a force-directed graph (Obsidian-style) with the workspace as the central node, each member connected to it, and each member's Today Load as leaf nodes — task color encodes status, size encodes weight.
 _Avoid_: Dashboard, graph view

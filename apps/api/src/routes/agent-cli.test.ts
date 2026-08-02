@@ -747,6 +747,78 @@ describe('taskara CLI', () => {
   });
 
   /**
+   * #54 — the verb an agent needs in order to tidy up after itself, and a person needs in order to
+   * stop hearing about a task they were once mentioned in.
+   */
+  describe('watching a task', () => {
+    test('unsubscribe stops it, and the next assignment does not undo that', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectId, '--title', 'Watched then dropped',
+        '--assignee', fixture.otherEmail
+      ]);
+      expect(created.code).toBe(0);
+      const key = String(created.json.key);
+
+      // The owner is the reporter, so the owner is watching it. Unsubscribe as the owner, which is
+      // the identity every other command in this file runs as.
+      const dropped = await run(['task', 'unsubscribe', key]);
+      expect(dropped.code).toBe(0);
+      expect(dropped.json.state).toBe('muted');
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'watching']))).not.toContain(key);
+
+      // Re-assigned to the person who unsubscribed — the exact sequence that used to re-add them.
+      expect((await run(['task', 'edit', key, '--add-assignee', fixture.ownerEmail])).code).toBe(0);
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'watching']))).not.toContain(key);
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'muted']))).toContain(key);
+    });
+
+    test('subscribe is the way back, and the two verbs are exact opposites', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectId, '--title', 'Dropped then picked up'
+      ]);
+      const key = String(created.json.key);
+      expect((await run(['task', 'unsubscribe', key])).code).toBe(0);
+
+      const back = await run(['task', 'subscribe', key]);
+
+      expect(back.code).toBe(0);
+      expect(back.json.state).toBe('watching');
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'watching']))).toContain(key);
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'muted']))).not.toContain(key);
+    });
+
+    test('an agent credential may unsubscribe, so tidying up is not a human-only verb', async () => {
+      const created = await run(['task', 'create', '--project', fixture.projectId, '--title', 'Agent tidying up']);
+      const key = String(created.json.key);
+
+      const asAgent = { TASKARA_AGENT_TOKEN: fixture.agentToken, TASKARA_USER_EMAIL: undefined };
+      const tidied = await run(['task', 'unsubscribe', key], asAgent);
+
+      expect(tidied.code).toBe(0);
+      // `none`, not `muted`. The server records no decision for an agent — there is nothing to keep
+      // quiet — and the shell relays that rather than printing the state a person would have got.
+      expect(tidied.json.state).toBe('none');
+
+      // The claim the answer makes is checkable, and checked: nothing turned up in the muted list.
+      expect(listedKeys(await run(['task', 'list', '--subscription', 'muted']))).not.toContain(key);
+
+      // The other half of the same rule, and the exit code the skill documents. #39: an agent has no
+      // inbox, so watching is the one of the two verbs that cannot mean anything for it — refused
+      // with a reason rather than reported as done.
+      const refused = await run(['task', 'subscribe', key], asAgent);
+      expect(refused.code).toBe(6);
+      expect(refused.stderr).toContain('no notifications');
+    });
+
+    test('a subscription value that is not one of the two is a usage error, not a silent full list', async () => {
+      const wrong = await run(['task', 'list', '--subscription', 'ignored']);
+
+      expect(wrong.code).toBe(1);
+      expect(wrong.stderr).toContain('watching');
+    });
+  });
+
+  /**
    * Issue #53 — a mention is a web-editor affordance, and a markdown body carries none.
    *
    * The extractor on the server reads mention **nodes**, so a body written here notifies nobody
@@ -903,6 +975,12 @@ describe('taskara CLI', () => {
     });
   });
 });
+
+/** The keys `task list` printed, for the filters whose whole claim is which rows come back. */
+function listedKeys(result: CliRun): string[] {
+  expect(result.code).toBe(0);
+  return ((result.json.tasks as Array<{ key: string }>) ?? []).map((task) => task.key);
+}
 
 async function run(
   args: string[],

@@ -19,8 +19,10 @@ import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
 import { measuredMemberWhere, measuredSubjectWhere } from '../services/measured-people';
 import { workTaskWhere } from '../services/measured-work';
+import { isNotifiable } from '../services/notifications';
 import { createTaskAttachment, listTaskAttachments } from '../services/task-attachments';
 import { addTaskDependency, removeTaskDependency } from '../services/task-dependencies';
+import { subscribeToTask, unsubscribeFromTask } from '../services/task-subscriptions';
 import {
   assertActorCanAccessTeamSlug,
   resolveWorkspaceAccess,
@@ -75,6 +77,47 @@ function taskStatusWhere(filter: TaskListQuery['status']): Prisma.TaskWhereInput
 function taskLabelWhere(label: TaskListQuery['label']): Prisma.TaskWhereInput['labels'] {
   if (!label) return undefined;
   return label === 'none' ? { none: {} } : { some: { label: { name: label } } };
+}
+
+/**
+ * "What am I watching" and "what did I mute", as a filter on the list everybody already reads.
+ *
+ * #21's shape, not a `/subscriptions` endpoint: the answer wants a status filter, a project filter
+ * and the effort exclusion the moment anybody looks at it, and a parallel endpoint would restate all
+ * three. Scoped to the caller because a subscription is a relationship rather than a property —
+ * there is no workspace-wide answer to give.
+ */
+/**
+ * The effort exclusion, and the one filter that suspends it.
+ *
+ * `kind` unqualified means WORK, because the unqualified task list is the issue list a human reads
+ * and an Effort is not an issue. **`?subscription=` is different in kind**: it does not ask "what
+ * work is there", it asks "what did *I* decide about", and the answer is wrong if it omits things
+ * the caller deliberately subscribed to or deliberately muted.
+ *
+ * An Effort is the sharpest case rather than an edge one. Its body is a living document every
+ * resolving session appends to, so it fans out more notifications than any work task — it is the
+ * likeliest thing a person mutes, and hiding it here would make that decision permanently
+ * unfindable. `--subscription muted` is documented as "what you silenced, when you cannot remember
+ * why", and it cannot answer that about the rows most worth asking about.
+ *
+ * An explicit `kind` still wins, so `?subscription=watching&kind=WORK` narrows as it says.
+ */
+function taskKindWhere(
+  kind: TaskListQuery['kind'],
+  subscription: TaskListQuery['subscription']
+): Pick<Prisma.TaskWhereInput, 'kind'> {
+  if (kind) return { kind };
+  return subscription ? {} : workTaskWhere;
+}
+
+function taskSubscriptionWhere(
+  filter: TaskListQuery['subscription'],
+  userId: string
+): Pick<Prisma.TaskWhereInput, 'subscriptions' | 'mutes'> {
+  if (!filter) return {};
+  if (filter === 'muted') return { mutes: { some: { userId } } };
+  return { subscriptions: { some: { userId } } };
 }
 
 const taskSortOrderBy = {
@@ -242,7 +285,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     // is the only reason "excluded" here does not amount to "deleted".
     const where: Prisma.TaskWhereInput = {
       ...taskWhereForAccess(access),
-      ...(query.kind ? { kind: query.kind } : workTaskWhere),
+      ...taskKindWhere(query.kind, query.subscription),
       projectId: query.projectId,
       milestoneId: query.milestoneId === 'none' ? null : query.milestoneId,
       // Filters the CHILDREN, never the parent, so this composes with the effort exclusion instead
@@ -255,7 +298,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       status: taskStatusWhere(query.status),
       priority: query.priority,
       labels: taskLabelWhere(query.label),
-      blockingDependencies: openBlockersWhere(query.blockers)
+      blockingDependencies: openBlockersWhere(query.blockers),
+      ...taskSubscriptionWhere(query.subscription, actor.user.id)
     };
 
     if (query.teamId !== 'all') {
@@ -488,6 +532,45 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
 
     await deleteTask(actor, existing.id);
     return reply.code(204).send();
+  });
+
+  // Watching a task, as a thing you choose rather than a thing that happens to you.
+  //
+  // A subresource rather than a flag on PATCH, because it is the caller's own relationship to the
+  // task and not a property of the task: two people can hold different answers at the same moment,
+  // and PATCH bodies describe one shared row.
+  app.post('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    // #39 settled that an agent is not an audience for notifications: it has no inbox and never
+    // polls one, so a subscription for one is a row that is written, never read and never cleared.
+    // Refused rather than quietly accepted, because a surface that reports success for something it
+    // did not do is one a caller routes around later.
+    if (!isNotifiable(actor.user)) {
+      return reply.code(400).send({
+        message: 'Agents receive no notifications, so they cannot watch a task. Find work by querying'
+          + ' the frontier instead.'
+      });
+    }
+
+    return { state: await subscribeToTask(actor, existing.id) };
+  });
+
+  app.delete('/tasks/:idOrKey/subscription', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const access = await resolveWorkspaceAccess(actor);
+    const { idOrKey } = request.params as { idOrKey: string };
+    const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
+    if (!existing) return reply.code(404).send({ message: 'Task not found' });
+
+    // 200 with the resulting state rather than 204. An agent's unsubscribe records no mute — there
+    // is nothing to keep quiet — and answering `muted` there would be a surface reporting something
+    // it did not do, which is the exact failure the POST above refuses to commit.
+    return { state: await unsubscribeFromTask(actor, existing.id) };
   });
 
   app.get('/tasks/:idOrKey/activity', async (request, reply) => {

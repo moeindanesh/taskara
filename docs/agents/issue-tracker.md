@@ -173,6 +173,9 @@ Two consequences worth knowing before you rely on the alternative:
 - **Re-parent**: `taskara task edit CORE-123 --parent CORE-1`, or `--parent none` to detach.
 - **Close**: `taskara task close CORE-123 --reason completed` (or `--reason canceled`).
   `completed` → `DONE`, `canceled` → `CANCELED`. Taskara has no "not planned".
+- **Stop watching a task**: `taskara task unsubscribe CORE-123` — sticky; see
+  [Watching](#watching).
+- **Start watching again**: `taskara task subscribe CORE-123`
 
 Run `taskara` with no arguments for the whole grammar.
 
@@ -247,6 +250,35 @@ Treat exit 5 as "take a different ticket", never as "the claim looked stale". It
 "you just took this" are different answers.
 
 Claiming an Effort exits 6 — an Effort is not a unit of work and holds no assignee.
+
+### Watching
+
+Reporting a Task, being assigned one, or being `@`-mentioned in its body subscribes you to it, and
+every later comment, status change and description edit then reaches your inbox.
+
+```bash
+taskara task unsubscribe CORE-123           # stop hearing about it
+taskara task subscribe CORE-123             # start again
+taskara task list --subscription watching   # what reaches your inbox
+taskara task list --subscription muted      # what you silenced, when you cannot remember why
+```
+
+`task unsubscribe` **sticks**: being mentioned or assigned again will not put you back on the list.
+That is the difference between a decision and merely deleting a row, and it is what stops the verb
+quietly reverting an hour after you use it. `task subscribe` withdraws the decision.
+
+`--subscription` has no third value. A Task nobody has decided anything about is almost every Task in
+the workspace, which is the list you already get without the flag.
+
+**Unsubscribing stops the ambient stream, not being spoken to.** Comments, status changes and body
+edits on a Task you merely watch stop reaching you. Being assigned it, being asked to review it, or
+being `@`-mentioned in it still does — those are addressed to you by name, and none of them puts you
+back on the list either.
+
+**An agent may unsubscribe and may not subscribe.** Unsubscribing succeeds and changes nothing —
+agents receive no notifications at all — so a cleanup script need not know who is running it.
+`task subscribe` under an agent credential **exits 6** and names the reason. Find work with the
+frontier query, which is a pull; there is no inbox to watch.
 
 ## Pull requests as a triage surface
 
