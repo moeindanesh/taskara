@@ -66,6 +66,11 @@ export function isEditorBody(value: string | null | undefined): boolean {
 /**
  * The text of a body, recovering it when the editor has already converted it.
  *
+ * Named for the body and not for the Effort that needed it first: #55 gave the comment thread the
+ * same problem. A comment carrying mention nodes now notifies the person it names, and the surface
+ * that renders comments as plain text would otherwise show that person the whole serialised
+ * document. One recogniser and one walk serve both.
+ *
  * The conversion wrapped the markdown instead of parsing it, so every character the author typed is
  * still in the document as node text — `## Heading` sits there as the string `"## Heading"`. Walking
  * the tree and joining the text puts the markdown back. That is why the damage this ticket is about
@@ -78,7 +83,7 @@ export function isEditorBody(value: string | null | undefined): boolean {
  * Anything that is not the editor's own document comes back byte-identical, including a body that
  * merely parses as JSON — see `isEditorBody`.
  */
-export function effortBodyText(value: string | null | undefined): string {
+export function bodyText(value: string | null | undefined): string {
    const source = value ?? '';
    return isEditorBody(source) ? editorValueToPlainText(source) : source;
 }
