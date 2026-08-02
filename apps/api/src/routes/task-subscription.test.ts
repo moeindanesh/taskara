@@ -128,6 +128,34 @@ describe('task subscription', () => {
 
       expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
     });
+
+    /**
+     * One comment is one event, so it is one row — and the mention is the row that survives.
+     *
+     * Both would arrive at the same instant: `createdAt` defaults to `now()`, which in Postgres is
+     * the transaction's start time, so two rows written by one comment carry the *identical*
+     * timestamp. `collapseInboxNotificationsByThread` then keys both to `task:<id>` and breaks the
+     * tie on id — so without this the inbox would show "commented" or "mentioned" at random for the
+     * same event, and the unread badge would count it twice.
+     *
+     * The mention wins because it is the more specific truth: being named is why this comment is
+     * yours to read. Same rule, and the same `excludeUserIds` mechanism, that a description edit
+     * already applies to `task_description_changed`.
+     */
+    test('supersedes the task_commented row rather than arriving beside it', async () => {
+      const task = await createTask('already watching, and now named', { assigneeId: fixture.watcherId });
+
+      // The control. A plain comment on this same task is exactly one ambient row — so if the
+      // assertion below saw zero, it would be because the mention path suppressed it and not
+      // because nothing was listening.
+      await comment(task.key, fixture.reporterEmail, 'ordinary chatter first');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+      expect(await notificationCount(task.id, 'task_commented')).toBe(1);
+    });
   });
 
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {

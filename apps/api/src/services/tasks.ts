@@ -772,7 +772,12 @@ export async function addTaskComment(
       }
     });
     const updatedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
-    await createTaskMentionNotifications(tx, {
+    // #55. The mention runs first because its recipients are then excluded from the fan-out: one
+    // comment is one event, and somebody who was named should be told *that*, not that a comment
+    // happened. Both rows would carry the same `createdAt` — Postgres `now()` is the transaction's
+    // start — so leaving both would make the inbox thread show one label or the other at random.
+    // The same ordering, and the same exclusion, that a description edit already uses.
+    const mentionedUserIds = await createTaskMentionNotifications(tx, {
       workspaceId: actor.workspace.id,
       actorUserId: actor.user.id,
       actorName: actor.user.name,
@@ -786,7 +791,8 @@ export async function addTaskComment(
       attribution: attributedTo(actor),
       task: updatedTask,
       type: TASK_COMMENTED_NOTIFICATION_TYPE,
-      body: taskCommentedNotificationBody(actor.user.name)
+      body: taskCommentedNotificationBody(actor.user.name),
+      excludeUserIds: mentionedUserIds
     });
     syncEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
