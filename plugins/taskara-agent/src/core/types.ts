@@ -64,10 +64,34 @@ export interface Task {
   labels?: Array<{ label: { id: string; name: string; color?: string } }>;
   attachments?: TaskAttachment[];
   _count?: { comments?: number; subtasks?: number; blockingDependencies?: number; attachments?: number };
-  blockingDependencies?: Array<{ blockedByTask: Task }>;
-  blockedTasks?: Array<{ task: Task }>;
-  subtasks?: Task[];
+  blockingDependencies?: Array<{ blockedByTask: TaskEdgeTarget }>;
+  blockedTasks?: Array<{ task: TaskEdgeTarget }>;
+  subtasks?: TaskEdgeTarget[];
   comments?: Array<{ body: string; createdAt: string; author?: { name: string } | null }>;
+}
+
+/**
+ * A task hanging off a task you *can* read, that you cannot read yourself (#58).
+ *
+ * A blocker, the task it blocks and a subtask are not confined to one project, so
+ * `GET /tasks/:idOrKey` withholds the ones behind a team wall. It **redacts rather than omits**:
+ * a dependency that disappeared because of who was asking would make a blocked task read as
+ * takeable, and an agent deciding what to pick up is the reader most likely to act on that.
+ *
+ * One bit survives, `open` — still in the way, on the same DONE/CANCELED reading as everywhere
+ * else. There is nothing else: no id, no key, no title. Never render it as a task.
+ */
+export interface RedactedTaskRef {
+  redacted: true;
+  open: boolean;
+}
+
+/** The far end of an edge: the task, or the fact that there is one. */
+export type TaskEdgeTarget = Task | RedactedTaskRef;
+
+/** Which of the two arrived. The wire's discriminant, asked in one place. */
+export function isRedactedTaskRef(target: TaskEdgeTarget): target is RedactedTaskRef {
+  return 'redacted' in target && target.redacted === true;
 }
 
 export interface TaskListResponse {

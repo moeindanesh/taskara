@@ -1,4 +1,5 @@
 import type { TaskPriorityValue } from '@taskara/shared';
+import { isRedactedTaskRef } from '../core/types';
 import type { JsonRecord, Milestone, Project, Task, TaskAttachment } from '../core/types';
 
 /**
@@ -60,7 +61,13 @@ export function taskDetails(task: Task): JsonRecord {
         author: comment.author?.name ?? null
       })) ?? [],
     attachments: task.attachments?.map(attachmentSummary) ?? [],
-    blockingDependencies: task.blockingDependencies?.map((dependency) => taskSummary(dependency.blockedByTask)) ?? []
+    // A blocker behind a team wall (#58) keeps its slot and says what it is. It is in the way as
+    // much as any other, and an omitted one would read to an agent as a task it may pick up.
+    blockingDependencies: task.blockingDependencies?.map((dependency) =>
+      isRedactedTaskRef(dependency.blockedByTask)
+        ? { redacted: true, open: dependency.blockedByTask.open }
+        : taskSummary(dependency.blockedByTask)
+    ) ?? []
   };
 }
 
