@@ -40,6 +40,7 @@ import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDet
 import { isRetryableTaskSyncError, loadPendingTaskSyncMutations, sendTaskSyncMutation } from '@/lib/task-sync';
 import type { TaskUpdatePatch } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
+import { isRedacted, readable } from '@/lib/redacted';
 import { taskaraRequest } from '@/lib/taskara-client';
 import {
    applyPendingAgendaItemMutations,
@@ -1130,10 +1131,15 @@ function OneOnOneAgendaDialog({
                                           <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-zinc-500">
                                              <span>{actionItem.meeting?.title || fa.meeting.title}</span>
                                              {actionItem.dueAt ? <span>{formatJalaliDate(actionItem.dueAt)}</span> : null}
-                                             {actionItem.task ? (
-                                                <Link className="ltr text-zinc-300 hover:text-zinc-100" to={`/${orgId}/issue/${encodeURIComponent(actionItem.task.key)}`}>
-                                                   {actionItem.task.key}
+                                             {readable(actionItem.task) ? (
+                                                <Link className="ltr text-zinc-300 hover:text-zinc-100" to={`/${orgId}/issue/${encodeURIComponent(readable(actionItem.task)?.key || '')}`}>
+                                                   {readable(actionItem.task)?.key}
                                                 </Link>
+                                             ) : isRedacted(actionItem.task) ? (
+                                                // No link: there is nothing at the other end for
+                                                // this reader, and a 404 is a worse answer than a
+                                                // plain statement that the task is out of reach.
+                                                <span title={fa.blockers.redactedHint}>{fa.blockers.redacted}</span>
                                              ) : null}
                                           </div>
                                        </div>

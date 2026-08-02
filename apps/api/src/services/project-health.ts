@@ -2,11 +2,15 @@ import { prisma, type Prisma, type ProjectHealthUpdate, type SyncEvent } from '@
 import type { z } from 'zod';
 import type { createProjectHealthUpdateSchema, projectHealthUpdateListQuerySchema } from '@taskara/shared';
 import { config } from '../config';
-import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import type { RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
-import { projectWhereForAccess, resolveWorkspaceAccess } from './team-access';
+import {
+  canManageProjectPlanning,
+  projectWhereForAccess,
+  resolveWorkspaceAccess
+} from './team-access';
 
 type CreateProjectHealthUpdateInput = z.infer<typeof createProjectHealthUpdateSchema>;
 type ProjectHealthUpdateListInput = z.infer<typeof projectHealthUpdateListQuerySchema>;
@@ -214,6 +218,31 @@ function healthLabel(health: ProjectHealthUpdate['health']): string {
   return 'Off track';
 }
 
+/**
+ * Who may read a project's health, and who may write to it.
+ *
+ * The read branch composes `projectWhereForAccess` and always has. The **write** branch was a second
+ * spelling of "who may write to this project", alongside `canManageProjectPlanning`, and #59's audit
+ * found the two disagreeing three ways. Two of those were plain bugs and are closed here; the third
+ * is a real question and is left alone rather than settled by a cleanup.
+ *
+ * **Closed.** The old branch admitted *any* `ProjectMember` row and *any* `TeamMember` row, without
+ * looking at the role on it. So a project member with role `VIEWER` — a role that exists precisely
+ * to read — and a team member with role `GUEST` could both post a health update, while
+ * `canManageProjectPlanning` refused them the milestone on the same project. Calling the shared rule
+ * fixes both, and drops a query while it is there.
+ *
+ * **Left, and surfaced.** A **teamless** project is still writable by anybody who can read it, which
+ * is everybody. `canManageProjectPlanning` refuses one to all but an admin or the lead, and it is
+ * genuinely unclear which of the two is wrong: a teamless project is readable by the whole
+ * workspace, so "nobody may plan it" makes milestones unusable in the default Inbox project, while
+ * "anybody may post to it" is at least consistent with who can see it. Making health match planning
+ * here would propagate a rule nobody has argued for into a second place. Recorded in
+ * `.scratch/AUDIT-read-access-sites.md` and on #60 for the human.
+ *
+ * The workspace-level GUEST/AGENT refusal above is a different question — a workspace role, not a
+ * project one — and stands.
+ */
 async function requireProjectHealthAccess(
   actor: RequestActor,
   projectId: string,
@@ -234,14 +263,11 @@ async function requireProjectHealthAccess(
     }
   });
   if (!project) throw new HttpError(404, 'Project not found');
-  if (!options.write || isWorkspaceAdminRole(actor.role) || project.leadId === actor.user.id || !project.teamId) {
-    return project;
+  if (!options.write) return project;
+  // The surfaced divergence, deliberately not resolved here. See the note above.
+  if (!project.teamId) return project;
+  if (!canManageProjectPlanning(actor, access, project)) {
+    throw new HttpError(403, 'Project health update access denied');
   }
-  if (project.members.some((member) => member.userId === actor.user.id)) return project;
-  const teamMember = await prisma.teamMember.findUnique({
-    where: { teamId_userId: { teamId: project.teamId, userId: actor.user.id } },
-    select: { id: true }
-  });
-  if (!teamMember) throw new HttpError(403, 'Project health update access denied');
   return project;
 }

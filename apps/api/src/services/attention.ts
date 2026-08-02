@@ -2,7 +2,6 @@ import { prisma, type AttentionItem, type AttentionItemStatus, type Prisma } fro
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
-import { buildMeetingAccessWhere, resolveMeetingAccessScope } from './meetings';
 import { measuredMemberWhere } from './measured-people';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import {
@@ -11,7 +10,7 @@ import {
   type WorkHealthAttentionItem,
   type WorkHealthSummary
 } from './work-health';
-import { resolveWorkspaceAccess, type WorkspaceAccess } from './team-access';
+import { meetingWhereForAccess, resolveWorkspaceAccess, type WorkspaceAccess } from './team-access';
 
 export const trackedAttentionReasons = [
   'overdue_task',
@@ -516,8 +515,7 @@ async function buildDueOneOnOneAttentionCandidates(actor: RequestActor, now: Dat
 }
 
 async function buildStaleActionItemAttentionCandidates(actor: RequestActor, now: Date): Promise<AttentionCandidate[]> {
-  const accessScope = await resolveMeetingAccessScope(actor);
-  const meetingAccessWhere = buildMeetingAccessWhere(actor, accessScope);
+  const meetingAccessWhere = meetingWhereForAccess(await resolveWorkspaceAccess(actor));
   const staleCreatedBefore = new Date(now.getTime() - staleActionItemHours * 60 * 60 * 1000);
   const rows = await prisma.meetingActionItem.findMany({
     where: {

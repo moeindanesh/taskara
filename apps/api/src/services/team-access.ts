@@ -5,6 +5,7 @@ import {
   type WorkspaceRole
 } from '@taskara/db';
 import { isWorkspaceAdminRole, type RequestActor } from './actor';
+import { workTaskWhere } from './measured-work';
 import { HttpError } from './http';
 
 export interface WorkspaceAccess {
@@ -264,15 +265,153 @@ export async function filterUsersWithTaskAccess(
   });
 }
 
-export function viewWhereForAccess(access: WorkspaceAccess): Prisma.ViewWhereInput {
+/**
+ * Who may read a **meeting**: its participants, its owner, its creator, and workspace admins.
+ *
+ * Team and project membership deliberately do not enter, which is why this is not a second spelling
+ * of `projectWhereForAccess` — it is a different rule about a different entity, and the meeting's
+ * *contents* are gated separately in `services/meeting-visibility.ts`.
+ *
+ * It lives here because #60 needed it in two places: the meeting routes, and the inbox, whose
+ * `meetingId` branch had the same drift #57 fixed on `taskId` — a meeting you were removed from
+ * went on delivering its title. The old copy in `services/meetings.ts` took a `RequestActor` and a
+ * `MeetingAccessScope` it ignored; the scope is deleted and the actor is unnecessary, since
+ * `access` already carries the reader's id and whether they read everything.
+ */
+export function meetingWhereForAccess(
+  access: WorkspaceAccess,
+  options?: { mineOnly?: boolean }
+): Prisma.MeetingWhereInput {
+  const onIt: Prisma.MeetingWhereInput[] = [
+    { participants: { some: { userId: access.userId } } },
+    { ownerId: access.userId },
+    { createdById: access.userId }
+  ];
+  // `mine` is a filter the reader asked for, so it narrows an admin too.
+  if (options?.mineOnly) return { OR: onIt };
+  if (access.workspaceWide) return {};
+  return { OR: onIt };
+}
+
+/**
+ * Who may read an **announcement**: its recipients, its creator, and workspace admins — the rule
+ * `GET /announcements/:id` has always enforced, written once.
+ *
+ * Deliberately says nothing about `status`. Whether a draft belongs in a particular list is a
+ * question about that list, and `GET /announcements` still answers it for itself.
+ *
+ * The drift it closes in the inbox is not a project wall: `updateAnnouncement` can **replace** the
+ * recipient list, and the notification rows written to the old recipients outlive it.
+ */
+export function announcementWhereForAccess(access: WorkspaceAccess): Prisma.AnnouncementWhereInput {
+  if (access.workspaceWide) return { workspaceId: access.workspaceId };
+  return {
+    workspaceId: access.workspaceId,
+    // The creator branch matters even though only an admin may post one today: it is the rule
+    // `GET /announcements/:id` already enforces through `canManageAnnouncement`, and dropping it
+    // here would make the list disagree with the detail the day that changes.
+    OR: [
+      { creatorId: access.userId },
+      { recipients: { some: { userId: access.userId } } }
+    ]
+  };
+}
+
+/**
+ * Who may read a **knowledge space**: everyone for a workspace space, the team for a team space,
+ * and `canReadProject`'s population for a project space.
+ *
+ * Composes `projectWhereForAccess` rather than re-spelling it, which is why the project branch stays
+ * correct when the project rule changes. Extracted from `services/knowledge.ts`, where it was an
+ * async function over a `RequestActor` and therefore unusable from anything holding only an
+ * `access` — the inbox and the activity classifier both needed it.
+ */
+export function knowledgeSpaceWhereForAccess(access: WorkspaceAccess): Prisma.KnowledgeSpaceWhereInput {
   if (access.workspaceWide) return { workspaceId: access.workspaceId };
   return {
     workspaceId: access.workspaceId,
     OR: [
-      { ownerId: access.userId },
+      { type: 'WORKSPACE' },
+      { teamId: { in: access.teamIds } },
+      { type: 'PROJECT', project: projectWhereForAccess(access) }
+    ]
+  };
+}
+
+/**
+ * The per-member rollup the member directory shows, narrowed on **both** axes.
+ *
+ * The measurement axis was swept long ago: `workTaskWhere` appears inside seven `_count` selects,
+ * each with a comment explaining that an outer `where` does not narrow a relation count. The
+ * **access** axis never got the same pass, and that is #59's shape D. `GET /users` and
+ * `/sync/bootstrap` published, for every member of the workspace, how many tasks they hold and how
+ * many comments they have written — counted over every project including the ones the reader cannot
+ * open. Counts only, but a headcount of work behind a wall is still a fact about that work, and
+ * `GET /leaderboard` already puts `taskWhereForAccess` on the identical per-person rollup. Two
+ * places disagreed and one of them was wrong on purpose; this is the other one catching up.
+ *
+ * Consequence, accepted and worth stating: two readers now see **different numbers** beside the same
+ * person. That is the honest answer — "work you can see, held by this person" is a number a reader
+ * can act on, where the old one silently mixed in work they cannot open.
+ *
+ * `assignedTasks` deliberately carries no `workTaskWhere`: an EFFORT cannot hold an `assigneeId` at
+ * all (CHECK `Task_effort_has_no_work_fields`), so a filter there would change no row and would read
+ * as distrust of the constraint. `reportedTasks` does carry it, because `createTask` force-sets
+ * `reporterId` and this count is lifetime — whoever files an effort would otherwise be permanently
+ * +1 in the directory's "reported tasks" column.
+ */
+export function memberWorkCountSelect(access: WorkspaceAccess) {
+  const readable = taskWhereForAccess(access);
+  return {
+    assignedTasks: { where: readable },
+    reportedTasks: { where: { ...readable, ...workTaskWhere } },
+    // A comment has no project of its own; it inherits the one its task lives in.
+    comments: { where: { task: { is: readable } } }
+  };
+}
+
+/**
+ * What the view list actually does today: your own views, plus the shared ones. Everybody, admins
+ * included.
+ *
+ * This is **not** {@link viewWhereForAccess} below, and the gap between them is a question #60 was
+ * asked to surface rather than settle. `routes/views.ts` and `routes/sync.ts` each spelled this
+ * inline; they now call it, so the two cannot drift from each other while the question is open.
+ *
+ * Takes the two ids rather than a `WorkspaceAccess` because `GET /views` holds neither a resolved
+ * access nor a reason to resolve one, and a query per request to answer a question about ownership
+ * would be a cost with no buyer.
+ */
+export function ownOrSharedViewWhere(scope: { workspaceId: string; userId: string }): Prisma.ViewWhereInput {
+  return {
+    workspaceId: scope.workspaceId,
+    OR: [
+      { ownerId: scope.userId },
       { isShared: true }
     ]
   };
+}
+
+/**
+ * The rule the shared module anticipated for views — and **nothing calls it**.
+ *
+ * #59 found it defined, tested, and used from nowhere while two routes wrote the same predicate by
+ * hand. That was the audit's strongest single signal (its shape E), and #60 was asked to surface it
+ * rather than adopt it, because the one clause that differs is a **product decision**:
+ *
+ * `access.workspaceWide` short-circuits to the whole workspace, so adopting this would show a
+ * workspace admin **other people's private views**. The restatements omit that branch, which means
+ * today's behaviour is *narrower* than the rule in the shared module, not wider — which is exactly
+ * why nobody noticed, and why this is not a disclosure to close on a hunch. A saved filter is a
+ * private working note more than it is workspace data, and nobody has said which it is.
+ *
+ * Kept rather than deleted: deleting it would take the question with it. Whoever answers it should
+ * either adopt this at both call sites or delete it, and `routes/view-access.test.ts` pins today's
+ * behaviour so the change is deliberate.
+ */
+export function viewWhereForAccess(access: WorkspaceAccess): Prisma.ViewWhereInput {
+  if (access.workspaceWide) return { workspaceId: access.workspaceId };
+  return ownOrSharedViewWhere(access);
 }
 
 export async function assertActorCanAccessTeamId(actor: RequestActor, teamId: string): Promise<void> {

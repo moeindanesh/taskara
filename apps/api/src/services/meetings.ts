@@ -1,23 +1,31 @@
 import { prisma, type Prisma } from '@taskara/db';
 import type { z } from 'zod';
-import type { createMeetingSchema, createMeetingTasksSchema, updateMeetingSchema } from '@taskara/shared';
+import type {
+  createMeetingSchema,
+  createMeetingTasksSchema,
+  meetingListQuerySchema,
+  updateMeetingSchema
+} from '@taskara/shared';
 import { config } from '../config';
 import type { RequestActor } from './actor';
 import { isWorkspaceAdminRole } from './actor';
 import { attributedTo, type ActorAttribution } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
+import { meetingProjectSelect, meetingTaskInclude, visibleMeeting } from './meeting-visibility';
 import { MEETING_ASSIGNED_NOTIFICATION_TYPE, meetingAssignedNotificationBody } from './notifications';
 import { sendMessageSimple } from './sms';
-import { createTask, serializeTaskForResponse, taskInclude } from './tasks';
+import {
+  assertActorCanAccessTeamSlug,
+  meetingWhereForAccess,
+  resolveWorkspaceAccess
+} from './team-access';
+import { createTask, serializeTaskForResponse } from './tasks';
 
 type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
 type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
 type CreateMeetingTasksInput = z.infer<typeof createMeetingTasksSchema>;
-export type MeetingAccessScope = {
-  memberTeamIds: string[];
-  memberProjectIds: string[];
-};
+type MeetingListInput = z.infer<typeof meetingListQuerySchema>;
 
 const userSelect = {
   id: true,
@@ -27,9 +35,19 @@ const userSelect = {
   avatarUrl: true
 } satisfies Prisma.UserSelect;
 
+/**
+ * Everything a meeting row carries — including three things a participant is not automatically
+ * entitled to.
+ *
+ * `tasks`, `project` and `team` all cross out of the meeting (whose readers are its participants,
+ * its owner, its creator and admins) into entities walled by project or team membership. Nothing is
+ * filtered here: every read of this include is passed through `visibleMeeting` instead, which
+ * redacts per row rather than dropping, so `_count.tasks` and the list beside it cannot disagree.
+ * See `services/meeting-visibility.ts` for why redaction and not a `where`.
+ */
 export const meetingInclude = {
   team: { select: { id: true, name: true, slug: true } },
-  project: { select: { id: true, name: true, keyPrefix: true, teamId: true, leadId: true } },
+  project: { select: meetingProjectSelect },
   owner: { select: userSelect },
   createdBy: { select: userSelect },
   participants: {
@@ -38,7 +56,7 @@ export const meetingInclude = {
   },
   tasks: {
     orderBy: { createdAt: 'desc' },
-    include: { task: { include: taskInclude } }
+    include: meetingTaskInclude
   },
   _count: { select: { participants: true, tasks: true } }
 } satisfies Prisma.MeetingInclude;
@@ -52,65 +70,90 @@ type MeetingWithAccess = {
   participants?: Array<{ userId: string }>;
 };
 
-export async function resolveMeetingAccessScope(actor: RequestActor): Promise<MeetingAccessScope> {
-  const [teamMemberships, directProjectMemberships, leadProjects] = await Promise.all([
-    prisma.teamMember.findMany({
-      where: {
-        userId: actor.user.id,
-        team: { workspaceId: actor.workspace.id }
-      },
-      select: { teamId: true }
-    }),
-    prisma.projectMember.findMany({
-      where: {
-        userId: actor.user.id,
-        project: { workspaceId: actor.workspace.id }
-      },
-      select: { projectId: true }
-    }),
-    prisma.project.findMany({
-      where: { workspaceId: actor.workspace.id, leadId: actor.user.id },
-      select: { id: true }
-    })
-  ]);
-
-  return {
-    memberTeamIds: [...new Set(teamMemberships.map((membership) => membership.teamId))],
-    memberProjectIds: [...new Set([
-      ...directProjectMemberships.map((membership) => membership.projectId),
-      ...leadProjects.map((project) => project.id)
-    ])]
-  };
-}
-
-export function buildMeetingAccessWhere(
-  actor: RequestActor,
-  _scope: MeetingAccessScope,
-  options?: { mineOnly?: boolean }
-): Prisma.MeetingWhereInput {
-  const mineOnly = Boolean(options?.mineOnly);
-  const predicates: Prisma.MeetingWhereInput[] = [
-    { participants: { some: { userId: actor.user.id } } },
-    { ownerId: actor.user.id },
-    { createdById: actor.user.id }
-  ];
-
-  if (mineOnly) {
-    return { OR: predicates };
-  }
-
-  if (isWorkspaceAdminRole(actor.role)) {
-    return {};
-  }
-
-  return { OR: predicates };
-}
-
-export function canAccessMeeting(actor: RequestActor, meeting: MeetingWithAccess, _scope: MeetingAccessScope): boolean {
+/**
+ * Who may read a meeting is now `meetingWhereForAccess` in `services/team-access.ts`, beside every
+ * other entity's rule, because #60's inbox fix needed the same predicate.
+ *
+ * What went with it: `MeetingAccessScope`, a parallel access model that issued the same three
+ * membership queries `resolveWorkspaceAccess` does and whose result both consumers took as `_scope`
+ * and **ignored**. Three wasted queries per call across eight sites, and worse than wasted — dead
+ * scaffolding that made this surface look access-aware, which is a fair guess at how the include
+ * above went four tickets without anybody noticing it had no `where`.
+ *
+ * Deleted rather than wired. Wiring it would make a meeting readable by anyone on its team, which is
+ * a product decision nobody has made, and it would have fixed the wrong thing anyway: the disclosure
+ * was never who may read the meeting, it was what the meeting carried with it.
+ */
+export function canAccessMeeting(actor: RequestActor, meeting: MeetingWithAccess): boolean {
   if (meeting.participants?.some((participant) => participant.userId === actor.user.id)) return true;
   if (meeting.ownerId === actor.user.id || meeting.createdById === actor.user.id) return true;
   if (isWorkspaceAdminRole(actor.role)) return true;
   return false;
+}
+
+/**
+ * The meeting list, gated on the meeting and then redacted on what it carries.
+ *
+ * Lives here rather than in the route so that **every** read of `meetingInclude` is in one file and
+ * passes through `visibleMeeting`. The gap this closes went unseen for as long as it did partly
+ * because two of the four reads were written in the route and two in the service, and neither half
+ * showed the other.
+ */
+export async function listMeetings(actor: RequestActor, query: MeetingListInput) {
+  const access = await resolveWorkspaceAccess(actor);
+
+  const where: Prisma.MeetingWhereInput = {
+    workspaceId: actor.workspace.id,
+    status: query.status
+  };
+
+  if (query.teamId !== 'all') {
+    if (!isWorkspaceAdminRole(actor.role)) await assertActorCanAccessTeamSlug(actor, query.teamId);
+    where.team = { workspaceId: actor.workspace.id, slug: query.teamId };
+  }
+
+  const filters: Prisma.MeetingWhereInput[] = [meetingWhereForAccess(access, { mineOnly: query.mine })];
+  if (query.q) {
+    filters.push({
+      OR: [
+        { title: { contains: query.q, mode: 'insensitive' } },
+        { description: { contains: query.q, mode: 'insensitive' } }
+      ]
+    });
+  }
+  where.AND = filters;
+
+  const [items, total] = await Promise.all([
+    prisma.meeting.findMany({
+      where,
+      include: meetingInclude,
+      orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
+      take: query.limit,
+      skip: query.offset
+    }),
+    prisma.meeting.count({ where })
+  ]);
+
+  return {
+    items: items.map((meeting) => visibleMeeting(access, meeting)),
+    total,
+    limit: query.limit,
+    offset: query.offset
+  };
+}
+
+/** One meeting, or `null` for a meeting this reader is not on. */
+export async function getMeeting(actor: RequestActor, meetingId: string) {
+  const access = await resolveWorkspaceAccess(actor);
+  const meeting = await prisma.meeting.findFirst({
+    where: {
+      id: meetingId,
+      workspaceId: actor.workspace.id,
+      AND: [meetingWhereForAccess(access)]
+    },
+    include: meetingInclude
+  });
+  return meeting && visibleMeeting(access, meeting);
 }
 
 export async function createMeeting(actor: RequestActor, input: CreateMeetingInput) {
@@ -167,18 +210,21 @@ export async function createMeeting(actor: RequestActor, input: CreateMeetingInp
     source: actor.source
   }).catch(() => undefined);
 
-  return meeting;
+  // The creator is a participant by construction, but not necessarily a reader of every project a
+  // task on this meeting lives in, and `input.projectId` is validated against the workspace before
+  // it is validated against the actor's teams. Redacted on the way out like every other read.
+  return visibleMeeting(await resolveWorkspaceAccess(actor), meeting);
 }
 
 export async function updateMeeting(actor: RequestActor, meetingId: string, input: UpdateMeetingInput) {
   let notificationRecipientIds: string[] = [];
-  const accessScope = await resolveMeetingAccessScope(actor);
+  const access = await resolveWorkspaceAccess(actor);
   const existing = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     include: meetingInclude
   });
   if (!existing) throw new HttpError(404, 'Meeting not found');
-  if (!canAccessMeeting(actor, existing, accessScope)) throw new HttpError(403, 'Meeting access denied');
+  if (!canAccessMeeting(actor, existing)) throw new HttpError(403, 'Meeting access denied');
 
   const meeting = await prisma.$transaction(async (tx) => {
     await assertMeetingRelations(tx, actor, input);
@@ -239,17 +285,16 @@ export async function updateMeeting(actor: RequestActor, meetingId: string, inpu
     source: actor.source
   }).catch(() => undefined);
 
-  return meeting;
+  return visibleMeeting(access, meeting);
 }
 
 export async function createTasksFromMeeting(actor: RequestActor, meetingId: string, input: CreateMeetingTasksInput) {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     include: meetingInclude
   });
   if (!meeting) throw new HttpError(404, 'Meeting not found');
-  if (!canAccessMeeting(actor, meeting, accessScope)) throw new HttpError(403, 'Meeting access denied');
+  if (!canAccessMeeting(actor, meeting)) throw new HttpError(403, 'Meeting access denied');
 
   const tasks = [];
   for (const item of input.tasks) {
@@ -291,13 +336,12 @@ export async function createTasksFromMeeting(actor: RequestActor, meetingId: str
 }
 
 export async function sendMeetingSms(actor: RequestActor, meetingId: string) {
-  const accessScope = await resolveMeetingAccessScope(actor);
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     include: meetingInclude
   });
   if (!meeting) throw new HttpError(404, 'Meeting not found');
-  if (!canAccessMeeting(actor, meeting, accessScope)) throw new HttpError(403, 'Meeting access denied');
+  if (!canAccessMeeting(actor, meeting)) throw new HttpError(403, 'Meeting access denied');
   if (!config.SMS_KAVEH_SENDER) throw new HttpError(503, 'SMS_KAVEH_SENDER is required to send meeting SMS');
 
   const summary = { sent: 0, skippedNoPhone: 0, failed: 0 };

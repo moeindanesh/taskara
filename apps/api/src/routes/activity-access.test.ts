@@ -207,6 +207,33 @@ describe('activity log access', () => {
   });
 
   /**
+   * The plus-side finding #59 recorded rather than buried, acted on in #60.
+   *
+   * Nine entity types were denied to non-admins because their read rule was not callable from here.
+   * `knowledge_page` is the first one whose rule became composable — `knowledgeSpaceWhereForAccess`
+   * is a Prisma predicate now, not an async function over a `RequestActor` — so the row is placed by
+   * asking it rather than by re-spelling it.
+   *
+   * Over-omission on a feed is not a disclosure, which is exactly why it is the kind of thing that
+   * sits unnoticed for a month. Both halves again.
+   */
+  test('a knowledge page is placed by its space, and one in a walled project stays hidden', async () => {
+    const walled = await createKnowledgeSpace('PROJECT', fixture.nearProjectId);
+    const open = await createKnowledgeSpace('WORKSPACE');
+    const walledPage = await createKnowledgePage(walled.id, 'the runbook behind the wall');
+    const openPage = await createKnowledgePage(open.id, 'the runbook everybody reads');
+
+    const outsiderFeed = await workspaceActivity(fixture.outsiderEmail);
+    expect(entityIds(outsiderFeed)).not.toContain(walledPage.id);
+    expect(entityIds(outsiderFeed)).toContain(openPage.id);
+    expect(JSON.stringify(outsiderFeed)).not.toContain('the runbook behind the wall');
+
+    const insiderFeed = await workspaceActivity(fixture.insiderEmail);
+    expect(entityIds(insiderFeed)).toContain(walledPage.id);
+    expect(entityIds(await workspaceActivity(fixture.ownerEmail))).toContain(walledPage.id);
+  });
+
+  /**
    * The other half, and the one #57 learned by planting it: its tenth regression was a missing
    * positive case, where deleting `canReadProject`'s admin branch failed nothing.
    *
@@ -302,6 +329,33 @@ async function addTeamMember(teamId: string, userId: string): Promise<void> {
     payload: { userId, role: 'MEMBER' }
   });
   expect(response.statusCode).toBe(201);
+}
+
+async function createKnowledgeSpace(type: 'WORKSPACE' | 'PROJECT', projectId?: string): Promise<{ id: string }> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/knowledge/spaces',
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    payload: {
+      type,
+      projectId,
+      key: `aa-${crypto.randomUUID().slice(0, 8)}`,
+      name: `space ${crypto.randomUUID().slice(0, 6)}`
+    }
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as { id: string };
+}
+
+async function createKnowledgePage(spaceId: string, title: string): Promise<{ id: string }> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/knowledge/pages',
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    payload: { spaceId, title, slug: `page-${crypto.randomUUID().slice(0, 8)}` }
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as { id: string };
 }
 
 function entityIds(rows: ActivityRow[]): string[] {

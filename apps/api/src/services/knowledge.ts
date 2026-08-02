@@ -25,7 +25,7 @@ import { logActivity } from './audit';
 import { buildMediaUrl, type UploadedMediaObject } from './media';
 import { HttpError } from './http';
 import { appendSyncEvent, publishSyncEvent } from './sync';
-import { projectWhereForAccess, resolveWorkspaceAccess } from './team-access';
+import { knowledgeSpaceWhereForAccess, resolveWorkspaceAccess } from './team-access';
 
 type CreateKnowledgeSpaceInput = z.infer<typeof createKnowledgeSpaceSchema>;
 type UpdateKnowledgeSpaceInput = z.infer<typeof updateKnowledgeSpaceSchema>;
@@ -802,23 +802,14 @@ async function findKnowledgePageForActor(
   });
 }
 
+/**
+ * The rule itself now lives in `services/team-access.ts` as `knowledgeSpaceWhereForAccess`, beside
+ * every other entity's, because #60 needed it from two places that hold an `access` and no actor:
+ * the inbox's `knowledgePageId` branch and the activity classifier. This is the actor-shaped
+ * wrapper the routes here already call.
+ */
 async function knowledgeSpaceWhereForActor(actor: RequestActor): Promise<Prisma.KnowledgeSpaceWhereInput> {
-  if (isWorkspaceAdminRole(actor.role)) {
-    return { workspaceId: actor.workspace.id };
-  }
-
-  const access = await resolveWorkspaceAccess(actor);
-  return {
-    workspaceId: actor.workspace.id,
-    OR: [
-      { type: 'WORKSPACE' },
-      { teamId: { in: access.teamIds } },
-      {
-        type: 'PROJECT',
-        project: projectWhereForAccess(access)
-      }
-    ]
-  };
+  return knowledgeSpaceWhereForAccess(await resolveWorkspaceAccess(actor));
 }
 
 async function knowledgePageWhereForQuery(actor: RequestActor, query: Partial<KnowledgePageListQuery>) {

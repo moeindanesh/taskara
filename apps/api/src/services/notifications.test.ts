@@ -200,9 +200,111 @@ describe('task mention notifications', () => {
         }
       }
     });
-    // The other branches are not task-scoped and must not have been narrowed with it. An
-    // announcement is addressed to a person directly and has no project to be walled off behind.
+    // The other branches are not *task*-scoped and must not be narrowed with the task predicate —
+    // but they are not ungated either, which is what #57 left and #60 closed. An announcement is
+    // addressed to a person directly, and `updateAnnouncement` can replace that list, so the branch
+    // asks the announcement's own rule rather than the project rule.
+    expect(where.OR).toContainEqual({
+      announcement: {
+        is: {
+          workspaceId: 'workspace-1',
+          OR: [
+            { creatorId: 'user-1' },
+            { recipients: { some: { userId: 'user-1' } } }
+          ]
+        }
+      }
+    });
+  });
+
+  /**
+   * The three branches #57 left open, each composing that entity's own rule.
+   *
+   * The reasoning that fixed the task branch was never about tasks: a notification row outlives the
+   * reach it was written under. A meeting drops a participant, a knowledge page's project space is
+   * reassigned to another team — and the row goes on delivering a title. Only a read gate catches
+   * either.
+   */
+  test('gates the meeting and knowledge-page branches, and stops the catch-all swallowing knowledge pages', () => {
+    const access = {
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      workspaceWide: false,
+      teamIds: ['team-1'],
+      projectIds: ['project-1']
+    };
+    const where = taskInboxNotificationWhere(access);
+
+    expect(where.OR).toContainEqual({
+      meeting: {
+        is: {
+          workspaceId: 'workspace-1',
+          OR: [
+            { participants: { some: { userId: 'user-1' } } },
+            { ownerId: 'user-1' },
+            { createdById: 'user-1' }
+          ]
+        }
+      }
+    });
+    expect(where.OR).toContainEqual({
+      knowledgePage: {
+        is: {
+          workspaceId: 'workspace-1',
+          space: {
+            is: {
+              workspaceId: 'workspace-1',
+              OR: [
+                { type: 'WORKSPACE' },
+                { teamId: { in: ['team-1'] } },
+                {
+                  type: 'PROJECT',
+                  project: {
+                    workspaceId: 'workspace-1',
+                    OR: [
+                      { teamId: null },
+                      { leadId: 'user-1' },
+                      { teamId: { in: ['team-1'] } },
+                      { id: { in: ['project-1'] } }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    });
+
+    // The catch-all branch is the reason gating the knowledge branch alone would have changed
+    // nothing: it did not name `knowledgePageId`, so every knowledge-page notification matched it
+    // and the branch below was dead code.
+    expect(where.OR).toContainEqual({
+      taskId: null,
+      announcementId: null,
+      meetingId: null,
+      knowledgePageId: null
+    });
+  });
+
+  /** An admin reads everything, and each branch has to say so in its own way. */
+  test('a workspace admin is narrowed by none of the four branches', () => {
+    const where = taskInboxNotificationWhere({
+      workspaceId: 'workspace-1',
+      userId: 'user-admin',
+      workspaceWide: true,
+      teamIds: [],
+      projectIds: []
+    });
+
     expect(where.OR).toContainEqual({ announcement: { is: { workspaceId: 'workspace-1' } } });
+    expect(where.OR).toContainEqual({ meeting: { is: { workspaceId: 'workspace-1' } } });
+    expect(where.OR).toContainEqual({
+      knowledgePage: { is: { workspaceId: 'workspace-1', space: { is: { workspaceId: 'workspace-1' } } } }
+    });
+    expect(where.OR).toContainEqual({
+      task: { is: { workspaceId: 'workspace-1', kind: 'WORK' } }
+    });
   });
 
   test('creates inbox notifications for mentioned workspace members', async () => {

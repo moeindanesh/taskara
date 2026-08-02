@@ -23,6 +23,7 @@ import { SmsConfirmDialog } from '@/components/taskara/sms-confirm-dialog';
 import { UserMultiSelectCombobox } from '@/components/taskara/user-multi-select-combobox';
 import { formatJalaliDateTime } from '@/lib/jalali';
 import { dispatchWorkspaceRefresh, useLiveRefresh, workspaceRefreshSourceMatches } from '@/lib/live-refresh';
+import { readable } from '@/lib/redacted';
 import { taskaraRequest, uploadMedia } from '@/lib/taskara-client';
 import type { PaginatedResponse, SmsSendSummary, TaskaraMeeting, TaskaraProject, TaskaraUser } from '@/lib/taskara-types';
 import { fa } from '@/lib/fa-copy';
@@ -252,7 +253,7 @@ export function MeetingsView() {
                            </span>
                            <span className="min-w-0">
                               <span className="mb-1 block truncate text-sm font-medium text-zinc-200">{meeting.title}</span>
-                              <span className="line-clamp-1 text-xs leading-5 text-zinc-500">{descriptionText(meeting.description) || meeting.project?.name || fa.inbox.noDescription}</span>
+                              <span className="line-clamp-1 text-xs leading-5 text-zinc-500">{descriptionText(meeting.description) || readable(meeting.project)?.name || fa.inbox.noDescription}</span>
                            </span>
                            <span className="shrink-0 whitespace-nowrap pt-0.5 text-[11px] text-zinc-500">{formatJalaliDateTime(meeting.scheduledAt || meeting.createdAt)}</span>
                         </button>

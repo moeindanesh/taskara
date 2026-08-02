@@ -10,8 +10,10 @@ import { buildDailyReportDigest } from '../services/check-ins';
 import { HttpError } from '../services/http';
 import { isMeasuredMember } from '../services/measured-people';
 import { workTaskWhere } from '../services/measured-work';
-import { canAccessMeeting, createMeeting, resolveMeetingAccessScope } from '../services/meetings';
+import { canAccessMeeting, createMeeting } from '../services/meetings';
 import {
+  canReadProject,
+  canReadTeam,
   projectWhereForAccess,
   resolveWorkspaceAccess,
   taskWhereForAccess,
@@ -2201,15 +2203,24 @@ async function executeQueryMeetingsPlan(
     orderBy: input.mode === 'upcoming' ? [{ scheduledAt: 'asc' }] : [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
     take: input.limit,
     include: {
-      team: { select: { name: true } },
-      project: { select: { name: true, teamId: true } },
+      team: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true, teamId: true, leadId: true } },
       owner: { select: { name: true } },
       participants: { select: { userId: true } }
     }
   });
 
-  const accessScope = await resolveMeetingAccessScope(actor);
-  const visible = meetings.filter((item) => canAccessMeeting(actor, item, accessScope));
+  // Same wall crossing as `meetingInclude` and closed the same way (#60): reading a meeting says
+  // nothing about the project it belongs to or the team that owns it, so the two names are dropped
+  // for a reader who could not open either. The meeting itself is still listed.
+  const access = await resolveWorkspaceAccess(actor);
+  const visible = meetings
+    .filter((item) => canAccessMeeting(actor, item))
+    .map((item) => ({
+      ...item,
+      team: canReadTeam(access, item.teamId) ? item.team : null,
+      project: canReadProject(access, item.project) ? item.project : null
+    }));
   const lines = visible.length
     ? visible.map((item) => [
         `- ${item.title}`,

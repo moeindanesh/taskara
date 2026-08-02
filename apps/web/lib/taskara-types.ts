@@ -174,6 +174,19 @@ export interface RedactedTaskRef {
 /** The far end of an edge: the task, or the fact that there is one. Ask `lib/takeability.ts`. */
 export type TaskEdgeTarget = { id: string; key: string; title: string; status: string } | RedactedTaskRef;
 
+/**
+ * Something walled off, with no bit beyond the fact that it is there (#60).
+ *
+ * {@link RedactedTaskRef}'s `open` exists because takeability is computed from a blocker list. A
+ * meeting's tasks, its project and its team decide nothing, so they carry nothing — the shape says
+ * "there is one and you may not open it" and stops. Ask `lib/redacted.ts` rather than testing the
+ * field by hand, and never render a redacted relation as absence: a meeting whose project is hidden
+ * is not a meeting with no project.
+ */
+export interface RedactedRef {
+   redacted: true;
+}
+
 export interface TaskaraTask {
    id: string;
    key: string;
@@ -331,8 +344,18 @@ export interface TaskaraMeeting {
    heldAt?: string | null;
    createdAt: string;
    updatedAt: string;
-   team?: { id: string; name: string; slug: string } | null;
-   project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+   /**
+    * The three things a meeting carries that its participants are not automatically entitled to
+    * (#60). A meeting's readers are its participants, its owner, its creator and admins; none of
+    * that says which projects or teams those people may open, and a linked task is not constrained
+    * to the meeting's project at all.
+    *
+    * Each arrives as itself or as a {@link RedactedRef}. The task list is **never shortened** — the
+    * length has to keep matching `_count.tasks`, which no server-side filter narrows — so an entry
+    * the reader may not open keeps its slot and loses its contents.
+    */
+   team?: { id: string; name: string; slug: string } | RedactedRef | null;
+   project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | RedactedRef | null;
    owner?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    createdBy?: { id: string; name: string; email: string; avatarUrl?: string | null } | null;
    participants?: Array<{
@@ -344,9 +367,9 @@ export interface TaskaraMeeting {
    }>;
    tasks?: Array<{
       meetingId: string;
-      taskId: string;
+      taskId: string | null;
       createdAt: string;
-      task: TaskaraTask;
+      task: TaskaraTask | RedactedRef;
    }>;
    _count?: { participants?: number; tasks?: number };
 }
@@ -521,7 +544,12 @@ export interface TaskaraMeetingActionItem {
    updatedAt: string;
    assignee?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
    createdBy?: { id: string; name: string; email: string; phone?: string | null; avatarUrl?: string | null } | null;
-   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | null;
+   /**
+    * Two more relations that reach out of the meeting into project-walled data, redacted by the same
+    * rule as {@link TaskaraMeeting}'s (#60). The linked task may sit in any project at all — nothing
+    * ties it to the meeting's — so it is decided separately from the meeting's project.
+    */
+   task?: { id: string; key: string; title: string; status: TaskaraTask['status'] } | RedactedRef | null;
    meeting?: {
       id: string;
       title: string;
@@ -529,7 +557,7 @@ export interface TaskaraMeetingActionItem {
       scheduledAt?: string | null;
       heldAt?: string | null;
       projectId?: string | null;
-      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | null;
+      project?: { id: string; name: string; keyPrefix: string; teamId?: string | null } | RedactedRef | null;
    } | null;
 }
 

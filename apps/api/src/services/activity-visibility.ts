@@ -1,6 +1,11 @@
 import { prisma, type Prisma } from '@taskara/db';
 import type { ActivityEntityType } from './audit';
-import { canReadProject, canReadTeam, type WorkspaceAccess } from './team-access';
+import {
+  canReadProject,
+  canReadTeam,
+  knowledgeSpaceWhereForAccess,
+  type WorkspaceAccess
+} from './team-access';
 
 /**
  * Who may read an activity row.
@@ -66,7 +71,13 @@ const projectSelect = { id: true, teamId: true, leadId: true } as const;
 type EntityScope =
   | { kind: 'admin' }
   | { kind: 'project'; projects: (workspaceId: string, ids: string[]) => Promise<Map<string, ProjectRef>> }
-  | { kind: 'team'; teams: (workspaceId: string, ids: string[]) => Promise<Map<string, string>> };
+  | { kind: 'team'; teams: (workspaceId: string, ids: string[]) => Promise<Map<string, string>> }
+  /**
+   * The entity's own rule is already a composable Prisma predicate, so the question is asked as one
+   * query: of these ids, which survive it. Added by #60 for the one denied type whose rule became
+   * composable — see `knowledge_page` below.
+   */
+  | { kind: 'query'; visible: (access: WorkspaceAccess, ids: string[]) => Promise<Set<string>> };
 
 function byId<T extends { id: string }>(rows: T[]): Map<string, T> {
   return new Map(rows.map((row) => [row.id, row]));
@@ -152,10 +163,46 @@ const ACTIVITY_ENTITY_SCOPE: Record<ActivityEntityType, EntityScope> = {
   // second spelling here is exactly the drift #37 was filed about, so they are denied instead, and
   // widening one means exporting its real rule first. Recorded in
   // `.scratch/AUDIT-read-access-sites.md` as open, not closed.
+  /**
+   * **Not** widened, and this is the finding rather than an omission. #59 named `announcement` as
+   * one of the two that could be widened cheaply, and `announcementWhereForAccess` now exists — so
+   * the predicate is there. The reason it is still denied is what the snapshot contains.
+   *
+   * An activity row for an announcement is written on `created` and on `updated`, and both carry the
+   * whole entity: `created` fires while the announcement is a **DRAFT**, and `updated` carries the
+   * pre-edit body in `before`. A draft is admin-only until it is published, so admitting its
+   * recipients to the feed row would disclose something they could never have opened — which is a
+   * different question from "may this person read this announcement now", and the one the
+   * cheapness claim did not account for. Widening it wants a rule about the snapshot, not about the
+   * row, and that is not this ticket.
+   */
   announcement: { kind: 'admin' },
   attention: { kind: 'admin' },
   check_in: { kind: 'admin' },
-  knowledge_page: { kind: 'admin' },
+  /**
+   * Widened by #60, which is the direction this table is supposed to move in.
+   *
+   * A knowledge page is walled by its **space**, and that rule became composable when
+   * `knowledgeSpaceWhereForAccess` moved into `services/team-access.ts` — it was an async function
+   * over a `RequestActor` before, which is the only reason this said `admin`. It is asked as one
+   * query rather than re-spelled, so the feed cannot disagree with `GET /knowledge/pages`.
+   *
+   * There is no draft asymmetry to worry about here: a DRAFT page is already listed to anybody with
+   * space access, so a `before` snapshot discloses nothing the reader could not open at the time.
+   * That is exactly the point `announcement` fails on, two entries down.
+   */
+  knowledge_page: {
+    kind: 'query',
+    visible: async (access, ids) =>
+      new Set((await prisma.knowledgePage.findMany({
+        where: {
+          id: { in: ids },
+          workspaceId: access.workspaceId,
+          space: { is: knowledgeSpaceWhereForAccess(access) }
+        },
+        select: { id: true }
+      })).map((row) => row.id))
+  },
   knowledge_space: { kind: 'admin' },
   meeting: { kind: 'admin' },
   meeting_action_item: { kind: 'admin' },
@@ -202,9 +249,14 @@ export async function filterActivityByEntityAccess<T extends ActivityEntityRef>(
   }
 
   const resolved = new Map<string, Map<string, ProjectRef | string>>();
+  const allowed = new Map<string, Set<string>>();
   await Promise.all([...idsByType].map(async ([entityType, ids]) => {
     const scope = scopeOf(entityType);
     if (!scope || scope.kind === 'admin') return;
+    if (scope.kind === 'query') {
+      allowed.set(entityType, await scope.visible(access, [...ids]));
+      return;
+    }
     const found = scope.kind === 'project'
       ? await scope.projects(access.workspaceId, [...ids])
       : await scope.teams(access.workspaceId, [...ids]);
@@ -214,6 +266,10 @@ export async function filterActivityByEntityAccess<T extends ActivityEntityRef>(
   return rows.filter((row) => {
     const scope = scopeOf(row.entityType);
     if (!scope || scope.kind === 'admin') return false;
+    // A `query` scope has already answered for the whole batch, and a missing id is a deleted
+    // entity or one the predicate refused — indistinguishable, and denied either way, exactly as
+    // the resolved kinds below.
+    if (scope.kind === 'query') return allowed.get(row.entityType)?.has(row.entityId) ?? false;
     const found = resolved.get(row.entityType)?.get(row.entityId);
     if (found === undefined) return false;
     return scope.kind === 'project'
