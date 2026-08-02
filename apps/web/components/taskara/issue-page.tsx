@@ -1383,8 +1383,13 @@ function EffortBody({
             </div>
          ) : null}
          {body ? (
+            // The interface font, not a monospace one. Monospace suits a source document and was the
+            // first thing tried here, but the fallback mono family has no Arabic-script shaping: a
+            // Persian body rendered as «مـقـصـد», every letter disjoined. A Persian map is the
+            // ordinary case in this workspace, and the structure of the document is legible from its
+            // own `##` and `-` characters without a typeface helping.
             <pre
-               className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-zinc-300"
+               className="overflow-x-auto whitespace-pre-wrap break-words font-sans text-sm leading-6 text-zinc-300"
                dir="auto"
             >
                {body}
