@@ -385,6 +385,28 @@ export async function createTaskMentionNotifications(
   return validUserIds;
 }
 
+/**
+ * The people a body mentions: whoever its **mention nodes** name, and nobody else.
+ *
+ * A mention is a node the rich-text editor writes when a human picks a colleague out of an
+ * autocomplete. It is not a spelling, which is why a markdown body mentions nobody however it
+ * writes a person — `@Robin`, an email, a bare uuid, all nothing. #53 settled that this stays so:
+ *
+ * - A text syntax would be a **second addressing form** that only one client can write and no
+ *   client renders. The web editor loads a markdown body as plain paragraphs and saves it back as
+ *   an editor state, so a text mention would stop being one the next time a human touched the task
+ *   — the same client-dependence in a new place. Meanwhile a mention node cannot be typed by
+ *   accident, and a syntax can: an agent pasting a log or a review would notify a real person.
+ * - #52 keeps an Effort body markdown, and `taskInboxNotificationWhere` filters efforts out of
+ *   every inbox read. So a text mention in a map would write rows no inbox ever shows.
+ *
+ * The rule is about the nodes and not about the client: a session that reads a body with
+ * `task view` and writes it back is sending an editor state, and the mentions in it still fire.
+ *
+ * **What was silent is not.** `taskara task create/edit/comment` names the handles a body appears
+ * to address and says none of them was told — see `core/mentions.ts` in the agent plugin. A rule
+ * this file enforces and no surface states is the bug #53 was filed about.
+ */
 export function extractTaskMentionUserIds(description?: string | null): string[] {
   if (!description?.trim().startsWith('{')) return [];
 

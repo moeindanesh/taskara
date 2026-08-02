@@ -18,6 +18,7 @@ import {
 import { z } from 'zod';
 import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
+import { mentionNotice } from './core/mentions';
 import * as api from './core/operations';
 import type { JsonRecord } from './core/types';
 import {
@@ -313,7 +314,8 @@ registerTool('task_view', {
 
 registerTool('task_create', {
   title: 'Create a Taskara task',
-  description: 'Create a task, or an effort with kind=EFFORT. An effort is the root of a piece of work and holds no assignee, due date, weight, milestone or parent.',
+  description: 'Create a task, or an effort with kind=EFFORT. An effort is the root of a piece of work and holds no assignee, due date, weight, milestone or parent. '
+    + 'An @-mention in the description notifies nobody — a mention is a rich-text node the web editor writes, and this tool sends markdown. Set an assignee to reach a person.',
   inputSchema: {
     projectId: z.string().uuid(),
     title: z.string().min(1).max(300),
@@ -333,7 +335,7 @@ registerTool('task_create', {
     milestoneId: z.string().uuid().optional()
   }
 }, async (input) => {
-  return { task: taskSummary(await api.createTask(client, input)) };
+  return withMentionNotice({ task: taskSummary(await api.createTask(client, input)) }, input.description);
 });
 
 registerTool('task_edit', {
@@ -343,7 +345,8 @@ registerTool('task_edit', {
     + 'set and loses a concurrent edit, while the add and remove are applied server-side and commute. '
     + 'A description is a whole-body rewrite and cannot commute, so pass baseVersion — the version that '
     + 'came with the body you edited — and the server refuses the write instead of overwriting someone '
-    + 'else. Rewriting an Effort body without it is rejected.',
+    + 'else. Rewriting an Effort body without it is rejected. An @-mention in the description notifies '
+    + 'nobody: a mention is a rich-text node the web editor writes, and this tool sends markdown.',
   inputSchema: {
     task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
     title: z.string().min(1).max(300).optional(),
@@ -370,7 +373,7 @@ registerTool('task_edit', {
   // request carrying only it asks for nothing and must not report success.
   if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
   const updated = await api.updateTask(client, task, baseVersion === undefined ? body : { ...body, baseVersion });
-  return { task: taskSummary(updated) };
+  return withMentionNotice({ task: taskSummary(updated) }, patch.description);
 });
 
 registerTool('task_claim', {
@@ -422,13 +425,14 @@ registerTool('task_set_milestone', {
 
 registerTool('task_comment', {
   title: 'Comment on a Taskara task',
-  description: 'Add a comment to a Taskara task by UUID or key.',
+  description: 'Add a comment to a Taskara task by UUID or key. The task\'s subscribers are notified; '
+    + 'an @-mention in the comment reaches nobody in addition to them, from any client.',
   inputSchema: {
     task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
     body: z.string().min(1).max(15000)
   }
 }, async ({ task, body }) => {
-  return { comment: await api.commentOnTask(client, task, body) };
+  return withMentionNotice({ comment: await api.commentOnTask(client, task, body) }, body);
 });
 
 registerTool('task_attach', {
@@ -637,6 +641,25 @@ function registerTool<T extends z.ZodRawShape>(
       return errorResult(error);
     }
   });
+}
+
+/**
+ * The result, plus the one thing a body full of names did not do.
+ *
+ * The same rule the CLI prints to stderr, carried where a conversation can see it. A tool
+ * description says it before the call and this says it after, because a model that has already
+ * written `@Robin please look` needs to be told that Robin was not told.
+ *
+ * The pointer names uuid rather than email: MCP's `assigneeId` is a uuid by #49's decision, since a
+ * conversation holds state and has just called `user_list` while a shell caller has nowhere to keep
+ * a resolved id between invocations.
+ */
+function withMentionNotice<T extends JsonRecord>(result: T, body: string | null | undefined): T {
+  const notice = mentionNotice(
+    body,
+    'Hand work over with task_edit assigneeId; user_list finds the person and their id.'
+  );
+  return notice ? { ...result, warning: notice } : result;
 }
 
 function jsonResult(data: unknown): CallToolResult {

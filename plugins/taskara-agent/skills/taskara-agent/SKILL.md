@@ -71,6 +71,12 @@ UUID appears in no key, no URL and no prose. Agents are in that roster too, mark
 with `operatorId` naming the human they act for; they are teammates, and assignable, but tell the
 user when you are handing work to one.
 
+**An @-mention in a body reaches nobody.** A mention is a rich-text node the web editor writes, and
+every body you send from here is markdown — so `@Robin please look` in a task body, an effort body
+or a comment notifies no one, whatever handle you spell. Address a person with `--add-assignee`, not
+in prose. A body that looks like it tried is still written as given, with a line on stderr naming
+who was not told; the exit code stays 0.
+
 **stdout is always JSON**, the result on success and `{ "error": ... }` on failure. **stderr is
 always the human line.** The exit code is what you branch on.
 

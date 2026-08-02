@@ -231,6 +231,67 @@ describe('task mention notifications', () => {
     expect(mock.createdNotifications).toEqual([]);
   });
 
+  test('a markdown body mentions nobody, however it spells a person', async () => {
+    // #53, and a decision rather than a leftover. A mention is a **node**, written by the rich-text
+    // editor when a human picks a colleague out of an autocomplete; a markdown body carries none, so
+    // an agent's `@Robin please look` reaches nobody. The alternative — a text syntax — would be a
+    // second addressing form that only one client can write and no client renders, and #52 keeps an
+    // Effort body markdown, so it would also have a map notifying rows that
+    // `taskInboxNotificationWhere` filters out of every inbox read.
+    //
+    // What ended is the silence, not the rule: `taskara task create/edit/comment` now names the
+    // handles it did not reach. This test is the rule's half of that, and it must fail loudly if a
+    // text-mode path is ever added here without the surface being told.
+    const mentionedUserId = 'user-mentioned';
+    const spellings = [
+      '@Robin please look at this',
+      'ping robin@example.test when the build is green',
+      `cc @${mentionedUserId}`,
+      `see user ${mentionedUserId}`,
+      '- [ ] ask @Sara\n\nand @Navid too'
+    ];
+
+    for (const description of spellings) {
+      const mock = mockMentionTransaction([mentionedUserId]);
+      const recipients = await createTaskMentionNotifications(mock.tx, {
+        workspaceId: 'workspace-1',
+        actorUserId: 'user-actor',
+        actorName: 'Raha',
+        attribution: humanAttribution('user-actor'),
+        task: { id: 'task-1', key: 'CORE-12', title: 'Written in markdown', description }
+      });
+
+      expect({ description, recipients, calls: mock.createManyCalls }).toEqual({
+        description,
+        recipients: [],
+        calls: 0
+      });
+    }
+  });
+
+  test('a body that carries mention nodes still notifies, whoever sent it', async () => {
+    // The rule is about the nodes, not about the client, and the difference is load-bearing: a
+    // session that reads a body with `task view` and writes it back is sending an editor state, and
+    // the mentions already in it must survive the round trip rather than being dropped as
+    // "not from the web".
+    const mock = mockMentionTransaction(['user-sara']);
+
+    const recipients = await createTaskMentionNotifications(mock.tx, {
+      workspaceId: 'workspace-1',
+      actorUserId: 'user-actor',
+      actorName: 'Raha',
+      attribution: humanAttribution('user-actor'),
+      task: {
+        id: 'task-1',
+        key: 'CORE-12',
+        title: 'Round-tripped body',
+        description: serializedDescription([{ userId: 'user-sara', name: 'Sara' }])
+      }
+    });
+
+    expect(recipients).toEqual(['user-sara']);
+  });
+
   test('subscribes only workspace members to a task', async () => {
     const workspaceId = 'workspace-1';
     const mock = mockMentionTransaction(['user-actor', 'user-assignee']);

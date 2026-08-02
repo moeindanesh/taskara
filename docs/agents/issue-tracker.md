@@ -111,6 +111,42 @@ have no command here rather than a command that always exits 3.
 exit 1: a credential never learns its own user id, and claiming is atomic where assigning is not.
 `taskara task list --assignee me` does work — the server answers "mine" without needing an id.
 
+### An @-mention in a body reaches nobody
+
+Writing `@Robin please look at this` into a task body, an effort body or a comment notifies **no
+one**. A mention in Taskara is a rich-text node the web editor writes when a human picks a colleague
+out of an autocomplete; every body you send from here is markdown, and markdown carries no nodes.
+There is no text spelling that works — not a name, not an email, not a UUID.
+
+So a person is reached by a **flag**, never in prose:
+
+```bash
+taskara task edit CORE-123 --add-assignee robin.example@example.test
+```
+
+The body still lands exactly as written — a sentence naming somebody is worth keeping for whoever
+reads the task — and the CLI prints one line to stderr naming the handles it found and did not
+reach. **Exit stays 0.** That line is not a failure; it is the write telling you which part of your
+intent it could not carry.
+
+```
+$ taskara task create --project CORE --title "Rework the parser" --body "@Robin please look"
+Created CORE-124
+@Robin looks like a mention and notified nobody: a mention is a node the web editor writes, and a
+markdown body carries none. Hand work over with task edit --add-assignee <email>; taskara user list
+finds the address.
+```
+
+Two consequences worth knowing before you rely on the alternative:
+
+- **A comment mention is dead in every client**, not only this one. No client scans a comment body
+  for mentions, so the same words typed in the web notify nobody either. A comment does notify the
+  task's **subscribers** — the reporter, the assignee, anyone mentioned in the body through the
+  editor — so commenting reaches people already attached to the work, and only them.
+- **An Effort body can never @-notify.** A map's body is markdown by design, and the inbox filters
+  efforts out of every read besides. Say who should look in the ticket you hand them, not in the
+  map.
+
 ## Conventions
 
 - **List people**: `taskara user list` — see [Identifying a person](#identifying-a-person).
@@ -131,6 +167,9 @@ exit 1: a credential never learns its own user id, and claiming is atomic where 
 - **Claim**: `taskara task claim CORE-123` — atomic; see [Claiming](#claiming).
 - **Assign to someone**: `taskara task edit CORE-123 --add-assignee robin.example@example.test`
   (a UUID works too; a name does not — see [Identifying a person](#identifying-a-person)).
+- **Tell someone about a task**: assign it, or comment and let its subscribers hear. Writing
+  `@Robin` in the body notifies nobody — see
+  [An @-mention in a body reaches nobody](#an--mention-in-a-body-reaches-nobody).
 - **Re-parent**: `taskara task edit CORE-123 --parent CORE-1`, or `--parent none` to detach.
 - **Close**: `taskara task close CORE-123 --reason completed` (or `--reason canceled`).
   `completed` → `DONE`, `canceled` → `CANCELED`. Taskara has no "not planned".
