@@ -174,6 +174,36 @@ describe('task subscription', () => {
       await comment(task.key, fixture.reporterEmail, 'and here is the answer to it');
       expect(await notificationCount(task.id, 'task_commented')).toBe(1);
     });
+
+    /**
+     * A mute does not silence a comment mention — and this is the decision #55 had to make, not a
+     * behaviour inherited by accident.
+     *
+     * A mute governs the ambient stream; being addressed by name is not ambient. Silencing a
+     * comment mention would be the strictest reading of "stop telling me about this task", and it
+     * would make a mute the only way in Taskara to become unreachable by a colleague who is looking
+     * straight at you — a promise nobody asked for and nobody could discover they had made. It
+     * would also be inconsistent one field over, where a mention in a *description* already reaches
+     * a muter (test above).
+     *
+     * What keeps the mute meaningful is the second half: it is one message, not a re-subscription.
+     * They are spoken to once and the ambient stream stays off, so the cost of ignoring a mention
+     * is bounded — which is exactly why the loud half is affordable.
+     */
+    test('reaches somebody who muted, once, and does not put them back on the list', async () => {
+      const task = await createTask('muted, then named in the thread');
+      expect((await unsubscribe(task.key, { email: fixture.watcherEmail })).statusCode).toBe(200);
+
+      await comment(task.key, fixture.reporterEmail, mentionBody(fixture.watcherId));
+
+      expect(await notificationCount(task.id, 'task_mentioned')).toBe(1);
+      expect(await subscriptionCount(task.id)).toBe(0);
+      expect(await muteCount(task.id)).toBe(1);
+
+      // And the stream really is still off: the next comment reaches them not at all.
+      await comment(task.key, fixture.reporterEmail, 'the conversation carries on without them');
+      expect(await notificationCount(task.id, 'task_commented')).toBe(0);
+    });
   });
 
   test('being assigned a muted task still tells you, because that is addressed to you', async () => {
