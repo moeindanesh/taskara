@@ -34,6 +34,10 @@ interface Fixture {
   /** A second team, with nobody on it — somewhere a task can be moved out of reach to. */
   farTeamId: string;
   farProjectId: string;
+  /** On the far team, but **led** by the outsider: reachable without any team membership. */
+  ledProjectId: string;
+  /** On the far team, with the outsider an explicit `ProjectMember`: the other way in. */
+  memberProjectId: string;
   /** Teamless, so every workspace member can read it. The control for "still reaches people". */
   openProjectId: string;
 }
@@ -293,6 +297,102 @@ describe('notification task access', () => {
       expect(await statusRowCount(task.id, fixture.outsiderId)).toBe(0);
       expect(await statusRowCount(task.id, fixture.insiderId)).toBe(1);
     });
+
+    /**
+     * The blocker row, pinned separately from the other three that share its code path — because
+     * it is the only one whose **body** names a second task, key and title, on top of the one in
+     * its title. A stale subscriber getting this one would learn about two.
+     *
+     * (What the blocker's own reachability implies is a different surface: `GET /tasks/:idOrKey`
+     * already returns `blockingDependencies` with the whole far-end task and no access filter on
+     * it, so anybody who can read the blocked task can already read the blocker's key and title
+     * there. That is a dependency-read question, not a notification one.)
+     */
+    test('a blocker on a walled-off task names neither task to a stale subscriber', async () => {
+      const task = await createTask('moved, then blocked', fixture.openProjectId);
+      await subscribe(task.key, fixture.outsiderEmail);
+      await subscribe(task.key, fixture.insiderEmail);
+      await moveToProject(task.key, fixture.projectId);
+      const blocker = await createTask('the thing in the way', fixture.projectId);
+
+      const linked = await app.inject({
+        method: 'POST',
+        url: `/tasks/${task.key}/dependencies`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+        payload: { blockedBy: blocker.key }
+      });
+      expect(linked.statusCode).toBe(201);
+
+      expect(await blockedRowCount(task.id, fixture.outsiderId)).toBe(0);
+      expect(await blockedRowCount(task.id, fixture.insiderId)).toBe(1);
+    });
+
+    /**
+     * Assignment, which this ticket found already correct and pins rather than changes.
+     *
+     * `assertTaskRelations` has always refused an assignee who is not on the project's team, so the
+     * `task_assigned` row could never name a task its recipient could not open. That rule is
+     * stricter than read access — a project member who is not on the team can read the work and
+     * still cannot be assigned it — and it is a rule about who may hold work rather than about
+     * disclosure, which is why it was not folded into this ticket's helper. Pinned here so the
+     * notification property does not quietly depend on a check that could be relaxed for unrelated
+     * reasons.
+     */
+    test('assignment already refuses somebody who cannot open the task', async () => {
+      const task = await createTask('assigned across a wall', fixture.projectId);
+
+      const refused = await app.inject({
+        method: 'PATCH',
+        url: `/tasks/${task.key}`,
+        headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+        payload: { assigneeId: fixture.outsiderId }
+      });
+
+      expect(refused.statusCode).toBe(400);
+      expect(await prisma.notification.count({
+        where: { taskId: task.id, userId: fixture.outsiderId, type: 'task_assigned' }
+      })).toBe(0);
+
+      await patch(task.key, { assigneeId: fixture.insiderId });
+      expect(await prisma.notification.count({
+        where: { taskId: task.id, userId: fixture.insiderId, type: 'task_assigned' }
+      })).toBe(1);
+    });
+  });
+
+  /**
+   * The other half, and the reason this ticket is not just a filter.
+   *
+   * Team membership is only one of the four ways `canReadProject` lets somebody in. A fix that
+   * checked it and nothing else would quietly stop notifying a workspace admin, a project lead and
+   * an explicit project member about work they can open every day — a regression that shows up as
+   * "the inbox went quiet" weeks later and reads like nothing to do with access. One test per way
+   * in, so which one broke is legible from the failure.
+   */
+  describe('and still reaches everybody who can read the work', () => {
+    test('a workspace admin, who is on no team at all', async () => {
+      const task = await createTaskAs(fixture.insiderEmail, 'named by somebody on the team', fixture.projectId, {
+        description: mentionBody([fixture.ownerId])
+      });
+
+      expect(await mentionRowCount(task.id, fixture.ownerId)).toBe(1);
+    });
+
+    test('the lead of the project, without being on its team', async () => {
+      const task = await createTask('named on work they lead', fixture.ledProjectId, {
+        description: mentionBody([fixture.outsiderId])
+      });
+
+      expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(1);
+    });
+
+    test('an explicit project member, without being on its team', async () => {
+      const task = await createTask('named on a project they joined', fixture.memberProjectId, {
+        description: mentionBody([fixture.outsiderId])
+      });
+
+      expect(await mentionRowCount(task.id, fixture.outsiderId)).toBe(1);
+    });
   });
 });
 
@@ -329,6 +429,10 @@ function commentedRowCount(taskId: string, userId: string): Promise<number> {
 
 function statusRowCount(taskId: string, userId: string): Promise<number> {
   return prisma.notification.count({ where: { taskId, userId, type: 'task_status_changed' } });
+}
+
+function blockedRowCount(taskId: string, userId: string): Promise<number> {
+  return prisma.notification.count({ where: { taskId, userId, type: 'task_blocked' } });
 }
 
 function decidedRowCount(taskId: string, userId: string): Promise<number> {
@@ -445,7 +549,17 @@ function seedNotification(task: { id: string; key: string; title: string }, user
   });
 }
 
-async function createTask(
+function createTask(
+  title: string,
+  projectId: string,
+  extra: Record<string, unknown> = {}
+): Promise<{ id: string; key: string; title: string }> {
+  return createTaskAs(fixture.ownerEmail, title, projectId, extra);
+}
+
+/** Filed by somebody other than the owner, for the cases where the owner is the one being named. */
+async function createTaskAs(
+  email: string,
   title: string,
   projectId: string,
   extra: Record<string, unknown> = {}
@@ -453,7 +567,7 @@ async function createTask(
   const response = await app.inject({
     method: 'POST',
     url: '/tasks',
-    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': fixture.ownerEmail },
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email },
     payload: { projectId, title, ...extra }
   });
   expect(response.statusCode).toBe(201);
@@ -497,6 +611,21 @@ async function createFixture(): Promise<Fixture> {
   const farProject = await prisma.project.create({
     data: { workspaceId: workspace.id, teamId: farTeam.id, name: 'Far work', keyPrefix: `FR${prefix}` }
   });
+  const ledProject = await prisma.project.create({
+    data: {
+      workspaceId: workspace.id,
+      teamId: farTeam.id,
+      leadId: outsider.id,
+      name: 'Led work',
+      keyPrefix: `LD${prefix}`
+    }
+  });
+  const memberProject = await prisma.project.create({
+    data: { workspaceId: workspace.id, teamId: farTeam.id, name: 'Member work', keyPrefix: `MB${prefix}` }
+  });
+  await prisma.projectMember.create({
+    data: { projectId: memberProject.id, userId: outsider.id, role: 'MEMBER' }
+  });
   const openProject = await prisma.project.create({
     data: { workspaceId: workspace.id, name: 'Open work', keyPrefix: `OP${prefix}` }
   });
@@ -514,6 +643,8 @@ async function createFixture(): Promise<Fixture> {
     projectId: project.id,
     farTeamId: farTeam.id,
     farProjectId: farProject.id,
+    ledProjectId: ledProject.id,
+    memberProjectId: memberProject.id,
     openProjectId: openProject.id
   };
 }
