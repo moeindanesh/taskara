@@ -85,6 +85,17 @@ export function taskBlockedNotificationBody(actorName: string, blockerKey: strin
   return `${actorName} این کار را وابسته به ${blockerKey} («${blockerTitle}») کرد.`;
 }
 
+/**
+ * The same event, for a recipient who cannot open the blocker (#58).
+ *
+ * It still says the task became blocked, because that is what the person watching it needs to know
+ * and it is a fact about *their* task. What it does not do is name the thing in the way — the same
+ * line the issue page now draws, in the same words.
+ */
+export function taskBlockedByHiddenNotificationBody(actorName: string): string {
+  return `${actorName} این کار را وابسته به کاری کرد که دسترسی به آن ندارید.`;
+}
+
 export function taskReviewRequestedNotificationBody(actorName: string): string {
   return `${actorName} از شما درخواست بازبینی این کار را کرد.`;
 }
@@ -344,6 +355,21 @@ export async function createTaskSubscriberNotifications(
     task: SubscriberNotificationTask;
     type: string;
     body: string;
+    /**
+     * A **second** task the body names, and what to say instead to whoever cannot open it.
+     *
+     * `task_blocked` is the only body that does this today — it carries the blocker's key and
+     * title on top of the blocked task's own in the title. #57 left it naming the blocker, on the
+     * ground that it disclosed nothing the recipient could not already fetch from
+     * `GET /tasks/:idOrKey`; #58 closed that route, so the justification went with it.
+     *
+     * Declared here rather than solved at the one call site because a body naming a second task is
+     * a *shape*, not an incident: the next one will be written by somebody who never read this,
+     * and an argument that lives in a parameter gets asked. The notification itself is never
+     * dropped — watching a task that became blocked is the recipient's business either way; only
+     * the name of the thing in the way is withheld.
+     */
+    namedTask?: { taskId: string; bodyWithout: string };
     excludeUserIds?: string[];
   }
 ): Promise<string[]> {
@@ -372,6 +398,16 @@ export async function createTaskSubscriberNotifications(
   });
   if (!recipientIds.length) return [];
 
+  // The same question, asked about the other task. Reading the task a notification is *about* says
+  // nothing about the one its body names, and the two need not share a project at all.
+  const namedTaskReaders = input.namedTask
+    ? new Set(await filterUsersWithTaskAccess(tx, {
+        workspaceId: input.workspaceId,
+        taskId: input.namedTask.taskId,
+        userIds: recipientIds
+      }))
+    : null;
+
   await tx.notification.createMany({
     data: recipientIds.map((userId) => ({
       workspaceId: input.workspaceId,
@@ -380,7 +416,9 @@ export async function createTaskSubscriberNotifications(
       taskId: input.task.id,
       type: input.type,
       title: `${input.task.key}: ${input.task.title}`,
-      body: input.body
+      body: namedTaskReaders && !namedTaskReaders.has(userId)
+        ? (input.namedTask as { bodyWithout: string }).bodyWithout
+        : input.body
     }))
   });
 

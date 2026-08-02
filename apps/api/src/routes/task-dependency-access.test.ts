@@ -189,6 +189,33 @@ describe('task dependency access', () => {
   });
 
   /**
+   * #57's one deliberate omission, revisited because this ticket removed the reason for it.
+   *
+   * `task_blocked` is the only notification body that names a **second** task, key and title. #57
+   * left it alone on the ground that it disclosed nothing the recipient could not already fetch
+   * from `GET /tasks/:idOrKey` — which was true then and is not any more. Whoever watches a task
+   * still hears that it became blocked; only the naming of the blocker is withheld, and only from
+   * the people the redaction above already applies to.
+   */
+  test('a task_blocked notification names the blocker only to somebody who can open it', async () => {
+    const task = await createTask('watched by both', fixture.openProjectId);
+    await subscribe(task.key, fixture.outsiderEmail);
+    await subscribe(task.key, fixture.insiderEmail);
+    const blocker = await createTask('named to one of them', fixture.nearProjectId);
+    await blockOn(task.key, blocker.key);
+
+    const withheld = await blockedNotification(task.id, fixture.outsiderId);
+    const named = await blockedNotification(task.id, fixture.insiderId);
+
+    // Delivered, not dropped — asserted first, because every assertion below would pass on a row
+    // that was never written, and a silent unsubscribe is not the fix this is.
+    expect(withheld).not.toBeNull();
+    expect(withheld?.body).not.toContain(blocker.key);
+    expect(withheld?.body).not.toContain(blocker.title);
+    expect(named?.body).toContain(blocker.key);
+  });
+
+  /**
    * The sync payload, checked rather than assumed — and it is clean, which is the finding.
    *
    * `taskInclude` carries `_count` and no far-end array at all, so the ambient stream has never
@@ -259,6 +286,24 @@ describe('task dependency access', () => {
     });
   });
 });
+
+async function subscribe(idOrKey: string, email: string): Promise<void> {
+  const response = await app.inject({
+    method: 'POST',
+    url: `/tasks/${idOrKey}/subscription`,
+    headers: { 'x-workspace-slug': fixture.workspaceSlug, 'x-user-email': email },
+    payload: {}
+  });
+  expect(response.statusCode).toBe(200);
+}
+
+/** Read off the table, never through the inbox: a row written and never shown is still a row. */
+function blockedNotification(taskId: string, userId: string): Promise<{ body: string | null } | null> {
+  return prisma.notification.findFirst({
+    where: { taskId, userId, type: 'task_blocked' },
+    select: { body: true }
+  });
+}
 
 async function bootstrapTasks(email: string): Promise<Array<Record<string, unknown> & { key: string }>> {
   const response = await app.inject({
