@@ -2,6 +2,7 @@ import type { Prisma, TaskStatus, UserKind } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
 import { workTaskWhere } from './measured-work';
+import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
 
 /**
  * Who a notification can be delivered to: a person.
@@ -122,27 +123,45 @@ export function parseNotificationCursor(cursor?: string): NotificationCursor | n
   return { createdAt, id };
 }
 
+/**
+ * The one gate behind every inbox read — and therefore the one place that decides whether a
+ * notification a person holds is a notification they are allowed to have.
+ *
+ * Behind it: the inbox list, the unread badge, `/notifications/sync`, `PATCH /notifications/:id/read`,
+ * `/notifications/read-all`, `/notifications/delivered`, `GET /me` and `PATCH /me`.
+ *
+ * It takes a **`WorkspaceAccess`** rather than a workspace id and a user id, which is the whole point
+ * of the shape: `access` already carries both, so there is no way to reach this function without
+ * having decided what its reader may see. An optional access argument would have been forgotten at
+ * one of the eight call sites, and that call site would have looked correct.
+ *
+ * ## Two clauses on the task branch, answering two different questions
+ *
+ * **Access** (#57) — `taskWhereForAccess`, the same predicate composed into every task read. A
+ * notification's title is `KEY: Title` and the inbox hydrates the task beside it, so delivering one
+ * for work behind a team wall discloses the work whether or not the link then 404s. The recipient
+ * was resolved against workspace membership at write time; this is where that becomes a read the
+ * reader is entitled to. It also answers the case no write-side check can see — a task that *moves*
+ * out of reach after the row was written, when the project changes or its team is reassigned. The
+ * row stays; it stops being delivered; if the task comes back within reach, so does it.
+ *
+ * **Measurement** (#33) — effort excluded. Not a Task query, which is why it is easy to miss and why
+ * no Task-level mechanism reaches it.
+ *
+ * The two are spread in that order and are independent: an effort a reader *can* open is still
+ * excluded, and a work task they cannot open is still hidden. Neither clause implies the other.
+ */
 export function taskInboxNotificationWhere(
-  workspaceId: string,
-  userId: string,
+  access: WorkspaceAccess,
   options: { unreadOnly?: boolean } = {}
 ): Prisma.NotificationWhereInput {
+  const { workspaceId, userId } = access;
   return {
     workspaceId,
     userId,
     OR: [
       { taskId: null, announcementId: null, meetingId: null },
-      // MEASUREMENT — effort excluded. Not a Task query, which is why it is easy to miss and why no
-      // Task-level mechanism reaches it: this is the ONE gate behind the inbox list, the unread
-      // badge, `/notifications/sync`, `GET /me` and `PATCH /me`, all five of which read through it.
-      //
-      // The write side is untouched deliberately. `subscribeTaskParticipants` subscribes the
-      // reporter and everyone named in the body, permanently — the API has no unsubscribe path at
-      // all — and an effort's body IS the living document, so every revision fans out to all of
-      // them. Gating the fan-out would mean reasoning about subscription rows that already exist;
-      // filtering the read is complete, reversible, and leaves the rows there if an effort surface
-      // ever wants its own feed.
-      { task: { is: { workspaceId, ...workTaskWhere } } },
+      { task: { is: { ...taskWhereForAccess(access), ...workTaskWhere } } },
       { announcement: { is: { workspaceId } } },
       { meeting: { is: { workspaceId } } },
       { knowledgePage: { is: { workspaceId } } }

@@ -133,9 +133,18 @@ function mockMentionTransaction(
   };
 }
 
+/** A workspace admin: `resolveWorkspaceAccess` answers `workspaceWide` and no team or project list. */
+const workspaceWideAccess = {
+  workspaceId: 'workspace-1',
+  userId: 'user-1',
+  workspaceWide: true,
+  teamIds: [],
+  projectIds: []
+};
+
 describe('task mention notifications', () => {
   test('keeps task, announcement, and meeting notifications in the inbox scope', () => {
-    const where = taskInboxNotificationWhere('workspace-1', 'user-1');
+    const where = taskInboxNotificationWhere(workspaceWideAccess);
 
     // The task branch is narrowed to WORK. An effort is a Task, and its subscribers are notified on
     // every revision of a body that is edited continuously, so without this the inbox filled with
@@ -145,6 +154,44 @@ describe('task mention notifications', () => {
     expect(where.OR).toContainEqual({ task: { is: { workspaceId: 'workspace-1', kind: 'WORK' } } });
     expect(where.OR).toContainEqual({ announcement: { is: { workspaceId: 'workspace-1' } } });
     expect(where.OR).toContainEqual({ meeting: { is: { workspaceId: 'workspace-1' } } });
+  });
+
+  /**
+   * #57. The same branch, asked by somebody who cannot read the whole workspace: an access clause
+   * appears beside the `kind` one and neither replaces the other.
+   *
+   * Written as a literal for the reason the test above is — and asserted on the *resolved* object
+   * rather than by re-invoking `taskWhereForAccess`, so a change to the access rule surfaces here
+   * as a failure to read rather than as two functions agreeing with each other.
+   */
+  test('narrows the task branch to what the reader can open, without dropping the kind clause', () => {
+    const where = taskInboxNotificationWhere({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      workspaceWide: false,
+      teamIds: ['team-1'],
+      projectIds: ['project-1']
+    });
+
+    expect(where.OR).toContainEqual({
+      task: {
+        is: {
+          workspaceId: 'workspace-1',
+          project: {
+            OR: [
+              { teamId: null },
+              { leadId: 'user-1' },
+              { teamId: { in: ['team-1'] } },
+              { id: { in: ['project-1'] } }
+            ]
+          },
+          kind: 'WORK'
+        }
+      }
+    });
+    // The other branches are not task-scoped and must not have been narrowed with it. An
+    // announcement is addressed to a person directly and has no project to be walled off behind.
+    expect(where.OR).toContainEqual({ announcement: { is: { workspaceId: 'workspace-1' } } });
   });
 
   test('creates inbox notifications for mentioned workspace members', async () => {

@@ -6,6 +6,7 @@ import { getRequestActor, getWorkspaceRole } from '../services/actor';
 import { requireSessionUser } from '../services/auth';
 import { HttpError } from '../services/http';
 import { taskInboxNotificationWhere } from '../services/notifications';
+import { resolveWorkspaceAccess } from '../services/team-access';
 import { assertPhoneAvailable } from '../services/users';
 
 const meUserSelect = {
@@ -58,7 +59,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
     const actor = await getRequestActor(request);
     const role = await getWorkspaceRole(actor.workspace.id, actor.user.id);
     const notifications = await prisma.notification.count({
-      where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
+      where: taskInboxNotificationWhere(await resolveWorkspaceAccess(actor), { unreadOnly: true })
     });
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: actor.user.id },
@@ -107,7 +108,7 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
 
     const role = await getWorkspaceRole(actor.workspace.id, actor.user.id);
     const notifications = await prisma.notification.count({
-      where: taskInboxNotificationWhere(actor.workspace.id, actor.user.id, { unreadOnly: true })
+      where: taskInboxNotificationWhere(await resolveWorkspaceAccess(actor), { unreadOnly: true })
     });
     return { workspace: actor.workspace, user, role, unreadNotifications: notifications };
   });
