@@ -28,11 +28,9 @@ interface Fixture {
   /** A workspace member on no team: cannot open the work, so must hear nothing about it. */
   outsiderEmail: string;
   outsiderId: string;
-  /** Owns `projectId`. The insider is on it; the outsider is not. */
-  teamId: string;
+  /** Owned by a team the insider is on and the outsider is not. */
   projectId: string;
-  /** A second team, with nobody on it — somewhere a task can be moved out of reach to. */
-  farTeamId: string;
+  /** Owned by a team nobody is on: unreachable to everyone but an admin. */
   farProjectId: string;
   /** On the far team, but **led** by the outsider: reachable without any team membership. */
   ledProjectId: string;
@@ -639,9 +637,7 @@ async function createFixture(): Promise<Fixture> {
     insiderId: insider.id,
     outsiderEmail,
     outsiderId: outsider.id,
-    teamId: team.id,
     projectId: project.id,
-    farTeamId: farTeam.id,
     farProjectId: farProject.id,
     ledProjectId: ledProject.id,
     memberProjectId: memberProject.id,
