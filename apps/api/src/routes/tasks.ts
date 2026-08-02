@@ -14,6 +14,7 @@ import {
 } from '@taskara/shared';
 import { z } from 'zod';
 import { getRequestActor } from '../services/actor';
+import { redactActivityDependencyPayloads } from '../services/activity-visibility';
 import { openBlockersWhere } from '../services/blockers';
 import { HttpError } from '../services/http';
 import { normalizeUploadedMediaInput, uploadedMediaInputSchema } from '../services/media';
@@ -589,7 +590,12 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     const existing = await findTaskByIdOrKey(actor.workspace.id, idOrKey, access);
     if (!existing) return reply.code(404).send({ message: 'Task not found' });
 
-    return prisma.activityLog.findMany({
+    // Row-level access is `findTaskByIdOrKey(..., access)` above: every row here is about that one
+    // task, so re-asking would be a second spelling of a decision already made. What the task gate
+    // cannot answer is the far end of a dependency, which is a *different* task and not constrained
+    // to this project — #58 blanked it everywhere else and deliberately left it here, because a
+    // half-fix behind the unfiltered workspace feed would have been theatre.
+    return redactActivityDependencyPayloads(access, await prisma.activityLog.findMany({
       where: {
         workspaceId: actor.workspace.id,
         entityType: 'task',
@@ -598,7 +604,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { createdAt: 'asc' },
       take: 100,
       include: { actor: { select: { id: true, name: true, email: true, avatarUrl: true } } }
-    });
+    }));
   });
 
   app.get('/tasks/:idOrKey/attachments', async (request, reply) => {

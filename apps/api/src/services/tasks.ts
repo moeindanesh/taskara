@@ -926,18 +926,30 @@ function serializeTaskReviewLifecycle(review: TaskReviewForCancellation) {
   };
 }
 
+/**
+ * Resolve a task by id or key, as this reader may see it.
+ *
+ * **`access` is required**, and that is the whole of the change #59 made here. It used to default
+ * to `null`, which degraded the lookup to `{ workspaceId }` — and an ungated call site read exactly
+ * like the eighteen gated ones, so three of them in `routes/mattermost.ts` were quietly resolving
+ * and then *mutating* any task in the workspace.
+ *
+ * `services/notifications.ts` had already made this argument for `taskInboxNotificationWhere` and
+ * was right: "an optional access argument is one that gets left off somewhere, and that call site
+ * would have looked correct". A required parameter means the type checker asks the question, and
+ * `resolveWorkspaceAccess(actor)` is the answer at every one of them.
+ */
 export async function findTaskByIdOrKey(
   workspaceId: string,
   idOrKey: string,
-  access: string[] | WorkspaceAccess | null = null
+  access: WorkspaceAccess
 ): Promise<Task | null> {
   const normalized = idOrKey.trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
-  const accessWhere = taskLookupAccessWhere(workspaceId, access);
 
   return prisma.task.findFirst({
     where: {
-      ...accessWhere,
+      ...taskWhereForAccess(access),
       OR: [
         ...(isUuid ? [{ id: normalized }] : []),
         { key: normalized.toUpperCase() }
@@ -1190,21 +1202,6 @@ async function assertActorCanAccessProject(
 
   if (!membership) throw new HttpError(403, 'Project access denied');
   return project;
-}
-
-function taskLookupAccessWhere(
-  workspaceId: string,
-  access: string[] | WorkspaceAccess | null
-): Prisma.TaskWhereInput {
-  if (!access) return { workspaceId };
-  if (Array.isArray(access)) {
-    return {
-      workspaceId,
-      project: { OR: [{ teamId: null }, { teamId: { in: access } }] }
-    };
-  }
-
-  return taskWhereForAccess(access);
 }
 
 async function assertNoConflictingTaskUpdate(

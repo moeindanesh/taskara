@@ -6,6 +6,7 @@ import { getRequestActor } from '../services/actor';
 import { getBearerToken } from '../services/auth';
 import { HttpError } from '../services/http';
 import { buildTaskaraCreateTaskRaycastScript, buildTaskaraOpenRaycastScript } from '../services/raycast-scripts';
+import { projectWhereForAccess, resolveWorkspaceAccess } from '../services/team-access';
 
 const raycastTaskScriptQuerySchema = z.object({
   projectId: z.string().uuid()
@@ -18,10 +19,12 @@ export async function registerRaycastRoutes(app: FastifyInstance): Promise<void>
     if (!token) throw new HttpError(401, 'Authentication required');
 
     const query = raycastTaskScriptQuerySchema.parse(request.query);
+    // The generated script embeds the project's name and key prefix, so this is an id-to-name
+    // resolver and takes the same gate every other one does.
     const project = await prisma.project.findFirst({
       where: {
-        id: query.projectId,
-        workspaceId: actor.workspace.id
+        ...projectWhereForAccess(await resolveWorkspaceAccess(actor)),
+        id: query.projectId
       },
       select: {
         id: true,
