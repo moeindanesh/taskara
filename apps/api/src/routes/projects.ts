@@ -153,9 +153,15 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         id,
       },
       include: {
+        // ACCESS — a subproject carries its own `teamId`, so the gate on the parent says nothing
+        // about it. Omitted rather than redacted: unlike #58's blocker list, nothing is decided
+        // from the length of this one, and the count below is narrowed in the same breath so the
+        // list and the number cannot disagree.
+        //
         // MEASUREMENT — effort excluded from the nested subproject count too. Easy to miss: it is
         // a second `_count` a level deeper than the project's own, on a different line.
         subprojects: {
+          where: projectWhereForAccess(access),
           orderBy: { updatedAt: 'desc' },
           include: { _count: { select: { tasks: { where: workTaskWhere } } } }
         },
@@ -164,7 +170,13 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         // sorts to the top of the 50 most-recently-updated tasks and dominates the preview.
         tasks: { where: workTaskWhere, take: 50, orderBy: { updatedAt: 'desc' } },
         healthUpdates: { take: 5, orderBy: { createdAt: 'desc' }, include: projectHealthUpdateInclude },
-        _count: { select: { tasks: { where: workTaskWhere }, subprojects: true, milestones: true } }
+        _count: {
+          select: {
+            tasks: { where: workTaskWhere },
+            subprojects: { where: projectWhereForAccess(access) },
+            milestones: true
+          }
+        }
       }
     });
     if (!project) return reply.code(404).send({ message: 'Project not found' });

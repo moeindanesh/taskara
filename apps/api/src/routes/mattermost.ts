@@ -5,6 +5,7 @@ import { config } from '../config';
 import { ensureWorkspaceMember, getMattermostActor, upsertUserByEmail } from '../services/actor';
 import { parseHumanDueDate } from '../services/dates';
 import { workTaskWhere } from '../services/measured-work';
+import { projectWhereForAccess, resolveWorkspaceAccess } from '../services/team-access';
 import { createTask, ensureDefaultProject, findTaskByIdOrKey, updateTask } from '../services/tasks';
 
 type MattermostResponseType = 'ephemeral' | 'in_channel';
@@ -25,6 +26,12 @@ function mm(text: string, responseType: MattermostResponseType = 'ephemeral') {
   return { response_type: responseType, text };
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined): value is string {
+  return Boolean(value && UUID_PATTERN.test(value));
+}
+
 export async function registerMattermostRoutes(app: FastifyInstance): Promise<void> {
   app.post('/integrations/mattermost/command', async (request, reply) => {
     const body = request.body as MattermostCommandBody;
@@ -33,6 +40,10 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
     }
 
     const actor = await getMattermostActor(body);
+    // Resolved once for the whole command. `getMattermostActor` will create a workspace member out
+    // of a username it has never seen, so "posted in a connected channel" is the entire credential
+    // behind everything below — and three of these commands write.
+    const access = await resolveWorkspaceAccess(actor);
     const text = (body.text || '').trim();
     const [command = 'help', ...restParts] = text.split(/\s+/);
     const rest = restParts.join(' ').trim();
@@ -52,10 +63,15 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
     if (command === 'bind') {
       const projectToken = restParts[0]?.toUpperCase();
       if (!projectToken || !body.channel_id) return mm('Usage: `/task bind PROJECTKEY` inside a channel.');
+      // A key-prefix resolver, so it answers with the project's name: gated like every other one.
+      //
+      // The id branch is only offered when the token could be one. `Project.id` is a Postgres uuid
+      // and Prisma refuses to compare it against `CORE`, so `/task bind CORE` — the usage the help
+      // text prints — has been raising a 500 rather than binding anything.
       const project = await prisma.project.findFirst({
         where: {
-          workspaceId: actor.workspace.id,
-          OR: [{ keyPrefix: projectToken }, { id: restParts[0] }]
+          ...projectWhereForAccess(access),
+          AND: [{ OR: [{ keyPrefix: projectToken }, ...(isUuid(restParts[0]) ? [{ id: restParts[0] }] : [])] }]
         }
       });
       if (!project) return mm(`Project ${projectToken} was not found.`);
@@ -112,7 +128,7 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
       const [key, statusInput] = restParts;
       const status = statusInput ? normalizeTaskStatus(statusInput) : null;
       if (!key || !status) return mm('Usage: `/task status CORE-123 in-review`');
-      const task = await findTaskByIdOrKey(actor.workspace.id, key);
+      const task = await findTaskByIdOrKey(actor.workspace.id, key, access);
       if (!task) return mm(`Task ${key} was not found.`);
       const updated = await updateTask(actor, task.id, { status });
       return mm(`Updated **${updated.key}** to **${updated.status}**.`, 'in_channel');
@@ -121,7 +137,7 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
     if (command === 'assign') {
       const [key, handle] = restParts;
       if (!key || !handle) return mm('Usage: `/task assign CORE-123 @sara`');
-      const task = await findTaskByIdOrKey(actor.workspace.id, key);
+      const task = await findTaskByIdOrKey(actor.workspace.id, key, access);
       if (!task) return mm(`Task ${key} was not found.`);
       const assignee = await ensureMattermostUser(actor.workspace.id, handle);
       const updated = await updateTask(actor, task.id, { assigneeId: assignee.id });
@@ -134,7 +150,7 @@ export async function registerMattermostRoutes(app: FastifyInstance): Promise<vo
       if (!key || !dueInput) return mm('Usage: `/task due CORE-123 فردا`');
       const dueAt = parseHumanDueDate(dueInput);
       if (!dueAt) return mm('Could not parse due date. Try `today`, `tomorrow`, `فردا`, or an ISO date.');
-      const task = await findTaskByIdOrKey(actor.workspace.id, key);
+      const task = await findTaskByIdOrKey(actor.workspace.id, key, access);
       if (!task) return mm(`Task ${key} was not found.`);
       const updated = await updateTask(actor, task.id, { dueAt: dueAt.toISOString() });
       return mm(`Set due date for **${updated.key}**.`, 'in_channel');
