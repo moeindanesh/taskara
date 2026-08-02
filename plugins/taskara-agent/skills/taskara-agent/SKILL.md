@@ -71,11 +71,13 @@ UUID appears in no key, no URL and no prose. Agents are in that roster too, mark
 with `operatorId` naming the human they act for; they are teammates, and assignable, but tell the
 user when you are handing work to one.
 
-**An @-mention in a body reaches nobody.** A mention is a rich-text node the web editor writes, and
-every body you send from here is markdown — so `@Robin please look` in a task body, an effort body
-or a comment notifies no one, whatever handle you spell. Address a person with `--add-assignee`, not
-in prose. A body that looks like it tried is still written as given, with a line on stderr naming
-who was not told; the exit code stays 0.
+**An @-mention in a body reaches nobody.** A mention is a rich-text node and every body you send
+from here is markdown — so `@Robin please look` in a task body, an effort body or a comment notifies
+no one, whatever handle you spell. Address a person with `--add-assignee`, not in prose. A body that
+looks like it tried is still written as given, with a line on stderr naming who was not told; the
+exit code stays 0. The web editor writes those nodes into a **description**, so asking a human to
+add one there is a real thing to ask; nothing writes one into a **comment** — the web's comment box
+is plain text too — so do not ask for that one.
 
 **stdout is always JSON**, the result on success and `{ "error": ... }` on failure. **stderr is
 always the human line.** The exit code is what you branch on.
@@ -115,7 +117,8 @@ hold this" and "you just took this" are different answers.
 ### Watching
 
 Reporting a task, being assigned one, or being mentioned in its description or in a comment
-subscribes you to it. `taskara
+subscribes you to it — though only the description half happens in practice, since nothing writes a
+mention into a comment. `taskara
 task unsubscribe <key>` stops that, and it **sticks**: being mentioned or assigned again will not
 put you back on the list. `taskara task subscribe <key>` withdraws the decision.
 
