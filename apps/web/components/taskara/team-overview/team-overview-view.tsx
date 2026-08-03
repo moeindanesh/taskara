@@ -11,6 +11,7 @@ import { isSoundEnabled, playNodeOpen, playSoundEnabled, setSoundEnabled } from 
 import { cn } from '@/lib/utils';
 import { GraphCanvas } from './graph-canvas';
 import { type GraphNode, type PersonGraphNode, personNodeId, taskNodeId } from './graph-model';
+import { HiddenPeoplePanel } from './hidden-people-panel';
 import { PersonSheet } from './person-sheet';
 import { useTeamOverviewGraph } from './use-team-overview-graph';
 
@@ -18,7 +19,8 @@ import { useTeamOverviewGraph } from './use-team-overview-graph';
 const pollIntervalMs = 45_000;
 
 export function TeamOverviewView() {
-   const { day, error, hasBootstrapped, links, loading, nodes } = useTeamOverviewGraph();
+   const { day, error, hasBootstrapped, hidden, hidePerson, links, loading, nodes, showAllPeople, showPerson } =
+      useTeamOverviewGraph();
    const { refresh } = useWorkspaceTaskSync();
    const [issueTaskKey, setIssueTaskKey] = useState<string | null>(null);
    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -44,6 +46,9 @@ export function TeamOverviewView() {
 
    const graph = useMemo(() => ({ links, nodes }), [links, nodes]);
    const taskCount = useMemo(() => nodes.filter((node) => node.kind === 'task').length, [nodes]);
+   // An empty graph and an emptied graph are different things to say, so the work that left with
+   // the hidden people is counted rather than reported as a quiet day.
+   const hiddenTaskCount = useMemo(() => hidden.reduce((total, person) => total + person.taskCount, 0), [hidden]);
 
    const closeIssue = useCallback(() => {
       setIssueTaskKey(null);
@@ -72,6 +77,16 @@ export function TeamOverviewView() {
       }
    }, []);
 
+   const handleHidePerson = useCallback(
+      (userId: string) => {
+         // Hiding the person whose sheet is open closes it: the sheet is a view of a node, and the
+         // node is gone. Dropping the selection is also what keeps a ring off an invisible person.
+         setSelectedPersonId((current) => (current === userId ? null : current));
+         hidePerson(userId);
+      },
+      [hidePerson]
+   );
+
    const toggleSound = useCallback(() => {
       setSoundOn((current) => {
          const next = !current;
@@ -93,6 +108,7 @@ export function TeamOverviewView() {
             {hasBootstrapped ? (
                <GraphCanvas
                   graph={graph}
+                  onHidePerson={handleHidePerson}
                   onSelectNode={handleSelectNode}
                   selectedNodeId={
                      selectedTaskId
@@ -112,7 +128,11 @@ export function TeamOverviewView() {
 
             {hasBootstrapped && taskCount === 0 ? (
                <div className="pointer-events-none absolute inset-x-0 bottom-8 flex justify-center px-4">
-                  <LinearEmptyState className="max-w-sm">{fa.teamOverview.emptyLoad}</LinearEmptyState>
+                  <LinearEmptyState className="max-w-sm">
+                     {hiddenTaskCount
+                        ? fa.teamOverview.emptyLoadHidden(hiddenTaskCount)
+                        : fa.teamOverview.emptyLoad}
+                  </LinearEmptyState>
                </div>
             ) : null}
 
@@ -121,27 +141,32 @@ export function TeamOverviewView() {
                   <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-[11px] text-zinc-600">
                      {fa.teamOverview.hint}
                   </p>
-                  <button
-                     aria-label={soundOn ? fa.teamOverview.soundOff : fa.teamOverview.soundOn}
-                     aria-pressed={soundOn}
-                     className={cn(
-                        'absolute bottom-4 start-4 inline-flex size-9 items-center justify-center rounded-full border',
-                        'border-white/8 bg-white/[0.03] text-zinc-500 backdrop-blur-sm transition-all duration-200',
-                        'hover:scale-105 hover:bg-white/[0.07] hover:text-zinc-300 active:scale-95',
-                        soundOn && 'text-primary'
-                     )}
-                     onClick={toggleSound}
-                     title={soundOn ? fa.teamOverview.soundOff : fa.teamOverview.soundOn}
-                     type="button"
-                  >
-                     {soundOn ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
-                  </button>
+                  <div className="absolute bottom-4 start-4 flex items-center gap-2">
+                     <button
+                        aria-label={soundOn ? fa.teamOverview.soundOff : fa.teamOverview.soundOn}
+                        aria-pressed={soundOn}
+                        className={cn(
+                           'inline-flex size-9 items-center justify-center rounded-full border',
+                           'border-white/8 bg-white/[0.03] text-zinc-500 backdrop-blur-sm transition-all duration-200',
+                           'hover:scale-105 hover:bg-white/[0.07] hover:text-zinc-300 active:scale-95',
+                           soundOn && 'text-primary'
+                        )}
+                        onClick={toggleSound}
+                        title={soundOn ? fa.teamOverview.soundOff : fa.teamOverview.soundOn}
+                        type="button"
+                     >
+                        {soundOn ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+                     </button>
+
+                     <HiddenPeoplePanel hidden={hidden} onShowAll={showAllPeople} onShowPerson={showPerson} />
+                  </div>
                </>
             ) : null}
          </div>
 
          <PersonSheet
             day={day}
+            onHidePerson={handleHidePerson}
             onOpenChange={(open) => {
                if (!open) setSelectedPersonId(null);
             }}

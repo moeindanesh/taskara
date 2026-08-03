@@ -295,6 +295,63 @@ test.describe('@team-overview workspace graph', () => {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('button', { name: 'روشن کردن صدا' })).toBeVisible();
    });
+
+   test('hides a person and their work from the graph, and remembers it across a reload', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      // The badge only exists under a pointer, so the hover is the gesture that reveals it.
+      const person = page.locator(`[data-node-id="user:${people.member.id}"]`);
+      await person.hover();
+      await person.getByTestId('hide-person').click();
+
+      // The load hangs off the person, so it leaves with them — and the member owned all three.
+      await expect(person).toHaveCount(0);
+      await expect(page.locator('[data-node-kind="person"]')).toHaveCount(2);
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(0);
+
+      // Nothing else may be dimmed by the hover that never got its matching leave.
+      // The node under the pointer just stopped existing; nothing that is left may be dimmed by a
+      // hover that can no longer be left.
+      await expect(page.locator('[data-node-id].opacity-20')).toHaveCount(0);
+
+      // The choice is the reader's, so it survives the reload the way the sound toggle does.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="person"]')).toHaveCount(2);
+      await expect(page.locator(`[data-node-id="user:${people.member.id}"]`)).toHaveCount(0);
+
+      await page.getByTestId('hidden-people-trigger').click();
+      await expect(page.getByTestId('hidden-person-row')).toHaveCount(1);
+      await page.getByTestId('hidden-person-row').click();
+
+      // Back with everything that was hanging from them.
+      await expect(page.locator(`[data-node-id="user:${people.member.id}"]`)).toHaveCount(1);
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+      await expect(page.getByTestId('hidden-people-trigger')).toHaveCount(0);
+   });
+
+   test('hides from the open sheet too, which is the only way there without a pointer', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
+      await expect(page.getByRole('dialog', { name: people.member.name })).toBeVisible();
+      await page.getByTestId('hide-person-from-sheet').click();
+
+      // The sheet is a view of a node that no longer exists, so it closes with it.
+      await expect(page.getByRole('dialog', { name: people.member.name })).toHaveCount(0);
+      await expect(page.locator(`[data-node-id="user:${people.member.id}"]`)).toHaveCount(0);
+
+      // A second one, so the panel offers to undo the whole thing at once.
+      const agent = page.locator(`[data-node-id="user:${people.agent.id}"]`);
+      await agent.hover();
+      await agent.getByTestId('hide-person').click();
+      await expect(page.locator('[data-node-kind="person"]')).toHaveCount(1);
+
+      await page.getByTestId('hidden-people-trigger').click();
+      await page.getByTestId('show-all-people').click();
+      await expect(page.locator('[data-node-kind="person"]')).toHaveCount(3);
+   });
 });
 
 /**

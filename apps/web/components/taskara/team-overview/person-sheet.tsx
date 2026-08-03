@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { CalendarPlus, Plus, UserPlus } from 'lucide-react';
+import { CalendarPlus, EyeOff, Plus, UserPlus } from 'lucide-react';
 import { LinearAvatar, StatusIcon } from '@/components/taskara/linear-ui';
 import { ComposerPriorityPill, ComposerWeightPill } from '@/components/taskara/workspace-task-composer';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -29,11 +29,12 @@ const rowGrid =
 export interface PersonSheetProps {
    day: WorkspaceDay;
    person: PersonGraphNode | null;
+   onHidePerson: (userId: string) => void;
    onOpenTask: (taskKey: string) => void;
    onOpenChange: (open: boolean) => void;
 }
 
-export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonSheetProps) {
+export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChange }: PersonSheetProps) {
    const { tasks, updateTask } = useWorkspaceTaskSync();
    const [tab, setTab] = useState<SheetTab>('person');
    const [openPriorityFor, setOpenPriorityFor] = useState<string | null>(null);
@@ -113,8 +114,23 @@ export function PersonSheet({ day, person, onOpenTask, onOpenChange }: PersonShe
                   <TabButton active={tab === 'unassigned'} onClick={() => setTab('unassigned')}>
                      {fa.teamOverview.tabUnassigned} ({unassignedTasks.length.toLocaleString('fa-IR')})
                   </TabButton>
+                  {/* The graph's own hide badge only exists under a pointer, so this is the way to
+                      it on a phone — and the only one reachable from a keyboard. */}
                   <button
-                     className="ms-auto inline-flex h-7 items-center gap-1 rounded-full bg-indigo-500 px-3 text-[12px] text-white transition-colors hover:bg-indigo-400"
+                     aria-label={fa.teamOverview.hidePerson(person?.label ?? '')}
+                     className={cn(
+                        'ms-auto inline-flex size-7 items-center justify-center rounded-full border border-white/8',
+                        'text-zinc-500 transition-colors hover:border-white/15 hover:bg-white/5 hover:text-zinc-300'
+                     )}
+                     data-testid="hide-person-from-sheet"
+                     onClick={() => person && onHidePerson(person.userId)}
+                     title={fa.teamOverview.hidePerson(person?.label ?? '')}
+                     type="button"
+                  >
+                     <EyeOff className="size-3.5" />
+                  </button>
+                  <button
+                     className="inline-flex h-7 items-center gap-1 rounded-full bg-indigo-500 px-3 text-[12px] text-white transition-colors hover:bg-indigo-400"
                      onClick={composeForPerson}
                      type="button"
                   >

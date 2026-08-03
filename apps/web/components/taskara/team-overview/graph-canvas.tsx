@@ -3,7 +3,7 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { GraphNodeShape } from './graph-nodes';
-import { type GraphNode, type TeamOverviewGraph, linkEndId } from './graph-model';
+import { type GraphNode, type PersonGraphNode, type TeamOverviewGraph, linkEndId } from './graph-model';
 import { useForceSimulation } from './use-force-simulation';
 import { useNodeEntrances } from './use-node-entrances';
 
@@ -34,10 +34,11 @@ export interface GraphCanvasProps {
    graph: TeamOverviewGraph;
    /** Node currently held open elsewhere, drawn with a persistent ring. */
    selectedNodeId?: string | null;
+   onHidePerson: (userId: string) => void;
    onSelectNode: (node: GraphNode) => void;
 }
 
-export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvasProps) {
+export function GraphCanvas({ graph, selectedNodeId, onHidePerson, onSelectNode }: GraphCanvasProps) {
    const containerRef = useRef<HTMLDivElement | null>(null);
    const svgRef = useRef<SVGSVGElement | null>(null);
    const dragRef = useRef<DragState | null>(null);
@@ -200,6 +201,17 @@ export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvas
       [onSelectNode]
    );
 
+   const handleHide = useCallback((node: PersonGraphNode) => onHidePerson(node.userId), [onHidePerson]);
+
+   // A node can vanish from under the pointer — hidden, finished, or dropped by a sync update — and
+   // a node that is gone never fires the leave that would clear the hover. One id left pointing at
+   // nothing dims every node still on the graph, so the hover is dropped here instead. Clearing it
+   // in the hide handler is not enough: the badge disappearing hands the pointer straight back to
+   // the node underneath, which re-enters and sets the hover again a frame before it unmounts.
+   useEffect(() => {
+      if (hovered && !graph.nodes.some((node) => node.id === hovered)) setHovered(null);
+   }, [graph.nodes, hovered]);
+
    const neighbours = useMemo(() => {
       if (!hovered) return null;
       const connected = new Set<string>([hovered]);
@@ -269,6 +281,7 @@ export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvas
                      key={node.id}
                      node={node}
                      onActivate={handleActivate}
+                     onHide={handleHide}
                      onHover={(next) => setHovered(next?.id ?? null)}
                      onPointerDown={beginDrag}
                      pressed={pressed === node.id}

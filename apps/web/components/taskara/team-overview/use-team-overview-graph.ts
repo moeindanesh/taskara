@@ -17,6 +17,7 @@ import {
    workspaceNodeId,
    workspaceNodeRadius,
 } from './graph-model';
+import { type HiddenPeopleControls, useHiddenPeople } from './hidden-people';
 import { type TodayLoadTask, type WorkspaceDay, currentWorkspaceDay, isInTodayLoad, isOverdue } from './today-load';
 
 /** Roles that hold a seat on the graph whether or not they have work today. */
@@ -46,9 +47,25 @@ function isAgent(person: GraphPersonInput): boolean {
 
 export interface BuildTeamOverviewGraphInput {
    day: WorkspaceDay;
+   /** People the reader has taken off their own graph; they keep their seat, just not on screen. */
+   hiddenPersonIds?: ReadonlySet<string>;
    people: GraphPersonInput[];
    tasks: GraphTaskInput[];
    workspaceLabel: string;
+}
+
+/** A person who has a seat on the graph but is currently hidden, for the panel that restores them. */
+export interface HiddenPerson {
+   userId: string;
+   name: string;
+   avatarUrl: string | null;
+   agent: boolean;
+   /** Today Load size, so the panel says what is being kept off the graph, not just who. */
+   taskCount: number;
+}
+
+export interface TeamOverviewGraphBuild extends TeamOverviewGraph {
+   hidden: HiddenPerson[];
 }
 
 const byName = new Intl.Collator('fa').compare;
@@ -62,10 +79,11 @@ const byName = new Intl.Collator('fa').compare;
  */
 export function buildTeamOverviewGraph({
    day,
+   hiddenPersonIds,
    people,
    tasks,
    workspaceLabel,
-}: BuildTeamOverviewGraphInput): TeamOverviewGraph {
+}: BuildTeamOverviewGraphInput): TeamOverviewGraphBuild {
    const loadByPerson = new Map<string, TaskGraphNode[]>();
    const members = new Map(people.map((person) => [person.id, person]));
 
@@ -98,9 +116,27 @@ export function buildTeamOverviewGraph({
    // An agent is a teammate, so it keeps its seat whether or not it is holding work — a colleague
    // who flickers off the graph the moment they go idle is not a colleague. Guests keep the
    // conditional seat they always had: they are outside contributors, visible while they carry work.
-   const visiblePeople = people
+   const seatedPeople = people
       .filter((person) => isAgent(person) || alwaysVisibleRoles.has(person.role) || loadByPerson.has(person.id))
       .sort((left, right) => byName(left.name, right.name));
+
+   // Hiding someone takes their cluster with them: the load hangs off the person, so with nobody to
+   // hang from it has nowhere to be. Only people who would otherwise be drawn are reported as
+   // hidden — a stale id from someone who has since left the workspace is nothing to offer back.
+   const visiblePeople = hiddenPersonIds?.size
+      ? seatedPeople.filter((person) => !hiddenPersonIds.has(person.id))
+      : seatedPeople;
+   const hidden: HiddenPerson[] = hiddenPersonIds?.size
+      ? seatedPeople
+           .filter((person) => hiddenPersonIds.has(person.id))
+           .map((person) => ({
+              userId: person.id,
+              name: person.name,
+              avatarUrl: person.avatarUrl ?? null,
+              agent: isAgent(person),
+              taskCount: loadByPerson.get(person.id)?.length ?? 0,
+           }))
+      : [];
 
    const nodes: GraphNode[] = [
       {
@@ -148,7 +184,7 @@ export function buildTeamOverviewGraph({
       }
    }
 
-   return { nodes, links };
+   return { nodes, links, hidden };
 }
 
 /** Re-resolves the workspace day roughly every minute so the graph rolls over at local midnight. */
@@ -168,7 +204,7 @@ export function useWorkspaceDay(): WorkspaceDay {
    return day;
 }
 
-export interface TeamOverviewGraphState extends TeamOverviewGraph {
+export interface TeamOverviewGraphState extends TeamOverviewGraphBuild, Omit<HiddenPeopleControls, 'hidden'> {
    day: WorkspaceDay;
    hasBootstrapped: boolean;
    loading: boolean;
@@ -182,23 +218,30 @@ export function useTeamOverviewGraph(): TeamOverviewGraphState {
    const day = useWorkspaceDay();
 
    const workspaceLabel = session?.workspace?.name || orgId || '';
+   // The slug, not the display name: a workspace can be renamed without the reader's hidden list
+   // quietly resetting.
+   const { hidden, hidePerson, showAllPeople, showPerson } = useHiddenPeople(session?.workspace?.slug || orgId || '');
 
    const graph = useMemo(
       () =>
          buildTeamOverviewGraph({
             day,
+            hiddenPersonIds: hidden,
             people: taskSync.users,
             tasks: taskSync.tasks,
             workspaceLabel,
          }),
-      [day, taskSync.tasks, taskSync.users, workspaceLabel]
+      [day, hidden, taskSync.tasks, taskSync.users, workspaceLabel]
    );
 
    return {
       ...graph,
       day,
       hasBootstrapped: taskSync.hasBootstrapped,
+      hidePerson,
       loading: taskSync.loading,
       error: taskSync.error,
+      showAllPeople,
+      showPerson,
    };
 }

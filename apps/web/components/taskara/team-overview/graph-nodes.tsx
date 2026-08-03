@@ -1,7 +1,9 @@
 'use client';
 
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { EyeOff } from 'lucide-react';
 import { linearStatusMeta } from '@/components/taskara/linear-ui';
+import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
 import type { GraphNode, PersonGraphNode, TaskGraphNode, WorkspaceGraphNode } from './graph-model';
 
@@ -16,6 +18,7 @@ export interface GraphNodeShapeProps {
    /** Task titles are noise at a distance, so they appear on hover or once the view is zoomed in. */
    showTaskLabel: boolean;
    onActivate: (node: GraphNode) => void;
+   onHide: (node: PersonGraphNode) => void;
    onHover: (node: GraphNode | null) => void;
    onPointerDown: (node: GraphNode, event: ReactPointerEvent<SVGGElement>) => void;
 }
@@ -79,6 +82,50 @@ function PersonShape({ node }: { node: PersonGraphNode }) {
    );
 }
 
+/**
+ * The badge that takes someone off the graph, revealed on hover over their node.
+ *
+ * It sits inside the person's group, so reaching for it never counts as leaving the node, and it
+ * swallows both the press and the click: the gesture that hides someone must not also drag them or
+ * open their sheet. Mirrored to the top-start corner, which in this RTL app is the right.
+ */
+function HidePersonBadge({ node, onHide }: { node: PersonGraphNode; onHide: (node: PersonGraphNode) => void }) {
+   const label = fa.teamOverview.hidePerson(node.label);
+   const offset = node.radius * 0.86;
+
+   return (
+      <g
+         aria-label={label}
+         className="cursor-pointer"
+         data-testid="hide-person"
+         onClick={(event: ReactMouseEvent<SVGGElement>) => {
+            event.stopPropagation();
+            onHide(node);
+         }}
+         onPointerDown={(event: ReactPointerEvent<SVGGElement>) => event.stopPropagation()}
+         role="button"
+         transform={`translate(${offset}, ${-offset})`}
+      >
+         <title>{label}</title>
+         <g className="team-overview-hide">
+            <circle
+               className="fill-[#141417] stroke-white/20 transition-colors hover:fill-[#26262b]"
+               r={9}
+               strokeWidth={1}
+            />
+            <EyeOff
+               className="pointer-events-none text-zinc-300"
+               height={10}
+               strokeWidth={2.25}
+               width={10}
+               x={-5}
+               y={-5}
+            />
+         </g>
+      </g>
+   );
+}
+
 function TaskShape({ node }: { node: TaskGraphNode }) {
    const meta = linearStatusMeta[node.status] || linearStatusMeta.TODO;
    const unestimated = node.weight === null;
@@ -108,6 +155,7 @@ export function GraphNodeShape({
    selected,
    showTaskLabel,
    onActivate,
+   onHide,
    onHover,
    onPointerDown,
 }: GraphNodeShapeProps) {
@@ -166,6 +214,10 @@ export function GraphNodeShape({
                {node.kind === 'person' ? <PersonShape node={node} /> : null}
                {isTask ? <TaskShape node={node} /> : null}
             </g>
+
+            {/* Outside the scaled group: the target a pointer is travelling towards should not
+                move or resize under it. */}
+            {node.kind === 'person' && hovered ? <HidePersonBadge node={node} onHide={onHide} /> : null}
 
             {!isTask ? (
                <text

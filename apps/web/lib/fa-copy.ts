@@ -99,6 +99,16 @@ export const fa = {
       emptyUnassigned: 'همه کارها مسئول دارند.',
       soundOn: 'روشن کردن صدا',
       soundOff: 'خاموش کردن صدا',
+      emptyLoadHidden: (count: number) =>
+         `${count.toLocaleString('fa-IR')} کار امروز روی افرادی است که پنهان کرده‌اید.`,
+      hidePerson: (name: string) => `پنهان کردن ${name}`,
+      hiddenPeople: 'افراد پنهان‌شده',
+      hiddenPeopleCount: (count: number) => `افراد پنهان‌شده (${count.toLocaleString('fa-IR')} نفر)`,
+      hiddenPeopleNote: 'فقط روی نقشه شما پنهان‌اند؛ برای بقیه تغییری نکرده.',
+      hiddenPersonLoad: (count: number) =>
+         count ? `${count.toLocaleString('fa-IR')} کار امروز` : 'بدون کار امروز',
+      showPerson: (name: string) => `نمایش دوباره ${name}`,
+      showAllPeople: 'نمایش همه',
    },
    status: {
       BACKLOG: 'بک‌لاگ',
