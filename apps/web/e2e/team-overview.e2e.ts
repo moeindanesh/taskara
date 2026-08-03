@@ -143,16 +143,17 @@ test.describe('@team-overview workspace graph', () => {
       await expect(page.getByRole('dialog', { name: people.member.name })).toBeVisible();
 
       // The graph shows today; the sheet shows the pool, so future and undated work is here too.
+      // The row no longer prints its key — `data-task-key` is what identifies it now.
       const rows = page.getByTestId('person-sheet-row');
       await expect(rows).toHaveCount(4);
-      await expect(rows.filter({ hasText: 'CORE-104' })).toBeVisible();
-      await expect(rows.filter({ hasText: 'CORE-105' })).toBeVisible();
+      await expect(personRow(page, 'CORE-104')).toBeVisible();
+      await expect(personRow(page, 'CORE-105')).toBeVisible();
       // Finished and canceled work is not something to manage.
-      await expect(rows.filter({ hasText: 'CORE-106' })).toHaveCount(0);
-      await expect(rows.filter({ hasText: 'CORE-107' })).toHaveCount(0);
+      await expect(personRow(page, 'CORE-106')).toHaveCount(0);
+      await expect(personRow(page, 'CORE-107')).toHaveCount(0);
 
       // Opening a row hands off to the issue page.
-      await rows.filter({ hasText: 'CORE-104' }).getByRole('button').first().click();
+      await personRow(page, 'CORE-104').getByRole('button').first().click();
       await expect(page.getByText('CORE-104').first()).toBeVisible();
    });
 
@@ -161,10 +162,10 @@ test.describe('@team-overview workspace graph', () => {
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
 
       await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
-      const undated = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-105' });
+      const undated = personRow(page, 'CORE-105');
 
       // Work already due today has nothing to pull, so it offers no button.
-      await expect(page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-102' }).getByTestId('pull-into-today')).toHaveCount(0);
+      await expect(personRow(page, 'CORE-102').getByTestId('pull-into-today')).toHaveCount(0);
 
       await undated.getByTestId('pull-into-today').click();
 
@@ -182,11 +183,15 @@ test.describe('@team-overview workspace graph', () => {
       const before = Number(await nodeCircle.getAttribute('r'));
 
       await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
-      const row = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-102' });
+      const row = personRow(page, 'CORE-102');
 
+      // Icon-only pills: the value lives in the accessible name, and in the numeral for weight. So
+      // options are picked inside the open menu — a sibling row at that value answers to the
+      // same name.
+      const menu = page.locator('[data-composer-menu-content]');
       await row.getByRole('button', { name: 'وزن' }).click();
-      await page.getByRole('button', { name: 'وزن ۸' }).click();
-      await expect(row.getByRole('button', { name: 'وزن' })).toContainText('۸');
+      await menu.getByRole('button', { name: 'وزن ۸', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'وزن ۸' })).toContainText('۸');
 
       // Weight drives node size, so the edit is visible on the graph behind the sheet.
       await expect
@@ -194,8 +199,8 @@ test.describe('@team-overview workspace graph', () => {
          .toBeGreaterThan(before * 2.5);
 
       await row.getByRole('button', { name: 'اولویت' }).click();
-      await page.getByRole('button', { name: 'فوری', exact: true }).click();
-      await expect(row.getByRole('button', { name: 'اولویت' })).toContainText('فوری');
+      await menu.getByRole('button', { name: 'فوری', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'اولویت: فوری' })).toBeVisible();
    });
 
    test('assigns unowned work to the open person and dates it today', async ({ page }) => {
@@ -205,13 +210,13 @@ test.describe('@team-overview workspace graph', () => {
       await page.locator(`[data-node-id="user:${people.member.id}"]`).click();
       await page.getByRole('button', { name: /بدون مسئول/ }).click();
 
-      const unowned = page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-108' });
+      const unowned = personRow(page, 'CORE-108');
       await expect(unowned).toBeVisible();
       await unowned.getByTestId('claim-for-person').click();
 
       // One click gives it an owner and a day, so it appears on that person's cluster.
       await expect(page.locator('[data-node-id="task:task-unassigned"]')).toHaveCount(1);
-      await expect(page.getByTestId('person-sheet-row').filter({ hasText: 'CORE-108' })).toHaveCount(0);
+      await expect(personRow(page, 'CORE-108')).toHaveCount(0);
    });
 
    test('pops in work that arrives while the graph is open', async ({ page }) => {
@@ -353,6 +358,14 @@ test.describe('@team-overview workspace graph', () => {
       await expect(page.locator('[data-node-kind="person"]')).toHaveCount(3);
    });
 });
+
+/**
+ * The sheet spends its width on titles, so the key is an attribute rather than text. Filtering on
+ * `hasText` would also match a title that happens to quote a key, which the attribute never does.
+ */
+function personRow(page: Page, taskKey: string) {
+   return page.locator(`[data-testid="person-sheet-row"][data-task-key="${taskKey}"]`);
+}
 
 /**
  * Counts every oscillator the page starts. Sounds cannot be listened to from a test, but each

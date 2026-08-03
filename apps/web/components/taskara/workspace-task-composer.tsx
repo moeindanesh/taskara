@@ -872,6 +872,7 @@ function ComposerMenuPill({
    children,
    disabled = false,
    icon,
+   iconOnly = false,
    label,
    open,
    onOpenChange,
@@ -882,6 +883,12 @@ function ComposerMenuPill({
    children: ReactNode;
    disabled?: boolean;
    icon: ReactNode;
+   /**
+    * Drops the label and the chevron, leaving a round icon button. For dense lists, where the
+    * column already says what the control is and only the value is worth the pixels. The caller
+    * owes `ariaLabel` the value in words — nothing else carries it once the label is gone.
+    */
+   iconOnly?: boolean;
    label: ReactNode;
    open: boolean;
    onOpenChange: (open: boolean) => void;
@@ -894,15 +901,21 @@ function ComposerMenuPill({
             <button
                aria-label={ariaLabel}
                className={cn(
-                  'inline-flex h-6 max-w-[168px] shrink-0 items-center gap-1.5 rounded-full border border-white/8 bg-[#2a2a2d] py-0 pl-2 pr-2.5 text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35 disabled:cursor-wait disabled:opacity-55',
+                  'inline-flex shrink-0 items-center rounded-full border border-white/8 bg-[#2a2a2d] text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35 disabled:cursor-wait disabled:opacity-55',
+                  iconOnly ? 'size-7 justify-center p-0' : 'h-6 max-w-[168px] gap-1.5 py-0 pl-2 pr-2.5',
                   className
                )}
                disabled={disabled}
+               title={iconOnly ? ariaLabel : undefined}
                type="button"
             >
                <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
-               <span className="min-w-0 flex-1 truncate text-start">{label}</span>
-               <ChevronDown className="size-3.5 shrink-0 text-zinc-600" />
+               {iconOnly ? null : (
+                  <>
+                     <span className="min-w-0 flex-1 truncate text-start">{label}</span>
+                     <ChevronDown className="size-3.5 shrink-0 text-zinc-600" />
+                  </>
+               )}
             </button>
          </PopoverTrigger>
          <PopoverContent
@@ -1073,6 +1086,7 @@ export function ComposerStatusPill({
 export function ComposerPriorityPill({
    className,
    disabled = false,
+   iconOnly = false,
    open,
    priority,
    onAfterChange,
@@ -1081,6 +1095,7 @@ export function ComposerPriorityPill({
 }: {
    className?: string;
    disabled?: boolean;
+   iconOnly?: boolean;
    open: boolean;
    priority: string;
    onAfterChange: () => void;
@@ -1092,15 +1107,18 @@ export function ComposerPriorityPill({
       onOpenChange(false);
       onAfterChange();
    };
+   const priorityLabel = linearPriorityMeta[priority]?.label || priority;
 
    return (
       <ComposerMenuPill
-         ariaLabel={fa.issue.priority}
+         // Each level has its own icon and colour, so the glyph alone reads — but only to the eye.
+         ariaLabel={iconOnly ? `${fa.issue.priority}: ${priorityLabel}` : fa.issue.priority}
          className={className}
          contentClassName="w-auto min-w-[11rem]"
          disabled={disabled}
-         icon={<PriorityIcon priority={priority} className="size-3.5" />}
-         label={linearPriorityMeta[priority]?.label || priority}
+         icon={<PriorityIcon priority={priority} className={iconOnly ? 'size-4' : 'size-3.5'} />}
+         iconOnly={iconOnly}
+         label={priorityLabel}
          open={open}
          onOpenChange={onOpenChange}
       >
@@ -1280,6 +1298,7 @@ export function ComposerProjectPill({
 export function ComposerWeightPill({
    className,
    disabled = false,
+   iconOnly = false,
    open,
    weight,
    onAfterChange,
@@ -1288,6 +1307,7 @@ export function ComposerWeightPill({
 }: {
    className?: string;
    disabled?: boolean;
+   iconOnly?: boolean;
    open: boolean;
    weight: string;
    onAfterChange: () => void;
@@ -1301,13 +1321,30 @@ export function ComposerWeightPill({
    };
    const weightLabel = weight ? `${fa.issue.weight} ${Number(weight).toLocaleString('fa-IR')}` : fa.issue.weight;
 
+   // Unlike priority, no glyph encodes a weight — the number is the value. So the icon-only pill
+   // wears the numeral itself, and keeps the box for «no estimate yet».
+   const weightGlyph = weight ? (
+      <span className="text-[12px] tabular-nums text-zinc-200">{Number(weight).toLocaleString('fa-IR')}</span>
+   ) : (
+      <Box className={cn('text-zinc-500', iconOnly ? 'size-4' : 'size-3.5')} />
+   );
+
    return (
       <ComposerMenuPill
-         ariaLabel={fa.issue.weight}
+         ariaLabel={weightLabel}
          className={className}
          contentClassName="w-auto min-w-[11rem]"
          disabled={disabled}
-         icon={weight ? <Box className="size-3.5 text-zinc-500" /> : <XCircle className="size-3.5 text-zinc-500" />}
+         icon={
+            iconOnly ? (
+               weightGlyph
+            ) : weight ? (
+               <Box className="size-3.5 text-zinc-500" />
+            ) : (
+               <XCircle className="size-3.5 text-zinc-500" />
+            )
+         }
+         iconOnly={iconOnly}
          label={weightLabel}
          open={open}
          onOpenChange={onOpenChange}

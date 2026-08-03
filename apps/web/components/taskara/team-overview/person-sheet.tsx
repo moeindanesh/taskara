@@ -17,14 +17,14 @@ import { type WorkspaceDay, endOfWorkspaceDay } from './today-load';
 type SheetTab = 'person' | 'unassigned';
 
 /**
- * Task, due date, weight, priority, action. Fixed tracks rather than intrinsic widths: the priority
- * labels range from «کم» to «بدون اولویت», so sizing to content leaves every column ragged.
+ * Task, due date, weight, priority, action. Weight and priority are round icon buttons, so their
+ * tracks are one button wide — the labels they used to carry cost 15rem that the title now has.
  *
- * Five dense columns do not fit a phone, so below `sm` the title takes a line of its own and the
- * controls share the next one — the alternative was 40px of horizontal overflow.
+ * The row still does not fit a phone, so below `sm` the title takes a line of its own and the date
+ * plus the three buttons share the next one — the alternative was 40px of horizontal overflow.
  */
 const rowGrid =
-   'grid grid-cols-[repeat(3,minmax(0,1fr))_1.75rem] items-center gap-x-2 gap-y-1.5 sm:grid-cols-[minmax(0,1fr)_6.5rem_6.5rem_9rem_1.75rem] sm:gap-y-0';
+   'grid grid-cols-[minmax(0,1fr)_repeat(3,1.75rem)] items-center gap-x-2 gap-y-1.5 sm:grid-cols-[minmax(0,1fr)_6.5rem_repeat(3,1.75rem)] sm:gap-y-0';
 
 export interface PersonSheetProps {
    day: WorkspaceDay;
@@ -155,8 +155,9 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                   >
                      <span>{fa.teamOverview.columnTask}</span>
                      <span>{fa.teamOverview.columnDue}</span>
-                     <span>{fa.teamOverview.columnWeight}</span>
-                     <span>{fa.teamOverview.columnPriority}</span>
+                     {/* No header fits above a 1.75rem button; each one names itself on hover. */}
+                     <span />
+                     <span />
                      <span />
                   </div>
                )}
@@ -172,13 +173,13 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                      data-testid="person-sheet-row"
                      key={task.id}
                   >
+                     {/* The key is on the row for anyone who needs it; on screen it only ate title. */}
                      <button
                         className="col-span-4 flex min-w-0 items-center gap-2 text-start sm:col-span-1"
                         onClick={() => onOpenTask(task.key)}
                         type="button"
                      >
                         <StatusIcon status={task.status} />
-                        <span className="shrink-0 text-[11px] tabular-nums text-zinc-600">{task.key}</span>
                         <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-200">{task.title}</span>
                      </button>
 
@@ -192,8 +193,8 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                      </span>
 
                      <ComposerWeightPill
-                        className="w-full max-w-none"
                         disabled={pending.has(task.id)}
+                        iconOnly
                         onAfterChange={() => setOpenWeightFor(null)}
                         // The menu speaks strings; the model stores a number, with '' meaning unestimated.
                         onChange={(weight) => void mutate(task, { weight: weight === '' ? null : Number(weight) })}
@@ -203,8 +204,8 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                      />
 
                      <ComposerPriorityPill
-                        className="w-full max-w-none"
                         disabled={pending.has(task.id)}
+                        iconOnly
                         onAfterChange={() => setOpenPriorityFor(null)}
                         onChange={(priority) => void mutate(task, { priority })}
                         onOpenChange={(open) => setOpenPriorityFor(open ? task.id : null)}
