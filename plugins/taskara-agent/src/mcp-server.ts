@@ -456,6 +456,40 @@ registerTool('task_comment', {
   return withBodyNotices({ comment: await api.commentOnTask(client, task, written.text) }, written, 'comment');
 });
 
+// Beside `task_comment`, the other tool that speaks to a person, and deliberately not beside
+// `task_subscribe`/`task_unsubscribe`, which it must not be read as a member of.
+//
+// No `.default()` and no `.optional()` on `about`: a defaulted selector on a tool that reaches
+// somebody's phone would let a model send one of the two messages without ever having chosen it.
+// The names come from the core map rather than being retyped here, for the reason at the top of this
+// file — a private copy of a vocabulary is a drift bug findable only by reading two files side by
+// side.
+registerTool('task_sms', {
+  title: 'Text a Taskara task assignee',
+  description:
+    "Send the task's assignee a text message on their phone. The audience is the assignee and cannot "
+    + 'be chosen, and the Persian wording is composed server-side from the task title, its priority '
+    + 'and its URL plus your own name — no parameter carries your words, and anything you actually '
+    + 'want to say belongs in task_comment, which reaches the subscribers and leaves a record. '
+    + 'about=new-task says there is work waiting; about=follow-up asks them to update the status. '
+    + 'This is not the in-app notification task_subscribe governs and does not obey one: somebody who '
+    + 'muted the task still gets it, and it cannot be recalled. Confirm the task AND which of the two '
+    + 'messages with the human before calling this, and do not chase the same task twice in a day. '
+    + 'Fails when the task has no assignee, when the assignee has no phone number on file — both '
+    + 'paths that create an agent User leave the number unset, so work handed to an agent teammate '
+    + 'lands here — or when the workspace has no SMS sender configured.',
+  inputSchema: {
+    task: z.string().min(1).describe('Task UUID or key, e.g. CORE-123'),
+    about: z.enum(api.taskSmsMessageNames).describe(
+      'new-task: "you have a new task in Taskara". follow-up: "update the status of this task". '
+      + "The sentences are the server's, and there is no third option."
+    )
+  }
+  // The caller's input is echoed beside the server's answer, as `task_unsubscribe` does: the two
+  // routes answer byte-identically, and `{sent, receptor}` alone cannot say which task or which
+  // sentence a conversation is now looking at.
+}, async ({ task, about }) => ({ task, about, ...await api.taskSmsMessages[about](client, task) }));
+
 registerTool('task_attach', {
   title: 'Attach a file to a Taskara task',
   description: 'Upload a local file and attach it to a Taskara task by UUID or key.',
