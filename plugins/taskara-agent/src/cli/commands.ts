@@ -8,6 +8,7 @@ import {
 } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
+import { lineBreakNotice, type InlineBody } from '../core/line-breaks';
 import { mentionNotice, type MentionedBody } from '../core/mentions';
 import {
   addTaskBlocker,
@@ -122,6 +123,13 @@ description; nothing writes one into a comment, whose box in the web is plain te
 comment mention has no writer in any client. A body that looks like it tried is written as given,
 with a line on stderr naming who was not told.
 
+A line break cannot be written as \\n on a command line: --body is argv and no shell turns those two
+characters into a newline. An inline body is read the way it was meant — \\n becomes a break, and
+stderr says how many — unless the body already has a real break, a backslash in it begins anything
+else, the \\n sits in backticks or quotes, or the body is the web editor's own JSON document, whose
+\\n is JSON's. Double it (\\\\n) to send the characters. --body-file and stdin are sent as the bytes
+they are.
+
 "task unsubscribe" sticks: being mentioned or assigned again will not put you back on the list.
 "task subscribe" is how you undo it. Find either set with "task list --subscription watching|muted".
 An agent may unsubscribe — it changes nothing, since agents receive no notifications — but may not
@@ -158,7 +166,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
   const input: CreateTaskInput = {
     projectId: await resolveProjectId(client, flags.require('project')),
     title: flags.require('title'),
-    description: body,
+    description: body?.text,
     kind: flags.oneOf('kind', taskKinds),
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
@@ -239,7 +247,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   const body = await readBody(flags);
   const patch: UpdateTaskInput = {
     title: flags.get('title'),
-    description: body,
+    description: body?.text,
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
     dueAt: flags.get('due-at'),
@@ -304,9 +312,9 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   const key = requireTaskRef(positionals, 'task comment');
   const body = await readBody(flags);
   flags.assertNoUnknown();
-  if (!body?.trim()) throw usageError('task comment needs --body or --body-file');
+  if (!body?.text.trim()) throw usageError('task comment needs --body or --body-file');
 
-  const comment = await commentOnTask(client, key, body);
+  const comment = await commentOnTask(client, key, body.text);
   return { data: comment, note: noted(`Commented on ${key}`, body, 'comment') };
 }
 
@@ -377,13 +385,14 @@ async function projectList(client: TaskaraClient, flags: Flags): Promise<Command
  * `project_create` still carries both for a human in conversation who holds the ids.
  */
 async function projectCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const body = await readBody(flags);
   const input: CreateProjectInput = {
     name: flags.require('name'),
     // Sent as written. `createProjectSchema` trims and uppercases it, so `--key-prefix core` and
     // `--key-prefix CORE` are already the same request and a second normalisation here would only
     // be a copy of the server's rule that could drift from it.
     keyPrefix: flags.require('key-prefix'),
-    description: await readBody(flags)
+    description: body?.text
   };
 
   const parent = flags.get('parent');
@@ -391,7 +400,11 @@ async function projectCreate(client: TaskaraClient, flags: Flags): Promise<Comma
 
   flags.assertNoUnknown();
   const project = await createProject(client, dropUndefined(input));
-  return { data: projectSummary(project), note: `Created project ${project.keyPrefix}` };
+  // No mention notice: a project body addresses nobody, so `noted` would be answering a question
+  // this write does not raise. The line-break one is the same rule wherever a body is read.
+  const outcome = `Created project ${project.keyPrefix}`;
+  const notice = lineBreakNotice(body, LINE_BREAK_REACH);
+  return { data: projectSummary(project), note: notice ? `${outcome}\n${notice}` : outcome };
 }
 
 /**
@@ -495,20 +508,32 @@ function optionalUserId(client: TaskaraClient, ref: string | undefined): Promise
 /** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
 const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
 
+/** The way out of the guess, for a caller that has a file route: stdin, which is byte-faithful. */
+const LINE_BREAK_REACH = 'A body sent with --body-file - arrives exactly as written.';
+
 /**
- * The outcome line, and the one thing the write did not do.
+ * The outcome line, and the two things the write did other than what it was told.
  *
  * A body that names people notifies none of them — a mention is a node, and this surface only ever
  * sends markdown (#53). The write still lands: the prose is what a human reads, and refusing to
  * store a sentence on the strength of a guess about it would leave the caller no way to write the
  * sentence at all. What it must not do is land in silence.
  *
+ * The line-break notice is there for the stronger version of the same rule. `readInlineBody` does
+ * not merely remark on the body, it changes it, and its last condition is a judgement call that a
+ * bare Windows path can lose — so the one thing that is not optional is saying so while the caller
+ * is still standing at the command line.
+ *
  * `into` is the body being written, because the two do not have the same explanation — a
  * description's mention has a writer and a comment's has none (#56). See `MentionedBody`.
  */
-function noted(outcome: string, body: string | undefined, into: MentionedBody): string {
-  const notice = mentionNotice(body, MENTION_REACH, into);
-  return notice ? `${outcome}\n${notice}` : outcome;
+function noted(outcome: string, body: InlineBody | undefined, into: MentionedBody): string {
+  const notices = [
+    lineBreakNotice(body, LINE_BREAK_REACH),
+    mentionNotice(body?.text, MENTION_REACH, into)
+  ].filter(Boolean);
+
+  return [outcome, ...notices].join('\n');
 }
 
 function dropUndefined<T extends object>(value: T): T {

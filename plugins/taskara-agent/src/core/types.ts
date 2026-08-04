@@ -17,6 +17,32 @@ import type {
  */
 export type JsonRecord = Record<string, unknown>;
 
+/**
+ * Whether a body is the web editor's serialised document rather than the markdown this surface
+ * writes.
+ *
+ * One column holds two formats — `CONTEXT.md`, «Body»; `docs/adr/0003` — and this is the question
+ * every module that touches a body has to ask before it touches one, because the editor's half is a
+ * JSON document whose meaning lives in its structure. `mentions.ts` asks it to avoid warning about
+ * live mention nodes; `line-breaks.ts` asks it because a `\n` inside that document is JSON's own
+ * escape for a newline in a text node, and decoding one leaves a string literal with a raw break in
+ * it that no longer parses.
+ *
+ * It lives here, beside `isRedactedTaskRef`, for the same reason that one does: it is the wire's
+ * discriminant, and it is asked in one place so the two callers cannot drift into disagreeing about
+ * what an editor document is.
+ */
+export function isSerializedEditorValue(body: string | null | undefined): boolean {
+  if (!body?.trimStart().startsWith('{')) return false;
+
+  try {
+    const parsed = JSON.parse(body) as { root?: { type?: unknown; children?: unknown } } | null;
+    return Boolean(parsed?.root && parsed.root.type === 'root' && Array.isArray(parsed.root.children));
+  } catch {
+    return false;
+  }
+}
+
 export interface Project {
   id: string;
   name: string;

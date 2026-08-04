@@ -1,4 +1,5 @@
 import { usageError } from '../core/errors';
+import { readFileBody, readInlineBody, type InlineBody } from '../core/line-breaks';
 
 export interface ParsedArgs {
   /** Positional arguments after the noun and verb, in order. */
@@ -139,19 +140,25 @@ export function splitValues(values: string[]): string[] {
  *
  * The stdin path is what makes an effort body possible at all: a map body is tens of kilobytes of
  * markdown and inline shell quoting of that is exactly where an agent's paste breaks.
+ *
+ * Which of the two a body came through is the whole reason this returns a record rather than a
+ * string. A file body is bytes somebody chose and goes out as those bytes; an inline body came
+ * through argv, where a shell's quotes cannot carry a newline, so `\n` in one is a line break the
+ * writer had no way to send — see `readInlineBody`. Only this function knows which, and the record
+ * carries what it did as far as the caller that prints it.
  */
-export async function readBody(flags: Flags, bodyFlag = 'body'): Promise<string | undefined> {
+export async function readBody(flags: Flags, bodyFlag = 'body'): Promise<InlineBody | undefined> {
   const inline = flags.get(bodyFlag);
   const file = flags.get(`${bodyFlag}-file`);
 
   if (inline !== undefined && file !== undefined) {
     throw usageError(`Use --${bodyFlag} or --${bodyFlag}-file, not both`);
   }
-  if (inline !== undefined) return inline;
+  if (inline !== undefined) return readInlineBody(inline);
   if (file === undefined) return undefined;
-  if (file === '-') return Bun.stdin.text();
+  if (file === '-') return readFileBody(await Bun.stdin.text());
 
   const handle = Bun.file(file);
   if (!(await handle.exists())) throw usageError(`File not found: ${file}`);
-  return handle.text();
+  return readFileBody(await handle.text());
 }

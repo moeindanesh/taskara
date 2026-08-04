@@ -157,6 +157,20 @@ week in your projects. Do not read an empty feed as nothing having happened.
 kilobytes of markdown, and inline shell quoting of that is where a paste breaks. The description
 ceiling is the server's — 15,000 characters for work, 60,000 for an effort.
 
+**A line break cannot be written as `\n` on a command line.** `--body "one\ntwo"` is argv, and no
+shell turns those two characters into a newline inside quotes — so the body used to arrive with a
+backslash and an `n` in it, and every reader showed them. An inline body is now read the way it was
+meant: `\n` and `\r\n` become line breaks, and the command says on stderr how many it gave back.
+
+It gives back none, and sends the body exactly as written, when the body already has a real line
+break in it, when a backslash in it begins anything else (`\t`, `\d`, `C:\node`), or when the `\n`
+is inside backticks or a quoted literal — so a body *about* an escape survives being one. It also
+leaves the web editor's serialised document alone: that is JSON on one line, where `\n` is JSON's
+own escape and decoding it would stop the document parsing. So a body read with `task view` and
+written back is safe. To insist on the two characters anywhere else, double the backslash: `\\n`
+sends `\n` and disables the reading for that whole body. `--body-file` and stdin are never read this
+way; they are the bytes you chose.
+
 A body is written whole, so two sessions editing one body would silently overwrite each other.
 `--base-version n` is the version that came back with the body you edited — send it, and a write the
 row has moved past is refused with exit **5** rather than applied over somebody else's line. It is
@@ -202,6 +216,10 @@ Same `noun_verb` grammar as the CLI.
 - Pass `baseVersion` on `task_edit` whenever you send a `description`. A body cannot be sent as a
   delta, so the version is the only thing standing between a concurrent edit and a lost paragraph.
   On a conflict, refetch, re-apply the change, and show the user what moved before retrying.
+- Write a real line break in a `description` or comment `body`. The field carries one; there is no
+  shell behind it to escape for. A `\n` written as two characters is read as the break it meant and
+  the result says so under `warning` — but that is a repair, not the contract. Double the backslash
+  when you mean the characters.
 - Draft a daily report with `report_daily_draft` and show it to the user for edits; only call
   `report_daily_submit` once they confirm the wording. The report is their voice, not yours.
 - Include task keys in summaries after mutations.

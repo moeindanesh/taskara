@@ -1,3 +1,5 @@
+import { isSerializedEditorValue } from './types';
+
 /**
  * What in a body looks like an attempt to address a person — and never does.
  *
@@ -115,13 +117,3 @@ export function mentionNotice(
   return `${listed} ${reads} and notified nobody: ${rule} ${reach}`;
 }
 
-function isSerializedEditorValue(body: string): boolean {
-  if (!body.trimStart().startsWith('{')) return false;
-
-  try {
-    const parsed = JSON.parse(body) as { root?: { type?: unknown; children?: unknown } } | null;
-    return Boolean(parsed?.root && parsed.root.type === 'root' && Array.isArray(parsed.root.children));
-  } catch {
-    return false;
-  }
-}
