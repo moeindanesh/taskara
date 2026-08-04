@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
+import {
+  lineBreakNotice,
+  readFileBody,
+  readInlineBody
+} from '../../../../plugins/taskara-agent/src/core/line-breaks';
 import { findMentionAttempts, mentionNotice } from '../../../../plugins/taskara-agent/src/core/mentions';
 
 /**
@@ -1239,6 +1244,156 @@ describe('taskara CLI', () => {
       expect(mentions.map((mention) => mention.userId)).toEqual([idle.id]);
       // Named, and therefore watching — so the answer to the question reaches them too.
       expect(await prisma.taskSubscription.count({ where: { taskId: task.id, userId: idle.id } })).toBe(1);
+    });
+  });
+
+  describe('a line break written as \\n', () => {
+    test('an inline body gets its breaks back, and a file body is never touched', () => {
+      // The shape that prompted this, copied from a Task an agent filed: Persian prose whose bold
+      // leads rendered as bold while the paragraph breaks between them reached the screen as a
+      // backslash and an n. The body is one line as far as argv is concerned, and it is not.
+      const filed = 'کاربر نباید انبارگردانیِ شعبه‌های دیگر را ببیند.\\n\\n**اهمیت:** فوری\\nددلاین: امروز';
+      const read = readInlineBody(filed);
+      expect(read.restored).toBe(3);
+      expect(read.text).toBe('کاربر نباید انبارگردانیِ شعبه‌های دیگر را ببیند.\n\n**اهمیت:** فوری\nددلاین: امروز');
+
+      expect(readInlineBody('line1\\nline2')).toEqual({ text: 'line1\nline2', restored: 1 });
+      // Written for a shell that would have eaten the CR too. Both halves go, or a stray `\r` is
+      // left visible on every line.
+      expect(readInlineBody('a\\r\\nb')).toEqual({ text: 'a\nb', restored: 1 });
+
+      // The same characters chosen deliberately, byte for byte. `--body-file` and stdin come here.
+      expect(readFileBody('line1\\nline2')).toEqual({ text: 'line1\\nline2', restored: 0 });
+    });
+
+    test('a body that is about an escape is not read as one', () => {
+      // The false positive worth the whole shape of the rule, and one this repo would write: a task
+      // filed *about* escape handling. Under backticks and under quotes, because a body reaches for
+      // whichever the writer had to hand.
+      expect(readInlineBody('fix `split(\'\\n\')` in parser.ts').restored).toBe(0);
+      expect(readInlineBody('Fix split(\'\\n\') and join("\\n") in parser.ts').restored).toBe(0);
+
+      // A backslash that begins anything else means the body speaks a language with more words than
+      // this one knows. Giving back half of them is worse than giving back none.
+      expect(readInlineBody('a\\nb\\tc').restored).toBe(0);
+      expect(readInlineBody('the pattern is \\d+\\.\\s and then\\nthe rest').restored).toBe(0);
+      // `C:\node` is the one path shape that collides head-on. A drive letter is exactly one letter,
+      // which is what keeps a Persian label and a colon out of the exclusion.
+      expect(readInlineBody('Copy C:\\node and C:\\newbuild to the host').restored).toBe(0);
+      expect(readInlineBody('اهمیت:\\nفوری').restored).toBe(1);
+
+      // A body that already has a line of its own was never flattened by argv, so what is left in
+      // it is its subject.
+      expect(readInlineBody('real\nbreak, and a \\n that is text').restored).toBe(0);
+
+      // The in-band way to insist. The doubled backslash is part of no break, so the whole body
+      // comes back exactly as written rather than half-read.
+      expect(readInlineBody('send \\\\n as the two characters').restored).toBe(0);
+    });
+
+    test('the editor’s own document is left alone, because a \\n in it is JSON’s', () => {
+      // The body class this rule could actually destroy. One column holds two formats
+      // (`CONTEXT.md`, «Body»), and the web's half is a JSON document on one line — a code block
+      // keeps its lines inside a single text node, so the break between them is spelled `\n` in the
+      // source. Decoding that leaves a string literal with a raw newline in it, and the document
+      // stops parsing: `syncEditorValue` falls through its catch to a plain-text load and every
+      // mention node in the body is gone.
+      const document = JSON.stringify({
+        root: {
+          type: 'root',
+          children: [{
+            type: 'code',
+            language: 'ts',
+            children: [{ type: 'text', version: 1, text: 'const a = 1;\nconst b = 2;' }]
+          }]
+        }
+      });
+      // The premise: one line as far as any of the cheap tests can see, and an escape in it.
+      expect(document).not.toContain('\n');
+      expect(document).toContain('\\n');
+
+      const read = readInlineBody(document);
+      expect(read.restored).toBe(0);
+      expect(read.text).toBe(document);
+      // The assertion that matters, and not string identity alone: the failure is silent in every
+      // reader, so what has to be true is that the document still loads.
+      expect(() => JSON.parse(read.text)).not.toThrow();
+    });
+
+    test('the notice counts what it did and names the way out', () => {
+      const reach = 'A body sent with --body-file - arrives exactly as written.';
+      expect(lineBreakNotice(readInlineBody('a\\nb'), reach)).toContain('One \\n was read as a line break');
+      expect(lineBreakNotice(readInlineBody('a\\nb\\nc'), reach)).toContain('2 \\n were read as line breaks');
+      expect(lineBreakNotice(readInlineBody('a\\nb'), reach)).toEndWith(reach);
+      // Silent when it changed nothing, so the line means what it says on the writes it appears on.
+      expect(lineBreakNotice(readInlineBody('ordinary prose'), reach)).toBeUndefined();
+      expect(lineBreakNotice(readFileBody('a\\nb'), reach)).toBeUndefined();
+      expect(lineBreakNotice(undefined, reach)).toBeUndefined();
+    });
+
+    test('task create stores the break and says it read one', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'A body written through argv',
+        '--body', 'The first paragraph.\\n\\nThe second one.'
+      ]);
+
+      expect(created.code).toBe(0);
+      expect(created.stderr).toContain('2 \\n were read as line breaks');
+      expect(created.stderr).toContain('--body-file -');
+
+      // The column is what the change is for: every reader downstream — the web editor, the inbox
+      // card, `task view` — sees a break because there is one, not because it guessed.
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: String(created.json.id) } });
+      expect(stored.description).toBe('The first paragraph.\n\nThe second one.');
+    });
+
+    test('a body with no escapes to read gets nothing said about it', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'An ordinary inline body',
+        '--body', 'One paragraph, said in one line.'
+      ]);
+
+      expect(created.code).toBe(0);
+      expect(created.stderr.trim()).toBe(`Created ${String(created.json.key)}`);
+    });
+
+    test('--body-file - is still the bytes it was given, escapes and all', async () => {
+      // The guarantee `--body-file` exists for, restated against the new rule: a map body quoting a
+      // `\n` in a code sample must arrive as those characters, because somebody chose them.
+      const body = '# Sample\n\n```ts\nconst lines = raw.split(\'\\n\');\n```\n';
+
+      const created = await run(
+        ['task', 'create', '--project', fixture.projectKeyPrefix, '--title', 'A body chosen byte by byte', '--body-file', '-'],
+        {},
+        body
+      );
+
+      expect(created.code).toBe(0);
+      expect(created.stderr.trim()).toBe(`Created ${String(created.json.key)}`);
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: String(created.json.id) } });
+      expect(stored.description).toBe(body);
+    });
+
+    test('task edit and task comment read a body the same way, because it is one rule', async () => {
+      const task = await createTaskViaApi('the other two writing verbs');
+
+      const edited = await run(['task', 'edit', task.key, '--body', 'Rewritten.\\nOn two lines.']);
+      expect(edited.code).toBe(0);
+      expect(edited.stderr).toContain('One \\n was read as a line break');
+
+      const commented = await run(['task', 'comment', task.key, '--body', 'First.\\nSecond.']);
+      expect(commented.code).toBe(0);
+      expect(commented.stderr).toContain('One \\n was read as a line break');
+
+      // A comment matters most of the three. `TaskComment.body` is plain text in every client
+      // (`docs/adr/0003`), so there is no renderer downstream to be generous about it: a backslash
+      // stored here is a backslash on every screen forever.
+      const stored = await prisma.taskComment.findFirstOrThrow({
+        where: { taskId: task.id }, orderBy: { createdAt: 'desc' }
+      });
+      expect(stored.body).toBe('First.\nSecond.');
     });
   });
 

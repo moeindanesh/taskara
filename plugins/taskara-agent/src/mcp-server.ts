@@ -18,6 +18,7 @@ import {
 import { z } from 'zod';
 import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
+import { lineBreakNotice, readInlineBody, type InlineBody } from './core/line-breaks';
 import { mentionNotice, type MentionedBody } from './core/mentions';
 import * as api from './core/operations';
 import type { JsonRecord } from './core/types';
@@ -99,8 +100,12 @@ registerTool('project_create', {
     leadId: z.string().uuid().optional()
   }
 }, async (input) => {
-  const project = await api.createProject(client, input);
-  return { project: projectSummary(project) };
+  const description = inlineBody(input.description);
+  const project = await api.createProject(client, description ? { ...input, description: description.text } : input);
+  // No mention notice: a project body addresses nobody, so `withBodyNotices` would be answering a
+  // question this write does not raise.
+  const notice = lineBreakNotice(description, LINE_BREAK_REACH);
+  return notice ? { project: projectSummary(project), warning: notice } : { project: projectSummary(project) };
 });
 
 registerTool('project_summarize', {
@@ -181,8 +186,10 @@ registerTool('milestone_create', {
     targetOn: MilestoneDate.nullable().optional()
   }
 }, async (input) => {
-  const milestone = await api.createMilestone(client, input);
-  return { milestone: milestoneDetails(milestone) };
+  const description = inlineBody(input.description);
+  const milestone = await api.createMilestone(client, description ? { ...input, description: description.text } : input);
+  const notice = lineBreakNotice(description, LINE_BREAK_REACH);
+  return notice ? { milestone: milestoneDetails(milestone), warning: notice } : { milestone: milestoneDetails(milestone) };
 });
 
 registerTool('milestone_update', {
@@ -200,12 +207,15 @@ registerTool('milestone_update', {
     targetOn: MilestoneDate.nullable().optional()
   }
 }, async ({ milestoneId, ...patch }) => {
-  const body = dropUndefined(patch);
+  // As in `task_edit`: a `null` clears the column and must not be read as a body.
+  const description = inlineBody(patch.description);
+  const body = dropUndefined(description ? { ...patch, description: description.text } : patch);
   if (Object.keys(body).every((key) => key === 'version')) {
     throw new Error('Provide at least one milestone field to update.');
   }
   const milestone = await api.updateMilestone(client, milestoneId, body);
-  return { milestone: milestoneDetails(milestone) };
+  const notice = lineBreakNotice(description, LINE_BREAK_REACH);
+  return notice ? { milestone: milestoneDetails(milestone), warning: notice } : { milestone: milestoneDetails(milestone) };
 });
 
 registerTool('milestone_summarize', {
@@ -338,11 +348,9 @@ registerTool('task_create', {
     milestoneId: z.string().uuid().optional()
   }
 }, async (input) => {
-  return withMentionNotice(
-    { task: taskSummary(await api.createTask(client, input)) },
-    input.description,
-    'description'
-  );
+  const description = inlineBody(input.description);
+  const task = await api.createTask(client, description ? { ...input, description: description.text } : input);
+  return withBodyNotices({ task: taskSummary(task) }, description, 'description');
 });
 
 registerTool('task_edit', {
@@ -375,12 +383,15 @@ registerTool('task_edit', {
       .describe('The version of the task this edit is based on. 409 if the row has moved past it.')
   }
 }, async ({ task, baseVersion, ...patch }) => {
-  const body = dropUndefined(patch);
+  // Only when it is a body. A `null` here is the instruction to clear the column and has to survive
+  // as one, so it goes through untouched rather than becoming an undefined the drop below removes.
+  const description = inlineBody(patch.description);
+  const body = dropUndefined(description ? { ...patch, description: description.text } : patch);
   // Counted apart from the fields: `baseVersion` states what the write is applied against, so a
   // request carrying only it asks for nothing and must not report success.
   if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
   const updated = await api.updateTask(client, task, baseVersion === undefined ? body : { ...body, baseVersion });
-  return withMentionNotice({ task: taskSummary(updated) }, patch.description, 'description');
+  return withBodyNotices({ task: taskSummary(updated) }, description, 'description');
 });
 
 registerTool('task_claim', {
@@ -441,7 +452,8 @@ registerTool('task_comment', {
     body: z.string().min(1).max(15000)
   }
 }, async ({ task, body }) => {
-  return withMentionNotice({ comment: await api.commentOnTask(client, task, body) }, body, 'comment');
+  const written = readInlineBody(body);
+  return withBodyNotices({ comment: await api.commentOnTask(client, task, written.text) }, written, 'comment');
 });
 
 // Beside `task_comment`, the other tool that speaks to a person, and deliberately not beside
@@ -687,31 +699,52 @@ function registerTool<T extends z.ZodRawShape>(
 }
 
 /**
- * The result, plus the one thing a body full of names did not do.
+ * A body a conversation wrote, read the way this toolkit reads every inline body.
  *
- * The same rule the CLI prints to stderr, carried where a conversation can see it. A tool
- * description says it before the call and this says it after, because a model that has already
- * written `@Robin please look` needs to be told that Robin was not told.
+ * There is no `--body-file` here, so every body MCP receives is inline by construction and there is
+ * nothing to decide. `null` is not a body — on `task_edit` it is the instruction to clear the
+ * column — so it comes back undefined and the caller keeps the null it was handed.
+ */
+function inlineBody(text: string | null | undefined): InlineBody | undefined {
+  return typeof text === 'string' ? readInlineBody(text) : undefined;
+}
+
+/** The way out on a surface with no file route to point at: the field itself already carries one. */
+const LINE_BREAK_REACH = 'This field carries real line breaks; write one rather than escaping it.';
+
+/**
+ * The result, plus what the write did other than what it was asked.
  *
- * The pointer names uuid rather than email: MCP's `assigneeId` is a uuid by #49's decision, since a
- * conversation holds state and has just called `user_list` while a shell caller has nowhere to keep
- * a resolved id between invocations.
+ * The same rules the CLI prints to stderr, carried where a conversation can see them. A tool
+ * description says them before the call and this says them after, because a model that has already
+ * written `@Robin please look` needs to be told that Robin was not told — and a model that escaped
+ * its line breaks needs to be told that this field never needed it to.
+ *
+ * The mention pointer names uuid rather than email: MCP's `assigneeId` is a uuid by #49's decision,
+ * since a conversation holds state and has just called `user_list` while a shell caller has nowhere
+ * to keep a resolved id between invocations. The line-break pointer names no file route for the same
+ * kind of reason — there is none on this surface, and telling a conversation about `--body-file -`
+ * would send it looking for a flag it cannot reach.
  *
  * `into` is the body the tool wrote, because a description's mention has a writer to point at and a
  * comment's has none (#56) — and this is the shell where getting that wrong costs most, since a
  * model told «the web editor writes those» will helpfully suggest a human go and do it.
  */
-function withMentionNotice<T extends JsonRecord>(
+function withBodyNotices<T extends JsonRecord>(
   result: T,
-  body: string | null | undefined,
+  body: InlineBody | undefined,
   into: MentionedBody
 ): T {
-  const notice = mentionNotice(
-    body,
-    'Hand work over with task_edit assigneeId; user_list finds the person and their id.',
-    into
-  );
-  return notice ? { ...result, warning: notice } : result;
+  const notices = [
+    lineBreakNotice(body, LINE_BREAK_REACH),
+    mentionNotice(
+      body?.text,
+      'Hand work over with task_edit assigneeId; user_list finds the person and their id.',
+      into
+    )
+  ].filter(Boolean);
+
+  return notices.length ? { ...result, warning: notices.join(' ') } : result;
 }
 
 function jsonResult(data: unknown): CallToolResult {
