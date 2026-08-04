@@ -178,6 +178,95 @@ export function unsubscribeFromTask(client: TaskaraClient, idOrKey: string): Pro
   });
 }
 
+/**
+ * What the server says it handed the SMS provider.
+ *
+ * `sent` is always `true` — every failure is an HTTP status, never `sent: false` — so `receptor` is
+ * the whole of the answer. It arrives already masked (`0912***456`), and it is evidence rather than
+ * a handle: nothing on this surface takes a phone number, and the digits the mask removes are the
+ * ones that would make it dialable. Its job is to let a human say "that is not Robin's".
+ *
+ * It is also the weakest true claim available. The server reports the provider *accepting* the
+ * message and nothing downstream reports back, so neither shell may render this as "delivered".
+ */
+export interface TaskSmsReceipt {
+  sent: true;
+  receptor: string;
+}
+
+/**
+ * Text the task's assignee that the work is theirs.
+ *
+ * Three things it deliberately does not take. **A recipient** — the assignee is the only audience
+ * the route has, so a task holding none is refused rather than broadcast. **Any text** — the Persian
+ * message is composed server-side from the title, the priority, the task URL and the caller's own
+ * name, and a `message` parameter here would advertise a freedom that does not exist. **A task
+ * uuid** — the route takes `:idOrKey` and resolves a key itself, as `getTask` does, so calling
+ * `resolveTaskId` first would buy a round trip and nothing else.
+ *
+ * This is the one write on the surface that reaches somebody who decided not to be reached. A
+ * subscription silences an inbox; this path reads no subscription and no mute, and #39's rule
+ * keeping agents out of every fan-out governs notification rows, not phones.
+ *
+ * `body: {}` matches `claimTask` and `subscribeToTask`: `client.request` declares
+ * `application/json` only when a body is present, and a POST arriving without one is at Fastify's
+ * mercy. That refusal would come back as exit 6 and read exactly like the server's own "Task has no
+ * assignee" — which is why the tests assert the message and not only the code.
+ */
+export function sendTaskCreatedSms(client: TaskaraClient, idOrKey: string): Promise<TaskSmsReceipt> {
+  return client.request<TaskSmsReceipt>(`/tasks/${encodeURIComponent(idOrKey)}/sms/task-created`, {
+    method: 'POST',
+    body: {}
+  });
+}
+
+/**
+ * Text the task's assignee asking them to update its status.
+ *
+ * A second function rather than a parameter on the first, because these are two endpoints with two
+ * templates and two audit actions: one function per API operation, and a private route table inside
+ * one wrapper would typecheck for as long as it was wrong and then 404 in a way that reads like a
+ * missing task. The two are one *verb* in both shells, which is the map below — a decision about a
+ * grammar rather than about the API.
+ */
+export function sendTaskFollowUpSms(client: TaskaraClient, idOrKey: string): Promise<TaskSmsReceipt> {
+  return client.request<TaskSmsReceipt>(`/tasks/${encodeURIComponent(idOrKey)}/sms/follow-up`, {
+    method: 'POST',
+    body: {}
+  });
+}
+
+/**
+ * The two messages, under the words a caller says.
+ *
+ * A caller-facing word mapped onto a server behaviour usually belongs to a shell — `closeReasons` is
+ * `task close`'s alone, and can be, because MCP has no close tool. Both shells offer this one, so
+ * keeping it here is the lesser evil: two copies would be two lists to hold in step, and
+ * `mcp-server.ts` already records what that costs — a drift bug findable only by reading two files
+ * side by side. It is dispatch, not presentation; how a receipt is *rendered* still belongs to each
+ * shell.
+ *
+ * `new-task` renames the route's `task-created`, the way `closeReasons` renames `DONE`. The endpoint
+ * checks a task, an assignee and a phone number and never how old the row is, so it works on a
+ * ticket filed last month; `task-created` would promise a freshness rule that does not exist.
+ * `new-task` is instead a literal reading of the sentence the assignee receives: «در تسکارا وظیفه
+ * جدید داری».
+ *
+ * `handoff` was the runner-up and is out. `MENTION_REACH` already spends "hand work over" on
+ * `--add-assignee`, so in this grammar the word means *assign* — and this command assigns nothing,
+ * it texts somebody about an assignment made earlier, possibly by somebody else. One word meaning
+ * two acts across one grammar is the drift #25 names.
+ */
+export const taskSmsMessages = {
+  'new-task': sendTaskCreatedSms,
+  'follow-up': sendTaskFollowUpSms
+} as const;
+
+export type TaskSmsMessage = keyof typeof taskSmsMessages;
+
+/** The two message names, for the shells that have to offer them as a choice. */
+export const taskSmsMessageNames = Object.keys(taskSmsMessages) as [TaskSmsMessage, ...TaskSmsMessage[]];
+
 export function commentOnTask(client: TaskaraClient, idOrKey: string, body: string): Promise<JsonRecord> {
   return client.request<JsonRecord>(`/tasks/${encodeURIComponent(idOrKey)}/comments`, {
     method: 'POST',

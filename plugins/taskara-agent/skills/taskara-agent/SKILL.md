@@ -1,6 +1,6 @@
 ---
 name: taskara-agent
-description: Work Taskara tasks, efforts, projects, milestones and daily reports — create, search, claim, edit, comment, close, plan and report — through the Taskara CLI or its MCP tools.
+description: Work Taskara tasks, efforts, projects, milestones and daily reports — create, search, claim, edit, comment, close, plan, report, and text a task's assignee — through the Taskara CLI or its MCP tools.
 ---
 
 # Taskara Agent
@@ -48,6 +48,9 @@ taskara task edit     <key|id> [--add-label L] [--remove-label L]
                       [...fields] [--base-version n]
 taskara task claim    <key|id>
 taskara task comment  <key|id> [--body <s> | --body-file <path|->]
+taskara task sms      <key|id> --about new-task|follow-up
+                      # texts the assignee; new-task = "you have a new task",
+                      # follow-up = "update the status". Required, no default.
 taskara task close    <key|id> [--reason completed|canceled]
 taskara task subscribe   <key|id>
 taskara task unsubscribe <key|id>
@@ -132,6 +135,34 @@ An agent may unsubscribe — harmlessly, since agents receive no notifications a
 `task subscribe` under an agent credential exits **6** and says why. Find work with the frontier
 query above, not with an inbox.
 
+**An SMS is a different channel and obeys none of this.** `task sms` reads no subscription and no
+mute, so somebody who deliberately silenced a task still gets the text. Do not offer `task
+unsubscribe` as the way to stop it; there isn't one.
+
+### Texting the assignee
+
+```bash
+taskara task sms CORE-123 --about new-task    # "you have a new task in Taskara"
+taskara task sms CORE-123 --about follow-up   # "update the status of this task"
+```
+
+It reaches the task's **assignee** and nobody else — there is no recipient to choose, and a task
+nobody holds exits **6**. You do not write the message: the Persian wording is composed server-side
+from the title, the priority, the task URL and your own name. A sentence of your own goes in
+`task comment`, which reaches the subscribers and leaves a record; there is no flag here that carries
+your words, and `--body` is refused rather than quietly dropped.
+
+`--about` is required and has no default, because the two messages ask for opposite things and
+nothing unsends a text. Confirm both the task **and** which of the two with the person you are
+working for before running it, and do not chase the same task twice in a day.
+
+Exit **6** is the task having no assignee, or the assignee having no phone number on file. Both
+paths that create an **agent** User leave the number unset, so texting work you handed to an agent
+lands there — nothing forbids giving one a number, but nothing gives it one either. Exit **7**
+naming `SMS_KAVEH_SENDER` or `SMS_KAVEH_KEY` is the one 7 not worth retrying: nothing was sent,
+nothing will be, and a human has to set the variable. On success stdout carries a masked
+`receptor` — `0912***456` — which is the only check available that the right person was reached.
+
 ### Labels and blockers
 
 `--add-label` / `--remove-label` are applied **server-side**, so two agents relabelling one task do
@@ -178,6 +209,8 @@ Same `noun_verb` grammar as the CLI.
 | `milestone_list` `milestone_create` `milestone_update` `milestone_summarize` | Milestones |
 | `task_search` `task_list_mine` `task_view` | Reading tasks |
 | `task_create` `task_edit` `task_claim` `task_comment` `task_attach` `task_set_milestone` | Writing tasks |
+| `task_subscribe` `task_unsubscribe` | Watching a task, and deliberately not watching it |
+| `task_sms` | Texting the assignee's phone. A separate channel from the above: a muted watcher still gets it |
 | `task_propose` `agent_action_apply` | Turning a discussion into proposed tasks, then applying them |
 | `plan_daily` `plan_work` `backlog_triage` `blocker_detect` | Planning |
 | `report_daily_draft` `report_daily_submit` `report_weekly` | Reports |
@@ -204,4 +237,9 @@ Same `noun_verb` grammar as the CLI.
   On a conflict, refetch, re-apply the change, and show the user what moved before retrying.
 - Draft a daily report with `report_daily_draft` and show it to the user for edits; only call
   `report_daily_submit` once they confirm the wording. The report is their voice, not yours.
+- Confirm the task **and** which of the two messages before `task_sms` or `taskara task sms`. It
+  puts Persian text on a colleague's phone, costs money, and cannot be recalled — there is no
+  dry run and no undo. Neither surface asks you a second time: the MCP tool has no confirmation
+  parameter and the CLI has no `--yes`, so the confirmation is this rule and nothing else. Never
+  loop it over a list of keys without naming every person it would reach first.
 - Include task keys in summaries after mutations.

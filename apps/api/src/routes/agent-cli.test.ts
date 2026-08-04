@@ -26,6 +26,8 @@ const neutralCwd = tmpdir();
 let app: FastifyInstance;
 let baseUrl: string;
 let fixture: Fixture;
+/** Every request the app has served, as `METHOD /path`. See the hook in `beforeAll`. */
+const requestLog: string[] = [];
 
 interface Fixture {
   workspaceSlug: string;
@@ -38,6 +40,21 @@ interface Fixture {
   idleEmail: string;
   idleName: string;
   idlePhone: string;
+  /**
+   * A member with **no** phone number, and the only assignee the SMS tests are allowed to use.
+   *
+   * `isSmsDryRun` in `apps/api/src/services/sms.ts` is `return false` above dead code, so the dry
+   * run that file appears to have is switched off; `bun test` runs from the repo root and Bun loads
+   * `.env` from the cwd, which hands this very process a live `SMS_KAVEH_KEY` and
+   * `SMS_KAVEH_SENDER`. The server under test is this process. So `if (!assignee.phone)` in
+   * `task-sms.ts` is the last thing standing between the suite and a real text message to a real
+   * handset, and this row is what makes that branch the one taken.
+   *
+   * Never reach for `idleEmail` in an SMS test. That row is created **with** `idlePhone`, it sits a
+   * few lines above this one, and it is the copy-paste that actually happens.
+   */
+  phonelessEmail: string;
+  phonelessName: string;
   /**
    * Two addresses the idle one is a substring of, one at each end, plus a mixed-case row.
    *
@@ -68,6 +85,15 @@ interface CliRun {
 describe('taskara CLI', () => {
   beforeAll(async () => {
     app = Fastify({ logger: false });
+    // Every request the CLI makes, in order. It observes and replaces nothing — there is no mocking
+    // anywhere under `apps/api/src` and this introduces none — but `task sms` has two routes whose
+    // only two reachable outcomes are byte-identical refusals, so without this a swap of the two
+    // would pass every assertion in the file. Registered **before** `registerApp`, because that
+    // function mounts every route through `app.register`, and a root hook added afterwards does not
+    // reach an encapsulated child.
+    app.addHook('onRequest', async (request) => {
+      requestLog.push(`${request.method} ${request.url}`);
+    });
     await registerApp(app);
     await app.listen({ host: '127.0.0.1', port: 0 });
     const address = app.server.address();
@@ -89,7 +115,8 @@ describe('taskara CLI', () => {
             fixture.suffixedEmail,
             fixture.shoutedEmail,
             fixture.outsiderEmail,
-            fixture.agentEmail
+            fixture.agentEmail,
+            fixture.phonelessEmail
           ]
         }
       }
@@ -866,6 +893,153 @@ describe('taskara CLI', () => {
   });
 
   /**
+   * Texting the assignee — every path that stops short of the network.
+   *
+   * **Nothing in this block may reach a green send, and that is not a gap left for later.** The
+   * server under test is this process; `bun test` runs from the repo root, so Bun has already loaded
+   * the repo's `.env` and `config.SMS_KAVEH_KEY` holds a live Kavenegar key. `isSmsDryRun` in
+   * `apps/api/src/services/sms.ts` returns `false` unconditionally, above a dead line that would
+   * have returned `true`. And the provider URL is built inline at the call site with no environment
+   * override, so there is nowhere to point it. A test that got as far as `sendMessageSimple` would
+   * put a real text on a real phone and bill a real account.
+   *
+   * So every assignee here is `phonelessEmail`, and the assertions stop at the guard above the
+   * provider. What that leaves uncovered is exit 0, the `{sent, receptor}` payload, the masking of
+   * the receptor, and the stderr note — reviewed, not tested. The 503/exit-7 branch is uncovered on
+   * purpose too: the sender check sits *below* the phone check, so the only task that reaches it is
+   * one whose assignee has a phone, which is precisely the arrangement that fires a real message the
+   * moment the unsetting fails to take. Buying one exit code by arming the suite is a bad trade.
+   */
+  describe('texting a task assignee', () => {
+    let phonelessTask: { id: string; key: string };
+
+    beforeAll(async () => {
+      // Asserted, not assumed. If somebody later gives this member a phone number, the whole block
+      // silently arms itself and every test below still passes — so the arming is what fails here.
+      const member = await prisma.user.findUnique({
+        where: { email: fixture.phonelessEmail },
+        select: { phone: true }
+      });
+      expect(member).not.toBeNull();
+      expect(member?.phone ?? null).toBeNull();
+
+      phonelessTask = await createTaskViaApi('Texting the unreachable');
+      const assigned = await run(['task', 'edit', phonelessTask.key, '--add-assignee', fixture.phonelessEmail]);
+      expect(assigned.code).toBe(0);
+    });
+
+    test('the verb is in the grammar, and the grammar names both messages', async () => {
+      const guessed = await run(['task', 'frobnicate']);
+      expect(guessed.code).toBe(1);
+      expect(guessed.stderr).toContain('sms');
+
+      const help = await run(['--help']);
+      expect(help.code).toBe(0);
+      expect(help.stdout).toContain('--about new-task|follow-up');
+    });
+
+    test('the shortest form of the command sends nothing at all', async () => {
+      // `taskara task sms CORE-12` is what a caller improvises, and there is no default for it to
+      // fall back on: the two messages ask for opposite things and neither can be unsent.
+      const before = requestLog.length;
+      const bare = await run(['task', 'sms', phonelessTask.key]);
+      expect(bare.code).toBe(1);
+      expect(bare.stderr).toContain('new-task');
+      expect(bare.stderr).toContain('follow-up');
+      expect(requestLog.slice(before)).toEqual([]);
+    });
+
+    test('a missing task reference is refused before the flag is even read', async () => {
+      const nothing = await run(['task', 'sms']);
+      expect(nothing.code).toBe(1);
+      expect(nothing.stderr).toContain('task sms needs a task key or id');
+    });
+
+    test('the flags that look plausible here are refused, not ignored', async () => {
+      // `--kind` still means WORK|EFFORT one verb over, `--body` is real markdown on the three verbs
+      // either side of this one, and `--yes` is the confirmation flag this surface deliberately does
+      // not have. A caller who types any of them believes something happened that did not.
+      for (const flag of [['--kind', 'WORK'], ['--body', 'any news?'], ['--yes']]) {
+        const before = requestLog.length;
+        const rejected = await run(['task', 'sms', phonelessTask.key, '--about', 'new-task', ...flag]);
+        expect({ flag: flag[0], code: rejected.code }).toEqual({ flag: flag[0], code: 1 });
+        expect(rejected.stderr).toContain(flag[0]);
+        // Safe by the fixture rather than by ordering: were `assertNoUnknown` ever moved below the
+        // request, this assertion is what would notice.
+        expect(requestLog.slice(before)).toEqual([]);
+      }
+    });
+
+    test('a message name that is not one of the two is a usage error', async () => {
+      const before = requestLog.length;
+      const wrong = await run(['task', 'sms', phonelessTask.key, '--about', 'reminder']);
+      expect(wrong.code).toBe(1);
+      expect(wrong.stderr).toContain('new-task, follow-up');
+      expect(requestLog.slice(before)).toEqual([]);
+    });
+
+    test('a task key nobody holds is 4, and the message is the server’s own', async () => {
+      const missing = await run(['task', 'sms', 'NOSUCH-999', '--about', 'new-task']);
+      expect(missing.code).toBe(4);
+      // Asserted rather than left at the code: a CLI that built a URL no route serves also gets a
+      // 404, but Fastify answers `Route POST:/tasks/… not found`, which does not say this.
+      expect(missing.json.error).toMatchObject({ message: 'Task not found' });
+    });
+
+    test('a task nobody holds is 6, because the assignee is the only audience there is', async () => {
+      const unassigned = await createTaskViaApi('Held by nobody');
+      const refused = await run(['task', 'sms', unassigned.key, '--about', 'new-task']);
+      expect(refused.code).toBe(6);
+      expect(refused.stderr).toContain('Task has no assignee');
+    });
+
+    test('an assignee with no phone number is 6, on both messages and by key or by id', async () => {
+      // The deepest point reachable without sending, and it proves the whole chain at once: the
+      // identity was accepted, the workspace scope matched, the key resolved to a real row, Fastify
+      // accepted the POST body, and the service ran to its last guard. The *message* matters as much
+      // as the code — a `body: undefined` regression makes Fastify refuse the request with its own
+      // 400, which is also exit 6.
+      for (const about of ['new-task', 'follow-up']) {
+        for (const reference of [phonelessTask.key, phonelessTask.id]) {
+          const refused = await run(['task', 'sms', reference, '--about', about]);
+          expect({ about, code: refused.code }).toEqual({ about, code: 6 });
+          expect(refused.stderr).toContain('Task assignee has no phone number');
+        }
+      }
+    });
+
+    test('an agent credential reaches the verb: these routes are not admin-gated', async () => {
+      // `getRequestActor` and `resolveWorkspaceAccess`, not `requireWorkspaceAdmin` — so an agent
+      // gets the same refusal a human gets, rather than a 403. If the policy is ever that an agent
+      // may not text a colleague, this is the test that should start failing.
+      const asAgent = await run(
+        ['task', 'sms', phonelessTask.key, '--about', 'follow-up'],
+        { TASKARA_AGENT_TOKEN: fixture.agentToken, TASKARA_USER_EMAIL: undefined }
+      );
+      expect(asAgent.code).toBe(6);
+      expect(asAgent.stderr).toContain('Task assignee has no phone number');
+    });
+
+    test('each message goes to its own endpoint, and neither costs a lookup first', async () => {
+      // The only assertion that can tell the two apart. Both reachable outcomes are byte-identical
+      // strings, so a copy-paste swap of the two routes is invisible to every other test here.
+      const beforeCreated = requestLog.length;
+      await run(['task', 'sms', phonelessTask.key, '--about', 'new-task']);
+      const created = requestLog.slice(beforeCreated);
+
+      const beforeFollowUp = requestLog.length;
+      await run(['task', 'sms', phonelessTask.key, '--about', 'follow-up']);
+      const followUp = requestLog.slice(beforeFollowUp);
+
+      expect(created).toEqual([`POST /tasks/${phonelessTask.key}/sms/task-created`]);
+      expect(followUp).toEqual([`POST /tasks/${phonelessTask.key}/sms/follow-up`]);
+      // One request each, which also pins that neither verb spends a `GET /tasks/KEY` resolving a
+      // key the route already takes — otherwise unobservable, since both answer 4 for an unknown one.
+      expect([created.length, followUp.length]).toEqual([1, 1]);
+    });
+  });
+
+  /**
    * Issue #53 — a mention is a web-editor affordance, and a markdown body carries none.
    *
    * The extractor on the server reads mention **nodes**, so a body written here notifies nobody
@@ -1224,6 +1398,8 @@ async function createFixture(): Promise<Fixture> {
   const shoutedEmail = `CLI-Shouted-${suffix}@Example.Test`;
   const agentEmail = `cli-agent-${suffix}@example.test`;
   const outsiderEmail = `cli-outsider-${suffix}@example.test`;
+  const phonelessEmail = `cli-phoneless-${suffix}@example.test`;
+  const phonelessName = 'Sam Unreachable';
 
   const owner = await prisma.user.create({ data: { email: ownerEmail, name: 'CLI owner' } });
   const other = await prisma.user.create({ data: { email: otherEmail, name: otherName } });
@@ -1244,6 +1420,11 @@ async function createFixture(): Promise<Fixture> {
   const agent = await prisma.user.create({
     data: { email: agentEmail, name: 'Claude', kind: 'AGENT', operatorId: owner.id }
   });
+  // No `phone`, deliberately and permanently. See `Fixture.phonelessEmail`: this omission is the
+  // only thing keeping the SMS tests off the network.
+  const phoneless = await prisma.user.create({
+    data: { email: phonelessEmail, name: phonelessName }
+  });
   // Never given a membership below: a real row this workspace cannot reach.
   await prisma.user.create({ data: { email: outsiderEmail, name: 'Outsider' } });
   const workspace = await prisma.workspace.create({
@@ -1254,6 +1435,7 @@ async function createFixture(): Promise<Fixture> {
       { workspaceId: workspace.id, userId: owner.id, role: 'OWNER' },
       { workspaceId: workspace.id, userId: other.id, role: 'MEMBER' },
       { workspaceId: workspace.id, userId: shouted.id, role: 'MEMBER' },
+      { workspaceId: workspace.id, userId: phoneless.id, role: 'MEMBER' },
       // An ordinary MEMBER role rather than WorkspaceRole.AGENT: #20 settled that nothing may infer
       // agent-ness from the role, so the roster must mark this row from `kind` alone.
       { workspaceId: workspace.id, userId: agent.id, role: 'MEMBER' }
@@ -1298,6 +1480,8 @@ async function createFixture(): Promise<Fixture> {
     idleEmail,
     idleName,
     idlePhone,
+    phonelessEmail,
+    phonelessName,
     prefixedEmail,
     suffixedEmail,
     shoutedEmail,

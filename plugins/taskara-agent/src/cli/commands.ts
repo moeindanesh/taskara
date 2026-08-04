@@ -24,11 +24,14 @@ import {
   resolveTaskId,
   resolveUserId,
   subscribeToTask,
+  taskSmsMessageNames,
+  taskSmsMessages,
   unsubscribeFromTask,
   updateTask,
   type CreateProjectInput,
   type CreateTaskInput,
   type TaskListFilters,
+  type TaskSmsMessage,
   type UpdateTaskInput,
   type UserListFilters
 } from '../core/operations';
@@ -52,6 +55,7 @@ const taskVerbs: Record<string, Handler> = {
   edit: taskEdit,
   claim: taskClaim,
   comment: taskComment,
+  sms: taskSms,
   close: taskClose,
   subscribe: taskSubscribe,
   unsubscribe: taskUnsubscribe
@@ -103,6 +107,8 @@ export const usage = `taskara <noun> <verb> [arguments]
                 [--base-version n]
   task claim    <key|id>
   task comment  <key|id> [--body <s> | --body-file <path|->]
+  task sms      <key|id> --about new-task|follow-up
+                # new-task = "you have a new task"; follow-up = "update the status"
   task close    <key|id> [--reason completed|canceled]
   task subscribe   <key|id>
   task unsubscribe <key|id>
@@ -126,6 +132,17 @@ with a line on stderr naming who was not told.
 "task subscribe" is how you undo it. Find either set with "task list --subscription watching|muted".
 An agent may unsubscribe — it changes nothing, since agents receive no notifications — but may not
 subscribe, and is told so rather than quietly succeeding.
+
+"task sms" texts the task's ASSIGNEE, and nobody else: there is no recipient to choose, and a task
+nobody holds exits 6. The words are Taskara's — composed server-side in Persian from the title, the
+priority, the task URL and your own name — so there is nothing to write here and no flag that writes
+it; a sentence of your own goes in "task comment". --about picks which of the two messages, is
+required, and has no default, because the two ask for opposite things and no exit code unsends a
+text. This is not the in-app notification "task subscribe" governs and does not obey one: somebody
+who muted the task still gets it. Exit 6 is the task having no assignee, or the assignee having no
+phone number on file — nothing gives an agent User one, so work handed to an agent lands there. A 7
+naming SMS_KAVEH_SENDER or SMS_KAVEH_KEY is the one 7 not worth retrying: nothing was sent, nothing
+will be, and a human has to set it.
 
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
@@ -308,6 +325,57 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
 
   const comment = await commentOnTask(client, key, body);
   return { data: comment, note: noted(`Commented on ${key}`, body, 'comment') };
+}
+
+/** The outcome line, in terms of what the assignee will read rather than which route was called. */
+const smsNotes: Record<TaskSmsMessage, (key: string) => string> = {
+  'new-task': (key) => `Told ${key}'s assignee there is work waiting`,
+  'follow-up': (key) => `Asked ${key}'s assignee for a status update`
+};
+
+/**
+ * Text the assignee, in one of the two sentences the server knows.
+ *
+ * One verb with a selector, not two verbs. `task subscribe`/`task unsubscribe` earned their split by
+ * being the caller's own relationship to the task — two people hold different answers at once —
+ * and nothing like that is true here: these are one act with a variant, which is `task close
+ * --reason completed|canceled`.
+ *
+ * `--about` is **required and undefaulted**, which is the whole safety story on this surface. A
+ * default would let the shortest, most improvised form of the command — `taskara task sms CORE-12` —
+ * put Persian text on a colleague's phone that nobody chose and nothing unsends. `args.ts` names the
+ * failure a default would manufacture: "the command succeeds, reports success, and did not do what
+ * was asked".
+ *
+ * The flag is not `--kind`, `--reason`, `--message`, `--body` or `--text`. The first two already
+ * mean something else in this grammar, and a second meaning is the drift #25 was written to stop.
+ * The last three all promise that the caller writes the words, and the caller cannot — `--body` is
+ * real markdown on the three verbs either side of this one, so a model reaching for it here must be
+ * refused rather than left believing its sentence went out.
+ *
+ * The masked receptor goes to stdout and stays out of the note. `sent` is a constant, so `{sent:
+ * true}` alone is a tautology the caller cannot check against the person it meant; the note, though,
+ * is the line a session pastes into a summary or a task comment, and three digits of a colleague's
+ * phone number do not belong in a task comment.
+ */
+async function taskSms(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
+  const key = requireTaskRef(positionals, 'task sms');
+  const about = flags.oneOf('about', taskSmsMessageNames);
+  // Before the missing-flag check, so `--abuot follow-up` is answered with the flag it misspelled
+  // rather than with a lecture about the flag it believes it passed.
+  flags.assertNoUnknown();
+  if (!about) {
+    throw usageError(
+      'task sms needs --about new-task|follow-up. new-task says there is work waiting; follow-up '
+      + 'asks for a status update. There is no default: nothing unsends a text message.'
+    );
+  }
+
+  // The key is passed through unresolved, as `task view` and `task comment` do: the route takes
+  // `:idOrKey`. Both names are echoed back beside the receipt because the two routes answer
+  // byte-identically, so stdout alone could not otherwise say which sentence went out.
+  const receipt = await taskSmsMessages[about](client, key);
+  return { data: { task: key, about, ...receipt }, note: smsNotes[about](key) };
 }
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;

@@ -191,6 +191,9 @@ Two consequences worth knowing before you rely on the alternative:
 - **Tell someone about a task**: assign it, or comment and let its subscribers hear. Writing
   `@Robin` in the body notifies nobody — see
   [An @-mention in a body reaches nobody](#an--mention-in-a-body-reaches-nobody).
+- **Text the assignee**: `taskara task sms CORE-123 --about new-task` (or `--about follow-up`) —
+  a real SMS to a real phone, and the one action here that cannot be undone. See
+  [Texting the assignee](#texting-the-assignee).
 - **Re-parent**: `taskara task edit CORE-123 --parent CORE-1`, or `--parent none` to detach.
 - **Close**: `taskara task close CORE-123 --reason completed` (or `--reason canceled`).
   `completed` → `DONE`, `canceled` → `CANCELED`. Taskara has no "not planned".
@@ -303,6 +306,49 @@ back on the list either.
 agents receive no notifications at all — so a cleanup script need not know who is running it.
 `task subscribe` under an agent credential **exits 6** and names the reason. Find work with the
 frontier query, which is a pull; there is no inbox to watch.
+
+### Texting the assignee
+
+Everything above is Taskara's own inbox. This is a phone.
+
+```bash
+taskara task sms CORE-123 --about new-task    # "you have a new task in Taskara"
+taskara task sms CORE-123 --about follow-up   # "update the status of this task"
+```
+
+**It obeys no subscription.** `task sms` reads neither the watch list nor the mute list, so somebody
+who deliberately silenced a Task still gets the text. There is no way to opt out of it and no verb
+that stops it, so do not offer `task unsubscribe` as one.
+
+**It reaches the assignee and nobody else.** There is no recipient argument. A Task nobody holds
+**exits 6** rather than going out to the project or the team.
+
+**You do not write the message.** The Persian wording is composed server-side from the title, the
+priority, the Task URL and your own name. `--about` picks which of the two sentences and nothing
+else; there is no `--body` here, and passing one **exits 1** rather than being ignored. A sentence of
+your own belongs in `taskara task comment`, which reaches the subscribers and leaves a record on the
+Task.
+
+`--about` is **required and has no default**. The two messages ask for opposite things — one
+announces work, one chases it — and no exit code unsends a text, so `taskara task sms CORE-123` on
+its own exits 1 and sends nothing.
+
+Failure modes worth knowing before you script it:
+
+| What happened | Exit | What to do |
+|---|---|---|
+| No such Task | 4 | Check the key |
+| The Task has no assignee | 6 | Assign it first; there is nobody to text |
+| The assignee has no phone number on file | 6 | A human adds one. Both paths that mint an **agent** User leave the number unset, so work handed to an agent lands here — nothing forbids giving one a number, but nothing gives it one either |
+| `SMS_KAVEH_SENDER` or `SMS_KAVEH_KEY` is unset | 7 | **Do not retry.** Nothing was sent and nothing will be until a human sets the variable — the one 7 in the table where the outcome is known |
+
+On success stdout carries a masked `receptor` such as `0912***456`. That is the only check available
+that the right person was reached: the 6 above catches an assignee with *no* phone, never the *wrong*
+assignee. If Robin holds `CORE-12` and you meant Sam, this texts Robin and reports success.
+
+Confirm the Task **and** which of the two messages with a human before running it, and never loop it
+over a list of keys without naming everyone it would reach first. There is no dry run — see
+`isSmsDryRun` in `apps/api/src/services/sms.ts`, which is switched off — and there is no undo.
 
 ## Pull requests as a triage surface
 
