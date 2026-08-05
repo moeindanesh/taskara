@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "taskara": "./src/cli.ts"
+    "taskara": "./src/cli.ts",
+    "taskara-mcp": "./src/mcp-server.ts"
   },
   "scripts": {
     "mcp": "bun src/mcp-server.ts",
