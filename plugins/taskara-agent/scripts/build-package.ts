@@ -55,7 +55,7 @@ writeFileSync(
       description: 'The Taskara CLI and MCP server: an issue tracker an agent can drive.',
       type: 'module',
       bin: { taskara: './cli.js', 'taskara-mcp': './mcp-server.js' },
-      files: ['cli.js', 'mcp-server.js', 'README.md'],
+      files: ['cli.js', 'mcp-server.js', 'README.md', 'LICENSE'],
       engines: { bun: '>=1.0.0' },
       license: source.license ?? 'MIT',
       repository: { type: 'git', url: 'git+https://github.com/moeindanesh/taskara.git' },
@@ -69,6 +69,16 @@ writeFileSync(
 
 const readme = join(PLUGIN_DIR, 'README.npm.md');
 if (existsSync(readme)) copyFileSync(readme, join(DIST, 'README.md'));
+
+// The licence lives at the repository root and is copied rather than duplicated, so the published
+// package and the repository can never claim different terms. npm would include a LICENSE it finds
+// regardless of `files`, but only if one is actually here — and `dist/` is generated from nothing.
+const licence = join(PLUGIN_DIR, '..', '..', 'LICENSE');
+if (!existsSync(licence)) {
+  console.error('✗ No LICENSE at the repository root, but the manifest claims one.');
+  process.exit(1);
+}
+copyFileSync(licence, join(DIST, 'LICENSE'));
 
 const sizes = await Promise.all(
   ['cli.js', 'mcp-server.js'].map(async (f) => `${f} ${Math.round((await Bun.file(join(DIST, f)).size) / 1024)}KB`)
