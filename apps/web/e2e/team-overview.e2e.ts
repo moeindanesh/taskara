@@ -357,7 +357,86 @@ test.describe('@team-overview workspace graph', () => {
       await page.getByTestId('show-all-people').click();
       await expect(page.locator('[data-node-kind="person"]')).toHaveCount(3);
    });
+
+   test('holds the layout still through a refresh that brings back the same workspace', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+      const before = await settledNodePositions(page);
+
+      // The safety-net poll, fired now instead of 45 seconds from now: coming back to the tab runs
+      // the very same tick. Nothing about the workspace has changed, so nothing may move.
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await page.waitForTimeout(1_500);
+
+      expect(await nodePositions(page)).toEqual(before);
+   });
+
+   test('does not brighten the graph back up behind the dialog that is still fading in', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      const target = page.locator('[data-node-id="task:task-today"]');
+      const box = await target.boundingBox();
+      if (!box) throw new Error('the task node has no box to point at');
+
+      // Hovering dims everything the node is not joined to. Opening it hands the pointer to the
+      // dialog, and the hover ends — so the dim has to be held, or the whole canvas surges back to
+      // full brightness through an overlay that has not finished arriving.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      const dimmed = page.locator('[data-node-kind="person"].opacity-20');
+      await expect(dimmed).not.toHaveCount(0);
+      const dimmedBefore = await dimmed.count();
+
+      await page.evaluate(() => {
+         const state = { brightened: false };
+         (window as unknown as { __brightened: typeof state }).__brightened = state;
+         const sample = () => {
+            const dialog = document.querySelector('[role="dialog"]');
+            const opacity = dialog ? Number(getComputedStyle(dialog).opacity) : 1;
+            const node = document.querySelector('[data-node-kind="person"].opacity-20');
+            // Anything reaching full brightness while the dialog is still see-through is the flash.
+            if (opacity < 0.95 && !node) state.brightened = true;
+            requestAnimationFrame(sample);
+         };
+         requestAnimationFrame(sample);
+      });
+
+      await page.mouse.down();
+      await page.mouse.up();
+      await expect(page.getByTestId('issue-page')).toBeVisible();
+      await page.waitForTimeout(1_000);
+
+      expect(
+         await page.evaluate(() => (window as unknown as { __brightened: { brightened: boolean } }).__brightened.brightened)
+      ).toBe(false);
+      // Still held: the graph behind an open dialog is exactly as the reader left it.
+      expect(await dimmed.count()).toBe(dimmedBefore);
+   });
 });
+
+/** Every node's rendered position, keyed by node id. */
+function nodePositions(page: Page): Promise<Record<string, string>> {
+   return page.evaluate(() =>
+      Object.fromEntries(
+         [...document.querySelectorAll('[data-node-id]')].map((node) => [
+            node.getAttribute('data-node-id') || '',
+            node.getAttribute('transform') || '',
+         ])
+      )
+   );
+}
+
+/** Waits out the opening layout, then hands back where everything came to rest. */
+async function settledNodePositions(page: Page): Promise<Record<string, string>> {
+   let previous = await nodePositions(page);
+   for (let attempt = 0; attempt < 60; attempt += 1) {
+      await page.waitForTimeout(250);
+      const next = await nodePositions(page);
+      if (JSON.stringify(next) === JSON.stringify(previous)) return next;
+      previous = next;
+   }
+   throw new Error('the graph never settled');
+}
 
 /**
  * The sheet spends its width on titles, so the key is an attribute rather than text. Filtering on

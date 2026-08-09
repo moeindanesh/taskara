@@ -212,17 +212,22 @@ export function GraphCanvas({ graph, selectedNodeId, onHidePerson, onSelectNode 
       if (hovered && !graph.nodes.some((node) => node.id === hovered)) setHovered(null);
    }, [graph.nodes, hovered]);
 
+   // A node held open inherits the dim it had under the pointer. Opening it hands the pointer to a
+   // dialog, so the hover ends a breath later — and letting the whole graph brighten back to full
+   // behind an overlay that is still half transparent reads as the screen flashing. Anchoring on
+   // the open node instead means the canvas simply does not move while the dialog arrives.
+   const focused = hovered || selectedNodeId || null;
    const neighbours = useMemo(() => {
-      if (!hovered) return null;
-      const connected = new Set<string>([hovered]);
+      if (!focused) return null;
+      const connected = new Set<string>([focused]);
       for (const link of links) {
          const source = linkEndId(link.source);
          const target = linkEndId(link.target);
-         if (source === hovered) connected.add(target);
-         else if (target === hovered) connected.add(source);
+         if (source === focused) connected.add(target);
+         else if (target === focused) connected.add(source);
       }
       return connected;
-   }, [hovered, links]);
+   }, [focused, links]);
 
    const showTaskLabels = view.k >= taskLabelZoom;
    const { entering } = useNodeEntrances(graph);
