@@ -371,6 +371,37 @@ test.describe('@team-overview workspace graph', () => {
       expect(await nodePositions(page)).toEqual(before);
    });
 
+   test('opens the dialog on the task itself, never on a placeholder', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+
+      // Whether a placeholder survives long enough to be painted depends on how loaded the machine
+      // is, so this watches for the condition that makes a paint possible at all: the dialog being
+      // committed without its issue, and only filled in by a later turn of the event loop. An
+      // observer runs at the end of the task that mutated the DOM, so each entry here is one turn.
+      await page.evaluate(() => {
+         const states: string[] = [];
+         (window as unknown as { __dialogStates: string[] }).__dialogStates = states;
+         new MutationObserver(() => {
+            const dialog = document.querySelector('[role="dialog"]');
+            if (!dialog) return;
+            const state = dialog.querySelector('[data-testid="issue-page"]')
+               ? 'issue'
+               : (dialog.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'empty';
+            if (states.at(-1) !== state) states.push(state);
+         }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      });
+
+      await page.locator('[data-node-id="task:task-today"]').click();
+      await expect(page.getByTestId('issue-page')).toBeVisible();
+      await page.waitForTimeout(1_000);
+
+      // The task is already in the sync store, so the very first turn has everything it needs.
+      expect(await page.evaluate(() => (window as unknown as { __dialogStates: string[] }).__dialogStates)).toEqual([
+         'issue',
+      ]);
+   });
+
    test('does not brighten the graph back up behind the dialog that is still fading in', async ({ page }) => {
       await page.goto(`/${workspaceSlug}/overview`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
