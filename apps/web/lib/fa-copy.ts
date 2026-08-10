@@ -292,7 +292,7 @@ export const fa = {
       submitting: 'در حال ثبت…',
       submitted: 'گزارش امروز ثبت شد',
       lastEdited: (time: string) => `آخرین ویرایش ${time}`,
-      editableHint: 'تا پایان روز می‌توانی ویرایش کنی.',
+      editableHint: 'تا ساعت ۶ صبح می توانی ویراش کنی.',
       emptyError: 'حداقل یکی از بخش‌ها را پر کن.',
       loadFailed: 'بارگذاری گزارش روزانه ناموفق بود.',
       submitFailed: 'ثبت گزارش روزانه ناموفق بود.',

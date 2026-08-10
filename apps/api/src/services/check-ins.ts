@@ -33,7 +33,7 @@ import {
   type WorkspaceAccess
 } from './team-access';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
-import { dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
+import { dailyReportDateKey, dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
 
 type CreateCheckInInput = z.infer<typeof createCheckInResponseSchema>;
 type CreateOneOnOneInput = z.infer<typeof createOneOnOneSeriesSchema>;
@@ -137,9 +137,9 @@ export async function createCheckInResponse(actor: RequestActor, input: CreateCh
     throw new HttpError(403, 'Agents do not file daily reports');
   }
 
-  const today = workspaceDateKey();
+  const today = dailyReportDateKey();
   const requestedDateKey = input.dateKey
-    || (input.submittedFor ? workspaceDateKey(new Date(input.submittedFor)) : today);
+    || (input.submittedFor ? dailyReportDateKey(new Date(input.submittedFor)) : today);
   if (requestedDateKey !== today && submittingForSelf) {
     throw new HttpError(400, 'You can only file your own report for the current day');
   }
@@ -326,7 +326,7 @@ export interface DailyReportCandidate {
 // Prefill material for the composer. Everything here is a suggestion the member opts into with a
 // tap — nothing is written into their report automatically, because noisy auto-insertion is what
 // makes people stop trusting (and stop reading) these reports.
-export async function buildCheckInDraft(actor: RequestActor, dateKey = workspaceDateKey()) {
+export async function buildCheckInDraft(actor: RequestActor, dateKey = dailyReportDateKey()) {
   const { start, end } = dateKeyRange(dateKey);
   const previousDateKey = shiftDateKey(dateKey, -1);
 

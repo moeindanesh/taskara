@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { dateKeyRange, isValidDateKey, shiftDateKey, workspaceClockParts, workspaceDateKey } from './workspace-time';
+import { dailyReportDateKey, dateKeyRange, isValidDateKey, shiftDateKey, workspaceClockParts, workspaceDateKey } from './workspace-time';
 
 describe('workspace clock', () => {
   test('resolves the calendar day in the workspace timezone, not UTC', () => {
@@ -28,6 +28,11 @@ describe('workspace clock', () => {
   test('reports hour 0 rather than 24 at midnight', () => {
     const parts = workspaceClockParts(new Date('2026-07-28T20:33:00.000Z'));
     expect(parts.hour).toBe(0);
+  });
+
+  test('keeps the previous daily report editable until 06:00 Tehran time', () => {
+    expect(dailyReportDateKey(new Date('2026-07-29T02:29:00.000Z'))).toBe('2026-07-28');
+    expect(dailyReportDateKey(new Date('2026-07-29T02:30:00.000Z'))).toBe('2026-07-29');
   });
 
   test('shifts day keys across month and year boundaries', () => {

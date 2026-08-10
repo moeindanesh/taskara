@@ -44,6 +44,11 @@ export function workspaceClockParts(date: Date = new Date()): WorkspaceClockPart
   };
 }
 
+export function dailyReportDateKey(date: Date = new Date()): string {
+  const parts = workspaceClockParts(date);
+  return parts.hour < 6 ? shiftDateKey(parts.dateKey, -1) : parts.dateKey;
+}
+
 export function shiftDateKey(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split('-').map(Number);
   return formatUtcDateKey(new Date(Date.UTC(year, month - 1, day + days)));
