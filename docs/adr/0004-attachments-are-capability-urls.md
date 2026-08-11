@@ -46,3 +46,10 @@ never implied "the route will send you anywhere you like".
 
 Accepted. Investigation in `.scratch/AUDIT-media-posture.md` (local, gitignored), from issue
 [#60](https://github.com/moeindanesh/taskara/issues/60).
+
+Amended by [ADR-0006](0006-media-storage-is-a-property-of-the-row.md), which adds S3-compatible
+object storage as a second backend. The posture above is unchanged and was chosen again rather than
+inherited — bucket objects are publicly readable, their URLs are permanent, and only the *write* is
+signed. What 0006 falsifies is one sentence: "the change is at the media service, not in this
+repository". The lever now exists here, and 0006 lists what would have to move before it could be
+pulled.

@@ -37,7 +37,7 @@ const taskAttachmentSyncInclude = {
 export function serializeTaskAttachment(attachment: TaskAttachment): TaskAttachmentResponse {
   return {
     ...attachment,
-    url: buildMediaUrl(attachment.object)
+    url: buildMediaUrl(attachment.object, { storage: attachment.storage })
   };
 }
 
@@ -68,6 +68,10 @@ export async function createTaskAttachment(
         name: media.name,
         documentId: media.documentId,
         object: media.object,
+        // Stated rather than left to the column default. The default exists so that the previous
+        // image can still insert during a rolling deploy; a write site that knows the backend and
+        // does not say so is how a bucket object ends up recorded as a CDN document.
+        storage: media.storage ?? 'CDN',
         mimeType: media.mimeType,
         sizeBytes: media.sizeBytes
       }

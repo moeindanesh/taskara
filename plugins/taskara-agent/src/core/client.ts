@@ -30,14 +30,50 @@ export class TaskaraClient {
     return this.read<T>(response);
   }
 
-  /** Multipart upload. Content-type is left to `fetch`, which has to append the boundary. */
-  async requestForm<T>(path: string, form: FormData): Promise<T> {
-    const response = await this.send(path, {
-      method: 'POST',
-      headers: this.headers(),
-      body: form
-    });
-    return this.read<T>(response);
+  /**
+   * A file, sent to a presigned URL that is not the Taskara API.
+   *
+   * The one request this client makes to somewhere else, which is why it does not go through
+   * `send`: that method builds `${config.apiUrl}${path}` and cannot address a bucket at all. No
+   * Taskara auth headers are attached either — the signature in the URL is the authorisation, and
+   * sending an agent token to a third-party host would be handing out a credential.
+   *
+   * The replacement for a multipart POST to `/tasks/:id/attachments`, which had been silently
+   * failing with a 415 since the API stopped registering a multipart parser: the route parses JSON
+   * and always did. An agent holds no CDN configuration, so a presigned upload is not merely the
+   * better path here, it is the only one an agent can take.
+   */
+  async putObject(url: string, headers: Record<string, string>, body: Blob): Promise<void> {
+    let response: Response;
+    try {
+      response = await fetch(url, { method: 'PUT', headers, body });
+    } catch (error) {
+      // The body is a lazily-read file, so a local read failure surfaces here, from the same
+      // `await` as a network failure. Reporting `EACCES` on the caller's own file as "cannot reach
+      // object storage" would send them to look at the wrong machine — and exit code 8 tells them
+      // retrying is reasonable, which for a file they cannot read it is not.
+      const code = (error as { code?: unknown } | null)?.code;
+      if (typeof code === 'string' && ['ENOENT', 'EACCES', 'EPERM', 'EISDIR'].includes(code)) {
+        throw new TaskaraError(`Cannot read the file to upload: ${code}`, {
+          exitCode: exitCodes.usage,
+          cause: error
+        });
+      }
+
+      throw new TaskaraError(`Cannot reach the object storage service at ${new URL(url).origin}`, {
+        exitCode: exitCodes.unreachable,
+        cause: error
+      });
+    }
+
+    if (!response.ok) {
+      // Mapped through the same table as an API status so the exit code keeps meaning what the
+      // published contract says it means — a 5xx from the bucket is as retryable as one from the
+      // API, and a 403 from an expired signature is as much an auth failure.
+      throw new TaskaraError(`Upload failed with ${response.status} ${response.statusText}`, {
+        exitCode: exitCodeForStatus(response.status)
+      });
+    }
   }
 
   private async send(path: string, init: RequestInit, query?: QueryValues): Promise<Response> {

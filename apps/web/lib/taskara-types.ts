@@ -629,6 +629,8 @@ export interface TaskaraKnowledgeAttachment {
    documentId?: string | null;
    object: string;
    url: string;
+   /** Which service holds the bytes. Optional: an API older than object storage sends no such field. */
+   storage?: 'CDN' | 'S3';
    mimeType?: string | null;
    sizeBytes?: number | null;
    createdAt: string;
@@ -762,6 +764,12 @@ export interface TaskaraAttachment {
    documentId?: string | null;
    object: string;
    url: string;
+   /**
+    * Which service holds the bytes. Optional because an API older than object storage sends no such
+    * field, and because `url` is already resolved server-side — nothing in the web needs to branch
+    * on this, and anything that starts to has reimplemented the resolver.
+    */
+   storage?: 'CDN' | 'S3';
    mimeType?: string | null;
    sizeBytes?: number | null;
    createdAt: string;

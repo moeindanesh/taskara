@@ -36,9 +36,27 @@ export interface TaskAttachment {
   documentId?: string | null;
   object: string;
   url: string;
+  /** Which service holds the bytes. Absent from an API older than object storage. */
+  storage?: 'CDN' | 'S3';
   mimeType?: string | null;
   sizeBytes?: number | null;
   createdAt: string;
+}
+
+/**
+ * A place to put a file, minted by `POST /storage/uploads`.
+ *
+ * `url` and `uploadUrl` are two different addresses and must not be conflated: the upload URL
+ * carries a signature and expires, the read URL is where the object lives permanently.
+ */
+export interface PresignedUpload {
+  storage: 'S3';
+  object: string;
+  url: string;
+  uploadUrl: string;
+  method: 'PUT';
+  headers: Record<string, string>;
+  expiresAt: string;
 }
 
 export interface Task {

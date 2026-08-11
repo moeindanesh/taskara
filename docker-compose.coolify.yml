@@ -32,6 +32,18 @@ services:
       - WEB_ORIGIN=${SERVICE_URL_WEB}
       - TASKARA_ALLOWED_ORIGINS=${TASKARA_ALLOWED_ORIGINS:-}
       - TASKARA_CDN_MEDIA_BASE_URL=${TASKARA_CDN_MEDIA_BASE_URL:-}
+      # S3-compatible object storage. Leave every one of these unset to keep uploading to the CDN.
+      # These belong to the api service and only the api service: the web block below is written
+      # verbatim into a world-readable /env.js, so a secret placed there is a published secret.
+      - TASKARA_S3_ENDPOINT=${TASKARA_S3_ENDPOINT:-}
+      - TASKARA_S3_REGION=${TASKARA_S3_REGION:-}
+      - TASKARA_S3_BUCKET=${TASKARA_S3_BUCKET:-}
+      - TASKARA_S3_ACCESS_KEY_ID=${TASKARA_S3_ACCESS_KEY_ID:-}
+      - TASKARA_S3_SECRET_ACCESS_KEY=${TASKARA_S3_SECRET_ACCESS_KEY:-}
+      - TASKARA_S3_PUBLIC_BASE_URL=${TASKARA_S3_PUBLIC_BASE_URL:-}
+      - TASKARA_S3_KEY_PREFIX=${TASKARA_S3_KEY_PREFIX:-}
+      - TASKARA_S3_UPLOAD_TTL_SECONDS=${TASKARA_S3_UPLOAD_TTL_SECONDS:-}
+      - TASKARA_S3_VIRTUAL_HOSTED_STYLE=${TASKARA_S3_VIRTUAL_HOSTED_STYLE:-}
       - TASKARA_RUN_MIGRATIONS=${TASKARA_RUN_MIGRATIONS:-true}
       - MATTERMOST_SLASH_TOKEN=${MATTERMOST_SLASH_TOKEN:-}
       - MATTERMOST_BASE_URL=${MATTERMOST_BASE_URL:-}

@@ -8,6 +8,17 @@ export interface UploadedMediaObject {
    name: string;
    mimeType?: string;
    sizeBytes: number;
+   storage?: 'CDN' | 'S3';
+}
+
+interface PresignedUpload {
+   storage: 'S3';
+   object: string;
+   url: string;
+   uploadUrl: string;
+   method: 'PUT';
+   headers: Record<string, string>;
+   expiresAt: string;
 }
 
 export class TaskaraClientError extends Error {
@@ -144,7 +155,107 @@ export async function uploadTaskCommentAttachment(
    );
 }
 
+/**
+ * Put a file somewhere durable and describe where it went.
+ *
+ * The one upload primitive in the web app — attachments, knowledge pages, avatars and every inline
+ * image in the rich-text editor all reach storage through here — which is why object storage is one
+ * branch in one function rather than a change spread across eight components.
+ *
+ * The API is asked for a presigned upload first. If it answers that object storage is not
+ * configured, the CDN path below runs exactly as it did before this branch existed. Neither the
+ * decision nor the bucket's address is a build-time or browser-visible setting: a `VITE_` variable
+ * would have to be threaded through `.env.example`, both compose files, the web entrypoint's three
+ * parallel edits and `vite-env.d.ts`, and would then be served from an `/env.js` that nginx caches
+ * immutable for a year — so a deployment could not switch without a cache-busting release. Asking
+ * the API means the answer changes when the API's configuration changes, which is when it should.
+ */
 export async function uploadMedia(file: File, name = file.name): Promise<UploadedMediaObject> {
+   const presigned = await requestPresignedUpload(file, name);
+   if (presigned) return uploadToObjectStorage(presigned, file, name);
+
+   return uploadToCdn(file, name);
+}
+
+/**
+ * Remembered for the page's lifetime, because the answer is a property of the deployment.
+ *
+ * Without this, a CDN deployment pays a round trip that is always going to 503 on every single
+ * upload, and selecting ten files pays it ten times.
+ */
+let objectStorageAvailable: boolean | undefined;
+
+async function requestPresignedUpload(file: File, name: string): Promise<PresignedUpload | null> {
+   if (objectStorageAvailable === false) return null;
+
+   try {
+      const presigned = await taskaraRequest<PresignedUpload>('/storage/uploads', {
+         method: 'POST',
+         body: JSON.stringify({ name, mimeType: file.type || undefined, sizeBytes: file.size }),
+      });
+      objectStorageAvailable = true;
+      return presigned;
+   } catch (error) {
+      if (!(error instanceof TaskaraClientError)) throw error;
+
+      // 503 is the API stating that this deployment has no bucket. It is a property of the
+      // deployment, so it is remembered.
+      if (error.status === 503) {
+         objectStorageAvailable = false;
+         return null;
+      }
+
+      // 404 also means "no presign here" — an API that predates this route, which is a real state
+      // during a rolling deploy — so this upload falls back. But it is deliberately *not*
+      // remembered: `/storage/uploads` answers 404 for other reasons too (an unknown workspace
+      // slug, most obviously), and latching on one of those would send a bucket deployment's
+      // uploads to the CDN for the rest of the session, quietly, on a page where the CDN may not
+      // even be configured.
+      if (error.status === 404) return null;
+
+      // Nothing else is swallowed. A 413 for an oversized file, a 401, or a network failure must
+      // reach the user as itself — falling back to the CDN on those would either upload somewhere
+      // the operator has stopped using, or report a bucket problem as a CDN problem.
+      throw error;
+   }
+}
+
+async function uploadToObjectStorage(
+   presigned: PresignedUpload,
+   file: File,
+   name: string
+): Promise<UploadedMediaObject> {
+   const response = await fetch(presigned.uploadUrl, {
+      method: presigned.method,
+      // Unsigned, and still required: this is what the bucket stores as the object's Content-Type,
+      // and the attachment previews in the issue page render from what the bucket serves. An object
+      // stored as `application/octet-stream` downloads instead of previewing, silently.
+      headers: presigned.headers,
+      body: file,
+   });
+
+   if (!response.ok) {
+      // Deliberately not falling back to the CDN. Object storage is configured; this upload failed.
+      // Retrying elsewhere would scatter a workspace's attachments across two backends whenever the
+      // bucket had a bad minute, and nothing would say so.
+      throw new TaskaraClientError(
+         `Upload to object storage failed with ${response.status} ${response.statusText}`,
+         response.status
+      );
+   }
+
+   return {
+      object: presigned.object,
+      url: presigned.url,
+      name: name.trim() || file.name,
+      mimeType: file.type || undefined,
+      sizeBytes: file.size,
+      storage: 'S3',
+   };
+}
+
+/** The original path, unchanged. Reached whenever the API reports no bucket. */
+async function uploadToCdn(file: File, name: string): Promise<UploadedMediaObject> {
    const form = new FormData();
    form.set('name', name);
    form.set('app', clientEnvValue(['TASKARA_CDN_APP', 'VITE_TASKARA_CDN_APP']) || 'taskara');
@@ -188,6 +299,10 @@ function attachmentRegistrationBody(media: UploadedMediaObject): string {
       name: media.name,
       mimeType: media.mimeType,
       sizeBytes: media.sizeBytes,
+      // Absent for a CDN upload, so this body stays byte-identical to the one this client sent
+      // before object storage existed — which is what an older API, receiving it during a rolling
+      // deploy, still understands.
+      storage: media.storage,
    });
 }
 

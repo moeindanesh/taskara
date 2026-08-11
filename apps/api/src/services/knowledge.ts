@@ -92,7 +92,7 @@ export const emptyKnowledgeContent = {
 export function serializeKnowledgeAttachment(attachment: KnowledgePageAttachment) {
   return {
     ...attachment,
-    url: buildMediaUrl(attachment.object)
+    url: buildMediaUrl(attachment.object, { storage: attachment.storage })
   };
 }
 
@@ -646,6 +646,9 @@ export async function createKnowledgePageAttachment(
       name: media.name,
       documentId: media.documentId,
       object: media.object,
+      // Symmetrical with `createTaskAttachment`. Adding the backend to one attachment table and not
+      // the other leaves the knowledge base silently CDN-only for no stated reason.
+      storage: media.storage ?? 'CDN',
       mimeType: media.mimeType,
       sizeBytes: media.sizeBytes
     }

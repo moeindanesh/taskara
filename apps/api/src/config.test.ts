@@ -29,6 +29,9 @@ const flags = [
   // the one way to turn this on by accident.
   'TASKARA_SCHEDULED_JOBS_ENABLED',
   'TASKARA_DAILY_REPORT_SMS_ENABLED',
+  // Selects the bucket addressing style, so misreading it points every media URL at a hostname
+  // that does not resolve — visibly, but only for whoever uploads next.
+  'TASKARA_S3_VIRTUAL_HOSTED_STYLE',
   // Defaults on, and closes an authentication path when off.
   'TASKARA_EMAIL_HEADER_AUTH'
 ] as const;
@@ -83,10 +86,46 @@ describe('environment flags read the word an operator wrote', () => {
     expect(parsed.success && parsed.data.TASKARA_EMAIL_HEADER_AUTH).toBe(true);
     expect(parsed.success && parsed.data.TASKARA_SCHEDULED_JOBS_ENABLED).toBe(false);
     expect(parsed.success && parsed.data.TASKARA_DAILY_REPORT_SMS_ENABLED).toBe(false);
+    expect(parsed.success && parsed.data.TASKARA_S3_VIRTUAL_HOSTED_STYLE).toBe(false);
 
     const blank = parseEnv({ TASKARA_EMAIL_HEADER_AUTH: '', TASKARA_SCHEDULED_JOBS_ENABLED: '' });
     expect(blank.success && blank.data.TASKARA_EMAIL_HEADER_AUTH).toBe(true);
     expect(blank.success && blank.data.TASKARA_SCHEDULED_JOBS_ENABLED).toBe(false);
+  });
+
+  test('a storage variable left blank leaves the deployment on the CDN rather than half-configured', () => {
+    // The shape `.env.example` and both compose files publish. Every one of these is declared and
+    // empty in a fresh checkout, and the parse has to read that as "not set" — a single one of them
+    // failing here refuses to boot every existing deployment the moment it pulls the new image.
+    const parsed = parseEnv({
+      TASKARA_S3_ENDPOINT: '',
+      TASKARA_S3_REGION: '',
+      TASKARA_S3_BUCKET: '',
+      TASKARA_S3_ACCESS_KEY_ID: '',
+      TASKARA_S3_SECRET_ACCESS_KEY: '',
+      TASKARA_S3_PUBLIC_BASE_URL: '',
+      TASKARA_S3_KEY_PREFIX: '',
+      TASKARA_S3_UPLOAD_TTL_SECONDS: '',
+      TASKARA_S3_VIRTUAL_HOSTED_STYLE: ''
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.TASKARA_S3_ENDPOINT).toBeUndefined();
+    expect(parsed.success && parsed.data.TASKARA_S3_BUCKET).toBeUndefined();
+    // A blank number is the trap the two url/string helpers already avoided and a bare
+    // `z.coerce.number()` walks straight into: `''` coerces to `0`, which fails `.positive()` and
+    // takes the process down naming a variable the operator only ever declared.
+    expect(parsed.success && parsed.data.TASKARA_S3_UPLOAD_TTL_SECONDS).toBe(900);
+  });
+
+  test('a storage number an operator did set is read, and one nobody can read refuses to boot', () => {
+    expect(parseEnv({ TASKARA_S3_UPLOAD_TTL_SECONDS: '60' }).success).toBe(true);
+    expect(parseEnv({ TASKARA_S3_UPLOAD_TTL_SECONDS: '60' }).data?.TASKARA_S3_UPLOAD_TTL_SECONDS).toBe(60);
+    for (const value of ['0', '-1', 'ten']) {
+      const parsed = parseEnv({ TASKARA_S3_UPLOAD_TTL_SECONDS: value });
+      expect(parsed.success).toBe(false);
+      expect(parsed.success === false && parsed.error.issues[0].path).toEqual(['TASKARA_S3_UPLOAD_TTL_SECONDS']);
+    }
   });
 
   test('parseEnvFlag resolves the words it knows and echoes back the ones it does not', () => {

@@ -89,6 +89,17 @@ enum AgentRuntime {
   HERMES
 }
 
+/// Where an attachment's bytes actually live, recorded per row rather than per deployment.
+///
+/// A key minted by the external CDN exists in no bucket, and a key minted for the bucket is not a
+/// CDN document — so "which service resolves this key" is a property of the row, not a setting.
+/// Every row written before object storage existed is CDN, which is the honest answer for it and
+/// the reason the column carries that default.
+enum MediaStorage {
+  CDN
+  S3
+}
+
 enum IntegrationProvider {
   MATTERMOST
   CODEX
@@ -682,15 +693,16 @@ model TaskComment {
 }
 
 model TaskAttachment {
-  id         String   @id @default(uuid()) @db.Uuid
-  taskId     String   @db.Uuid
-  commentId  String?  @db.Uuid
+  id         String       @id @default(uuid()) @db.Uuid
+  taskId     String       @db.Uuid
+  commentId  String?      @db.Uuid
   name       String
   documentId String?
   object     String
+  storage    MediaStorage @default(CDN)
   mimeType   String?
   sizeBytes  Int?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime     @default(now())
 
   task    Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
   comment TaskComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
@@ -1234,15 +1246,16 @@ model KnowledgePageSubscription {
 }
 
 model KnowledgePageAttachment {
-  id         String   @id @default(uuid()) @db.Uuid
-  pageId     String   @db.Uuid
-  commentId  String?  @db.Uuid
+  id         String       @id @default(uuid()) @db.Uuid
+  pageId     String       @db.Uuid
+  commentId  String?      @db.Uuid
   name       String
   documentId String?
   object     String
+  storage    MediaStorage @default(CDN)
   mimeType   String?
   sizeBytes  Int?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime     @default(now())
 
   page    KnowledgePage         @relation(fields: [pageId], references: [id], onDelete: Cascade)
   comment KnowledgePageComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)

@@ -15,6 +15,7 @@ import type {
   JsonRecord,
   Milestone,
   MilestoneListResponse,
+  PresignedUpload,
   Project,
   Task,
   TaskAttachment,
@@ -203,6 +204,19 @@ export function listTaskActivity(client: TaskaraClient, idOrKey: string): Promis
   return client.request<JsonRecord[]>(`/tasks/${encodeURIComponent(idOrKey)}/activity`);
 }
 
+/**
+ * Attach a local file to a task, in three steps and without the API ever holding the bytes.
+ *
+ * Ask the API where to put it, PUT it there, then register the object. The middle step goes to the
+ * bucket directly, so a large attachment never crosses the API and no size limit along that path
+ * applies to it.
+ *
+ * This replaces a multipart POST that had been answering 415 since the API stopped registering a
+ * multipart parser — the tool was advertised in `SKILL.md` and shipped in a published tarball the
+ * whole time. A deployment with no object storage configured answers 503 at the first step with a
+ * message saying so, which is the honest outcome: an agent holds no CDN configuration and has no
+ * second path to fall back to.
+ */
 export async function uploadTaskAttachment(
   client: TaskaraClient,
   idOrKey: string,
@@ -213,10 +227,26 @@ export async function uploadTaskAttachment(
   if (!(await file.exists())) {
     throw new TaskaraError(`File not found: ${filePath}`, { exitCode: exitCodes.usage });
   }
-  const form = new FormData();
-  if (name) form.set('name', name);
-  form.set('file', file, filePath.split('/').pop() ?? 'attachment');
-  return client.requestForm<TaskAttachment>(`/tasks/${encodeURIComponent(idOrKey)}/attachments`, form);
+
+  const fileName = filePath.split('/').pop() ?? 'attachment';
+  const displayName = name ?? fileName;
+  // Parameters stripped: Bun answers `text/plain;charset=utf-8` for several extensions, and the API
+  // drops the parameter before handing the header back for the PUT. Normalising here keeps the type
+  // recorded on the attachment row identical to the one the object is actually stored with.
+  const mimeType = file.type.split(';')[0]?.trim() || undefined;
+  const sizeBytes = file.size;
+
+  const upload = await client.request<PresignedUpload>('/storage/uploads', {
+    method: 'POST',
+    body: { name: fileName, mimeType, sizeBytes }
+  });
+
+  await client.putObject(upload.uploadUrl, upload.headers, file);
+
+  return client.request<TaskAttachment>(`/tasks/${encodeURIComponent(idOrKey)}/attachments`, {
+    method: 'POST',
+    body: { object: upload.object, url: upload.url, name: displayName, mimeType, sizeBytes, storage: upload.storage }
+  });
 }
 
 /**

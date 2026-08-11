@@ -177,7 +177,7 @@ Same `noun_verb` grammar as the CLI.
 | `project_list` `project_create` `project_summarize` | Projects |
 | `milestone_list` `milestone_create` `milestone_update` `milestone_summarize` | Milestones |
 | `task_search` `task_list_mine` `task_view` | Reading tasks |
-| `task_create` `task_edit` `task_claim` `task_comment` `task_attach` `task_set_milestone` | Writing tasks |
+| `task_create` `task_edit` `task_claim` `task_comment` `task_attach` `task_set_milestone` | Writing tasks. `task_attach` uploads to object storage, so it answers 503 on a deployment that has none — an agent holds no CDN credentials and has no second path |
 | `task_propose` `agent_action_apply` | Turning a discussion into proposed tasks, then applying them |
 | `plan_daily` `plan_work` `backlog_triage` `blocker_detect` | Planning |
 | `report_daily_draft` `report_daily_submit` `report_weekly` | Reports |

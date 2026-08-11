@@ -10,6 +10,21 @@ const optionalUrl = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
+/**
+ * A number with a default, that survives being written as an empty string.
+ *
+ * `z.coerce.number()` reads `''` as `0`, so a variable declared in `.env.example` as `NAME=""` — the
+ * only spelling this public repository permits for a value it must not carry — would coerce to zero
+ * and fail `.positive()`, refusing to boot every checkout that copied the example file. The blank is
+ * mapped to `undefined` first, so "declared but not set" means the default, exactly as it does for
+ * `optionalString`.
+ */
+const optionalNumber = (fallback: number) =>
+  z.preprocess((value) => {
+    if (typeof value === 'string' && value.trim() === '') return undefined;
+    return value;
+  }, z.coerce.number().int().positive().default(fallback));
+
 const ENV_FLAG_OFF = ['0', 'false', 'no', 'off'];
 const ENV_FLAG_ON = ['1', 'true', 'yes', 'on'];
 
@@ -52,6 +67,24 @@ export const envSchema = z.object({
   WEB_ORIGIN: z.string().url(),
   TASKARA_ALLOWED_ORIGINS: z.string().default(''),
   TASKARA_CDN_MEDIA_BASE_URL: optionalUrl,
+  // S3-compatible object storage. Every field is optional, and a deployment that sets none of them
+  // keeps resolving media through the CDN exactly as it did before this block existed —
+  // `resolveObjectStorageSettings` in `services/object-storage.ts` answers `null` unless the four
+  // load-bearing ones are all present, and nothing may make the answer partially configured.
+  TASKARA_S3_ENDPOINT: optionalUrl,
+  TASKARA_S3_REGION: optionalString,
+  TASKARA_S3_BUCKET: optionalString,
+  TASKARA_S3_ACCESS_KEY_ID: optionalString,
+  TASKARA_S3_SECRET_ACCESS_KEY: optionalString,
+  // Where a stored object is publicly readable, when that is not `<endpoint>/<bucket>` — a CDN in
+  // front of the bucket, or a custom domain. Read URLs are built from this and nothing else.
+  TASKARA_S3_PUBLIC_BASE_URL: optionalUrl,
+  TASKARA_S3_KEY_PREFIX: optionalString,
+  TASKARA_S3_UPLOAD_TTL_SECONDS: optionalNumber(15 * 60),
+  // Path-style (`<endpoint>/<bucket>/<key>`) by default, because that is what MinIO and most
+  // S3-compatible providers serve without extra DNS. Turn on for providers that require
+  // `<bucket>.<endpoint>/<key>`.
+  TASKARA_S3_VIRTUAL_HOSTED_STYLE: envFlag(false),
   TASKARA_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   TASKARA_SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   // Legacy `x-user-email` authentication. Defaults on so shipped consumers keep working; set it to

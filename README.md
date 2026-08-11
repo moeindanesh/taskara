@@ -93,6 +93,28 @@ TASKARA_API_URL=https://your-api-domain.example
 
 `Dockerfile.api` generates the Prisma client during build and runs `prisma migrate deploy` on startup by default. Set `TASKARA_RUN_MIGRATIONS=false` if migrations are handled elsewhere.
 
+### Media and file storage
+
+Attachments, avatars and inline editor images are served from wherever they were uploaded to, never proxied through the API. Two backends are supported and a deployment can run both at once — which is what adopting the second one looks like.
+
+Out of the box, the browser uploads to an external CDN (`TASKARA_CDN_UPLOAD_URL`) and the API builds read URLs from `TASKARA_CDN_MEDIA_BASE_URL`. To serve new uploads from S3-compatible object storage instead, set these on the **API resource only**:
+
+```txt
+TASKARA_S3_ENDPOINT=https://s3.example.com
+TASKARA_S3_BUCKET=taskara-media
+TASKARA_S3_ACCESS_KEY_ID=...
+TASKARA_S3_SECRET_ACCESS_KEY=...
+TASKARA_S3_REGION=us-east-1
+```
+
+Optionally `TASKARA_S3_PUBLIC_BASE_URL` (where objects are readable, if not `<endpoint>/<bucket>`), `TASKARA_S3_KEY_PREFIX` and `TASKARA_S3_UPLOAD_TTL_SECONDS` (default 900).
+
+Addressing is path-style (`<endpoint>/<bucket>/<key>`) by default, which is what MinIO and most S3-compatible providers serve. Set `TASKARA_S3_VIRTUAL_HOSTED_STYLE=true` for providers that require `<bucket>.<host>/<key>` — and note that the endpoint must then be the **bucket-qualified host** (`https://taskara-media.s3.example.com`), because the bucket is not inserted for you.
+
+Clients ask the API for a presigned `PUT` and upload to the bucket directly, so no file passes through the API. `TASKARA_UPLOAD_MAX_BYTES` (default 25 MiB) is checked against the size the client declares when it asks for that presign; the bucket's own policy is the real limit. The bucket must be **publicly readable** and must serve a correct `Content-Type` — an object stored as `application/octet-stream` downloads instead of previewing. Browser uploads also need CORS on the bucket allowing `PUT` from the web origin.
+
+**Keep the CDN variables set.** Object storage applies to new uploads only. Every attachment already stored records the backend that holds it and keeps resolving through it; avatars and images already embedded in task descriptions hold a CDN address and nothing else, so removing the CDN breaks them. See `docs/adr/0006-media-storage-is-a-property-of-the-row.md`.
+
 ## Core API
 
 ```txt
@@ -229,6 +251,7 @@ a User whose kind is `AGENT` is refused on the email path.
 ## Implementation Notes
 
 - All timestamps are stored in UTC; milestone start and target values are date-only `YYYY-MM-DD` fields.
+- Media is served from the service that stores it, never proxied through the API; each attachment records which service that is.
 - The UI formats and accepts dates in Jalali; the API still stores UTC timestamps.
 - Agent endpoints persist inputs, outputs, and proposed actions.
 - Bulk/destructive agent work should stay proposal-based until explicitly applied.
