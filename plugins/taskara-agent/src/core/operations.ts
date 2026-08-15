@@ -12,8 +12,10 @@ import type {
 import type { QueryValues, TaskaraClient } from './client';
 import { TaskaraError, exitCodes } from './errors';
 import type {
+  DailyReportDigest,
   JsonRecord,
   Milestone,
+  MissingDailyReports,
   MilestoneListResponse,
   Project,
   Task,
@@ -486,6 +488,33 @@ export interface DailyReportInput {
 
 export function submitDailyReport(client: TaskaraClient, input: DailyReportInput): Promise<JsonRecord> {
   return client.request<JsonRecord>('/check-ins', { method: 'POST', body: input });
+}
+
+/**
+ * The whole team's day, read rather than written. Admin-only server-side, unlike the two above,
+ * which are scoped to the caller's own report and reachable by any member.
+ */
+export function getDailyReportDigest(client: TaskaraClient, dateKey?: string): Promise<DailyReportDigest> {
+  return client.request<DailyReportDigest>('/check-ins/digest', { query: { dateKey } });
+}
+
+export interface MissingDailyReportFilters {
+  /** A workspace day. Present or absent, this picks between the endpoint's two answers. */
+  dateKey?: string;
+  hours?: number;
+}
+
+/**
+ * Who owes a report. One path, two questions: with a `dateKey` the server answers *who owes one for
+ * that day* and ignores `hours`; without one it answers *who has filed nothing in the last `hours`*
+ * and ignores the day. The response shapes differ accordingly, so callers cannot read one as the
+ * other.
+ */
+export function getMissingDailyReports(
+  client: TaskaraClient,
+  filters: MissingDailyReportFilters = {}
+): Promise<MissingDailyReports> {
+  return client.request<MissingDailyReports>('/check-ins/missing', { query: filters as QueryValues });
 }
 
 export interface UserListFilters {

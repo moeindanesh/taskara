@@ -1,4 +1,5 @@
 import {
+  dateKeySchema,
   taskKinds,
   taskPriorities,
   taskStatuses,
@@ -16,6 +17,8 @@ import {
   commentOnTask,
   createProject,
   createTask,
+  getDailyReportDigest,
+  getMissingDailyReports,
   getTask,
   listProjects,
   listTasks,
@@ -36,8 +39,8 @@ import {
   type UpdateTaskInput,
   type UserListFilters
 } from '../core/operations';
-import { isRedactedTaskRef } from '../core/types';
-import type { Project, Task, WorkspaceMember } from '../core/types';
+import { isMissingForDay, isRedactedTaskRef } from '../core/types';
+import type { CheckInPerson, CheckInRow, Project, Task, WorkspaceMember } from '../core/types';
 import { Flags, parseArgs, readBody, splitValues } from './args';
 
 export interface CommandResult {
@@ -81,9 +84,32 @@ const userVerbs: Record<string, Handler> = {
   list: userList
 };
 
+/**
+ * The team's day, read. Not the caller's own report, which is deliberately absent.
+ *
+ * These two are admin-gated, and the `userVerbs` rule above says a verb that can never succeed for
+ * this surface's caller is worse than prose — so the distinction that admits them has to be exact.
+ * `POST /users` goes through `requireWorkspaceAdmin`, which refuses **any** credential-authenticated
+ * request whatever role the agent holds, so `user create` could never work here. The check-in reads
+ * gate on `isWorkspaceAdminRole(actor.role)` alone: no credential ban, so an agent whose membership
+ * carries ADMIN reaches them, as does a human running this with their own email. A 403 here is a
+ * fact about one caller's role, not about the surface.
+ *
+ * `draft` and `submit` are the other half of the API and are MCP-only on purpose. A daily report is
+ * one person's voice, and the toolkit's rule is that it is drafted, shown to the human, and filed
+ * only once they approve the wording — which needs a conversation to happen in. A shell command
+ * cannot hold that confirmation, and agents are never asked for a report anyway: the ritual measures
+ * humans who are not guests, so nothing an agent files here was ever owed.
+ */
+const reportVerbs: Record<string, Handler> = {
+  digest: reportDigest,
+  missing: reportMissing
+};
+
 const nouns: Record<string, Record<string, Handler>> = {
   task: taskVerbs,
   project: projectVerbs,
+  report: reportVerbs,
   user: userVerbs
 };
 
@@ -118,7 +144,24 @@ export const usage = `taskara <noun> <verb> [arguments]
   project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
                  [--parent <keyPrefix|id>]
 
+  report digest  [--date YYYY-MM-DD]            # the team's day; defaults to today
+  report missing [--date YYYY-MM-DD] | [--hours n]
+                 # --date: who owes a report for that day. no --date: who has filed
+                 # nothing in the last n hours (24 by default). Two questions, two answers.
+
   user list     [--query <s>] [--kind HUMAN|AGENT] [--role R] [--limit n] [--offset n]
+
+Both "report" verbs need OWNER or ADMIN and answer 403 "Workspace admin access required" otherwise —
+a fact about your role, not about the reports, which are still being filed where you cannot see them.
+An agent credential reaches them if its membership carries ADMIN; most carry MEMBER. Filing your own
+report is not here: that is one person's voice and belongs in a conversation that can confirm the
+wording before it is written. Nothing an agent would file was owed anyway — the ritual measures
+humans who are not guests, so an agent is never counted and never named as missing.
+
+"report digest" reads wider than it counts, on purpose. Every report filed that day is in "reports",
+a guest's included, because a blocker is worth reading whoever raised it; "stats" counts only the
+measured roster. The two disagreeing is correct. "workday": false is a weekend — nobody owed one, so
+"expected" is 0 and nobody is missing.
 
 A person is addressed by id or by email — never by name, which carries no unique constraint.
 "user list" is how you find either. Agents are in the roster too, marked by their kind.
@@ -476,6 +519,87 @@ async function projectCreate(client: TaskaraClient, flags: Flags): Promise<Comma
 }
 
 /**
+ * Everybody's day on one screen: blockers, unexpected work, yesterday's plan against today's result,
+ * and who has not filed.
+ *
+ * Every check-in row is projected through `checkInSummary`, and the digest's own structure is kept
+ * exactly as the server drew it. The projection is ergonomics — the raw rows carry workspace ids,
+ * three timestamps apiece and a phone number for every person named, which is a lot of stdout for a
+ * read that gets pasted into a standup. The structure is not ergonomics: `stats` counts a different
+ * population from the one `reports` shows, and flattening the two into one list is the exact mistake
+ * the server's own comments are written to prevent.
+ */
+async function reportDigest(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const dateKey = optionalDateKey(flags.get('date'));
+  flags.assertNoUnknown();
+
+  const digest = await getDailyReportDigest(client, dateKey);
+  const { stats } = digest;
+  return {
+    data: {
+      dateKey: digest.dateKey,
+      workday: digest.workday,
+      stats,
+      blockersFirst: digest.blockersFirst.map(checkInSummary),
+      unplanned: digest.unplanned.map(checkInSummary),
+      planVsDone: digest.planVsDone.map((entry) => ({
+        user: person(entry.user),
+        plannedYesterday: entry.plannedYesterday,
+        completedToday: entry.completedToday,
+        tasks: entry.tasks
+      })),
+      reports: digest.reports.map(checkInSummary),
+      missing: digest.missing.map(person)
+    },
+    // The two numbers a manager acts on, and the weekend said out loud. `workday: false` in JSON is
+    // easy to scroll past, and the reading it invites — nobody filed — is the opposite of the truth.
+    note: digest.workday
+      ? `${stats.submitted}/${stats.expected} filed for ${digest.dateKey}, ${stats.blockerCount} blocked`
+      : `${digest.dateKey} is not a workday: no reports were owed. ${digest.reports.length} filed anyway`
+  };
+}
+
+/**
+ * Who has not filed — two questions, and `--date` is which one is being asked.
+ *
+ * With a day it is *who owes a report for that day*, counted against that day's roster. Without one
+ * it is *who has filed nothing at all in the last `--hours`*, which is the staleness question and
+ * names a person who reported four days running and then stopped. They are not the same list and
+ * their rows differ, so the command says which it answered rather than leaving the shapes to be told
+ * apart by whoever reads the JSON.
+ */
+async function reportMissing(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const dateKey = optionalDateKey(flags.get('date'));
+  const hours = flags.number('hours');
+  flags.assertNoUnknown();
+  if (dateKey !== undefined && hours !== undefined) {
+    throw usageError('--hours applies to the no-date form. "report missing --date" asks about that day only');
+  }
+
+  const result = await getMissingDailyReports(client, dropUndefined({ dateKey, hours }));
+  if (isMissingForDay(result)) {
+    return {
+      data: { question: 'owed-for-day', dateKey: result.dateKey, expected: result.expected, total: result.total, missing: result.items.map(person) },
+      note: `${result.total} of ${result.expected} ${people(result.total)} not filed for ${result.dateKey}`
+    };
+  }
+  return {
+    data: {
+      question: 'silent-for-hours',
+      thresholdHours: result.thresholdHours,
+      generatedAt: result.generatedAt,
+      total: result.total,
+      missing: result.items.map((item) => ({
+        ...person(item.user),
+        lastCheckInAt: item.lastCheckInAt,
+        hoursSinceLastCheckIn: item.hoursSinceLastCheckIn
+      }))
+    },
+    note: `${result.total} ${people(result.total)} filed nothing in ${result.thresholdHours}h`
+  };
+}
+
+/**
  * The read that makes a person addressable.
  *
  * `--assignee` takes a UUID, and a user UUID appears in no key, no URL and no prose — the only place
@@ -559,6 +683,57 @@ function requireTaskRef(positionals: string[], command: string): string {
 
 function optionalList(values: string[]): string[] | undefined {
   return values.length > 0 ? values : undefined;
+}
+
+/**
+ * A workspace day, validated here rather than at the server.
+ *
+ * The regex is the server's own, imported rather than copied — the same rule the enums follow. It is
+ * checked before the request because `--date yesterday` and `--date 14-08-2026` are the two things a
+ * caller actually types, and both come back from the API as a zod error about a field name the
+ * command line never mentioned.
+ */
+function optionalDateKey(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!dateKeySchema.safeParse(value).success) {
+    throw usageError(`--date takes a workspace day as YYYY-MM-DD, not "${value}"`);
+  }
+  return value;
+}
+
+/** The verb, agreeing with a count that is usually 1. Both notes above read as a sentence or not. */
+function people(count: number): string {
+  return count === 1 ? 'person has' : 'people have';
+}
+
+/** A person in a report: who they are, and nothing that belongs on a contact card. */
+function person(who: CheckInPerson): Record<string, unknown> {
+  return { id: who.id, name: who.name, email: who.email };
+}
+
+/**
+ * One filed report, as a shell prints it.
+ *
+ * The five answers keep the names the questions have, not the column names — `blockersText` is the
+ * wire's word for it and `blockers` is the reader's, and this surface has no second meaning for the
+ * word to collide with.
+ *
+ * `author` appears only when somebody filed on another person's behalf. Printing it always would put
+ * a person's own name twice on every row, which teaches the eye to skip exactly the field that
+ * matters on the one row where the two differ.
+ */
+function checkInSummary(row: CheckInRow): Record<string, unknown> {
+  const filedForSomeoneElse = row.author && row.authorId !== row.userId;
+  return {
+    user: person(row.user),
+    ...(filedForSomeoneElse ? { author: person(row.author as CheckInPerson) } : {}),
+    completed: row.completedText,
+    unplanned: row.unplannedText,
+    blockers: row.blockersText,
+    help: row.helpText,
+    plan: row.planText,
+    submittedFor: row.submittedFor
+  };
 }
 
 /**

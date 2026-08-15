@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   EFFORT_DESCRIPTION_MAX_CHARS,
+  dateKeySchema,
   milestoneHealthSchema,
   milestoneKindSchema,
   milestoneStatuses,
@@ -595,7 +596,7 @@ registerTool('blocker_detect', {
 registerTool('report_daily_draft', {
   title: 'Get a Taskara daily report draft',
   description: "Fetch prefill material for today's daily report: completed/unexpected/plan candidates from real activity, plus yesterday's plan.",
-  inputSchema: { dateKey: z.string().optional() }
+  inputSchema: { dateKey: dateKeySchema.optional() }
 }, async ({ dateKey }) => api.getDailyReportDraft(client, dateKey));
 
 registerTool('report_daily_submit', {
@@ -609,6 +610,36 @@ registerTool('report_daily_submit', {
     helpText: z.string().optional()
   }
 }, async (input) => api.submitDailyReport(client, input));
+
+// The two above are one person's own report; these two are everybody's. That is also the permission
+// boundary — the API gates both of these on OWNER or ADMIN, so an agent credential holding MEMBER
+// gets a 403 saying "Workspace admin access required". The descriptions say so rather than letting a
+// model discover it by calling, since the alternative reading of that error is that the reports do
+// not exist.
+registerTool('report_daily_digest', {
+  title: "Read the team's daily reports",
+  description:
+    'Admin-only: every daily report filed for one workspace day, the manager view — blockers and '
+    + "help requests first, then the day's unexpected work, then yesterday's plan paired against "
+    + 'what was actually completed, then who has not filed. Defaults to today. Not reachable with a '
+    + 'MEMBER credential, which is what most agent identities hold.',
+  inputSchema: { dateKey: dateKeySchema.optional().describe("A workspace day, YYYY-MM-DD. Defaults to today's.") }
+}, async ({ dateKey }) => api.getDailyReportDigest(client, dateKey));
+
+registerTool('report_daily_missing', {
+  title: 'List who owes a Taskara daily report',
+  description:
+    'Admin-only: who has not filed. Pass `dateKey` to ask who owes a report for that workspace day; '
+    + 'omit it to ask who has filed nothing at all in the last `hours` (24 by default). The two '
+    + 'questions have different answers and different shapes — the day form reports `expected` for '
+    + "the day, the window form reports each person's `lastCheckInAt`. Both list only the people the "
+    + 'ritual measures, humans who are not guests, so an agent is never named as missing. Not '
+    + 'reachable with a MEMBER credential.',
+  inputSchema: {
+    dateKey: dateKeySchema.optional().describe('A workspace day, YYYY-MM-DD. Switches the question to that day and ignores hours.'),
+    hours: z.number().int().min(1).max(720).optional().describe('Window for the no-dateKey form. Server default 24.')
+  }
+}, async ({ dateKey, hours }) => api.getMissingDailyReports(client, dropUndefined({ dateKey, hours })));
 
 registerTool('report_weekly', {
   title: 'Generate a Taskara weekly report',
