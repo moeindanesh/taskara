@@ -32,25 +32,30 @@ import {
    SidebarTeamIcon,
 } from '@/components/taskara/linear-ui';
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
+import { workspaceNavigationIcons } from '@/components/layout/workspace-navigation-icon';
 import { useLiveRefresh, workspaceRefreshSourceMatches, type WorkspaceRefreshDetail } from '@/lib/live-refresh';
 import { taskaraRequest } from '@/lib/taskara-client';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { selectSidebarCounts } from '@/lib/workspace-data/selectors';
 import { fa } from '@/lib/fa-copy';
-import { clearAuthSession, getAuthSession, setAuthSession } from '@/store/auth-store';
-import type { TaskaraMe, TaskaraWorkspaceMembership } from '@/lib/taskara-types';
+import { clearAuthSession, getAuthSession } from '@/store/auth-store';
+import type { TaskaraWorkspaceMembership } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
+import {
+   workspaceCreateAction,
+   workspaceHomeForMembership,
+   workspaceRouteForPath,
+   workspaceSidebarRoutes,
+} from '@/lib/workspace-navigation';
+import { useWorkspaceNavigationRuntime, useWorkspaceRuntime } from '@/lib/workspace-runtime';
 import {
    ChevronDown,
    ClipboardList,
-   Diamond,
    Laptop,
    Moon,
    NotebookPen,
    Plus,
-   ScanEye,
    Search,
-   Share2,
    Sun,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -68,27 +73,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const { theme, setTheme } = useTheme();
    const pathname = location.pathname;
    const orgId = pathname.split('/').filter(Boolean)[0] || 'taskara';
+   const runtime = useWorkspaceRuntime();
+   const navigationRuntime = useWorkspaceNavigationRuntime();
    const taskSync = useWorkspaceTaskSync();
-   const [me, setMe] = React.useState<TaskaraMe | null>(null);
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
    const [showTeams, setShowTeams] = React.useState(false);
    const loadRequestRef = React.useRef(0);
    const teams = taskSync.workspaceData.teams;
    const loadingTeams = !taskSync.hasBootstrapped;
    const sidebarCounts = React.useMemo(
-      () => selectSidebarCounts(taskSync.workspaceData, me?.user.id),
-      [me?.user.id, taskSync.workspaceData]
+      () => selectSidebarCounts(taskSync.workspaceData, runtime.me.user.id),
+      [runtime.me.user.id, taskSync.workspaceData]
    );
 
-   const currentRole = me?.role || getAuthSession()?.role;
+   const currentRole = runtime.role || getAuthSession()?.role;
    // Matches the API's admin concept (isWorkspaceAdminRole), so manager surfaces in the sidebar and
    // the routes behind them agree on who counts as a manager.
    const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
-   const teamOverviewHref = `/${orgId}/overview`;
-   const cockpitHref = `/${orgId}/cockpit`;
-   const myIssuesHref = `/${orgId}/team/all/all`;
-   const dailyReportHref = `/${orgId}/today`;
-   const dailyReportsDigestHref = `/${orgId}/daily-reports`;
+   const primaryRoutes = workspaceSidebarRoutes(navigationRuntime, 'primary');
+   const activeRoute = workspaceRouteForPath(pathname, orgId);
+   const createAction = workspaceCreateAction(navigationRuntime);
 
    const logout = React.useCallback(() => {
       void taskaraRequest('/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -98,27 +102,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
    const loadSidebarData = React.useCallback(async () => {
       const requestId = ++loadRequestRef.current;
-      const [meResult, workspacesResult] = await Promise.allSettled([
-         taskaraRequest<TaskaraMe>('/me'),
-         taskaraRequest<{ items: TaskaraWorkspaceMembership[]; total: number }>('/workspaces'),
-      ]);
+      const workspacesResult = await Promise.resolve(
+         taskaraRequest<{ items: TaskaraWorkspaceMembership[]; total: number }>('/workspaces')
+      ).then(
+         (value) => ({ status: 'fulfilled' as const, value }),
+         (reason) => ({ status: 'rejected' as const, reason })
+      );
 
       if (requestId !== loadRequestRef.current) return;
-
-      if (meResult.status === 'fulfilled') {
-         setMe(meResult.value);
-         const session = getAuthSession();
-         if (session) {
-            setAuthSession({
-               ...session,
-               user: meResult.value.user,
-               workspace: meResult.value.workspace,
-               role: meResult.value.role,
-            });
-         }
-      } else {
-         setMe(null);
-      }
       setWorkspaces(workspacesResult.status === 'fulfilled' ? workspacesResult.value.items : []);
    }, []);
 
@@ -144,22 +135,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
    React.useEffect(() => setShowTeams(false), [orgId]);
 
-   const workspaceName = me?.workspace.name || fa.app.fallbackWorkspace;
+   const workspaceName = runtime.me.workspace.name || fa.app.fallbackWorkspace;
    const workspaceItems = workspaces.length
       ? workspaces
-      : me
-         ? [
-              {
-                 membershipId: me.workspace.id,
-                 role: me.role || 'MEMBER',
-                 joinedAt: '',
-                 workspace: me.workspace,
-              },
-           ]
-         : [];
+      : [
+           {
+              membershipId: runtime.me.workspace.id,
+              role: runtime.role || 'MEMBER',
+              joinedAt: '',
+              workspace: runtime.me.workspace,
+           },
+        ];
 
    const openCreateIssue = () => {
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')), 0);
+      if (createAction) window.setTimeout(() => window.dispatchEvent(new CustomEvent(createAction.eventName)), 0);
    };
 
    const currentTheme = theme || 'system';
@@ -221,7 +210,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                  <DropdownMenuItem
                                     key={item.membershipId}
                                     className="rounded-lg px-3 py-2"
-                                    onSelect={() => navigate(item.role === 'OWNER' || item.role === 'ADMIN' ? `/${item.workspace.slug}/cockpit` : `/${item.workspace.slug}/team/all/all`)}
+                                    onSelect={() => navigate(workspaceHomeForMembership(item.workspace, item.role))}
                                  >
                                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                                        <span className="truncate text-sm">{item.workspace.name}</span>
@@ -275,7 +264,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                      <Search className="size-4" />
                   </button>
                   <button
-                     aria-label={fa.nav.createIssue}
+                     aria-label={createAction?.label || fa.nav.createIssue}
                      className="inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-zinc-200 hover:bg-white/15"
                      type="button"
                      onClick={openCreateIssue}
@@ -287,95 +276,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
          </SidebarHeader>
          <SidebarContent className="gap-4 px-2">
             <SidebarGroup className="p-0">
-               <SidebarGroupLabel className="h-7 px-2 text-[12px]">
-                  {isManager ? fa.nav.managerLoop : fa.nav.workspace}
-               </SidebarGroupLabel>
+               <SidebarGroupLabel className="h-7 px-2 text-[12px]">{fa.nav.workspace}</SidebarGroupLabel>
                <SidebarMenu>
-                  <SidebarMenuItem>
-                     <SidebarMenuButton
-                        asChild
-                        isActive={pathname === teamOverviewHref}
-                        className={sidebarItemClassName}
-                     >
-                        <Link to={teamOverviewHref}>
-                           <Share2 />
-                           <span>{fa.nav.teamOverview}</span>
-                        </Link>
-                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  {isManager ? (
-                     <SidebarMenuItem>
-                        <SidebarMenuButton
-                           asChild
-                           isActive={pathname === cockpitHref}
-                           className={sidebarItemClassName}
-                        >
-                           <Link to={cockpitHref}>
-                              <ScanEye />
-                              <span>{fa.nav.cockpit}</span>
-                           </Link>
-                        </SidebarMenuButton>
-                     </SidebarMenuItem>
-                  ) : null}
-                  {isManager ? (
-                     <SidebarMenuItem>
-                        <SidebarMenuButton
-                           asChild
-                           isActive={pathname === dailyReportsDigestHref}
-                           className={sidebarItemClassName}
-                        >
-                           <Link to={dailyReportsDigestHref}>
-                              <ClipboardList />
-                              <span>{fa.nav.dailyReportsDigest}</span>
-                           </Link>
-                        </SidebarMenuButton>
-                     </SidebarMenuItem>
-                  ) : null}
-                  <SidebarMenuItem>
-                     <SidebarMenuButton
-                        asChild
-                        isActive={pathname === myIssuesHref}
-                        className={sidebarItemClassName}
-                     >
-                        <Link to={myIssuesHref}>
-                           <SidebarIssueIcon />
-                           <span>{fa.nav.myIssues}</span>
-                        </Link>
-                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                     <SidebarMenuButton
-                        asChild
-                        isActive={pathname === dailyReportHref}
-                        className={sidebarItemClassName}
-                     >
-                        <Link to={dailyReportHref}>
-                           <NotebookPen />
-                           <span>{fa.nav.dailyReport}</span>
-                        </Link>
-                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                     <SidebarMenuButton
-                        asChild
-                        isActive={pathname === `/${orgId}/milestones` || pathname.startsWith(`/${orgId}/milestones/`)}
-                        className={sidebarItemClassName}
-                     >
-                        <Link to={`/${orgId}/milestones`}>
-                           <Diamond className="size-4 shrink-0 text-indigo-400" strokeWidth={1.75} />
-                           <span className="min-w-0 flex-1 truncate text-right">{fa.nav.milestones}</span>
-                           {sidebarCounts.myOverdueMilestoneCount > 0 ? (
-                              <span
-                                 aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده متعلق به شما`}
-                                 className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-400/12 px-1.5 text-[10px] tabular-nums text-rose-300"
-                                 title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده`}
-                              >
-                                 {sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')}
-                              </span>
-                           ) : null}
-                        </Link>
-                     </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {primaryRoutes.map((route) => {
+                     const RegistryIcon = workspaceNavigationIcons[route.icon];
+                     const RouteIcon = route.id === 'my-tasks'
+                        ? SidebarIssueIcon
+                        : route.id === 'daily-report' || route.id === 'daily-reports-digest'
+                           ? isManager ? ClipboardList : NotebookPen
+                           : RegistryIcon;
+                     return (
+                        <SidebarMenuItem key={route.id}>
+                           <SidebarMenuButton asChild isActive={activeRoute?.id === route.id} className={sidebarItemClassName}>
+                              <Link to={route.path(orgId, navigationRuntime)}>
+                                 <RouteIcon className={route.id === 'milestones' ? 'size-4 shrink-0 text-indigo-400' : undefined} />
+                                 <span className="min-w-0 flex-1 truncate text-right">{route.label}</span>
+                                 {route.id === 'milestones' && sidebarCounts.myOverdueMilestoneCount > 0 ? (
+                                    <span
+                                       aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده متعلق به شما`}
+                                       className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-400/12 px-1.5 text-[10px] tabular-nums text-rose-300"
+                                       title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده`}
+                                    >
+                                       {sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')}
+                                    </span>
+                                 ) : null}
+                              </Link>
+                           </SidebarMenuButton>
+                        </SidebarMenuItem>
+                     );
+                  })}
                </SidebarMenu>
             </SidebarGroup>
             <SidebarGroup className="p-0">
@@ -436,12 +365,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-start transition hover:bg-white/[0.04]"
             >
                <LinearAvatar
-                  name={me?.user.name || workspaceName}
-                  src={me?.user.avatarUrl}
+                  name={runtime.me.user.name || workspaceName}
+                  src={runtime.me.user.avatarUrl}
                   className="size-8 shrink-0"
                />
                <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
-                  {me?.user.name || fa.settings.currentUser}
+                  {runtime.me.user.name || fa.settings.currentUser}
                </span>
             </Link>
          </SidebarFooter>

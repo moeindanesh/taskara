@@ -21,6 +21,8 @@ import {
 } from '../services/milestones';
 import { appendSyncEvent, lockWorkspaceSyncState, publishSyncEvent } from '../services/sync';
 import { assertPhoneAvailable } from '../services/users';
+import { bumpSupportAccessEpochs } from '../services/support-access';
+import { cleanupSupportWorkspaceMember } from '../services/support-departments';
 
 const userSelect = {
   id: true,
@@ -316,6 +318,13 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         update: { role: input.role },
         create: { workspaceId: actor.workspace.id, userId: user.id, role: input.role }
       });
+      if (
+        actor.workspace.mode === 'SUPPORT'
+        && existingMembership
+        && existingMembership.role !== input.role
+      ) {
+        await bumpSupportAccessEpochs(tx, actor.workspace.id, [user.id]);
+      }
 
       return { ...user, membershipId: membership.id, role: membership.role, joinedAt: membership.createdAt };
     });
@@ -388,10 +397,16 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     assertOwnerRoleManageAllowed(actor.role, membership.role, input.role);
     await assertOwnerChangeIsSafe(actor.workspace.id, membership.role, input.role);
 
-    const updated = await prisma.workspaceMember.update({
-      where: { id: membership.id },
-      data: { role: input.role },
-      include: { user: { select: userSelect } }
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await tx.workspaceMember.update({
+        where: { id: membership.id },
+        data: { role: input.role },
+        include: { user: { select: userSelect } }
+      });
+      if (actor.workspace.mode === 'SUPPORT' && membership.role !== input.role) {
+        await bumpSupportAccessEpochs(tx, actor.workspace.id, [id]);
+      }
+      return updated;
     });
 
     await logActivity({
@@ -424,6 +439,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
 
     let milestoneEvents: SyncEvent[] = [];
     const cleanup = await prisma.$transaction(async (tx) => {
+      const supportCleanup = await cleanupSupportWorkspaceMember(tx, actor, id);
       const ownedMilestoneIds = await tx.milestone.findMany({
         where: { workspaceId: actor.workspace.id, ownerId: id },
         select: { id: true }
@@ -521,7 +537,9 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
         ownedMilestones: ownedMilestones.length,
         notifications: notifications.count,
         taskSubscriptions: taskSubscriptions.count,
-        taskMutes: taskMutes.count
+        taskMutes: taskMutes.count,
+        supportDepartmentMemberships: supportCleanup.departmentMemberships,
+        supportAssignedCases: supportCleanup.assignedCases
       };
     });
 

@@ -1,3 +1,5 @@
+import type { WorkspaceCapability, WorkspaceMode } from '@/lib/workspace-mode';
+
 export interface TaskaraProject {
    id: string;
    name: string;
@@ -1144,16 +1146,21 @@ export interface TaskaraAttentionPayload {
    };
 }
 
+export interface TaskaraWorkspaceSummary {
+   id: string;
+   name: string;
+   slug: string;
+   description?: string | null;
+   mode: WorkspaceMode;
+}
+
 export interface TaskaraWorkspaceMembership {
    membershipId: string;
    role: string;
    joinedAt: string;
-   workspace: {
-      id: string;
-      name: string;
-      slug: string;
-      description?: string | null;
-   };
+   workspace: TaskaraWorkspaceSummary;
+   capabilities?: WorkspaceCapability[];
+   permissions?: string[];
 }
 
 export interface TaskaraNotification {
@@ -1212,12 +1219,7 @@ export interface TaskaraActivity {
 }
 
 export interface TaskaraMe {
-   workspace: {
-      id: string;
-      name: string;
-      slug: string;
-      description?: string | null;
-   };
+   workspace: TaskaraWorkspaceSummary;
    user: {
       id: string;
       name: string;
@@ -1229,6 +1231,18 @@ export interface TaskaraMe {
    };
    role?: string | null;
    unreadNotifications: number;
+   capabilities: WorkspaceCapability[];
+   permissions: string[];
+   supportAccessEpoch?: string | number;
+   support?: {
+      needsSetup?: boolean;
+      unassignedCount?: number;
+      departmentInboxCount?: number;
+      myCaseCount?: number;
+      needsAttentionCount?: number;
+      interactionContentAvailable?: boolean;
+      manualCallAvailable?: boolean;
+   };
 }
 
 export interface TaskaraAuthSession {
@@ -1237,6 +1251,10 @@ export interface TaskaraAuthSession {
    workspace?: TaskaraMe['workspace'] | null;
    user: TaskaraMe['user'];
    role?: string | null;
+   capabilities?: WorkspaceCapability[];
+   permissions?: string[];
+   supportAccessEpoch?: string | number;
+   support?: TaskaraMe['support'];
 }
 
 export interface TaskaraOnboardingStatus {

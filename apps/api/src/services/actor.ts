@@ -14,6 +14,7 @@ import { deriveActorProvenance } from './actor-provenance';
 import { authenticateAgentCredential, isAgentCredentialToken } from './agent-credential';
 import { displayNameFromEmail, getBearerToken, getSessionUser, normalizeEmail } from './auth';
 import { HttpError } from './http';
+import { assertTeamWorkspace } from './workspace-mode';
 
 export type ActorSource = 'WEB' | 'API' | 'MATTERMOST' | 'CODEX' | 'AGENT' | 'SYSTEM';
 export type ActorType = 'USER' | 'SYSTEM' | 'AGENT' | 'MATTERMOST' | 'CODEX';
@@ -30,6 +31,8 @@ export interface RequestActor {
   /** Present iff this request authenticated with an agent credential rather than as a person. */
   credential?: { id: string; scope: AgentCredentialScope };
 }
+
+const requestActorCache = new WeakMap<FastifyRequest, Promise<RequestActor>>();
 
 export function isWorkspaceAdminRole(role: WorkspaceRole): boolean {
   return role === 'OWNER' || role === 'ADMIN';
@@ -127,7 +130,15 @@ export async function upsertUserByEmail(email: string, name?: string): Promise<U
   }
 }
 
-export async function getRequestActor(request: FastifyRequest): Promise<RequestActor> {
+export function getRequestActor(request: FastifyRequest): Promise<RequestActor> {
+  const cached = requestActorCache.get(request);
+  if (cached) return cached;
+  const pending = resolveRequestActor(request);
+  requestActorCache.set(request, pending);
+  return pending;
+}
+
+async function resolveRequestActor(request: FastifyRequest): Promise<RequestActor> {
   const workspaceSlug = headerValue(request, 'x-workspace-slug');
   if (!workspaceSlug) throw new HttpError(400, 'Workspace slug is required');
 
@@ -211,6 +222,13 @@ export async function getRequestActor(request: FastifyRequest): Promise<RequestA
   };
 }
 
+/** Use at non-route actor entry points that are intrinsically Task/Team operations. */
+export async function getTeamRequestActor(request: FastifyRequest): Promise<RequestActor> {
+  const actor = await getRequestActor(request);
+  assertTeamWorkspace(actor.workspace);
+  return actor;
+}
+
 export async function getWorkspaceRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -249,6 +267,9 @@ export interface MattermostActorPayload {
 
 export async function getMattermostActor(payload: MattermostActorPayload): Promise<RequestActor> {
   const workspace = await requireWorkspaceBySlug(mattermostWorkspaceSlug(payload));
+  // Mattermost is a Team Task client. Refuse Support before creating/updating a synthetic user or
+  // bootstrapping membership, so an unsupported command has no provisioning side effects.
+  assertTeamWorkspace(workspace);
   const username = (payload.user_name || payload.username || payload.user_id || 'mattermost-user').trim().toLowerCase();
   const email = `${username}@${config.MATTERMOST_SYNTHETIC_EMAIL_DOMAIN}`;
 

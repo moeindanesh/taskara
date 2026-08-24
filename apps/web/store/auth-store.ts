@@ -47,13 +47,30 @@ export function clearAuthSession(): void {
    window.dispatchEvent(new CustomEvent(authChangedEvent));
 }
 
-function authSessionsEqual(left: TaskaraAuthSession, right: TaskaraAuthSession): boolean {
+export function authSessionsEqual(left: TaskaraAuthSession, right: TaskaraAuthSession): boolean {
    return (
       left.token === right.token &&
       left.expiresAt === right.expiresAt &&
       (left.role || null) === (right.role || null) &&
+      (left.supportAccessEpoch ?? null) === (right.supportAccessEpoch ?? null) &&
+      supportSummariesEqual(left.support, right.support) &&
+      stringSetsEqual(left.capabilities, right.capabilities) &&
+      stringSetsEqual(left.permissions, right.permissions) &&
       authUsersEqual(left.user, right.user) &&
       authWorkspacesEqual(left.workspace || null, right.workspace || null)
+   );
+}
+
+function supportSummariesEqual(
+   left: TaskaraAuthSession['support'],
+   right: TaskaraAuthSession['support']
+): boolean {
+   return (
+      (left?.needsSetup ?? null) === (right?.needsSetup ?? null) &&
+      (left?.unassignedCount ?? null) === (right?.unassignedCount ?? null) &&
+      (left?.departmentInboxCount ?? null) === (right?.departmentInboxCount ?? null) &&
+      (left?.myCaseCount ?? null) === (right?.myCaseCount ?? null) &&
+      (left?.needsAttentionCount ?? null) === (right?.needsAttentionCount ?? null)
    );
 }
 
@@ -81,8 +98,22 @@ function authWorkspacesEqual(
       left.id === right.id &&
       left.name === right.name &&
       left.slug === right.slug &&
+      (left.mode || 'TEAM') === (right.mode || 'TEAM') &&
       (left.description || null) === (right.description || null)
    );
+}
+
+function stringSetsEqual(
+   left: readonly string[] | null | undefined,
+   right: readonly string[] | null | undefined
+): boolean {
+   const leftSet = new Set(left || []);
+   const rightSet = new Set(right || []);
+   if (leftSet.size !== rightSet.size) return false;
+   for (const value of leftSet) {
+      if (!rightSet.has(value)) return false;
+   }
+   return true;
 }
 
 export function useAuthSession() {

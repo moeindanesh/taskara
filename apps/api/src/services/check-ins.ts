@@ -34,6 +34,7 @@ import {
 } from './team-access';
 import { createTask, ensureDefaultProject, serializeTaskForResponse } from './tasks';
 import { dateKeyRange, isWorkdayKey, shiftDateKey, workspaceDateKey } from './workspace-time';
+import { assertTeamWorkspace } from './workspace-mode';
 
 type CreateCheckInInput = z.infer<typeof createCheckInResponseSchema>;
 type CreateOneOnOneInput = z.infer<typeof createOneOnOneSeriesSchema>;
@@ -1027,6 +1028,7 @@ export async function createTaskFromMeetingActionItem(
   input: CreateTaskFromActionItemInput,
   syncMutation?: SyncMutationMeta
 ) {
+  assertTeamWorkspace(actor.workspace);
   const actionItem = await requireMeetingActionItemAccess(actor, actionItemId);
   if (actionItem.taskId) throw new HttpError(409, 'Meeting action item already has a linked task');
 

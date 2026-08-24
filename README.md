@@ -1,6 +1,8 @@
 # Taskara
 
-Agentic team task manager optimized for Mattermost and Codex workflows, backed by PostgreSQL and Prisma. The UI is RTL-first, Jalali date-time aware, and shaped around a Linear-like task experience.
+Agentic work manager for Team delivery and Support operations, optimized for Mattermost and Codex
+workflows and backed by PostgreSQL/Prisma. The UI is RTL-first, Jalali date-time aware, and keeps a
+Linear-like Task experience alongside an assignment-private Support Case experience.
 
 ![Taskara dashboard](assets/taskara.png)
 
@@ -9,6 +11,8 @@ Agentic team task manager optimized for Mattermost and Codex workflows, backed b
 - Linear-like workflow states: backlog, todo, in progress, review, blocked, done, canceled
 - Jalali timer/date-time support for due scheduling (example: `1405/02/04 14:30`)
 - RTL-first Persian UI with workspace/project/task hierarchy
+- Team and Support workspace modes with private Department-scoped Case queues
+- API/call intake, SLA clocks, recovery queues, and explicit Support Case–Team Task handoff
 - Mattermost slash-command integration for task creation and updates
 - Native Codex plugin for MCP-based task operations and agent workflows
 
@@ -43,6 +47,11 @@ VITE_TASKARA_API_URL=<api-url>
 ```
 
 Create the first account and workspace through `/signup` and `/onboarding`. Workspace routing in the browser is slug-based, e.g. `/<workspace-slug>/projects`.
+
+Choose `TEAM` for the existing project/Task workflow or `SUPPORT` for Cases, Departments, Triage,
+Department Inbox, My Cases, and Needs Attention. A workspace mode is immutable in v1; switching the
+active workspace switches the product shell, while converting populated data is intentionally not
+an in-place toggle.
 
 ## Docker / Coolify Deployment
 
@@ -83,7 +92,18 @@ WEB_ORIGIN=https://your-web-domain.example
 API_HOST=0.0.0.0
 API_PORT=80
 TASKARA_RUN_MIGRATIONS=true
+TASKARA_SUPPORT_DATA_SECRET=<at-least-32-bytes-of-deployment-secret-material>
+TASKARA_SUPPORT_INTAKE_WORKER_ENABLED=true
+TASKARA_SUPPORT_RECOVERY_WORKER_ENABLED=true
 ```
+
+`TASKARA_SUPPORT_DATA_SECRET` is required before configuring Support intake connectors or storing
+sensitive Support interaction content. Keep the value in the deployment secret store; only its
+environment-variable name belongs in repository configuration. The intake worker leases and
+processes accepted connector receipts. The recovery worker evaluates SLA clocks, expired snoozes,
+and reason-coded Needs Attention projections. Both workers default to enabled and release their
+leases during graceful API shutdown; disable a worker only when another API/worker instance owns
+that responsibility.
 
 For the web resource, set:
 
@@ -116,6 +136,62 @@ POST /agent/daily-plan
 POST /agent/actions/:id/apply
 ```
 
+## Support Workspaces
+
+A Support Workspace uses **Support Cases** rather than Tasks. Its RTL web shell provides Triage,
+Department Inbox, My Cases, Needs Attention, Departments, operational reports, intake health,
+routing controls, saved queues, a dedicated enablement-and-quality workspace, Case-level
+assistance/KCS/CSAT, and Case-to-Team handoff. A Case remains the customer-service source of truth
+even when it creates or links delivery work in a Team Workspace.
+
+Visibility is assignment-scoped on the server. An ordinary Department member sees only Cases
+assigned to their own active membership; Department managers see their Department, users whose
+only Support grant is `TRIAGER` see only unrouted Cases, and supervisors/Workspace administrators
+see the wider Support operation. Current Department memberships and explicit Support grants compose.
+Department membership alone does not reveal a peer's Case, workload, contact, count, notification,
+search result, sync event, report row, cluster membership, or linked record.
+
+The Support API is grouped by responsibility:
+
+```txt
+/support/cases, /support/calls                    queues, lifecycle, interactions and call entry
+/support/sync                                      audience-scoped bootstrap, pull, push and stream
+/support/departments, /support/permission-grants    Departments, membership and human grants
+/support/credential-grants                          explicit automation credential scopes
+/support/intake-connectors                         connector configuration and secret rotation
+/support/intake/:lookupId                           signed asynchronous intake and receipt status
+/support/intake-admin                               receipt health, dead letters and retry
+/support/config                                     business calendars and versioned SLA policies
+/support/reports/overview                           access-scoped operational overview
+/support/routing                                    rules, simulation, capacity and priority decisions
+/support/saved-views                                private/shared Support queue definitions
+/support/cases/:idOrKey/presence                    short-lived collision warnings
+/support/enablement                                 versioned macros, templates and approved automation
+/support/problem-clusters                           privacy-filtered recurring-problem clusters
+/support/cases/:idOrKey/knowledge/*                 KCS search, reuse and gap feedback
+/support/cases/:idOrKey/assistance                  persisted suggestions with human accept/reject
+/support/cases/:idOrKey/csat, /support/csat/respond opaque single-use satisfaction invitations
+/support/quality                                    rubrics and completed quality reviews
+/support/workspace-connections, /workspace-connections  Support-to-Team approval and Task handoff
+```
+
+Connector receipts are idempotent, payload-bound, leased, retried and dead-lettered. SLA and
+recovery evaluation use frozen policy/calendar versions and business time; queue urgency comes from
+derived reason codes rather than a mutable “stale” status. Routing decisions and automation are
+previewable, version-checked, explainable and audited. Suggestions never apply themselves.
+Case lists and saved queues currently paginate by newest receipt, while Needs Attention supplies
+the reason-coded recovery view. The shipped report is a scoped overview with sample counts and
+P50/P90 durations, not a free-form analytics or export surface. Collision presence is best-effort
+and process-local; optimistic Case versions remain the authoritative conflict guard.
+
+Deliberate boundaries remain: there is no customer portal, vendor-specific channel adapter or
+outbound email/messaging/telephony delivery; no Support recording/attachment storage on the current
+permanent-capability media path; no offline Case cache or mutation queue; no generic custom-field,
+report-builder or bulk-export surface; and no in-place Workspace mode conversion. The generic
+signed intake contract can label accepted events by configured channel, but it does not deliver a
+reply. Cross-Workspace handoff requires one human who is independently authorized on both sides; a
+connection never grants source-record access.
+
 ## Web UI
 
 The frontend now uses the Circle interface shell as the base UI and is wired to the implemented Taskara APIs:
@@ -126,6 +202,25 @@ The frontend now uses the Circle interface shell as the base UI and is wired to 
 - `/{workspace}/teams`: teams
 - `/{workspace}/settings`: admin user management
 - `/{workspace}/inbox`: notifications and activity
+
+Support-mode routes use the same workspace prefix:
+
+- `/{workspace}/support/triage`: unrouted actionable Cases
+- `/{workspace}/support/my-cases`: the current member's private queue
+- `/{workspace}/support/department-inbox`: manager dispatch queue
+- `/{workspace}/support/attention`: reason-coded recovery queue
+- `/{workspace}/support/saved-queues`: access-rechecked saved filters
+- `/{workspace}/support/cases/{caseKey}`: Case detail, presence, assistance, KCS, CSAT and handoff
+- `/{workspace}/support/departments`: Department setup and workspace connections
+- `/{workspace}/support/routing`: routing policies and member capacity
+- `/{workspace}/support/maturity`: macros/automation, problem clusters, knowledge gaps and quality
+- `/{workspace}/support/reports`: scoped operational overview
+- `/{workspace}/support/operations`: calendars and SLA policy versions
+- `/{workspace}/support/intake-admin`: connector health and dead-letter retry
+
+Common Inbox, Knowledge, member and settings routes remain capability-gated in either mode. Support
+users without an operational grant or Department membership land on the setup/no-access screen
+instead of an empty queue.
 
 UI details:
 
@@ -223,6 +318,9 @@ a User whose kind is `AGENT` is refused on the email path.
 - Linear-style task workflow: backlog, todo, in progress, review, blocked, done, canceled
 - Human-readable task keys, e.g. `CORE-123`
 - Comments, labels, dependencies, activity logs, notifications
+- Support Workspaces, Departments, private Support Cases, interactions, audit events and SLA clocks
+- durable connector receipts, routing policies, saved Support views, quality/KCS records and
+  minimized cross-Workspace Case–Task links
 - Mattermost channel-to-project bindings
 - Agent runs and proposed actions with explicit apply step
 

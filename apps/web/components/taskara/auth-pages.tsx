@@ -3,7 +3,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Loader2, LogIn, Plus, UserPlus } from 'lucide-react';
+import { ArrowLeft, Building2, Headphones, Loader2, LogIn, Plus, UserPlus, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { taskaraRequest } from '@/lib/taskara-client';
@@ -16,6 +16,13 @@ import type {
 import { clearAuthSession, setAuthSession, useAuthSession } from '@/store/auth-store';
 import { cn } from '@/lib/utils';
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
+import { fa } from '@/lib/fa-copy';
+import {
+   defaultWorkspacePath,
+   workspacePathIsAvailable,
+   workspaceRuntimeForMembership,
+} from '@/lib/workspace-navigation';
+import { resolveWorkspaceCapabilities, type WorkspaceMode } from '@/lib/workspace-mode';
 
 const inputClassName =
    'h-9 border-white/10 bg-[#111113] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/25';
@@ -25,14 +32,24 @@ function nextFromSearch(search: string) {
    return next?.startsWith('/') && !next.startsWith('//') ? next : '';
 }
 
-function workspaceHome(slug: string) {
-   return `/${slug}/team/all/all`;
-}
-
-function destinationFor(session: TaskaraAuthSession, next?: string) {
+export function destinationFor(session: TaskaraAuthSession, next?: string) {
    if (!session.workspace?.slug) return '/onboarding';
-   if (next && next.startsWith(`/${session.workspace.slug}/`)) return next;
-   return workspaceHome(session.workspace.slug);
+   const baseRuntime = workspaceRuntimeForMembership(session.workspace, session.role);
+   if (!baseRuntime) return '/onboarding';
+   const runtime = {
+      ...baseRuntime,
+      capabilities: resolveWorkspaceCapabilities(baseRuntime.mode, session.capabilities),
+      permissions: new Set(session.permissions || []),
+      support: session.support,
+   };
+   if (
+      next &&
+      next.startsWith(`/${session.workspace.slug}/`) &&
+      workspacePathIsAvailable(next, session.workspace.slug, runtime)
+   ) {
+      return next;
+   }
+   return defaultWorkspacePath(session.workspace.slug, runtime);
 }
 
 function sessionForMembership(session: TaskaraAuthSession, membership: TaskaraWorkspaceMembership): TaskaraAuthSession {
@@ -40,6 +57,10 @@ function sessionForMembership(session: TaskaraAuthSession, membership: TaskaraWo
       ...session,
       workspace: membership.workspace,
       role: membership.role,
+      capabilities: membership.capabilities,
+      permissions: membership.permissions,
+      supportAccessEpoch: undefined,
+      support: undefined,
    };
 }
 
@@ -199,7 +220,11 @@ export function OnboardingPage() {
    const { session } = useAuthSession();
    const next = useMemo(() => nextFromSearch(location.search), [location.search]);
    const [workspaces, setWorkspaces] = useState<TaskaraWorkspaceMembership[]>([]);
-   const [form, setForm] = useState({ name: '', slug: '' });
+   const [form, setForm] = useState<{ name: string; slug: string; mode: WorkspaceMode }>({
+      name: '',
+      slug: '',
+      mode: 'TEAM',
+   });
    const [error, setError] = useState('');
    const [loading, setLoading] = useState(true);
    const [creating, setCreating] = useState(false);
@@ -304,7 +329,11 @@ export function OnboardingPage() {
                               </span>
                               <span className="min-w-0">
                                  <span className="block truncate text-sm font-medium text-zinc-100">{membership.workspace.name}</span>
-                                 <span className="ltr block truncate text-xs text-zinc-500">{membership.workspace.slug}</span>
+                                 <span className="flex items-center gap-2 text-xs text-zinc-500">
+                                    <span className="ltr truncate">{membership.workspace.slug}</span>
+                                    <span aria-hidden="true">•</span>
+                                    <span>{membership.workspace.mode === 'SUPPORT' ? fa.support.supportMode : fa.support.teamMode}</span>
+                                 </span>
                               </span>
                            </span>
                            <ArrowLeft className="size-4 shrink-0 text-zinc-500" />
@@ -338,6 +367,49 @@ export function OnboardingPage() {
                         onChange={(event) => setForm((current) => ({ ...current, slug: event.target.value }))}
                      />
                   </AuthField>
+                  <fieldset className="space-y-2">
+                     <legend className="text-xs font-medium text-zinc-400">{fa.support.workspaceMode}</legend>
+                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                        {([
+                           {
+                              mode: 'TEAM' as const,
+                              label: fa.support.teamMode,
+                              description: fa.support.teamModeDescription,
+                              icon: UsersRound,
+                           },
+                           {
+                              mode: 'SUPPORT' as const,
+                              label: fa.support.supportMode,
+                              description: fa.support.supportModeDescription,
+                              icon: Headphones,
+                           },
+                        ]).map((option) => {
+                           const Icon = option.icon;
+                           const selected = form.mode === option.mode;
+                           return (
+                              <button
+                                 key={option.mode}
+                                 aria-pressed={selected}
+                                 className={cn(
+                                    'flex items-start gap-3 rounded-lg border px-3 py-3 text-start transition',
+                                    selected
+                                       ? 'border-indigo-400/45 bg-indigo-400/10 text-zinc-100'
+                                       : 'border-white/8 bg-white/[0.02] text-zinc-400 hover:bg-white/[0.05]'
+                                 )}
+                                 disabled={creating}
+                                 type="button"
+                                 onClick={() => setForm((current) => ({ ...current, mode: option.mode }))}
+                              >
+                                 <Icon className="mt-0.5 size-4 shrink-0" />
+                                 <span className="min-w-0">
+                                    <span className="block text-sm font-medium">{option.label}</span>
+                                    <span className="mt-1 block text-xs leading-5 text-zinc-500">{option.description}</span>
+                                 </span>
+                              </button>
+                           );
+                        })}
+                     </div>
+                  </fieldset>
                   <Button className="h-9 w-full bg-zinc-100 text-zinc-950 hover:bg-white" disabled={creating}>
                      {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                      ایجاد و ورود

@@ -22,6 +22,7 @@ import {
 } from './tasks';
 import { appendSyncEvent, publishSyncEvent } from './sync';
 import { logActivity } from './audit';
+import { assertTeamWorkspace } from './workspace-mode';
 
 type TriageAcceptInput = z.infer<typeof triageAcceptSchema>;
 type TriageRequestInfoInput = z.infer<typeof triageRequestInfoSchema>;
@@ -35,6 +36,7 @@ export function canTriageTaskStatus(status: string): boolean {
 }
 
 export async function acceptBacklogTask(actor: RequestActor, idOrKey: string, input: TriageAcceptInput) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const updated = await updateTask(actor, task.id, {
     status: 'TODO',
@@ -57,6 +59,7 @@ export async function acceptBacklogTask(actor: RequestActor, idOrKey: string, in
 }
 
 export async function requestBacklogTaskInfo(actor: RequestActor, idOrKey: string, input: TriageRequestInfoInput) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const requestedInfo = input.comment.trim();
   await prisma.taskTriageState.upsert({
@@ -83,6 +86,7 @@ export async function requestBacklogTaskInfo(actor: RequestActor, idOrKey: strin
 }
 
 export async function snoozeBacklogTask(actor: RequestActor, idOrKey: string, input: TriageSnoozeInput, now = new Date()) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const snoozedUntil = new Date(input.snoozedUntil);
   if (Number.isNaN(snoozedUntil.getTime())) throw new HttpError(400, 'Invalid snooze date');
@@ -118,6 +122,7 @@ export async function snoozeBacklogTask(actor: RequestActor, idOrKey: string, in
 }
 
 export async function declineBacklogTask(actor: RequestActor, idOrKey: string, input: TriageDeclineInput) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const updated = await updateTask(actor, task.id, { status: 'CANCELED' });
   await addTaskComment(actor, updated.id, `تصمیم تریاژ: کار رد شد.\nعلت: ${input.reason.trim()}`, actor.source as TaskSource);
@@ -125,6 +130,7 @@ export async function declineBacklogTask(actor: RequestActor, idOrKey: string, i
 }
 
 export async function markBacklogTaskDuplicate(actor: RequestActor, idOrKey: string, input: TriageDuplicateInput) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const access = await resolveWorkspaceAccess(actor);
   const canonicalTask = await findTaskByIdOrKey(actor.workspace.id, input.canonicalTaskIdOrKey, access);
@@ -143,6 +149,7 @@ export async function markBacklogTaskDuplicate(actor: RequestActor, idOrKey: str
 }
 
 export async function splitBacklogTask(actor: RequestActor, idOrKey: string, input: TriageSplitInput) {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireBacklogTask(actor, idOrKey);
   const createdTasks: Array<Awaited<ReturnType<typeof fetchTaskForTriageResponse>>> = [];
   let canceledTask: Awaited<ReturnType<typeof fetchTaskForTriageResponse>> | null = null;

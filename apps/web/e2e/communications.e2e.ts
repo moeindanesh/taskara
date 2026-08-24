@@ -178,9 +178,11 @@ test.describe('communications merged UX', () => {
   test('command menu opens merged destination', async ({ page }) => {
     await setupCommunicationsPage(page);
     await gotoApp(page, `/${workspaceSlug}/team/all/all`);
+    await expect(page.getByRole('heading', { name: 'کارهای من' })).toBeVisible();
 
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
     const command = page.getByRole('dialog', { name: 'منوی فرمان' });
+    await expect(command).toBeVisible();
     const search = command.getByRole('combobox');
     await search.fill('اعلان‌ها');
     await expect(command.getByRole('option', { name: /اعلان‌ها/ }).first()).toBeVisible();
@@ -242,6 +244,7 @@ async function setupCommunicationsPage(page: Page) {
     if (path === '/knowledge/spaces') return json(route, []);
     if (path === '/knowledge/references') return json(route, []);
     if (path === '/knowledge/pages') return json(route, pageResult([]));
+    if (path === '/knowledge/search') return json(route, pageResult([]));
     if (path === '/tasks') return json(route, pageResult(meeting.tasks.map((link) => link.task), Number(query.get('limit') || 1)));
 
     if (path === '/announcements') {

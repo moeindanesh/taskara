@@ -18,17 +18,27 @@ import {
   verifyPassword
 } from '../services/auth';
 import { HttpError } from '../services/http';
+import { workspaceCapabilities, workspacePermissions } from '../services/workspace-mode';
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/onboarding', async (request) => {
     const user = await requireSessionUser(request).catch(() => null);
-    if (!user) return { needsOnboarding: false, workspace: null, workspaces: [] };
+    if (!user) return {
+      needsOnboarding: false,
+      workspace: null,
+      workspaces: [],
+      capabilities: [],
+      permissions: []
+    };
 
     const memberships = await listUserWorkspaceMemberships(user.id);
+    const first = memberships[0] ?? null;
     return {
       needsOnboarding: memberships.length === 0,
-      workspace: memberships[0]?.workspace ?? null,
-      workspaces: memberships
+      workspace: first?.workspace ?? null,
+      workspaces: memberships,
+      capabilities: first?.capabilities ?? [],
+      permissions: first?.permissions ?? []
     };
   });
 
@@ -122,6 +132,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         include: { workspace: true }
       });
       if (membership) {
+        if (existing.mode !== input.mode) {
+          throw new HttpError(409, 'Workspace mode cannot be changed after creation');
+        }
         const session = await createUserSession(user.id);
         return reply.send(await authResponse({ user, membership }, session));
       }
@@ -133,7 +146,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         data: {
           name: input.name,
           slug: input.slug,
-          description: input.description
+          description: input.description,
+          mode: input.mode
         }
       });
 
@@ -162,7 +176,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         data: {
           name: input.name,
           slug: input.slug,
-          description: input.description
+          description: input.description,
+          mode: input.mode
         }
       });
 
@@ -183,6 +198,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/invites/:token', async (request) => {
     const { token } = request.params as { token: string };
     const invite = await getUsableInvite(token);
+    const capabilities = workspaceCapabilities(invite.workspace.mode);
+    const permissions = workspacePermissions(invite.workspace.mode, invite.role);
 
     return {
       id: invite.id,
@@ -194,8 +211,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       workspace: {
         id: invite.workspace.id,
         name: invite.workspace.name,
-        slug: invite.workspace.slug
-      }
+        slug: invite.workspace.slug,
+        mode: invite.workspace.mode,
+        capabilities
+      },
+      capabilities,
+      permissions
     };
   });
 
@@ -293,18 +314,25 @@ async function listUserWorkspaceMemberships(userId: string) {
           id: true,
           name: true,
           slug: true,
-          description: true
+          description: true,
+          mode: true
         }
       }
     }
   });
 
-  return memberships.map((membership) => ({
-    membershipId: membership.id,
-    role: membership.role,
-    joinedAt: membership.createdAt,
-    workspace: membership.workspace
-  }));
+  return memberships.map((membership) => {
+    const capabilities = workspaceCapabilities(membership.workspace.mode);
+    const permissions = workspacePermissions(membership.workspace.mode, membership.role);
+    return {
+      membershipId: membership.id,
+      role: membership.role,
+      joinedAt: membership.createdAt,
+      workspace: { ...membership.workspace, capabilities },
+      capabilities,
+      permissions
+    };
+  });
 }
 
 async function getUsableInvite(token: string) {
@@ -354,6 +382,10 @@ async function authResponse(
   session: Awaited<ReturnType<typeof createUserSession>>
 ) {
   const workspace = result.membership?.workspace ?? null;
+  const capabilities = workspace ? workspaceCapabilities(workspace.mode) : [];
+  const permissions = workspace && result.membership
+    ? workspacePermissions(workspace.mode, result.membership.role)
+    : [];
   return {
     token: session.token,
     expiresAt: session.session.expiresAt,
@@ -362,10 +394,14 @@ async function authResponse(
           id: workspace.id,
           name: workspace.name,
           slug: workspace.slug,
-          description: workspace.description
+          description: workspace.description,
+          mode: workspace.mode,
+          capabilities
         }
       : null,
     user: pickPublicUser(result.user),
-    role: result.membership?.role ?? null
+    role: result.membership?.role ?? null,
+    capabilities,
+    permissions
   };
 }

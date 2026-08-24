@@ -281,6 +281,7 @@ describe('task mention notifications', () => {
     // and the branch below was dead code.
     expect(where.OR).toContainEqual({
       taskId: null,
+      supportCaseId: null,
       announcementId: null,
       meetingId: null,
       knowledgePageId: null

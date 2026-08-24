@@ -4,6 +4,7 @@ import type { RequestActor } from './actor';
 import { logActivity } from './audit';
 import { HttpError } from './http';
 import { sendMessageSimple } from './sms';
+import { assertTeamWorkspace } from './workspace-mode';
 
 const taskPrioritySmsLabels: Record<TaskPriority, string> = {
   NO_PRIORITY: 'بدون اولویت',
@@ -23,6 +24,7 @@ type TaskSmsMessageTask = {
 };
 
 export async function sendTaskCreatedSms(actor: RequestActor, taskId: string): Promise<{ sent: true; receptor: string }> {
+  assertTeamWorkspace(actor.workspace);
   const task = await prisma.task.findFirst({
     where: { id: taskId, workspaceId: actor.workspace.id },
     select: {
@@ -69,6 +71,7 @@ export async function sendTaskCreatedSms(actor: RequestActor, taskId: string): P
 }
 
 export async function sendTaskFollowUpSms(actor: RequestActor, taskId: string): Promise<{ sent: true; receptor: string }> {
+  assertTeamWorkspace(actor.workspace);
   const task = await prisma.task.findFirst({
     where: { id: taskId, workspaceId: actor.workspace.id },
     select: {

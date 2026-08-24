@@ -128,6 +128,18 @@ describe('daily report reminders', () => {
     expect(remindedIds).not.toContain(fixture.guest);
     expect(remindedIds).not.toContain(fixture.agent);
   });
+
+  test('does not notify or SMS members of Support workspaces', async () => {
+    const fixture = await createWorkspace('SUPPORT');
+    const today = workspaceDateKey();
+
+    await sendDailyReportReminders(today);
+
+    expect(await prisma.notification.count({
+      where: { workspaceId: fixture.workspaceId, type: 'daily_report_reminder' }
+    })).toBe(0);
+    expect(await prisma.smsDelivery.count({ where: { workspaceId: fixture.workspaceId } })).toBe(0);
+  });
 });
 
 describe('digest ready notification', () => {
@@ -175,12 +187,33 @@ describe('digest ready notification', () => {
     expect(notifications[0].body).toContain('۱');
     expect(notifications[0].body).not.toContain('۳');
   });
+
+  test('ignores legacy report rows in Support workspaces', async () => {
+    const fixture = await createWorkspace('SUPPORT');
+    const today = workspaceDateKey();
+    const yesterday = shiftDateKey(today, -1);
+
+    await prisma.checkInResponse.create({
+      data: {
+        workspaceId: fixture.workspaceId,
+        userId: fixture.filed,
+        dateKey: yesterday,
+        completedText: 'legacy support row'
+      }
+    });
+
+    await notifyDigestReady(today);
+
+    expect(await prisma.notification.count({
+      where: { workspaceId: fixture.workspaceId, type: 'daily_report_digest_ready' }
+    })).toBe(0);
+  });
 });
 
-async function createWorkspace() {
+async function createWorkspace(mode: 'TEAM' | 'SUPPORT' = 'TEAM') {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const workspace = await prisma.workspace.create({
-    data: { name: `Jobs ${suffix}`, slug: `jobs-${suffix}`.replace(/[^a-z0-9-]/g, '-').slice(0, 60) },
+    data: { name: `Jobs ${suffix}`, slug: `jobs-${suffix}`.replace(/[^a-z0-9-]/g, '-').slice(0, 60), mode },
     select: { id: true }
   });
   cleanupWorkspaceIds.push(workspace.id);

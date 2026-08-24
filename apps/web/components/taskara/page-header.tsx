@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
-import { useAuthSession } from '@/store/auth-store';
+import { defaultWorkspacePath, workspaceRouteById, workspaceRouteIsAvailable } from '@/lib/workspace-navigation';
+import { useWorkspaceNavigationRuntime } from '@/lib/workspace-runtime';
 import { Bell, ChevronRight, Filter, SlidersHorizontal } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -30,13 +31,16 @@ export function PageHeader({
 }: PageHeaderProps) {
    const navigate = useNavigate();
    const location = useLocation();
-   const { session } = useAuthSession();
+   const navigationRuntime = useWorkspaceNavigationRuntime();
    const [openMenu, setOpenMenu] = useState<'display' | 'filters' | null>(null);
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
    const isKnowledgeRoute = pathParts[1] === 'wiki';
-   const isManager = session?.role === 'OWNER' || session?.role === 'ADMIN';
-   const appHome = isManager ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
+   const appHome = defaultWorkspacePath(orgId, navigationRuntime);
+   const inboxRoute = workspaceRouteById('inbox');
+   const inboxHref = inboxRoute && workspaceRouteIsAvailable(inboxRoute, navigationRuntime)
+      ? inboxRoute.path(orgId, navigationRuntime)
+      : null;
 
    useEffect(() => {
       const handleMenuState = (event: Event) => {
@@ -97,7 +101,10 @@ export function PageHeader({
                ) : (
                   <Tooltip>
                      <TooltipTrigger asChild>
-                        <SidebarTrigger className="text-zinc-500 hover:text-zinc-100" />
+                  <SidebarTrigger
+                     aria-label="باز و بسته کردن منوی کناری"
+                     className="text-zinc-500 hover:text-zinc-100"
+                  />
                      </TooltipTrigger>
                      <TooltipContent>منوی کناری</TooltipContent>
                   </Tooltip>
@@ -151,7 +158,7 @@ export function PageHeader({
                      </Tooltip>
                   </>
                ) : null}
-               <div className="ms-auto flex items-center gap-1.5">
+               {inboxHref ? <div className="ms-auto flex items-center gap-1.5">
                   <Tooltip>
                      <TooltipTrigger asChild>
                         <Button
@@ -159,14 +166,14 @@ export function PageHeader({
                            size="icon"
                            variant="ghost"
                            className="size-8 rounded-full text-zinc-500 hover:text-zinc-100"
-                           onClick={() => navigate(`/${orgId}/inbox`)}
+                           onClick={() => navigate(inboxHref)}
                         >
                            <Bell className="size-4" />
                         </Button>
                      </TooltipTrigger>
                      <TooltipContent>{fa.nav.inbox}</TooltipContent>
                   </Tooltip>
-               </div>
+               </div> : null}
             </div>
          </div>
          {description ? <p className={cn('text-sm text-muted-foreground', compact ? 'sr-only' : 'mt-2')}>{description}</p> : null}

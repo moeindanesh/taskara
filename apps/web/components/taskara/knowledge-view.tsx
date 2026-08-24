@@ -48,6 +48,7 @@ import type {
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
+import { useWorkspaceRuntime } from '@/lib/workspace-runtime';
 
 type SpaceForm = {
    name: string;
@@ -87,6 +88,7 @@ export function KnowledgeView() {
    const navigate = useNavigate();
    const { orgId, spaceKey, pageId } = useParams();
    const workspaceSlug = orgId || 'taskara';
+   const runtime = useWorkspaceRuntime();
    const knowledgeSync = useWorkspaceKnowledgeSync();
    const {
       commentsByPageId,
@@ -868,8 +870,8 @@ export function KnowledgeView() {
                         </SelectTrigger>
                         <SelectContent className="border-border bg-popover text-popover-foreground">
                            <SelectItem value="WORKSPACE">{fa.knowledge.workspaceSpace}</SelectItem>
-                           <SelectItem value="TEAM">{fa.knowledge.teamSpace}</SelectItem>
-                           <SelectItem value="PROJECT">{fa.knowledge.projectSpace}</SelectItem>
+                           {runtime.mode === 'TEAM' ? <SelectItem value="TEAM">{fa.knowledge.teamSpace}</SelectItem> : null}
+                           {runtime.mode === 'TEAM' ? <SelectItem value="PROJECT">{fa.knowledge.projectSpace}</SelectItem> : null}
                         </SelectContent>
                      </Select>
                   </Field>

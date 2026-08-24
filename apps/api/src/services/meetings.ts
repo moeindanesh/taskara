@@ -12,6 +12,7 @@ import { isWorkspaceAdminRole } from './actor';
 import { attributedTo, type ActorAttribution } from './actor-provenance';
 import { logActivity } from './audit';
 import { HttpError } from './http';
+import { assertTeamWorkspace } from './workspace-mode';
 import { meetingProjectSelect, meetingTaskInclude, visibleMeeting } from './meeting-visibility';
 import { MEETING_ASSIGNED_NOTIFICATION_TYPE, meetingAssignedNotificationBody } from './notifications';
 import { sendMessageSimple } from './sms';
@@ -298,6 +299,7 @@ export async function updateMeeting(actor: RequestActor, meetingId: string, inpu
 }
 
 export async function createTasksFromMeeting(actor: RequestActor, meetingId: string, input: CreateMeetingTasksInput) {
+  assertTeamWorkspace(actor.workspace);
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, workspaceId: actor.workspace.id },
     include: meetingInclude
