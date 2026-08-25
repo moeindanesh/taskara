@@ -3,6 +3,7 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import { taskaraRequest } from '@/lib/taskara-client';
 import { dispatchWorkspaceRefresh, workspaceRefreshEvent } from '@/lib/live-refresh';
 import type { NotificationSyncResponse, NotificationsResponse, TaskaraNotification } from '@/lib/taskara-types';
+import { workspaceUserCacheKey, type WorkspaceCachePersistence } from '@/lib/workspace-cache';
 
 type InboxSnapshot = {
    cursor: string | null;
@@ -28,12 +29,16 @@ const InboxSyncContext = createContext<InboxSyncController | null>(null);
 
 export function WorkspaceInboxSyncProvider({
    children,
+   persistence = 'local',
+   userId,
    workspaceSlug,
 }: {
    children: ReactNode;
+   persistence?: WorkspaceCachePersistence;
+   userId: string;
    workspaceSlug: string;
 }) {
-   const controller = useInboxSync(workspaceSlug);
+   const controller = useInboxSync(workspaceSlug, userId, persistence);
    return createElement(InboxSyncContext.Provider, { value: controller }, children);
 }
 
@@ -43,8 +48,15 @@ export function useWorkspaceInboxSync(): InboxSyncController {
    return sync;
 }
 
-function useInboxSync(workspaceSlug: string) {
-   const cacheKey = useMemo(() => `${inboxCachePrefix}${workspaceSlug}`, [workspaceSlug]);
+function useInboxSync(
+   workspaceSlug: string,
+   userId: string,
+   persistence: WorkspaceCachePersistence
+) {
+   const cacheKey = useMemo(
+      () => workspaceUserCacheKey(inboxCachePrefix, workspaceSlug, userId, persistence),
+      [persistence, userId, workspaceSlug]
+   );
    const localReadMarkersRef = useRef(new Map<string, string>());
    const [state, setState] = useState<InboxSyncState>({
       cursor: null,
@@ -56,7 +68,7 @@ function useInboxSync(workspaceSlug: string) {
 
    const saveSnapshot = useCallback(
       (snapshot: Omit<InboxSnapshot, 'savedAt'>) => {
-         if (typeof window === 'undefined') return;
+         if (typeof window === 'undefined' || !cacheKey) return;
          try {
             window.localStorage.setItem(
                cacheKey,
@@ -135,9 +147,10 @@ function useInboxSync(workspaceSlug: string) {
    }, [refresh, saveSnapshot, state.cursor]);
 
    useEffect(() => {
+      localReadMarkersRef.current.clear();
       let restored = false;
       try {
-         const raw = typeof window === 'undefined' ? null : window.localStorage.getItem(cacheKey);
+         const raw = typeof window === 'undefined' || !cacheKey ? null : window.localStorage.getItem(cacheKey);
          const snapshot = raw ? JSON.parse(raw) : null;
          if (isInboxSnapshot(snapshot)) {
             restored = true;
@@ -154,7 +167,7 @@ function useInboxSync(workspaceSlug: string) {
       }
 
       if (!restored) {
-         setState((current) => ({ ...current, loading: true }));
+         setState({ cursor: null, items: [], loading: true, error: '', unreadCount: 0 });
       }
       void refresh();
    }, [cacheKey, refresh]);

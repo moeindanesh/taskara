@@ -4,13 +4,12 @@ import { prisma } from '@taskara/db';
 import { z } from 'zod';
 import { strictQueryBooleanSchema } from '@taskara/shared';
 import { getRequestActor } from '../services/actor';
-import { resolveWorkspaceAccess } from '../services/team-access';
 import {
   collapseInboxNotificationsByThread,
   encodeNotificationCursor,
+  inboxNotificationWhereForActor,
   inboxNotificationThreadScope,
-  parseNotificationCursor,
-  taskInboxNotificationWhere
+  parseNotificationCursor
 } from '../services/notifications';
 
 const notificationsQuerySchema = z.object({
@@ -30,6 +29,15 @@ const notificationDeliveredBodySchema = z.object({
 
 const notificationEntityInclude = {
   task: {
+    select: {
+      id: true,
+      key: true,
+      title: true,
+      status: true,
+      priority: true
+    }
+  },
+  supportCase: {
     select: {
       id: true,
       key: true,
@@ -69,10 +77,9 @@ const notificationEntityInclude = {
 export async function registerNotificationRoutes(app: FastifyInstance): Promise<void> {
   app.get('/notifications', async (request) => {
     const actor = await getRequestActor(request);
-    const access = await resolveWorkspaceAccess(actor);
     const query = notificationsQuerySchema.parse(request.query);
 
-    const where = taskInboxNotificationWhere(access, { unreadOnly: query.unread });
+    const where = await inboxNotificationWhereForActor(actor, { unreadOnly: query.unread });
 
     const threadRows = await prisma.notification.findMany({
       where,
@@ -82,6 +89,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         createdAt: true,
         readAt: true,
         taskId: true,
+        supportCaseId: true,
         announcementId: true,
         meetingId: true,
         knowledgePageId: true
@@ -100,7 +108,9 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
     const threadUnreadById = new Map(pagedThreads.map((thread) => [thread.latest.id, thread.hasUnread]));
     const pageRecords = await prisma.notification.findMany({
-      where: { id: { in: pageIds } },
+      // Re-apply the current entity gate at hydration time. Ownership may have changed between the
+      // thread query and this read; an id selected under the old scope is not a capability token.
+      where: { AND: [{ id: { in: pageIds } }, where] },
       include: notificationEntityInclude
     });
     const pageRecordById = new Map(pageRecords.map((record) => [record.id, record]));
@@ -116,10 +126,12 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.get('/notifications/sync', async (request) => {
     const actor = await getRequestActor(request);
-    const access = await resolveWorkspaceAccess(actor);
     const query = notificationsSyncQuerySchema.parse(request.query);
     const after = parseNotificationCursor(query.after);
-    const baseWhere = taskInboxNotificationWhere(access);
+    const [baseWhere, unreadWhere] = await Promise.all([
+      inboxNotificationWhereForActor(actor),
+      inboxNotificationWhereForActor(actor, { unreadOnly: true })
+    ]);
 
     const where: Prisma.NotificationWhereInput = after
       ? {
@@ -143,12 +155,13 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
         include: notificationEntityInclude
       }),
       prisma.notification.findMany({
-        where: taskInboxNotificationWhere(access, { unreadOnly: true }),
+        where: unreadWhere,
         select: {
           id: true,
           createdAt: true,
           readAt: true,
           taskId: true,
+          supportCaseId: true,
           announcementId: true,
           meetingId: true,
           knowledgePageId: true
@@ -167,13 +180,13 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.patch('/notifications/:id/read', async (request, reply) => {
     const actor = await getRequestActor(request);
-    const access = await resolveWorkspaceAccess(actor);
     const { id } = request.params as { id: string };
+    const notificationWhere = await inboxNotificationWhereForActor(actor);
 
     const existing = await prisma.notification.findFirst({
       where: {
         id,
-        ...taskInboxNotificationWhere(access)
+        ...notificationWhere
       }
     });
 
@@ -182,7 +195,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
     const readAt = existing.readAt ?? new Date();
     await prisma.notification.updateMany({
       where: {
-        ...taskInboxNotificationWhere(access),
+        ...notificationWhere,
         ...inboxNotificationThreadScope(existing),
         readAt: null
       },
@@ -207,8 +220,7 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.post('/notifications/read-all', async (request) => {
     const actor = await getRequestActor(request);
-    const access = await resolveWorkspaceAccess(actor);
-    const where = taskInboxNotificationWhere(access, { unreadOnly: true });
+    const where = await inboxNotificationWhereForActor(actor, { unreadOnly: true });
     const readAt = new Date();
     const [unreadAnnouncements, result] = await prisma.$transaction(async (tx) => {
       const unreadAnnouncements = await tx.notification.findMany({
@@ -242,14 +254,14 @@ export async function registerNotificationRoutes(app: FastifyInstance): Promise<
 
   app.post('/notifications/delivered', async (request) => {
     const actor = await getRequestActor(request);
-    const access = await resolveWorkspaceAccess(actor);
     const body = notificationDeliveredBodySchema.parse(request.body);
+    const notificationWhere = await inboxNotificationWhereForActor(actor);
 
     const result = await prisma.notification.updateMany({
       where: {
         id: { in: body.ids },
         deliveredAt: null,
-        ...taskInboxNotificationWhere(access)
+        ...notificationWhere
       },
       data: { deliveredAt: new Date() }
     });

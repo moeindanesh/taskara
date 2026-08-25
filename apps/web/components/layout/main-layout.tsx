@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppSidebar } from '@/components/layout/sidebar/app-sidebar';
+import { workspaceNavigationIcons } from '@/components/layout/workspace-navigation-icon';
 import {
    CommandDialog,
    CommandEmpty,
@@ -29,8 +30,13 @@ import { taskaraRequest } from '@/lib/taskara-client';
 import type { PaginatedResponse, TaskaraKnowledgePage, TaskaraMilestone, TaskaraTask, TaskaraView } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { selectCommandSearchItems, selectTasksAssignedToUser } from '@/lib/workspace-data/selectors';
-import { useAuthSession } from '@/store/auth-store';
-import { Activity, Bell, BookOpen, CalendarCheck2, ClipboardList, Diamond, FileText, FolderKanban, GitPullRequest, LayoutTemplate, ListChecks, ListTodo, Megaphone, NotebookPen, Plus, ScanEye, Search, Settings, SlidersHorizontal, Users, UsersRound } from 'lucide-react';
+import {
+   workspaceCommandEntries,
+   workspaceCommandIsDefault,
+   workspaceCreateAction,
+} from '@/lib/workspace-navigation';
+import { useWorkspaceNavigationRuntime } from '@/lib/workspace-runtime';
+import { Diamond, FileText, FolderKanban, LayoutTemplate, Plus, Search, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface MainLayoutProps {
@@ -64,6 +70,7 @@ type CommandAction = {
    icon: React.ComponentType<{ className?: string }>;
    shortcut?: string;
    run: () => void;
+   order: number;
 };
 
 const COMMAND_RESULT_LIMIT = 6;
@@ -114,7 +121,7 @@ function formatViewTarget(view: TaskaraView, teams: Array<{ id: string; slug: st
 export default function MainLayout({ children, header, headersNumber = 2, showSidebar = true }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { session } = useAuthSession();
+  const navigationRuntime = useWorkspaceNavigationRuntime();
   const taskSync = useWorkspaceTaskSync();
   const { milestones, tasks, projects, teams, users, views } = React.useMemo(
      () => selectCommandSearchItems(taskSync.workspaceData),
@@ -127,8 +134,6 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    const pathParts = location.pathname.split('/').filter(Boolean);
    const orgId = pathParts[0] || 'taskara';
    const routeKey = pathParts[1] || 'team';
-   const currentRole = session?.role;
-   const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
    const activeTeamSlug = pathParts[1] === 'team' && pathParts[2] !== 'all' ? pathParts[2] : null;
    const isProjectsRoute =
       location.pathname.endsWith('/projects') || (pathParts[1] === 'team' && pathParts[3] === 'projects');
@@ -144,9 +149,12 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
       return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
    }, []);
 
+   const createAction = workspaceCreateAction(navigationRuntime);
    const openCreateIssue = React.useCallback(() => {
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')), 0);
-   }, []);
+      if (createAction) {
+         window.setTimeout(() => window.dispatchEvent(new CustomEvent(createAction.eventName)), 0);
+      }
+   }, [createAction]);
 
    const openCreateProject = React.useCallback(() => {
       if (!isProjectsRoute) {
@@ -206,77 +214,34 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
    }, []);
 
    const commandActions = React.useMemo<CommandAction[]>(
-      () => [
-         {
-            id: 'go-cockpit',
-            label: fa.command.goCockpit,
-            description: fa.pages.cockpitDescription,
-            defaultVisible: isManager,
-            icon: ScanEye,
-            run: () => navigate(`/${orgId}/cockpit`),
-         },
-         {
+      () => {
+         const routeActions: CommandAction[] = workspaceCommandEntries(navigationRuntime).map((entry) => ({
+            id: entry.id,
+            label: entry.label,
+            description: entry.description,
+            defaultVisible: workspaceCommandIsDefault(entry.route, navigationRuntime),
+            icon: workspaceNavigationIcons[entry.icon],
+            order: entry.order,
+            run: () => navigate(entry.route.path(orgId, navigationRuntime)),
+         }));
+
+         return [
+         ...(createAction ? [{
             id: 'create-issue',
-            label: fa.command.createIssue,
-            description: fa.command.createIssueDescription,
+            label: createAction.label,
+            description: createAction.description,
             icon: Plus,
             shortcut: 'C / ز',
+            order: 20,
             run: openCreateIssue,
-         },
-         {
-            id: 'go-decision-queues',
-            label: fa.command.goDecisionQueues,
-            description: fa.pages.decisionQueuesDescription,
-            defaultVisible: false,
-            icon: ListChecks,
-            run: () => navigate(`/${orgId}/queues`),
-         },
-         {
-            id: 'go-people-workload',
-            label: fa.command.goPeopleWorkload,
-            description: fa.pages.peopleWorkloadDescription,
-            defaultVisible: false,
-            icon: Users,
-            run: () => navigate(`/${orgId}/people`),
-         },
-         {
-            id: 'go-daily-report',
-            label: fa.command.goDailyReport,
-            description: fa.pages.dailyReportDescription,
-            defaultVisible: false,
-            icon: NotebookPen,
-            run: () => navigate(`/${orgId}/today`),
-         },
-         {
-            id: 'go-daily-reports-digest',
-            label: fa.command.goDailyReportsDigest,
-            description: fa.pages.dailyReportsDigestDescription,
-            defaultVisible: false,
-            icon: ClipboardList,
-            run: () => navigate(`/${orgId}/daily-reports`),
-         },
-         {
-            id: 'go-projects',
-            label: fa.command.goProjects,
-            description: fa.pages.projectsDescription,
-            defaultVisible: false,
-            icon: FolderKanban,
-            run: () => navigate(`/${orgId}/projects`),
-         },
-         {
-            id: 'go-milestones',
-            label: fa.command.goMilestones,
-            description: fa.pages.milestonesDescription,
-            defaultVisible: true,
-            icon: Diamond,
-            run: () => navigate(`/${orgId}/milestones`),
-         },
+         }] : []),
          {
             id: 'create-milestone',
             label: fa.command.createMilestone,
             description: fa.command.createMilestoneDescription,
             defaultVisible: false,
             icon: Diamond,
+            order: 90,
             run: () => openMilestoneCreate({ navigateOnCreate: true }),
          },
          {
@@ -285,114 +250,13 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             description: fa.command.createProjectDescription,
             defaultVisible: false,
             icon: FolderKanban,
+            order: 100,
             run: openCreateProject,
          },
-         {
-            id: 'go-issues',
-            label: fa.command.goIssues,
-            description: fa.pages.issuesDescription,
-            defaultVisible: !isManager,
-            icon: ListTodo,
-            run: () => navigate(`/${orgId}/team/all/all`),
-         },
-         {
-            id: 'go-all-tasks',
-            label: fa.command.goAllTasks,
-            description: fa.pages.allTasksDescription,
-            defaultVisible: false,
-            icon: ListTodo,
-            run: () => navigate(`/${orgId}/tasks`),
-         },
-         {
-            id: 'go-inbox',
-            label: fa.command.goInbox,
-            description: fa.pages.inboxDescription,
-            defaultVisible: false,
-            icon: Bell,
-            run: () => navigate(`/${orgId}/inbox`),
-         },
-         {
-            id: 'go-communications',
-            label: fa.nav.communications,
-            description: fa.pages.communicationsDescription,
-            defaultVisible: false,
-            icon: Megaphone,
-            run: () => navigate(`/${orgId}/communications`),
-         },
-         {
-            id: 'go-wiki',
-            label: fa.command.goWiki,
-            description: fa.pages.wikiDescription,
-            defaultVisible: false,
-            icon: BookOpen,
-            run: () => navigate(`/${orgId}/wiki`),
-         },
-         {
-            id: 'go-reviews',
-            label: fa.command.goReviews,
-            description: fa.pages.reviewsDescription,
-            defaultVisible: false,
-            icon: GitPullRequest,
-            run: () => navigate(`/${orgId}/reviews`),
-         },
-         {
-            id: 'go-capacity-settings',
-            label: fa.command.goCapacitySettings,
-            description: fa.pages.capacitySettingsDescription,
-            defaultVisible: false,
-            icon: SlidersHorizontal,
-            run: () => navigate(`/${orgId}/capacity`),
-         },
-         {
-            id: 'go-team-health',
-            label: fa.command.goTeamHealth,
-            description: fa.pages.teamHealthDescription,
-            defaultVisible: false,
-            icon: Activity,
-            run: () => navigate(`/${orgId}/team-health`),
-         },
-         {
-            id: 'go-heartbeat',
-            label: fa.command.goHeartbeat,
-            description: fa.pages.heartbeatDescription,
-            defaultVisible: false,
-            icon: Activity,
-            run: () => navigate(`/${orgId}/heartbeat`),
-         },
-         {
-            id: 'go-today-plan',
-            label: fa.command.goTodayPlan,
-            description: fa.pages.todayPlanDescription,
-            defaultVisible: false,
-            icon: CalendarCheck2,
-            run: () => navigate(`/${orgId}/heartbeat`),
-         },
-         {
-            id: 'go-members',
-            label: fa.command.goMembers,
-            description: fa.pages.membersDescription,
-            defaultVisible: false,
-            icon: Users,
-            run: () => navigate(`/${orgId}/members`),
-         },
-         {
-            id: 'go-teams',
-            label: fa.command.goTeams,
-            description: fa.pages.teamsDescription,
-            defaultVisible: false,
-            icon: UsersRound,
-            run: () => navigate(`/${orgId}/teams`),
-         },
-         {
-            id: 'go-settings',
-            label: fa.command.goSettings,
-            description: fa.pages.settingsDescription,
-            defaultVisible: false,
-            icon: Settings,
-            run: () => navigate(`/${orgId}/settings/profile`),
-         },
-      ],
-      [isManager, navigate, openCreateIssue, openCreateProject, orgId]
+         ...routeActions,
+      ].sort((left, right) => left.order - right.order);
+      },
+      [createAction, navigate, navigationRuntime, openCreateIssue, openCreateProject, orgId]
    );
 
    const normalizedCommandQuery = React.useMemo(

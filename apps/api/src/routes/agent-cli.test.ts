@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
+import {
+  lineBreakNotice,
+  readFileBody,
+  readInlineBody
+} from '../../../../plugins/taskara-agent/src/core/line-breaks';
 import { findMentionAttempts, mentionNotice } from '../../../../plugins/taskara-agent/src/core/mentions';
 
 /**
@@ -26,6 +31,8 @@ const neutralCwd = tmpdir();
 let app: FastifyInstance;
 let baseUrl: string;
 let fixture: Fixture;
+/** Every request the app has served, as `METHOD /path`. See the hook in `beforeAll`. */
+const requestLog: string[] = [];
 
 interface Fixture {
   workspaceSlug: string;
@@ -38,6 +45,21 @@ interface Fixture {
   idleEmail: string;
   idleName: string;
   idlePhone: string;
+  /**
+   * A member with **no** phone number, and the only assignee the SMS tests are allowed to use.
+   *
+   * `isSmsDryRun` in `apps/api/src/services/sms.ts` is `return false` above dead code, so the dry
+   * run that file appears to have is switched off; `bun test` runs from the repo root and Bun loads
+   * `.env` from the cwd, which hands this very process a live `SMS_KAVEH_KEY` and
+   * `SMS_KAVEH_SENDER`. The server under test is this process. So `if (!assignee.phone)` in
+   * `task-sms.ts` is the last thing standing between the suite and a real text message to a real
+   * handset, and this row is what makes that branch the one taken.
+   *
+   * Never reach for `idleEmail` in an SMS test. That row is created **with** `idlePhone`, it sits a
+   * few lines above this one, and it is the copy-paste that actually happens.
+   */
+  phonelessEmail: string;
+  phonelessName: string;
   /**
    * Two addresses the idle one is a substring of, one at each end, plus a mixed-case row.
    *
@@ -68,6 +90,15 @@ interface CliRun {
 describe('taskara CLI', () => {
   beforeAll(async () => {
     app = Fastify({ logger: false });
+    // Every request the CLI makes, in order. It observes and replaces nothing — there is no mocking
+    // anywhere under `apps/api/src` and this introduces none — but `task sms` has two routes whose
+    // only two reachable outcomes are byte-identical refusals, so without this a swap of the two
+    // would pass every assertion in the file. Registered **before** `registerApp`, because that
+    // function mounts every route through `app.register`, and a root hook added afterwards does not
+    // reach an encapsulated child.
+    app.addHook('onRequest', async (request) => {
+      requestLog.push(`${request.method} ${request.url}`);
+    });
     await registerApp(app);
     await app.listen({ host: '127.0.0.1', port: 0 });
     const address = app.server.address();
@@ -89,7 +120,8 @@ describe('taskara CLI', () => {
             fixture.suffixedEmail,
             fixture.shoutedEmail,
             fixture.outsiderEmail,
-            fixture.agentEmail
+            fixture.agentEmail,
+            fixture.phonelessEmail
           ]
         }
       }
@@ -866,6 +898,153 @@ describe('taskara CLI', () => {
   });
 
   /**
+   * Texting the assignee — every path that stops short of the network.
+   *
+   * **Nothing in this block may reach a green send, and that is not a gap left for later.** The
+   * server under test is this process; `bun test` runs from the repo root, so Bun has already loaded
+   * the repo's `.env` and `config.SMS_KAVEH_KEY` holds a live Kavenegar key. `isSmsDryRun` in
+   * `apps/api/src/services/sms.ts` returns `false` unconditionally, above a dead line that would
+   * have returned `true`. And the provider URL is built inline at the call site with no environment
+   * override, so there is nowhere to point it. A test that got as far as `sendMessageSimple` would
+   * put a real text on a real phone and bill a real account.
+   *
+   * So every assignee here is `phonelessEmail`, and the assertions stop at the guard above the
+   * provider. What that leaves uncovered is exit 0, the `{sent, receptor}` payload, the masking of
+   * the receptor, and the stderr note — reviewed, not tested. The 503/exit-7 branch is uncovered on
+   * purpose too: the sender check sits *below* the phone check, so the only task that reaches it is
+   * one whose assignee has a phone, which is precisely the arrangement that fires a real message the
+   * moment the unsetting fails to take. Buying one exit code by arming the suite is a bad trade.
+   */
+  describe('texting a task assignee', () => {
+    let phonelessTask: { id: string; key: string };
+
+    beforeAll(async () => {
+      // Asserted, not assumed. If somebody later gives this member a phone number, the whole block
+      // silently arms itself and every test below still passes — so the arming is what fails here.
+      const member = await prisma.user.findUnique({
+        where: { email: fixture.phonelessEmail },
+        select: { phone: true }
+      });
+      expect(member).not.toBeNull();
+      expect(member?.phone ?? null).toBeNull();
+
+      phonelessTask = await createTaskViaApi('Texting the unreachable');
+      const assigned = await run(['task', 'edit', phonelessTask.key, '--add-assignee', fixture.phonelessEmail]);
+      expect(assigned.code).toBe(0);
+    });
+
+    test('the verb is in the grammar, and the grammar names both messages', async () => {
+      const guessed = await run(['task', 'frobnicate']);
+      expect(guessed.code).toBe(1);
+      expect(guessed.stderr).toContain('sms');
+
+      const help = await run(['--help']);
+      expect(help.code).toBe(0);
+      expect(help.stdout).toContain('--about new-task|follow-up');
+    });
+
+    test('the shortest form of the command sends nothing at all', async () => {
+      // `taskara task sms CORE-12` is what a caller improvises, and there is no default for it to
+      // fall back on: the two messages ask for opposite things and neither can be unsent.
+      const before = requestLog.length;
+      const bare = await run(['task', 'sms', phonelessTask.key]);
+      expect(bare.code).toBe(1);
+      expect(bare.stderr).toContain('new-task');
+      expect(bare.stderr).toContain('follow-up');
+      expect(requestLog.slice(before)).toEqual([]);
+    });
+
+    test('a missing task reference is refused before the flag is even read', async () => {
+      const nothing = await run(['task', 'sms']);
+      expect(nothing.code).toBe(1);
+      expect(nothing.stderr).toContain('task sms needs a task key or id');
+    });
+
+    test('the flags that look plausible here are refused, not ignored', async () => {
+      // `--kind` still means WORK|EFFORT one verb over, `--body` is real markdown on the three verbs
+      // either side of this one, and `--yes` is the confirmation flag this surface deliberately does
+      // not have. A caller who types any of them believes something happened that did not.
+      for (const flag of [['--kind', 'WORK'], ['--body', 'any news?'], ['--yes']]) {
+        const before = requestLog.length;
+        const rejected = await run(['task', 'sms', phonelessTask.key, '--about', 'new-task', ...flag]);
+        expect({ flag: flag[0], code: rejected.code }).toEqual({ flag: flag[0], code: 1 });
+        expect(rejected.stderr).toContain(flag[0]);
+        // Safe by the fixture rather than by ordering: were `assertNoUnknown` ever moved below the
+        // request, this assertion is what would notice.
+        expect(requestLog.slice(before)).toEqual([]);
+      }
+    });
+
+    test('a message name that is not one of the two is a usage error', async () => {
+      const before = requestLog.length;
+      const wrong = await run(['task', 'sms', phonelessTask.key, '--about', 'reminder']);
+      expect(wrong.code).toBe(1);
+      expect(wrong.stderr).toContain('new-task, follow-up');
+      expect(requestLog.slice(before)).toEqual([]);
+    });
+
+    test('a task key nobody holds is 4, and the message is the server’s own', async () => {
+      const missing = await run(['task', 'sms', 'NOSUCH-999', '--about', 'new-task']);
+      expect(missing.code).toBe(4);
+      // Asserted rather than left at the code: a CLI that built a URL no route serves also gets a
+      // 404, but Fastify answers `Route POST:/tasks/… not found`, which does not say this.
+      expect(missing.json.error).toMatchObject({ message: 'Task not found' });
+    });
+
+    test('a task nobody holds is 6, because the assignee is the only audience there is', async () => {
+      const unassigned = await createTaskViaApi('Held by nobody');
+      const refused = await run(['task', 'sms', unassigned.key, '--about', 'new-task']);
+      expect(refused.code).toBe(6);
+      expect(refused.stderr).toContain('Task has no assignee');
+    });
+
+    test('an assignee with no phone number is 6, on both messages and by key or by id', async () => {
+      // The deepest point reachable without sending, and it proves the whole chain at once: the
+      // identity was accepted, the workspace scope matched, the key resolved to a real row, Fastify
+      // accepted the POST body, and the service ran to its last guard. The *message* matters as much
+      // as the code — a `body: undefined` regression makes Fastify refuse the request with its own
+      // 400, which is also exit 6.
+      for (const about of ['new-task', 'follow-up']) {
+        for (const reference of [phonelessTask.key, phonelessTask.id]) {
+          const refused = await run(['task', 'sms', reference, '--about', about]);
+          expect({ about, code: refused.code }).toEqual({ about, code: 6 });
+          expect(refused.stderr).toContain('Task assignee has no phone number');
+        }
+      }
+    });
+
+    test('an agent credential reaches the verb: these routes are not admin-gated', async () => {
+      // `getRequestActor` and `resolveWorkspaceAccess`, not `requireWorkspaceAdmin` — so an agent
+      // gets the same refusal a human gets, rather than a 403. If the policy is ever that an agent
+      // may not text a colleague, this is the test that should start failing.
+      const asAgent = await run(
+        ['task', 'sms', phonelessTask.key, '--about', 'follow-up'],
+        { TASKARA_AGENT_TOKEN: fixture.agentToken, TASKARA_USER_EMAIL: undefined }
+      );
+      expect(asAgent.code).toBe(6);
+      expect(asAgent.stderr).toContain('Task assignee has no phone number');
+    });
+
+    test('each message goes to its own endpoint, and neither costs a lookup first', async () => {
+      // The only assertion that can tell the two apart. Both reachable outcomes are byte-identical
+      // strings, so a copy-paste swap of the two routes is invisible to every other test here.
+      const beforeCreated = requestLog.length;
+      await run(['task', 'sms', phonelessTask.key, '--about', 'new-task']);
+      const created = requestLog.slice(beforeCreated);
+
+      const beforeFollowUp = requestLog.length;
+      await run(['task', 'sms', phonelessTask.key, '--about', 'follow-up']);
+      const followUp = requestLog.slice(beforeFollowUp);
+
+      expect(created).toEqual([`POST /tasks/${phonelessTask.key}/sms/task-created`]);
+      expect(followUp).toEqual([`POST /tasks/${phonelessTask.key}/sms/follow-up`]);
+      // One request each, which also pins that neither verb spends a `GET /tasks/KEY` resolving a
+      // key the route already takes — otherwise unobservable, since both answer 4 for an unknown one.
+      expect([created.length, followUp.length]).toEqual([1, 1]);
+    });
+  });
+
+  /**
    * Issue #53 — a mention is a web-editor affordance, and a markdown body carries none.
    *
    * The extractor on the server reads mention **nodes**, so a body written here notifies nobody
@@ -1068,6 +1247,156 @@ describe('taskara CLI', () => {
     });
   });
 
+  describe('a line break written as \\n', () => {
+    test('an inline body gets its breaks back, and a file body is never touched', () => {
+      // The shape that prompted this, copied from a Task an agent filed: Persian prose whose bold
+      // leads rendered as bold while the paragraph breaks between them reached the screen as a
+      // backslash and an n. The body is one line as far as argv is concerned, and it is not.
+      const filed = 'کاربر نباید انبارگردانیِ شعبه‌های دیگر را ببیند.\\n\\n**اهمیت:** فوری\\nددلاین: امروز';
+      const read = readInlineBody(filed);
+      expect(read.restored).toBe(3);
+      expect(read.text).toBe('کاربر نباید انبارگردانیِ شعبه‌های دیگر را ببیند.\n\n**اهمیت:** فوری\nددلاین: امروز');
+
+      expect(readInlineBody('line1\\nline2')).toEqual({ text: 'line1\nline2', restored: 1 });
+      // Written for a shell that would have eaten the CR too. Both halves go, or a stray `\r` is
+      // left visible on every line.
+      expect(readInlineBody('a\\r\\nb')).toEqual({ text: 'a\nb', restored: 1 });
+
+      // The same characters chosen deliberately, byte for byte. `--body-file` and stdin come here.
+      expect(readFileBody('line1\\nline2')).toEqual({ text: 'line1\\nline2', restored: 0 });
+    });
+
+    test('a body that is about an escape is not read as one', () => {
+      // The false positive worth the whole shape of the rule, and one this repo would write: a task
+      // filed *about* escape handling. Under backticks and under quotes, because a body reaches for
+      // whichever the writer had to hand.
+      expect(readInlineBody('fix `split(\'\\n\')` in parser.ts').restored).toBe(0);
+      expect(readInlineBody('Fix split(\'\\n\') and join("\\n") in parser.ts').restored).toBe(0);
+
+      // A backslash that begins anything else means the body speaks a language with more words than
+      // this one knows. Giving back half of them is worse than giving back none.
+      expect(readInlineBody('a\\nb\\tc').restored).toBe(0);
+      expect(readInlineBody('the pattern is \\d+\\.\\s and then\\nthe rest').restored).toBe(0);
+      // `C:\node` is the one path shape that collides head-on. A drive letter is exactly one letter,
+      // which is what keeps a Persian label and a colon out of the exclusion.
+      expect(readInlineBody('Copy C:\\node and C:\\newbuild to the host').restored).toBe(0);
+      expect(readInlineBody('اهمیت:\\nفوری').restored).toBe(1);
+
+      // A body that already has a line of its own was never flattened by argv, so what is left in
+      // it is its subject.
+      expect(readInlineBody('real\nbreak, and a \\n that is text').restored).toBe(0);
+
+      // The in-band way to insist. The doubled backslash is part of no break, so the whole body
+      // comes back exactly as written rather than half-read.
+      expect(readInlineBody('send \\\\n as the two characters').restored).toBe(0);
+    });
+
+    test('the editor’s own document is left alone, because a \\n in it is JSON’s', () => {
+      // The body class this rule could actually destroy. One column holds two formats
+      // (`CONTEXT.md`, «Body»), and the web's half is a JSON document on one line — a code block
+      // keeps its lines inside a single text node, so the break between them is spelled `\n` in the
+      // source. Decoding that leaves a string literal with a raw newline in it, and the document
+      // stops parsing: `syncEditorValue` falls through its catch to a plain-text load and every
+      // mention node in the body is gone.
+      const document = JSON.stringify({
+        root: {
+          type: 'root',
+          children: [{
+            type: 'code',
+            language: 'ts',
+            children: [{ type: 'text', version: 1, text: 'const a = 1;\nconst b = 2;' }]
+          }]
+        }
+      });
+      // The premise: one line as far as any of the cheap tests can see, and an escape in it.
+      expect(document).not.toContain('\n');
+      expect(document).toContain('\\n');
+
+      const read = readInlineBody(document);
+      expect(read.restored).toBe(0);
+      expect(read.text).toBe(document);
+      // The assertion that matters, and not string identity alone: the failure is silent in every
+      // reader, so what has to be true is that the document still loads.
+      expect(() => JSON.parse(read.text)).not.toThrow();
+    });
+
+    test('the notice counts what it did and names the way out', () => {
+      const reach = 'A body sent with --body-file - arrives exactly as written.';
+      expect(lineBreakNotice(readInlineBody('a\\nb'), reach)).toContain('One \\n was read as a line break');
+      expect(lineBreakNotice(readInlineBody('a\\nb\\nc'), reach)).toContain('2 \\n were read as line breaks');
+      expect(lineBreakNotice(readInlineBody('a\\nb'), reach)).toEndWith(reach);
+      // Silent when it changed nothing, so the line means what it says on the writes it appears on.
+      expect(lineBreakNotice(readInlineBody('ordinary prose'), reach)).toBeUndefined();
+      expect(lineBreakNotice(readFileBody('a\\nb'), reach)).toBeUndefined();
+      expect(lineBreakNotice(undefined, reach)).toBeUndefined();
+    });
+
+    test('task create stores the break and says it read one', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'A body written through argv',
+        '--body', 'The first paragraph.\\n\\nThe second one.'
+      ]);
+
+      expect(created.code).toBe(0);
+      expect(created.stderr).toContain('2 \\n were read as line breaks');
+      expect(created.stderr).toContain('--body-file -');
+
+      // The column is what the change is for: every reader downstream — the web editor, the inbox
+      // card, `task view` — sees a break because there is one, not because it guessed.
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: String(created.json.id) } });
+      expect(stored.description).toBe('The first paragraph.\n\nThe second one.');
+    });
+
+    test('a body with no escapes to read gets nothing said about it', async () => {
+      const created = await run([
+        'task', 'create', '--project', fixture.projectKeyPrefix,
+        '--title', 'An ordinary inline body',
+        '--body', 'One paragraph, said in one line.'
+      ]);
+
+      expect(created.code).toBe(0);
+      expect(created.stderr.trim()).toBe(`Created ${String(created.json.key)}`);
+    });
+
+    test('--body-file - is still the bytes it was given, escapes and all', async () => {
+      // The guarantee `--body-file` exists for, restated against the new rule: a map body quoting a
+      // `\n` in a code sample must arrive as those characters, because somebody chose them.
+      const body = '# Sample\n\n```ts\nconst lines = raw.split(\'\\n\');\n```\n';
+
+      const created = await run(
+        ['task', 'create', '--project', fixture.projectKeyPrefix, '--title', 'A body chosen byte by byte', '--body-file', '-'],
+        {},
+        body
+      );
+
+      expect(created.code).toBe(0);
+      expect(created.stderr.trim()).toBe(`Created ${String(created.json.key)}`);
+      const stored = await prisma.task.findUniqueOrThrow({ where: { id: String(created.json.id) } });
+      expect(stored.description).toBe(body);
+    });
+
+    test('task edit and task comment read a body the same way, because it is one rule', async () => {
+      const task = await createTaskViaApi('the other two writing verbs');
+
+      const edited = await run(['task', 'edit', task.key, '--body', 'Rewritten.\\nOn two lines.']);
+      expect(edited.code).toBe(0);
+      expect(edited.stderr).toContain('One \\n was read as a line break');
+
+      const commented = await run(['task', 'comment', task.key, '--body', 'First.\\nSecond.']);
+      expect(commented.code).toBe(0);
+      expect(commented.stderr).toContain('One \\n was read as a line break');
+
+      // A comment matters most of the three. `TaskComment.body` is plain text in every client
+      // (`docs/adr/0003`), so there is no renderer downstream to be generous about it: a backslash
+      // stored here is a backslash on every screen forever.
+      const stored = await prisma.taskComment.findFirstOrThrow({
+        where: { taskId: task.id }, orderBy: { createdAt: 'desc' }
+      });
+      expect(stored.body).toBe('First.\nSecond.');
+    });
+  });
+
   describe('identity', () => {
     test('the runtime is sent as itself, and the surface no longer claims to be CODEX', async () => {
       const created = await run(
@@ -1224,6 +1553,8 @@ async function createFixture(): Promise<Fixture> {
   const shoutedEmail = `CLI-Shouted-${suffix}@Example.Test`;
   const agentEmail = `cli-agent-${suffix}@example.test`;
   const outsiderEmail = `cli-outsider-${suffix}@example.test`;
+  const phonelessEmail = `cli-phoneless-${suffix}@example.test`;
+  const phonelessName = 'Sam Unreachable';
 
   const owner = await prisma.user.create({ data: { email: ownerEmail, name: 'CLI owner' } });
   const other = await prisma.user.create({ data: { email: otherEmail, name: otherName } });
@@ -1244,6 +1575,11 @@ async function createFixture(): Promise<Fixture> {
   const agent = await prisma.user.create({
     data: { email: agentEmail, name: 'Claude', kind: 'AGENT', operatorId: owner.id }
   });
+  // No `phone`, deliberately and permanently. See `Fixture.phonelessEmail`: this omission is the
+  // only thing keeping the SMS tests off the network.
+  const phoneless = await prisma.user.create({
+    data: { email: phonelessEmail, name: phonelessName }
+  });
   // Never given a membership below: a real row this workspace cannot reach.
   await prisma.user.create({ data: { email: outsiderEmail, name: 'Outsider' } });
   const workspace = await prisma.workspace.create({
@@ -1254,6 +1590,7 @@ async function createFixture(): Promise<Fixture> {
       { workspaceId: workspace.id, userId: owner.id, role: 'OWNER' },
       { workspaceId: workspace.id, userId: other.id, role: 'MEMBER' },
       { workspaceId: workspace.id, userId: shouted.id, role: 'MEMBER' },
+      { workspaceId: workspace.id, userId: phoneless.id, role: 'MEMBER' },
       // An ordinary MEMBER role rather than WorkspaceRole.AGENT: #20 settled that nothing may infer
       // agent-ness from the role, so the roster must mark this row from `kind` alone.
       { workspaceId: workspace.id, userId: agent.id, role: 'MEMBER' }
@@ -1298,6 +1635,8 @@ async function createFixture(): Promise<Fixture> {
     idleEmail,
     idleName,
     idlePhone,
+    phonelessEmail,
+    phonelessName,
     prefixedEmail,
     suffixedEmail,
     shoutedEmail,

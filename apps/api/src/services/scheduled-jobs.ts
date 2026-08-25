@@ -105,11 +105,14 @@ export async function sendDailyReportReminders(dateKey: string): Promise<Record<
     // Deliberately cross-workspace: the nudge runs for every workspace at once, and
     // measuredMemberWhere carries no workspace of its own.
     prisma.workspaceMember.findMany({
-      where: measuredMemberWhere,
+      where: { ...measuredMemberWhere, workspace: { mode: 'TEAM' } },
       select: { workspaceId: true, userId: true }
     }),
     // measured-people:allow — Who already filed, subtracted from a filtered roster; a stray row can only remove a nudge.
-    prisma.checkInResponse.findMany({ where: { dateKey }, select: { workspaceId: true, userId: true } })
+    prisma.checkInResponse.findMany({
+      where: { dateKey, workspace: { mode: 'TEAM' } },
+      select: { workspaceId: true, userId: true }
+    })
   ]);
 
   const filed = new Set(submitted.map((row) => `${row.workspaceId}:${row.userId}`));
@@ -186,12 +189,12 @@ export async function notifyDigestReady(dateKey: string): Promise<Record<string,
   const [admins, reports, measured] = await Promise.all([
     // measured-people:allow — Digest recipients (OWNER/ADMIN allow-list), not a counted set.
     prisma.workspaceMember.findMany({
-      where: { role: { in: ['OWNER', 'ADMIN'] } },
+      where: { role: { in: ['OWNER', 'ADMIN'] }, workspace: { mode: 'TEAM' } },
       select: { workspaceId: true, userId: true }
     }),
     // measured-people:allow — Raw report rows, intersected against the measured roster before anything is counted.
     prisma.checkInResponse.findMany({
-      where: { dateKey: previousDateKey },
+      where: { dateKey: previousDateKey, workspace: { mode: 'TEAM' } },
       select: { workspaceId: true, userId: true, blockersText: true, helpText: true }
     }),
     // The counted set has to match the population the digest itself reports on. A report row
@@ -199,7 +202,7 @@ export async function notifyDigestReady(dateKey: string): Promise<Record<string,
     // row inside one `where` across every workspace at once, so the two lists are intersected on
     // workspace-and-user here — the same idiom sendDailyReportReminders uses above.
     prisma.workspaceMember.findMany({
-      where: measuredMemberWhere,
+      where: { ...measuredMemberWhere, workspace: { mode: 'TEAM' } },
       select: { workspaceId: true, userId: true }
     })
   ]);

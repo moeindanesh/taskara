@@ -11,6 +11,11 @@ import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { DraggableBlockPlugin_EXPERIMENTAL } from '@lexical/react/LexicalDraggableBlockPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
+import {
+   $createHorizontalRuleNode,
+   $isHorizontalRuleNode,
+   HorizontalRuleNode,
+} from '@lexical/react/LexicalHorizontalRuleNode';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 import { ListPlugin } from '@lexical/react/LexicalListPlugin';
@@ -51,6 +56,9 @@ import {
    QUOTE,
    STRIKETHROUGH,
    UNORDERED_LIST,
+   type ElementTransformer,
+   type MultilineElementTransformer,
+   type Transformer,
 } from '@lexical/markdown';
 import {
    $createHeadingNode,
@@ -189,6 +197,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { markCachedAvatarImageFailed, useCachedAvatarImage } from '@/lib/avatar-cache';
+import { hasMarkdownFormatting } from '@/lib/markdown-body';
 import type { TaskaraUser } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 
@@ -296,9 +305,13 @@ const descriptionMarkdownTransformers = [
    HEADING,
    QUOTE,
    CODE,
+   // Before `UNORDERED_LIST`, which is the wider match: the first element transformer whose regexp
+   // matches a line wins, and `- [ ] item` is a bullet to that one. The reverse order turned every
+   // imported checklist into bullets reading `[ ] item`. Nothing types its way past this — the
+   // check-list pattern demands the `[ ]`, so a plain `- item` still reaches `UNORDERED_LIST`.
+   CHECK_LIST,
    UNORDERED_LIST,
    ORDERED_LIST,
-   CHECK_LIST,
    BOLD_STAR,
    BOLD_UNDERSCORE,
    ITALIC_STAR,
@@ -307,6 +320,113 @@ const descriptionMarkdownTransformers = [
    INLINE_CODE,
    LINK,
 ];
+
+/**
+ * `---` as the rule it is.
+ *
+ * A rule is the one construct in the set that needs a node Lexical does not ship in the base editor,
+ * and an imported body uses it the way a written document does — above a footer, between a summary
+ * and its detail. Left out, it is the single line of a rendered document that still shows its own
+ * syntax.
+ */
+const HORIZONTAL_RULE: ElementTransformer = {
+   dependencies: [HorizontalRuleNode],
+   export: (node) => ($isHorizontalRuleNode(node) ? '---' : null),
+   regExp: /^(?:---|\*\*\*|___)\s*$/,
+   replace: (parentNode, _children, _match, isImport) => {
+      const rule = $createHorizontalRuleNode();
+      if (isImport || parentNode.getNextSibling() != null) {
+         parentNode.replace(rule);
+      } else {
+         parentNode.insertBefore(rule);
+      }
+      rule.selectNext();
+   },
+   type: 'element',
+};
+
+/**
+ * A pipe table as a table.
+ *
+ * `@lexical/markdown` ships no table transformer, so a table in an imported body arrives as a run of
+ * paragraphs full of `|`. The parse is `parseMarkdownTable`, which the clipboard path already trusts
+ * — this only finds where the table starts and ends. Returning `null` hands the lines back to the
+ * ordinary paragraph import, so a run of pipes that is not a table (no divider row, one column) is
+ * still shown as the text it is rather than swallowed.
+ *
+ * Import only, and deliberately not in `descriptionMarkdownTransformers`: typing `|` in a document
+ * is not a request to build a table, and there is a toolbar button and a slash command for the one
+ * that is.
+ */
+const MARKDOWN_TABLE: MultilineElementTransformer = {
+   dependencies: [TableNode, TableRowNode, TableCellNode],
+   regExpStart: /^\s{0,3}\|.*\|\s*$/,
+   handleImportAfterStartMatch: ({ lines, rootNode, startLineIndex }) => {
+      let endLineIndex = startLineIndex;
+      while (endLineIndex + 1 < lines.length && isMarkdownTableRow(lines[endLineIndex + 1])) {
+         endLineIndex += 1;
+      }
+
+      const table = parseMarkdownTable(lines.slice(startLineIndex, endLineIndex + 1).join('\n'));
+      if (!table) return null;
+
+      const tableNode = createTableNodeWithText(table.rows, table.hasHeader);
+      rootNode.append(tableNode);
+      $formatTableCells(tableNode);
+      return [true, endLineIndex];
+   },
+   replace: () => false,
+   type: 'multiline-element',
+};
+
+/**
+ * The transformers a *stored* body is read with, which is the shortcut set plus the two constructs
+ * that only ever arrive whole. Typing behaviour is unchanged: `MarkdownShortcutPlugin` keeps the
+ * list above.
+ */
+const descriptionMarkdownImportTransformers: Transformer[] = [
+   MARKDOWN_TABLE,
+   HORIZONTAL_RULE,
+   ...descriptionMarkdownTransformers,
+];
+
+/**
+ * What a table cell may hold: the marks that live inside a line, and nothing that would restructure
+ * one. `parseMarkdownTable` splits a row into strings, so a cell arrives as the characters between
+ * two pipes — `` `client.ts:166` `` was reaching the screen with its backticks. Element transformers
+ * are deliberately absent; a cell reading `- one` is a cell, not a list.
+ */
+const tableCellMarkdownTransformers: Transformer[] = [
+   BOLD_STAR,
+   BOLD_UNDERSCORE,
+   ITALIC_STAR,
+   ITALIC_UNDERSCORE,
+   STRIKETHROUGH,
+   INLINE_CODE,
+   LINK,
+];
+
+/**
+ * Runs the inline marks over a table's cells, after the table is attached.
+ *
+ * Attached and not before, because the conversion moves the selection into whatever it writes into.
+ * Every caller is inside a document import, whose own last act is to put the selection back at the
+ * start of the document — so the move is spent. Building the cells this way before the table had a
+ * parent would leave the caret in one of them.
+ */
+function $formatTableCells(table: TableNode) {
+   for (const row of table.getChildren()) {
+      if (!$isElementNode(row)) continue;
+
+      for (const cell of row.getChildren()) {
+         if (!$isElementNode(cell)) continue;
+         const text = cell.getTextContent();
+         if (!text) continue;
+         $convertFromMarkdownString(text, tableCellMarkdownTransformers, cell);
+      }
+   }
+}
+
 const draggableBlockMenuClassName = 'taskara-description-block-drag-menu';
 const urlAutoLinkMatcher = createLinkMatcherWithRegExp(
    /((https?:\/\/|www\.)[^\s<>"']+)/i,
@@ -326,6 +446,8 @@ const editorTheme: EditorThemeClasses = {
       h2: 'taskara-editor-heading mb-2.5 mt-6 text-xl leading-8 text-zinc-100 first:mt-0',
       h3: 'taskara-editor-heading mb-2 mt-5 text-lg leading-7 text-zinc-100 first:mt-0',
    },
+   hr: 'my-6 h-px border-0 bg-white/12 first:mt-0 last:mb-0',
+   hrSelected: 'outline-none ring-1 ring-indigo-400/50',
    image: 'mx-1 inline-flex max-w-full align-middle',
    indent: 'lexical-indent',
    link: 'text-indigo-300 underline decoration-indigo-300/35 underline-offset-2 transition hover:text-indigo-200 hover:decoration-indigo-200/70',
@@ -1013,6 +1135,35 @@ function $setPlainTextValue(value: string) {
    if (root.getChildrenSize() === 0) root.append($createParagraphNode());
 }
 
+/**
+ * A stored body loaded as the document it is.
+ *
+ * Three formats reach this editor through one column. Its own serialised document is parsed by the
+ * caller; what is left splits in two, and until now both halves went to `$setPlainTextValue` — one
+ * paragraph per line, every character kept. That is right for prose and wrong for the half an agent
+ * writes, where it put `**مشکل:**` and `## Destination` on screen as characters.
+ * `hasMarkdownFormatting` is what tells the two apart, and the gate earns its place in both
+ * directions: the markdown loader is not a no-op on prose — it drops blank lines and joins adjacent
+ * ones — so a body with no markup has to keep reaching the screen exactly as it was typed.
+ *
+ * Blank lines separate blocks rather than becoming empty paragraphs, which is `shouldPreserveNewLines`
+ * left at its default. Preserving them would keep the full empty line of air between every paragraph
+ * that the plain-text loader produces, and that spacing is half of why an imported body looked wrong
+ * even before the syntax showed. Adjacent non-empty lines still keep their break; nothing reflows.
+ */
+function $setStoredValue(value: string) {
+   if (!hasMarkdownFormatting(value)) {
+      $setPlainTextValue(value);
+      return;
+   }
+
+   $convertFromMarkdownString(value, descriptionMarkdownImportTransformers);
+   // A document whose every line was consumed by a transformer can leave the root childless, and an
+   // empty root is a state the editor cannot place a cursor in.
+   const root = $getRoot();
+   if (root.getChildrenSize() === 0) root.append($createParagraphNode());
+}
+
 function serializeEditorState(editorState: EditorState) {
    let isEmpty = true;
    editorState.read(() => {
@@ -1038,7 +1189,7 @@ function syncEditorValue(editor: LexicalEditor, value: string) {
       }
    }
 
-   editor.update(() => $setPlainTextValue(value), { tag: externalSyncTag });
+   editor.update(() => $setStoredValue(value), { tag: externalSyncTag });
 }
 
 function DescriptionEditorBridge({
@@ -1050,6 +1201,14 @@ function DescriptionEditorBridge({
 }: Pick<DescriptionEditorProps, 'value' | 'onBlur' | 'onCancel' | 'onChange' | 'onFocus'>) {
    const [editor] = useLexicalComposerContext();
    const latestValueRef = useRef(value);
+   /**
+    * The body as the *caller* holds it: what arrived as `value`, or the last serialisation this
+    * editor reported on a blur. Never a serialisation produced on the way past — see the blur
+    * handler.
+    */
+   const storedValueRef = useRef(value);
+   /** The document as it stood when the box took focus, or null while it has none. */
+   const focusedStateRef = useRef<string | null>(null);
    const onBlurRef = useRef(onBlur);
    const onCancelRef = useRef(onCancel);
    const onChangeRef = useRef(onChange);
@@ -1065,6 +1224,7 @@ function DescriptionEditorBridge({
    useEffect(() => {
       if (value === latestValueRef.current) return;
       latestValueRef.current = value;
+      storedValueRef.current = value;
       syncEditorValue(editor, value);
    }, [editor, value]);
 
@@ -1082,6 +1242,7 @@ function DescriptionEditorBridge({
       return editor.registerCommand(
          FOCUS_COMMAND,
          () => {
+            focusedStateRef.current = serializeEditorState(editor.getEditorState());
             onFocusRef.current?.();
             return false;
          },
@@ -1094,7 +1255,29 @@ function DescriptionEditorBridge({
          BLUR_COMMAND,
          () => {
             const serializedValue = serializeEditorState(editor.getEditorState());
+            // A body that was only read goes back exactly as it arrived, never as this editor's
+            // serialisation of it. Blur fires on a click into the box and out again and the caller
+            // saves whatever it is handed, so serialising unconditionally meant *opening* a Task
+            // rewrote `description` into Lexical JSON — in the column the CLI, MCP and every agent
+            // read (`CONTEXT.md`, «Body»; `docs/adr/0003`). Now that markdown is parsed rather than
+            // carried through as characters, that write no longer even leaves the syntax behind to
+            // be recovered from. Reading is not editing, so reading writes nothing.
+            //
+            // The comparison is against the document as it stood at *focus*, not at load. Half a
+            // dozen plugins normalise on mount — a table gains its column widths, an autolink claims
+            // a bare URL — so a document is already several commits from its loaded state before
+            // anyone touches it, and every dirtiness signal Lexical offers says so. Nothing can
+            // change between focus and blur except through the person holding the caret.
+            const untouched =
+               focusedStateRef.current !== null && serializedValue === focusedStateRef.current;
+            focusedStateRef.current = null;
+            if (untouched) {
+               onBlurRef.current?.(storedValueRef.current);
+               return false;
+            }
+
             latestValueRef.current = serializedValue;
+            storedValueRef.current = serializedValue;
             onBlurRef.current?.(serializedValue);
             return false;
          },
@@ -1897,7 +2080,12 @@ function MarkdownPastePlugin(): null {
 
             event.preventDefault();
             editor.update(() => {
-               $convertFromMarkdownString(text, descriptionMarkdownTransformers, undefined, true);
+               $convertFromMarkdownString(
+                  text,
+                  descriptionMarkdownImportTransformers,
+                  undefined,
+                  true
+               );
             });
             return true;
          },
@@ -1912,27 +2100,21 @@ function isEditorEmptyForMarkdownImport() {
    return $isNodeEmpty($getRoot());
 }
 
+/**
+ * The signals are `hasMarkdownFormatting`, shared with the loader so that pasting a body and opening
+ * one recognise the same document. The two guards above it are the clipboard's own and stay here: a
+ * paste that is nothing but a table belongs to `MarkdownTablePastePlugin`, and a single line with no
+ * block-level markup is a snippet somebody is dropping into a sentence rather than a document to
+ * restructure the editor around.
+ */
 function shouldImportMarkdownPaste(input: string) {
    const text = input.trim();
-   if (text.length < 3) return false;
    if (parseMarkdownTable(text)) return false;
 
    const lines = text.split(/\r?\n/);
    if (lines.length < 2 && !/^\s{0,3}(#{1,6}|>|[-*+]\s|\d+\.\s|\[(?: |x)\]\s|```)/m.test(text)) return false;
 
-   const markdownSignals = [
-      /^\s{0,3}#{1,6}\s+\S/m,
-      /^\s{0,3}>\s+\S/m,
-      /^\s{0,3}(?:[-*+])\s+\S/m,
-      /^\s{0,3}\d+\.\s+\S/m,
-      /^\s{0,3}(?:[-*+]\s*)?\[(?: |x)\]\s+\S/im,
-      /^\s{0,3}```[\w-]*\s*$/m,
-      /\[[^\]\n]+]\((?:https?:\/\/|mailto:|\/|#)[^)]+\)/,
-      /(^|[^*])\*\*[^*\n][\s\S]*?[^*\n]\*\*/,
-      /(^|[^~])~~[^~\n][\s\S]*?[^~\n]~~/,
-   ];
-
-   return markdownSignals.some((pattern) => pattern.test(text));
+   return hasMarkdownFormatting(text);
 }
 
 function parseMarkdownTable(input: string): { hasHeader: boolean; rows: string[][] } | null {
@@ -1962,6 +2144,10 @@ function parseMarkdownTable(input: string): { hasHeader: boolean; rows: string[]
          return normalized;
       }),
    };
+}
+
+function isMarkdownTableRow(line: string): boolean {
+   return /^\s{0,3}\|.*\|\s*$/.test(line);
 }
 
 function isMarkdownTableSeparator(line: string): boolean {
@@ -3285,10 +3471,11 @@ export function DescriptionEditor({
             InlineFileNode,
             InlineUploadPlaceholderNode,
             MentionNode,
+            HorizontalRuleNode,
          ],
          editorState: isSerializedEditorValue(initialValueRef.current)
             ? initialValueRef.current
-            : () => $setPlainTextValue(initialValueRef.current),
+            : () => $setStoredValue(initialValueRef.current),
          onError(error) {
             throw error;
          },

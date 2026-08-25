@@ -19,6 +19,15 @@ import { registerNotificationRoutes } from './routes/notifications';
 import { registerProjectRoutes } from './routes/projects';
 import { registerRaycastRoutes } from './routes/raycast';
 import { registerSystemRoutes } from './routes/system';
+import { registerSupportRoutes } from './routes/support';
+import { registerSupportHandoffRoutes } from './routes/support-handoff';
+import { registerSupportIntakeAdminRoutes } from './routes/support-intake-admin';
+import { registerSupportIntakeRoutes } from './routes/support-intake';
+import { registerSupportOperationsRoutes } from './routes/support-operations';
+import { registerSupportQualityRoutes } from './routes/support-quality';
+import { registerSupportRoutingRoutes } from './routes/support-routing';
+import { registerSupportCollaborationRoutes } from './routes/support-collaboration';
+import { registerSupportEnablementRoutes } from './routes/support-enablement';
 import { registerSyncRoutes } from './routes/sync';
 import { registerTaskReviewRoutes } from './routes/task-reviews';
 import { registerTaskRoutes } from './routes/tasks';
@@ -28,9 +37,12 @@ import { registerUserRoutes } from './routes/users';
 import { registerViewRoutes } from './routes/views';
 import { registerWorkHealthRoutes } from './routes/work-health';
 import { resolveCorsOrigin } from './services/cors';
-import { errorMessage, statusCodeFromError } from './services/http';
+import { errorMessage, HttpError, statusCodeFromError } from './services/http';
 import { startScheduledJobs } from './services/scheduled-jobs';
 import { startSyncEventPoller } from './services/sync';
+import { startSupportIntakeWorker } from './services/support-intake';
+import { startSupportRecoveryWorker } from './services/support-recovery-evaluator';
+import { enforceWorkspaceRouteMode } from './services/workspace-mode-routes';
 
 export async function registerApp(app: FastifyInstance): Promise<void> {
   await app.register(cors, {
@@ -53,11 +65,25 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
     const message = errorMessage(error);
     const status = statusCodeFromError(error, message);
     app.log.error(error);
-    return reply.code(status).send({ message });
+    return reply.code(status).send({
+      message,
+      ...(error instanceof HttpError ? error.details : undefined)
+    });
   });
+
+  app.addHook('preHandler', enforceWorkspaceRouteMode);
 
   await app.register(registerAuthRoutes);
   await app.register(registerSystemRoutes);
+  await app.register(registerSupportRoutes);
+  await app.register(registerSupportHandoffRoutes);
+  await app.register(registerSupportIntakeRoutes);
+  await app.register(registerSupportIntakeAdminRoutes);
+  await app.register(registerSupportOperationsRoutes);
+  await app.register(registerSupportQualityRoutes);
+  await app.register(registerSupportRoutingRoutes);
+  await app.register(registerSupportCollaborationRoutes);
+  await app.register(registerSupportEnablementRoutes);
   await app.register(registerAnnouncementRoutes);
   await app.register(registerAssignmentRoutes);
   await app.register(registerAttentionRoutes);
@@ -84,4 +110,12 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
 
   startSyncEventPoller();
   startScheduledJobs();
+  const supportIntakeWorker = startSupportIntakeWorker();
+  const supportRecoveryWorker = startSupportRecoveryWorker();
+  app.addHook('onClose', async () => {
+    await Promise.all([
+      supportIntakeWorker.stop(),
+      supportRecoveryWorker.stop()
+    ]);
+  });
 }

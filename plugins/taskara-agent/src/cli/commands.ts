@@ -8,6 +8,7 @@ import {
 } from '@taskara/shared';
 import type { TaskaraClient } from '../core/client';
 import { TaskaraError, usageError } from '../core/errors';
+import { lineBreakNotice, type InlineBody } from '../core/line-breaks';
 import { mentionNotice, type MentionedBody } from '../core/mentions';
 import {
   addTaskBlocker,
@@ -24,11 +25,14 @@ import {
   resolveTaskId,
   resolveUserId,
   subscribeToTask,
+  taskSmsMessageNames,
+  taskSmsMessages,
   unsubscribeFromTask,
   updateTask,
   type CreateProjectInput,
   type CreateTaskInput,
   type TaskListFilters,
+  type TaskSmsMessage,
   type UpdateTaskInput,
   type UserListFilters
 } from '../core/operations';
@@ -52,6 +56,7 @@ const taskVerbs: Record<string, Handler> = {
   edit: taskEdit,
   claim: taskClaim,
   comment: taskComment,
+  sms: taskSms,
   close: taskClose,
   subscribe: taskSubscribe,
   unsubscribe: taskUnsubscribe
@@ -103,6 +108,8 @@ export const usage = `taskara <noun> <verb> [arguments]
                 [--base-version n]
   task claim    <key|id>
   task comment  <key|id> [--body <s> | --body-file <path|->]
+  task sms      <key|id> --about new-task|follow-up
+                # new-task = "you have a new task"; follow-up = "update the status"
   task close    <key|id> [--reason completed|canceled]
   task subscribe   <key|id>
   task unsubscribe <key|id>
@@ -122,10 +129,28 @@ description; nothing writes one into a comment, whose box in the web is plain te
 comment mention has no writer in any client. A body that looks like it tried is written as given,
 with a line on stderr naming who was not told.
 
+A line break cannot be written as \\n on a command line: --body is argv and no shell turns those two
+characters into a newline. An inline body is read the way it was meant — \\n becomes a break, and
+stderr says how many — unless the body already has a real break, a backslash in it begins anything
+else, the \\n sits in backticks or quotes, or the body is the web editor's own JSON document, whose
+\\n is JSON's. Double it (\\\\n) to send the characters. --body-file and stdin are sent as the bytes
+they are.
+
 "task unsubscribe" sticks: being mentioned or assigned again will not put you back on the list.
 "task subscribe" is how you undo it. Find either set with "task list --subscription watching|muted".
 An agent may unsubscribe — it changes nothing, since agents receive no notifications — but may not
 subscribe, and is told so rather than quietly succeeding.
+
+"task sms" texts the task's ASSIGNEE, and nobody else: there is no recipient to choose, and a task
+nobody holds exits 6. The words are Taskara's — composed server-side in Persian from the title, the
+priority, the task URL and your own name — so there is nothing to write here and no flag that writes
+it; a sentence of your own goes in "task comment". --about picks which of the two messages, is
+required, and has no default, because the two ask for opposite things and no exit code unsends a
+text. This is not the in-app notification "task subscribe" governs and does not obey one: somebody
+who muted the task still gets it. Exit 6 is the task having no assignee, or the assignee having no
+phone number on file — nothing gives an agent User one, so work handed to an agent lands there. A 7
+naming SMS_KAVEH_SENDER or SMS_KAVEH_KEY is the one 7 not worth retrying: nothing was sent, nothing
+will be, and a human has to set it.
 
 --base-version is the version that came back with the body you edited. A write the row has already
 moved past exits 5 instead of overwriting it, and the current row comes back on stdout. Required to
@@ -158,7 +183,7 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
   const input: CreateTaskInput = {
     projectId: await resolveProjectId(client, flags.require('project')),
     title: flags.require('title'),
-    description: body,
+    description: body?.text,
     kind: flags.oneOf('kind', taskKinds),
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
@@ -239,7 +264,7 @@ async function taskEdit(client: TaskaraClient, flags: Flags, positionals: string
   const body = await readBody(flags);
   const patch: UpdateTaskInput = {
     title: flags.get('title'),
-    description: body,
+    description: body?.text,
     status: flags.oneOf('status', taskStatuses),
     priority: flags.oneOf('priority', taskPriorities),
     dueAt: flags.get('due-at'),
@@ -304,10 +329,61 @@ async function taskComment(client: TaskaraClient, flags: Flags, positionals: str
   const key = requireTaskRef(positionals, 'task comment');
   const body = await readBody(flags);
   flags.assertNoUnknown();
-  if (!body?.trim()) throw usageError('task comment needs --body or --body-file');
+  if (!body?.text.trim()) throw usageError('task comment needs --body or --body-file');
 
-  const comment = await commentOnTask(client, key, body);
+  const comment = await commentOnTask(client, key, body.text);
   return { data: comment, note: noted(`Commented on ${key}`, body, 'comment') };
+}
+
+/** The outcome line, in terms of what the assignee will read rather than which route was called. */
+const smsNotes: Record<TaskSmsMessage, (key: string) => string> = {
+  'new-task': (key) => `Told ${key}'s assignee there is work waiting`,
+  'follow-up': (key) => `Asked ${key}'s assignee for a status update`
+};
+
+/**
+ * Text the assignee, in one of the two sentences the server knows.
+ *
+ * One verb with a selector, not two verbs. `task subscribe`/`task unsubscribe` earned their split by
+ * being the caller's own relationship to the task — two people hold different answers at once —
+ * and nothing like that is true here: these are one act with a variant, which is `task close
+ * --reason completed|canceled`.
+ *
+ * `--about` is **required and undefaulted**, which is the whole safety story on this surface. A
+ * default would let the shortest, most improvised form of the command — `taskara task sms CORE-12` —
+ * put Persian text on a colleague's phone that nobody chose and nothing unsends. `args.ts` names the
+ * failure a default would manufacture: "the command succeeds, reports success, and did not do what
+ * was asked".
+ *
+ * The flag is not `--kind`, `--reason`, `--message`, `--body` or `--text`. The first two already
+ * mean something else in this grammar, and a second meaning is the drift #25 was written to stop.
+ * The last three all promise that the caller writes the words, and the caller cannot — `--body` is
+ * real markdown on the three verbs either side of this one, so a model reaching for it here must be
+ * refused rather than left believing its sentence went out.
+ *
+ * The masked receptor goes to stdout and stays out of the note. `sent` is a constant, so `{sent:
+ * true}` alone is a tautology the caller cannot check against the person it meant; the note, though,
+ * is the line a session pastes into a summary or a task comment, and three digits of a colleague's
+ * phone number do not belong in a task comment.
+ */
+async function taskSms(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
+  const key = requireTaskRef(positionals, 'task sms');
+  const about = flags.oneOf('about', taskSmsMessageNames);
+  // Before the missing-flag check, so `--abuot follow-up` is answered with the flag it misspelled
+  // rather than with a lecture about the flag it believes it passed.
+  flags.assertNoUnknown();
+  if (!about) {
+    throw usageError(
+      'task sms needs --about new-task|follow-up. new-task says there is work waiting; follow-up '
+      + 'asks for a status update. There is no default: nothing unsends a text message.'
+    );
+  }
+
+  // The key is passed through unresolved, as `task view` and `task comment` do: the route takes
+  // `:idOrKey`. Both names are echoed back beside the receipt because the two routes answer
+  // byte-identically, so stdout alone could not otherwise say which sentence went out.
+  const receipt = await taskSmsMessages[about](client, key);
+  return { data: { task: key, about, ...receipt }, note: smsNotes[about](key) };
 }
 
 const closeReasons = { completed: 'DONE', canceled: 'CANCELED' } as const;
@@ -377,13 +453,14 @@ async function projectList(client: TaskaraClient, flags: Flags): Promise<Command
  * `project_create` still carries both for a human in conversation who holds the ids.
  */
 async function projectCreate(client: TaskaraClient, flags: Flags): Promise<CommandResult> {
+  const body = await readBody(flags);
   const input: CreateProjectInput = {
     name: flags.require('name'),
     // Sent as written. `createProjectSchema` trims and uppercases it, so `--key-prefix core` and
     // `--key-prefix CORE` are already the same request and a second normalisation here would only
     // be a copy of the server's rule that could drift from it.
     keyPrefix: flags.require('key-prefix'),
-    description: await readBody(flags)
+    description: body?.text
   };
 
   const parent = flags.get('parent');
@@ -391,7 +468,11 @@ async function projectCreate(client: TaskaraClient, flags: Flags): Promise<Comma
 
   flags.assertNoUnknown();
   const project = await createProject(client, dropUndefined(input));
-  return { data: projectSummary(project), note: `Created project ${project.keyPrefix}` };
+  // No mention notice: a project body addresses nobody, so `noted` would be answering a question
+  // this write does not raise. The line-break one is the same rule wherever a body is read.
+  const outcome = `Created project ${project.keyPrefix}`;
+  const notice = lineBreakNotice(body, LINE_BREAK_REACH);
+  return { data: projectSummary(project), note: notice ? `${outcome}\n${notice}` : outcome };
 }
 
 /**
@@ -495,20 +576,32 @@ function optionalUserId(client: TaskaraClient, ref: string | undefined): Promise
 /** How a shell caller actually reaches a person: an email on the flag, and the roster to find it. */
 const MENTION_REACH = 'Hand work over with task edit --add-assignee <email>; taskara user list finds the address.';
 
+/** The way out of the guess, for a caller that has a file route: stdin, which is byte-faithful. */
+const LINE_BREAK_REACH = 'A body sent with --body-file - arrives exactly as written.';
+
 /**
- * The outcome line, and the one thing the write did not do.
+ * The outcome line, and the two things the write did other than what it was told.
  *
  * A body that names people notifies none of them — a mention is a node, and this surface only ever
  * sends markdown (#53). The write still lands: the prose is what a human reads, and refusing to
  * store a sentence on the strength of a guess about it would leave the caller no way to write the
  * sentence at all. What it must not do is land in silence.
  *
+ * The line-break notice is there for the stronger version of the same rule. `readInlineBody` does
+ * not merely remark on the body, it changes it, and its last condition is a judgement call that a
+ * bare Windows path can lose — so the one thing that is not optional is saying so while the caller
+ * is still standing at the command line.
+ *
  * `into` is the body being written, because the two do not have the same explanation — a
  * description's mention has a writer and a comment's has none (#56). See `MentionedBody`.
  */
-function noted(outcome: string, body: string | undefined, into: MentionedBody): string {
-  const notice = mentionNotice(body, MENTION_REACH, into);
-  return notice ? `${outcome}\n${notice}` : outcome;
+function noted(outcome: string, body: InlineBody | undefined, into: MentionedBody): string {
+  const notices = [
+    lineBreakNotice(body, LINE_BREAK_REACH),
+    mentionNotice(body?.text, MENTION_REACH, into)
+  ].filter(Boolean);
+
+  return [outcome, ...notices].join('\n');
 }
 
 function dropUndefined<T extends object>(value: T): T {

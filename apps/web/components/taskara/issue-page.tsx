@@ -46,6 +46,7 @@ import {
    TaskTakeabilityProperty,
 } from '@/components/taskara/task-dependencies';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import { TeamTaskSupportLinks } from '@/components/taskara/team-task-support-links';
 import {
    LinearAvatar,
    NoAssigneeIcon,
@@ -1301,6 +1302,8 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                   />
                </div>
             </SidebarSection>
+
+            <TeamTaskSupportLinks taskKey={task.key} />
          </aside>
          <Dialog
             open={Boolean(pendingProjectId)}

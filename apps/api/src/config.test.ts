@@ -29,6 +29,10 @@ const flags = [
   // the one way to turn this on by accident.
   'TASKARA_SCHEDULED_JOBS_ENABLED',
   'TASKARA_DAILY_REPORT_SMS_ENABLED',
+  // Defaults on so an API process also drains durable Support intake receipts.
+  'TASKARA_SUPPORT_INTAKE_WORKER_ENABLED',
+  // Defaults on so SLA breaches and recovery signals do not depend on somebody opening a page.
+  'TASKARA_SUPPORT_RECOVERY_WORKER_ENABLED',
   // Defaults on, and closes an authentication path when off.
   'TASKARA_EMAIL_HEADER_AUTH'
 ] as const;
@@ -83,6 +87,8 @@ describe('environment flags read the word an operator wrote', () => {
     expect(parsed.success && parsed.data.TASKARA_EMAIL_HEADER_AUTH).toBe(true);
     expect(parsed.success && parsed.data.TASKARA_SCHEDULED_JOBS_ENABLED).toBe(false);
     expect(parsed.success && parsed.data.TASKARA_DAILY_REPORT_SMS_ENABLED).toBe(false);
+    expect(parsed.success && parsed.data.TASKARA_SUPPORT_INTAKE_WORKER_ENABLED).toBe(true);
+    expect(parsed.success && parsed.data.TASKARA_SUPPORT_RECOVERY_WORKER_ENABLED).toBe(true);
 
     const blank = parseEnv({ TASKARA_EMAIL_HEADER_AUTH: '', TASKARA_SCHEDULED_JOBS_ENABLED: '' });
     expect(blank.success && blank.data.TASKARA_EMAIL_HEADER_AUTH).toBe(true);

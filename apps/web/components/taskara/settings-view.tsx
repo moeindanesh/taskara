@@ -10,6 +10,7 @@ import {
    FolderKanban,
    ImageOff,
    GitMerge,
+   Link2,
    Loader2,
    Save,
    Type,
@@ -38,8 +39,11 @@ import { fa } from '@/lib/fa-copy';
 import { cn } from '@/lib/utils';
 import { getAuthSession, setAuthSession } from '@/store/auth-store';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
+import { defaultWorkspacePath } from '@/lib/workspace-navigation';
+import { useWorkspaceNavigationRuntime, useWorkspaceRuntime } from '@/lib/workspace-runtime';
+import { SupportWorkspaceConnectionsSettings } from '@/components/taskara/support-workspace-connections-settings';
 
-const settingsSections = ['profile', 'appearance', 'workspace', 'ai', 'members', 'teams', 'projects'] as const;
+const settingsSections = ['profile', 'appearance', 'workspace', 'connections', 'ai', 'members', 'teams', 'projects'] as const;
 type SettingsSection = (typeof settingsSections)[number];
 type SettingsIcon = ComponentType<{ className?: string }>;
 
@@ -96,6 +100,7 @@ function isSettingsSection(value?: string): value is SettingsSection {
 
 export function SettingsView() {
    const { orgId = 'taskara' } = useParams();
+   const runtime = useWorkspaceRuntime();
    const location = useLocation();
    const pathParts = location.pathname.split('/').filter(Boolean);
    const requestedSection = pathParts[2];
@@ -104,7 +109,11 @@ export function SettingsView() {
       return <Navigate replace to={`/${orgId}/settings/profile`} />;
    }
 
-   if (!isSettingsSection(requestedSection)) {
+   if (
+      !isSettingsSection(requestedSection) ||
+      (runtime.mode === 'SUPPORT' && ['ai', 'teams', 'projects'].includes(requestedSection)) ||
+      (requestedSection === 'connections' && runtime.role !== 'OWNER' && runtime.role !== 'ADMIN')
+   ) {
       return <Navigate replace to={`/${orgId}/settings/profile`} />;
    }
 
@@ -113,6 +122,7 @@ export function SettingsView() {
          {requestedSection === 'profile' ? <ProfileSettingsPage /> : null}
          {requestedSection === 'appearance' ? <AppearanceSettingsPage /> : null}
          {requestedSection === 'workspace' ? <WorkspaceAccessSettingsPage /> : null}
+         {requestedSection === 'connections' ? <WorkspaceConnectionsSettingsPage /> : null}
          {requestedSection === 'ai' ? <AiSettingsPage /> : null}
          {requestedSection === 'members' ? <EmbeddedExistingRoute><MembersView /></EmbeddedExistingRoute> : null}
          {requestedSection === 'teams' ? <EmbeddedExistingRoute><TeamsView /></EmbeddedExistingRoute> : null}
@@ -130,8 +140,9 @@ function SettingsChrome({
    children: ReactNode;
    orgId: string;
 }) {
-   const role = getAuthSession()?.role;
-   const appHome = role === 'OWNER' || role === 'ADMIN' ? `/${orgId}/cockpit` : `/${orgId}/team/all/all`;
+   const runtime = useWorkspaceRuntime();
+   const navigationRuntime = useWorkspaceNavigationRuntime();
+   const appHome = defaultWorkspacePath(orgId, navigationRuntime);
    const navGroups: Array<{ title: string; items: Array<{ title: string; to: string; icon: SettingsIcon; section: SettingsSection }> }> = [
       {
          title: 'تنظیمات فردی',
@@ -144,10 +155,19 @@ function SettingsChrome({
          title: 'مدیریت',
          items: [
             { title: 'فضای کاری', to: `/${orgId}/settings/workspace`, icon: Building2, section: 'workspace' },
-            { title: 'هوش مصنوعی', to: `/${orgId}/settings/ai`, icon: Bot, section: 'ai' },
+            ...(runtime.role === 'OWNER' || runtime.role === 'ADMIN'
+               ? [{ title: 'اتصال فضاها', to: `/${orgId}/settings/connections`, icon: Link2, section: 'connections' as const }]
+               : []),
+            ...(runtime.mode === 'TEAM'
+               ? [{ title: 'هوش مصنوعی', to: `/${orgId}/settings/ai`, icon: Bot, section: 'ai' as const }]
+               : []),
             { title: 'اعضا', to: `/${orgId}/settings/members`, icon: UsersRound, section: 'members' },
-            { title: 'تیم‌ها', to: `/${orgId}/settings/teams`, icon: UsersRound, section: 'teams' },
-            { title: 'پروژه‌ها', to: `/${orgId}/settings/projects`, icon: FolderKanban, section: 'projects' },
+            ...(runtime.mode === 'TEAM'
+               ? [
+                    { title: 'تیم‌ها', to: `/${orgId}/settings/teams`, icon: UsersRound, section: 'teams' as const },
+                    { title: 'پروژه‌ها', to: `/${orgId}/settings/projects`, icon: FolderKanban, section: 'projects' as const },
+                 ]
+               : []),
          ],
       },
    ];
@@ -195,6 +215,21 @@ function SettingsChrome({
          </aside>
 
          <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
+      </div>
+   );
+}
+
+function WorkspaceConnectionsSettingsPage() {
+   return (
+      <div className="mx-auto w-full max-w-[1180px] px-5 py-6 sm:px-7 lg:py-10">
+         <SettingsPageTitle title="اتصال فضاهای کاری" />
+         <div className="rounded-xl border border-white/8 bg-[#171719] p-4 text-zinc-100 sm:p-5">
+            <div className="mb-4">
+               <h2 className="text-sm font-medium">تحویل کنترل‌شده میان پشتیبانی و تیم</h2>
+               <p className="mt-1.5 max-w-3xl text-sm leading-7 text-zinc-500">فعال‌سازی به تأیید مدیر هر دو فضا نیاز دارد. اتصال به‌تنهایی مجوز دیدن یا تغییر پرونده و کار را نمی‌دهد.</p>
+            </div>
+            <SupportWorkspaceConnectionsSettings />
+         </div>
       </div>
    );
 }
@@ -386,6 +421,7 @@ function ProjectsSettingsPage() {
 }
 
 function ProfileSettingsPage() {
+   const runtime = useWorkspaceRuntime();
    const [me, setMe] = useState<TaskaraMe | null>(null);
    const [form, setForm] = useState(initialProfileForm);
    const [loading, setLoading] = useState(true);
@@ -405,7 +441,9 @@ function ProfileSettingsPage() {
          try {
             const [result, projectResult] = await Promise.all([
                taskaraRequest<TaskaraMe>('/me'),
-               taskaraRequest<TaskaraProject[]>('/projects'),
+               runtime.mode === 'TEAM'
+                  ? taskaraRequest<TaskaraProject[]>('/projects')
+                  : Promise.resolve([]),
             ]);
             if (cancelled) return;
 
@@ -428,7 +466,7 @@ function ProfileSettingsPage() {
       return () => {
          cancelled = true;
       };
-   }, []);
+   }, [runtime.mode]);
 
    async function handleDownloadTaskaraScript() {
       if (!selectedRaycastProjectId) {
@@ -626,7 +664,7 @@ function ProfileSettingsPage() {
                </SettingsField>
             </SettingsPanel>
 
-            <SettingsPanel title="اپ منوبار">
+            {runtime.mode === 'TEAM' ? <SettingsPanel title="اپ منوبار">
                <div className="space-y-3 px-4 py-4 text-sm text-zinc-300">
                   <p className="text-zinc-400">
                      نسخه macOS اپ منوبار را از صفحه ریلیز دانلود کنید.
@@ -639,9 +677,9 @@ function ProfileSettingsPage() {
                      </a>
                   </Button>
                </div>
-            </SettingsPanel>
+            </SettingsPanel> : null}
 
-            <SettingsPanel title="Raycast">
+            {runtime.mode === 'TEAM' ? <SettingsPanel title="Raycast">
                <SettingsField
                   label="پروژه پیش‌فرض"
                   description="این پروژه داخل فایل taskara.bash ذخیره می‌شود و تسک‌های ساخته‌شده از Raycast داخل همان پروژه ایجاد می‌شوند."
@@ -690,7 +728,7 @@ function ProfileSettingsPage() {
                      دانلود open-taskara.bash
                   </Button>
                </div>
-            </SettingsPanel>
+            </SettingsPanel> : null}
 
             <div className="flex justify-end">
                <Button

@@ -1,6 +1,7 @@
 import { prisma } from '@taskara/db';
 import type { RequestActor } from './actor';
 import { isNotifiable } from './notifications';
+import { assertTeamWorkspace } from './workspace-mode';
 
 /**
  * Watching a task, and deliberately not watching it — the two deliberate states, and the writes
@@ -63,6 +64,7 @@ export type TaskWatchState = 'watching' | 'muted' | 'none';
  * `?subscription=muted` must not find the answer contradicted.
  */
 export async function unsubscribeFromTask(actor: RequestActor, taskId: string): Promise<TaskWatchState> {
+  assertTeamWorkspace(actor.workspace);
   return prisma.$transaction(async (tx) => {
     await tx.taskSubscription.deleteMany({
       where: { workspaceId: actor.workspace.id, taskId, userId: actor.user.id }
@@ -91,6 +93,7 @@ export async function unsubscribeFromTask(actor: RequestActor, taskId: string): 
  * — quietly discarding a mute they never asked to lift.
  */
 export async function subscribeToTask(actor: RequestActor, taskId: string): Promise<TaskWatchState> {
+  assertTeamWorkspace(actor.workspace);
   await prisma.$transaction(async (tx) => {
     await tx.taskMute.deleteMany({ where: { taskId, userId: actor.user.id } });
     await tx.taskSubscription.createMany({
@@ -100,4 +103,3 @@ export async function subscribeToTask(actor: RequestActor, taskId: string): Prom
   });
   return 'watching';
 }
-

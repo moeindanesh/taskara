@@ -1,20 +1,78 @@
 # Taskara
 
-Agentic team task manager for a Persian-speaking (RTL, Jalali-calendar) team, backed by Postgres/Prisma, with Mattermost and agent integrations. One workspace holds the whole team; managers run the team from it.
+Agentic work manager for Persian-speaking (RTL, Jalali-calendar) teams and support operations,
+backed by Postgres/Prisma, with Mattermost and agent integrations. A Workspace is either a Team
+workspace for delivery work or a Support workspace for customer-facing service work.
 
 ## Language
 
 **Task**:
 A unit of work with a key (e.g. `CORE-123`), exactly one project, at most one assignee, an optional weight (1/2/3/4/8) and an optional due date. The web UI's `/issue/:taskKey` URLs are a naming leftover — the concept is Task.
-_Avoid_: Issue, ticket
+_Avoid_: Issue, ticket (when naming delivery work)
 
 **Effort**:
 A Task with `kind = EFFORT`: the root of a piece of exploratory work, holding its destination, notes and decisions, and owning its tickets as ordinary child Tasks. It is a real Task with a real key and a real URL, but it is not a unit of work — it carries no assignee, due date, weight, milestone or parent, and only ever sits in `IN_PROGRESS`, `DONE` or `CANCELED`. It lives in the project it concerns. No human is offered one as something to pick up, and no metric counts one. Everything else is `kind = WORK`.
 _Avoid_: Map (the agent skills' word for the same thing — the tracker doc carries the translation), epic
 
 **Workspace**:
-The top-level container for the whole team: members, teams, projects, and tasks. One team = one workspace; routing and API access are scoped by its slug.
+The tenant and authorization boundary selected by its slug. It has one Workspace Mode and contains
+either a team's projects and Tasks or a support operation's Departments and Support Cases, plus
+common members/settings. Switching workspaces switches the whole tenant and product profile.
 _Avoid_: Org, organization
+
+**Workspace Mode**:
+Exactly one of `TEAM` or `SUPPORT`, selected when the Workspace is created. It chooses one coherent
+capability profile, navigation shell and primary record; it is not an authorization role or a bag
+of independently toggled features. Existing Workspaces are `TEAM`. Mode is immutable after
+creation; any future conversion is an explicit data-migration workflow, never a normal update.
+_Avoid_: Feature flag, workspace role
+
+**Support Case** (پرونده پشتیبانی):
+A customer's incident, request, question or complaint and its full service lifecycle: requester,
+intake channel, interactions, current Department/member ownership, next action, SLA clocks and
+resolution. Its key is allocated within one Support Workspace (for example `SUP-123`). It is not a
+Task, and the legacy `/issue/:taskKey` route never addresses it.
+_Avoid_: Task; Issue or ticket in code and contracts
+
+**Department**:
+A responsibility group inside one Support Workspace. A Department owns Support Cases and may have
+approved destinations in Team Workspaces; it is not a Team. Ordinary membership grants no ambient
+Case visibility: a member reads only Cases assigned to their own membership, while a Department
+manager may dispatch and read the Department's Cases.
+_Avoid_: Team, project, group
+
+**Triage**:
+The access-scoped queue and decision flow for Support Cases in `NEW`, `OPEN`, or a waiting state
+that have no owning Department. `RESOLVED` and `CLOSED` Cases are historical/outcome work, not
+Triage. Only an explicit triager, Support supervisor, or Workspace owner/admin can read it. This is
+unrelated to `TaskTriageState` and the Team backlog-triage routes.
+_Avoid_: Unassigned status, inbox
+
+**Department Inbox**:
+The derived queue of Support Cases in `NEW`, `OPEN`, or a waiting state that are owned by a
+Department but not assigned to a member. Managers dispatch from it; ordinary Department members do
+not browse or claim it in v1. A resolved, unassigned Case remains history but is not dispatch work.
+_Avoid_: Status, Team inbox
+
+**Needs Attention**:
+An access-scoped projection of Support Cases with one or more reason-coded recovery signals: a due
+next action, SLA risk/breach, stale ownership, overdue callback or waiting state, reopened or
+unconfirmed/non-fixed resolution, or a troubled Team handoff. It is rebuilt from source facts and
+is never a Case status.
+_Avoid_: Stale status, overdue status
+
+**Case–Task Link**:
+The dual-approved, data-minimized relation between a Support Case and delivery Task in another Team
+Workspace. It publishes only sanitized snapshots and grants no source-record access. A Case never
+becomes a Task parent; “create subtask” creates a real Task child under an independently authorized
+Team Task.
+_Avoid_: Parent relation, conversion, shared record
+
+**nonClosed**:
+A Support Case whose lifecycle is anything except `CLOSED`. Ownership and deactivation rules use
+this shared lifecycle predicate, while an individual queue may narrow it further: Triage and
+Department Inbox exclude `RESOLVED`. It does not reuse **Unfinished**, whose `DONE | CANCELED`
+semantics belong to Tasks.
 
 **Today**:
 The current calendar day in the workspace timezone (Tehran), identified by a server-computed `dateKey` (`YYYY-MM-DD`). Clients never compute the day themselves.
