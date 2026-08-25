@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import MainLayout from '@/components/layout/main-layout';
-import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage } from '@/components/taskara/auth-pages';
+import { SupportMainLayout } from '@/components/layout/support-main-layout';
+import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage, destinationFor } from '@/components/taskara/auth-pages';
 import { CommunicationsView } from '@/components/taskara/communications-view';
 import { DailyReportView } from '@/components/taskara/daily-report-view';
 import { DailyReportsDigestView } from '@/components/taskara/daily-reports-digest-view';
@@ -24,137 +25,66 @@ import { TaskReportsView } from '@/components/taskara/task-reports-view';
 import { TeamHealthView } from '@/components/taskara/team-health-view';
 import { TeamOverviewView } from '@/components/taskara/team-overview/team-overview-view';
 import { TeamsView } from '@/components/taskara/teams-view';
-import { fa } from '@/lib/fa-copy';
+import { SupportNoAccessView, SupportSetupView } from '@/components/taskara/support-workspace-placeholder';
+import { SupportCaseQueueView } from '@/components/taskara/support-case-queue-view';
+import { SupportCaseDetailView } from '@/components/taskara/support-case-detail-view';
+import { SupportDepartmentsView } from '@/components/taskara/support-departments-view';
+import { SupportOperationsView } from '@/components/taskara/support-operations-view';
+import { SupportIntakeAdminView } from '@/components/taskara/support-intake-admin-view';
+import { SupportReportsView } from '@/components/taskara/support-reports-view';
+import { SupportRoutingView } from '@/components/taskara/support-routing-view';
+import { SupportSavedQueuesView } from '@/components/taskara/support-saved-queues-view';
+import { SupportMaturityView } from '@/components/taskara/support-maturity-view';
 import { WorkspaceInboxSyncProvider } from '@/lib/inbox-sync';
 import { WorkspaceKnowledgeSyncProvider } from '@/lib/knowledge-sync';
+import { SupportWorkspaceProvider } from '@/lib/support-workspace-provider';
 import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
+import {
+  defaultWorkspacePath,
+  workspacePathIsAvailable,
+  workspaceRouteForPath,
+} from '@/lib/workspace-navigation';
+import {
+  WorkspaceRuntimeBoundary,
+  useWorkspaceNavigationRuntime,
+  useWorkspaceRuntime,
+} from '@/lib/workspace-runtime';
 import { useAuthSession } from '@/store/auth-store';
-
-const pageMetaByRoute = {
-  overview: {
-    title: fa.nav.teamOverview,
-    description: fa.pages.teamOverviewDescription,
-  },
-  cockpit: {
-    title: fa.nav.cockpit,
-    description: fa.pages.cockpitDescription,
-  },
-  inbox: {
-    title: fa.nav.inbox,
-    description: fa.pages.inboxDescription,
-  },
-  queues: {
-    title: fa.nav.decisionQueues,
-    description: fa.pages.decisionQueuesDescription,
-  },
-  reviews: {
-    title: fa.nav.reviews,
-    description: fa.pages.reviewsDescription,
-  },
-  people: {
-    title: fa.nav.peopleWorkload,
-    description: fa.pages.peopleWorkloadDescription,
-  },
-  capacity: {
-    title: fa.nav.capacitySettings,
-    description: fa.pages.capacitySettingsDescription,
-  },
-  communications: {
-    title: fa.nav.communications,
-    description: fa.pages.communicationsDescription,
-  },
-  announcements: {
-    title: fa.nav.communications,
-    description: fa.pages.communicationsDescription,
-  },
-  meetings: {
-    title: fa.nav.communications,
-    description: fa.pages.communicationsDescription,
-  },
-  wiki: {
-    title: fa.nav.wiki,
-    description: fa.pages.wikiDescription,
-  },
-  tasks: {
-    title: fa.nav.allTasks,
-    description: fa.pages.allTasksDescription,
-  },
-  members: {
-    title: fa.nav.members,
-    description: fa.pages.membersDescription,
-  },
-  'team-health': {
-    title: fa.nav.teamHealth,
-    description: fa.pages.teamHealthDescription,
-  },
-  leaderboard: {
-    title: fa.nav.teamHealth,
-    description: fa.pages.teamHealthDescription,
-  },
-  heartbeat: {
-    title: fa.nav.heartbeat,
-    description: fa.pages.heartbeatDescription,
-  },
-  today: {
-    title: fa.nav.dailyReport,
-    description: fa.pages.dailyReportDescription,
-  },
-  'daily-reports': {
-    title: fa.nav.dailyReportsDigest,
-    description: fa.pages.dailyReportsDigestDescription,
-  },
-  projects: {
-    title: fa.nav.projects,
-    description: fa.pages.projectsDescription,
-  },
-  milestones: {
-    title: fa.nav.milestones,
-    description: fa.pages.milestonesDescription,
-  },
-  settings: {
-    title: fa.nav.settings,
-    description: fa.pages.settingsDescription,
-  },
-  reports: {
-    title: fa.nav.reports,
-    description: fa.pages.reportsDescription,
-  },
-  team: {
-    title: fa.nav.issues,
-    description: fa.pages.issuesDescription,
-  },
-  teams: {
-    title: fa.nav.teams,
-    description: fa.pages.teamsDescription,
-  },
-} as const;
+import { workspaceProviderPolicy } from '@/lib/workspace-mode';
 
 function WorkspaceShell() {
   const location = useLocation();
-  const pathParts = location.pathname.split('/').filter(Boolean);
-  const routeKey = pathParts[1] || 'team';
-  const isSettingsRoute = routeKey === 'settings';
-  const isKnowledgeRoute = routeKey === 'wiki';
-  const isTaskRoute = routeKey === 'tasks' || (routeKey === 'team' && pathParts[3] !== 'projects');
-  const pageMeta =
-    routeKey === 'team' && pathParts[3] === 'projects'
-      ? pageMetaByRoute.projects
-      : pageMetaByRoute[routeKey as keyof typeof pageMetaByRoute] || pageMetaByRoute.team;
+  const runtime = useWorkspaceRuntime();
+  const navigationRuntime = useWorkspaceNavigationRuntime();
+  const route = workspaceRouteForPath(location.pathname, runtime.workspaceSlug);
+  if (!route || !workspacePathIsAvailable(location.pathname, runtime.workspaceSlug, navigationRuntime)) {
+    return <Navigate replace to={defaultWorkspacePath(runtime.workspaceSlug, navigationRuntime)} />;
+  }
+
+  const isSettingsRoute = route.id === 'settings';
+  const isKnowledgeRoute = route.id === 'knowledge';
+  const isTaskRoute = route.id === 'all-tasks' || route.id === 'my-tasks';
   const header =
-    routeKey === 'issue' || routeKey === 'inbox' || routeKey === 'communications' || routeKey === 'announcements' || routeKey === 'meetings' || isSettingsRoute ? null : (
+    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute ? null : (
       <PageHeader
-        title={pageMeta.title}
-        description={pageMeta.description}
+        title={route.label}
+        description={route.description}
         compact
         showViewControls={isTaskRoute}
       />
     );
 
-  return (
+  const content = runtime.mode === 'TEAM' ? (
     <MainLayout header={header} headersNumber={1} showSidebar={!isSettingsRoute && !isKnowledgeRoute}>
       <Outlet />
     </MainLayout>
+  ) : (
+    <SupportMainLayout header={header} showSidebar={!isSettingsRoute && !isKnowledgeRoute}>
+      <Outlet />
+    </SupportMainLayout>
   );
+
+  return content;
 }
 
 function AuthenticatedWorkspaceShell() {
@@ -166,19 +96,61 @@ function AuthenticatedWorkspaceShell() {
     return <Navigate replace to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} />;
   }
 
-  if (!session.workspace?.slug && orgId) {
-    return <Navigate replace to="/onboarding" />;
-  }
+  if (!orgId) return <Navigate replace to="/onboarding" />;
 
   return (
-    <WorkspaceTaskSyncProvider workspaceSlug={orgId || session.workspace?.slug || 'taskara'}>
-      <WorkspaceInboxSyncProvider workspaceSlug={orgId || session.workspace?.slug || 'taskara'}>
-        <WorkspaceKnowledgeSyncProvider workspaceSlug={orgId || session.workspace?.slug || 'taskara'}>
-          <WorkspaceShell />
-        </WorkspaceKnowledgeSyncProvider>
-      </WorkspaceInboxSyncProvider>
-    </WorkspaceTaskSyncProvider>
+    <WorkspaceRuntimeBoundary
+      key={`${orgId}:${session.user.id}:${session.token}`}
+      workspaceSlug={orgId}
+    >
+      <WorkspaceProviders />
+    </WorkspaceRuntimeBoundary>
   );
+}
+
+function WorkspaceProviders() {
+  const runtime = useWorkspaceRuntime();
+  const providerPolicy = workspaceProviderPolicy(runtime.mode);
+  const sensitivePartitionKey = runtime.mode === 'SUPPORT'
+    ? `${runtime.identityKey}:${runtime.me.supportAccessEpoch || 0}`
+    : runtime.identityKey;
+  let content: ReactNode = <WorkspaceShell />;
+
+  if (runtime.capabilities.has('common.knowledge')) {
+    content = (
+      <WorkspaceKnowledgeSyncProvider
+        key={`knowledge:${runtime.identityKey}`}
+        mode={runtime.mode}
+        userId={runtime.me.user.id}
+        workspaceSlug={runtime.workspaceSlug}
+      >
+        {content}
+      </WorkspaceKnowledgeSyncProvider>
+    );
+  }
+
+  if (runtime.capabilities.has('common.inbox')) {
+    content = (
+      <WorkspaceInboxSyncProvider
+        key={`inbox:${sensitivePartitionKey}`}
+        persistence={providerPolicy.inboxPersistence}
+        userId={runtime.me.user.id}
+        workspaceSlug={runtime.workspaceSlug}
+      >
+        {content}
+      </WorkspaceInboxSyncProvider>
+    );
+  }
+
+  if (providerPolicy.taskSync) {
+    return (
+      <WorkspaceTaskSyncProvider key={`tasks:${runtime.identityKey}`} workspaceSlug={runtime.workspaceSlug}>
+        {content}
+      </WorkspaceTaskSyncProvider>
+    );
+  }
+
+  return <SupportWorkspaceProvider key={`support:${sensitivePartitionKey}`}>{content}</SupportWorkspaceProvider>;
 }
 
 function RootRedirect() {
@@ -186,7 +158,7 @@ function RootRedirect() {
 
   if (!session) return <Navigate replace to="/login" />;
   if (!session.workspace?.slug) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={defaultWorkspacePath(session.workspace.slug)} />;
+  return <Navigate replace to={destinationFor(session)} />;
 }
 
 function WorkspacePage({ children }: { children: ReactNode }) {
@@ -236,6 +208,20 @@ export function App() {
         <Route path="team/:teamId/projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
         <Route path="issue/:taskKey" element={<WorkspacePage><IssuePage /></WorkspacePage>} />
         <Route path="teams" element={<WorkspacePage><TeamsView /></WorkspacePage>} />
+        <Route path="support/setup" element={<WorkspacePage><SupportSetupView /></WorkspacePage>} />
+        <Route path="support/no-access" element={<WorkspacePage><SupportNoAccessView /></WorkspacePage>} />
+        <Route path="support/triage" element={<WorkspacePage><SupportCaseQueueView queue="TRIAGE" /></WorkspacePage>} />
+        <Route path="support/my-cases" element={<WorkspacePage><SupportCaseQueueView queue="MY_CASES" /></WorkspacePage>} />
+        <Route path="support/department-inbox" element={<WorkspacePage><SupportCaseQueueView queue="DEPARTMENT_INBOX" /></WorkspacePage>} />
+        <Route path="support/attention" element={<WorkspacePage><SupportCaseQueueView queue="NEEDS_ATTENTION" /></WorkspacePage>} />
+        <Route path="support/departments" element={<WorkspacePage><SupportDepartmentsView /></WorkspacePage>} />
+        <Route path="support/routing" element={<WorkspacePage><SupportRoutingView /></WorkspacePage>} />
+        <Route path="support/saved-queues" element={<WorkspacePage><SupportSavedQueuesView /></WorkspacePage>} />
+        <Route path="support/maturity" element={<WorkspacePage><SupportMaturityView /></WorkspacePage>} />
+        <Route path="support/cases/:caseKey" element={<WorkspacePage><SupportCaseDetailView /></WorkspacePage>} />
+        <Route path="support/reports" element={<WorkspacePage><SupportReportsView /></WorkspacePage>} />
+        <Route path="support/operations" element={<WorkspacePage><SupportOperationsView /></WorkspacePage>} />
+        <Route path="support/intake-admin" element={<WorkspacePage><SupportIntakeAdminView /></WorkspacePage>} />
         <Route path="*" element={<WorkspaceRedirect />} />
       </Route>
       <Route path="*" element={<Navigate replace to="/" />} />
@@ -244,13 +230,8 @@ export function App() {
 }
 
 function WorkspaceRedirect() {
+  const navigationRuntime = useWorkspaceNavigationRuntime();
   const { orgId } = useParams();
   if (!orgId) return <Navigate replace to="/onboarding" />;
-  return <Navigate replace to={defaultWorkspacePath(orgId)} />;
-}
-
-// The team overview is everyone's landing page; the cockpit and the personal list stay one click
-// away in the sidebar.
-function defaultWorkspacePath(orgId: string) {
-  return `/${orgId}/overview`;
+  return <Navigate replace to={defaultWorkspacePath(orgId, navigationRuntime)} />;
 }

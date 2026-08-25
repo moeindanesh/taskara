@@ -16,6 +16,270 @@ enum WorkspaceRole {
   AGENT
 }
 
+/// Selects one coherent product/domain profile for a Workspace. Existing workspaces are TEAM;
+/// SUPPORT workspaces use Cases and Departments instead of Tasks and Teams for daily operations.
+enum WorkspaceMode {
+  TEAM
+  SUPPORT
+}
+
+enum DepartmentMemberRole {
+  MEMBER
+  MANAGER
+}
+
+/// Routing eligibility is opt-in. Existing Department members remain unavailable until a manager
+/// explicitly gives them capacity, so enabling a policy cannot silently expose peer workloads.
+enum SupportRoutingAvailability {
+  UNAVAILABLE
+  AVAILABLE
+}
+
+enum SupportRoutingAssignmentMode {
+  DEPARTMENT_INBOX
+  CAPACITY_AWARE
+}
+
+/// PRIVATE is visible only to its owner. DEPARTMENT is shared only among current managers of the
+/// referenced Department (plus Support-wide readers); WORKSPACE is limited to Support-wide readers.
+enum SupportSavedViewVisibility {
+  PRIVATE
+  DEPARTMENT
+  WORKSPACE
+}
+
+enum SupportAssistanceKind {
+  TYPE
+  PRIORITY
+  DEPARTMENT
+  DUPLICATE
+  SUMMARY
+  REPLY
+  KNOWLEDGE
+}
+
+enum SupportAssistanceDecision {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum SupportEnablementKind {
+  MACRO
+  TEMPLATE
+  AUTOMATION
+}
+
+enum SupportEnablementStatus {
+  DRAFT
+  APPROVED
+  RETIRED
+}
+
+enum SupportProblemClusterStatus {
+  OPEN
+  RESOLVED
+  ARCHIVED
+}
+
+enum SupportKnowledgeUsefulness {
+  HELPFUL
+  PARTIAL
+  NOT_HELPFUL
+}
+
+enum SupportKnowledgeOutcome {
+  RESOLVED
+  ADVANCED
+  NO_EFFECT
+}
+
+enum SupportKnowledgeGapKind {
+  MISSING
+  WRONG
+}
+
+enum SupportKnowledgeGapStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+}
+
+enum SupportPermissionRole {
+  TRIAGER
+  SUPERVISOR
+}
+
+/// Agent credentials do not inherit their holder's human Support permissions. Each capability is
+/// granted explicitly and evaluated before WorkspaceRole implications.
+enum SupportCredentialScope {
+  CASE_READ
+  CASE_WRITE
+  TRIAGE
+  CONFIGURE
+  INTAKE
+}
+
+enum SupportCaseSourceChannel {
+  API
+  CALL
+  MANUAL
+  EMAIL
+  MESSAGING
+}
+
+enum SupportCasePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportCaseImpact {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SupportCaseUrgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SupportCaseStatus {
+  NEW
+  OPEN
+  WAITING_ON_CUSTOMER
+  WAITING_ON_INTERNAL
+  RESOLVED
+  CLOSED
+}
+
+enum SupportCaseResolutionCode {
+  FIXED
+  ANSWERED
+  WORKAROUND
+  DUPLICATE
+  NO_RESPONSE
+  NOT_REPRODUCIBLE
+  REJECTED
+  WITHDRAWN
+  SPAM
+}
+
+enum SupportInteractionKind {
+  MESSAGE
+  CALL
+  NOTE
+}
+
+enum SupportInteractionVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum SupportInteractionDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum SupportCallDisposition {
+  ANSWERED
+  MISSED
+  ABANDONED
+  VOICEMAIL
+}
+
+enum SupportRecordingConsent {
+  UNKNOWN
+  GIVEN
+  DENIED
+  NOT_REQUIRED
+}
+
+enum SupportCaseEventSource {
+  WEB
+  API
+  CONNECTOR
+  CALL_CENTER
+  SYSTEM
+}
+
+enum SupportConnectorSignatureScheme {
+  HMAC_SHA256
+  ED25519
+}
+
+enum SupportConnectorStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum SupportIntakeReceiptStatus {
+  RECEIVED
+  PROCESSING
+  RETRY_PENDING
+  PROCESSED
+  REJECTED
+  DEAD_LETTER
+}
+
+enum SupportOutboxStatus {
+  PENDING
+  PROCESSING
+  RETRY_PENDING
+  DELIVERED
+  DEAD_LETTER
+}
+
+enum SupportSlaMetric {
+  TRIAGE
+  FIRST_RESPONSE
+  NEXT_RESPONSE
+  RESOLUTION
+  FOLLOW_UP
+  MEMBER_ASSIGNMENT
+}
+
+enum SupportSlaClockState {
+  RUNNING
+  PAUSED
+  MET
+  BREACHED
+  CANCELED
+}
+
+enum SupportJobLeaseStatus {
+  PENDING
+  RUNNING
+  RETRY_PENDING
+  COMPLETED
+  DEAD_LETTER
+}
+
+enum WorkspaceConnectionStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum SupportCaseTaskLinkType {
+  FIX_WORK
+  INVESTIGATION
+  FOLLOW_UP
+  RELATED
+}
+
+/// The deliberately coarse Case state published into an approved Team workspace.
+enum SupportCaseSignalStatus {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
 enum UserKind {
   HUMAN
   AGENT
@@ -219,54 +483,77 @@ enum MilestoneHealth {
 }
 
 model Workspace {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String        @id @default(uuid()) @db.Uuid
   name        String
-  slug        String   @unique
+  slug        String        @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  mode        WorkspaceMode @default(TEAM)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  users                  WorkspaceMember[]
-  teams                  Team[]
-  projects               Project[]
-  projectHealthUpdates   ProjectHealthUpdate[]
-  milestones             Milestone[]
-  tasks                  Task[]
-  labels                 Label[]
-  cycles                 Cycle[]
-  views                  View[]
-  announcements          Announcement[]
-  announcementRecipients AnnouncementRecipient[]
-  announcementPolls      AnnouncementPoll[]
+  users                   WorkspaceMember[]
+  teams                   Team[]
+  projects                Project[]
+  projectHealthUpdates    ProjectHealthUpdate[]
+  milestones              Milestone[]
+  tasks                   Task[]
+  labels                  Label[]
+  cycles                  Cycle[]
+  views                   View[]
+  announcements           Announcement[]
+  announcementRecipients  AnnouncementRecipient[]
+  announcementPolls       AnnouncementPoll[]
   announcementPollOptions AnnouncementPollOption[]
-  announcementPollVotes  AnnouncementPollVote[]
-  meetings               Meeting[]
-  meetingParticipants    MeetingParticipant[]
-  checkInResponses       CheckInResponse[]
-  oneOnOneSeries         OneOnOneSeries[]
-  oneOnOneAgendaItems    OneOnOneAgendaItem[]
-  meetingActionItems     MeetingActionItem[]
-  knowledgeSpaces        KnowledgeSpace[]
-  knowledgePages         KnowledgePage[]
-  knowledgeLabels        KnowledgeLabel[]
-  knowledgeComments      KnowledgePageComment[]
-  knowledgeSubscriptions KnowledgePageSubscription[]
-  knowledgeReferences    KnowledgePageReference[]
-  notifications          Notification[]
-  attentionItems         AttentionItem[]
-  taskReviewRequests     TaskReviewRequest[]
-  taskTriageStates       TaskTriageState[]
-  userCapacities         UserCapacity[]
-  teamWorkingAgreements  TeamWorkingAgreement[]
-  taskSubscriptions      TaskSubscription[]
-  taskMutes              TaskMute[]
-  activityLogs           ActivityLog[]
-  smsDeliveries          SmsDelivery[]
-  integrations           IntegrationAccount[]
-  mattermostBindings     MattermostBinding[]
-  agentRuns              AgentRun[]
-  invites                WorkspaceInvite[]
-  agentCredentials       AgentCredential[]
+  announcementPollVotes   AnnouncementPollVote[]
+  meetings                Meeting[]
+  meetingParticipants     MeetingParticipant[]
+  checkInResponses        CheckInResponse[]
+  oneOnOneSeries          OneOnOneSeries[]
+  oneOnOneAgendaItems     OneOnOneAgendaItem[]
+  meetingActionItems      MeetingActionItem[]
+  knowledgeSpaces         KnowledgeSpace[]
+  knowledgePages          KnowledgePage[]
+  knowledgeLabels         KnowledgeLabel[]
+  knowledgeComments       KnowledgePageComment[]
+  knowledgeSubscriptions  KnowledgePageSubscription[]
+  knowledgeReferences     KnowledgePageReference[]
+  notifications           Notification[]
+  attentionItems          AttentionItem[]
+  taskReviewRequests      TaskReviewRequest[]
+  taskTriageStates        TaskTriageState[]
+  userCapacities          UserCapacity[]
+  teamWorkingAgreements   TeamWorkingAgreement[]
+  taskSubscriptions       TaskSubscription[]
+  taskMutes               TaskMute[]
+  activityLogs            ActivityLog[]
+  smsDeliveries           SmsDelivery[]
+  integrations            IntegrationAccount[]
+  mattermostBindings      MattermostBinding[]
+  agentRuns               AgentRun[]
+  invites                 WorkspaceInvite[]
+  agentCredentials        AgentCredential[]
+  supportState            SupportWorkspaceState?
+  departments             Department[]
+  supportCases            SupportCase[]
+  supportContacts         SupportContact[]
+  supportConnectors       SupportIntakeConnector[]
+  supportCalendars        SupportBusinessCalendar[]
+  supportSlaPolicies      SupportSlaPolicy[]
+  supportRoutingPolicies  SupportRoutingPolicy[]
+  supportSavedViews       SupportSavedView[]
+  supportSuggestions      SupportAssistanceSuggestion[]
+  supportCsatInvitations  SupportCsatInvitation[]
+  supportQualityRubrics   SupportQualityRubric[]
+  supportQualityReviews   SupportQualityReview[]
+  supportEnablementDefinitions SupportEnablementDefinition[]
+  supportEnablementApplications SupportEnablementApplication[]
+  supportProblemClusters SupportProblemCluster[]
+  supportCaseKnowledgeUses SupportCaseKnowledgeUse[]
+  supportKnowledgeGaps   SupportKnowledgeGap[]
+  supportJobLeases        SupportJobLease[]
+  supportOutboxEvents     SupportOutboxEvent[]
+  supportConnections      WorkspaceConnection[]         @relation("SupportWorkspaceConnections")
+  teamConnections         WorkspaceConnection[]         @relation("TeamWorkspaceConnections")
 }
 
 model User {
@@ -288,58 +575,85 @@ model User {
   operator User?  @relation("AgentOperator", fields: [operatorId], references: [id], onDelete: SetNull)
   agents   User[] @relation("AgentOperator")
 
-  workspaces                    WorkspaceMember[]
-  authSessions                  AuthSession[]
-  teamMemberships               TeamMember[]
-  projectMemberships            ProjectMember[]
-  ledProjects                   Project[]                   @relation("ProjectLead")
-  authoredProjectHealthUpdates  ProjectHealthUpdate[]       @relation("ProjectHealthUpdateAuthor")
-  ownedMilestones               Milestone[]                 @relation("MilestoneOwner")
-  assignedTasks                 Task[]                      @relation("AssignedTasks")
-  reportedTasks                 Task[]                      @relation("ReportedTasks")
-  createdAnnouncements          Announcement[]              @relation("AnnouncementCreator")
-  announcementRecipients        AnnouncementRecipient[]
-  announcementPollVotes         AnnouncementPollVote[]
-  ownedMeetings                 Meeting[]                   @relation("MeetingOwner")
-  createdMeetings               Meeting[]                   @relation("MeetingCreator")
-  meetingParticipants           MeetingParticipant[]
-  checkInResponses              CheckInResponse[]            @relation("CheckInUser")
-  authoredCheckInResponses      CheckInResponse[]            @relation("CheckInAuthor")
-  managedOneOnOnes              OneOnOneSeries[]             @relation("OneOnOneManager")
-  participantOneOnOnes          OneOnOneSeries[]             @relation("OneOnOneParticipant")
-  createdOneOnOneAgendaItems    OneOnOneAgendaItem[]         @relation("OneOnOneAgendaCreator")
-  assignedMeetingActionItems    MeetingActionItem[]          @relation("MeetingActionAssignee")
-  createdMeetingActionItems     MeetingActionItem[]          @relation("MeetingActionCreator")
-  createdKnowledgeSpaces        KnowledgeSpace[]            @relation("KnowledgeSpaceCreator")
-  updatedKnowledgeSpaces        KnowledgeSpace[]            @relation("KnowledgeSpaceUpdater")
-  ownedKnowledgePages           KnowledgePage[]             @relation("KnowledgePageOwner")
-  createdKnowledgePages         KnowledgePage[]             @relation("KnowledgePageCreator")
-  updatedKnowledgePages         KnowledgePage[]             @relation("KnowledgePageUpdater")
-  verifiedKnowledgePages        KnowledgePage[]             @relation("KnowledgePageVerifier")
-  authoredKnowledgePageVersions KnowledgePageVersion[]
-  knowledgePageComments         KnowledgePageComment[]      @relation("KnowledgePageCommentAuthor")
-  resolvedKnowledgePageComments KnowledgePageComment[]      @relation("KnowledgePageCommentResolver")
-  knowledgePageSubscriptions    KnowledgePageSubscription[]
-  taskSubscriptions             TaskSubscription[]
-  taskMutes                     TaskMute[]
-  comments                      TaskComment[]
-  notifications                 Notification[]              @relation("NotificationRecipient")
-  causedNotifications           Notification[]              @relation("NotificationActor")
-  assignedAttentionItems        AttentionItem[]              @relation("AttentionAssignee")
-  managedAttentionItems         AttentionItem[]              @relation("AttentionManager")
-  requestedTaskReviews          TaskReviewRequest[]          @relation("TaskReviewRequester")
-  assignedTaskReviews           TaskReviewRequest[]          @relation("TaskReviewReviewer")
-  taskTriageDecisions           TaskTriageState[]            @relation("TaskTriageDecider")
-  capacities                    UserCapacity[]
-  activityLogs                  ActivityLog[]
-  smsDeliveries                 SmsDelivery[]               @relation("SmsDeliveryRequester")
-  createdAgentRuns              AgentRun[]
-  approvedActions               AgentAction[]
-  sentInvites                   WorkspaceInvite[]           @relation("WorkspaceInviteInviter")
-  acceptedInvites               WorkspaceInvite[]           @relation("WorkspaceInviteAccepter")
-  agentCredentials              AgentCredential[]           @relation("AgentCredentialAgent")
-  issuedAgentCredentials        AgentCredential[]           @relation("AgentCredentialIssuer")
-  revokedAgentCredentials       AgentCredential[]           @relation("AgentCredentialRevoker")
+  workspaces                      WorkspaceMember[]
+  authSessions                    AuthSession[]
+  teamMemberships                 TeamMember[]
+  projectMemberships              ProjectMember[]
+  ledProjects                     Project[]                     @relation("ProjectLead")
+  authoredProjectHealthUpdates    ProjectHealthUpdate[]         @relation("ProjectHealthUpdateAuthor")
+  ownedMilestones                 Milestone[]                   @relation("MilestoneOwner")
+  assignedTasks                   Task[]                        @relation("AssignedTasks")
+  reportedTasks                   Task[]                        @relation("ReportedTasks")
+  createdAnnouncements            Announcement[]                @relation("AnnouncementCreator")
+  announcementRecipients          AnnouncementRecipient[]
+  announcementPollVotes           AnnouncementPollVote[]
+  ownedMeetings                   Meeting[]                     @relation("MeetingOwner")
+  createdMeetings                 Meeting[]                     @relation("MeetingCreator")
+  meetingParticipants             MeetingParticipant[]
+  checkInResponses                CheckInResponse[]             @relation("CheckInUser")
+  authoredCheckInResponses        CheckInResponse[]             @relation("CheckInAuthor")
+  managedOneOnOnes                OneOnOneSeries[]              @relation("OneOnOneManager")
+  participantOneOnOnes            OneOnOneSeries[]              @relation("OneOnOneParticipant")
+  createdOneOnOneAgendaItems      OneOnOneAgendaItem[]          @relation("OneOnOneAgendaCreator")
+  assignedMeetingActionItems      MeetingActionItem[]           @relation("MeetingActionAssignee")
+  createdMeetingActionItems       MeetingActionItem[]           @relation("MeetingActionCreator")
+  createdKnowledgeSpaces          KnowledgeSpace[]              @relation("KnowledgeSpaceCreator")
+  updatedKnowledgeSpaces          KnowledgeSpace[]              @relation("KnowledgeSpaceUpdater")
+  ownedKnowledgePages             KnowledgePage[]               @relation("KnowledgePageOwner")
+  createdKnowledgePages           KnowledgePage[]               @relation("KnowledgePageCreator")
+  updatedKnowledgePages           KnowledgePage[]               @relation("KnowledgePageUpdater")
+  verifiedKnowledgePages          KnowledgePage[]               @relation("KnowledgePageVerifier")
+  authoredKnowledgePageVersions   KnowledgePageVersion[]
+  knowledgePageComments           KnowledgePageComment[]        @relation("KnowledgePageCommentAuthor")
+  resolvedKnowledgePageComments   KnowledgePageComment[]        @relation("KnowledgePageCommentResolver")
+  knowledgePageSubscriptions      KnowledgePageSubscription[]
+  taskSubscriptions               TaskSubscription[]
+  taskMutes                       TaskMute[]
+  comments                        TaskComment[]
+  notifications                   Notification[]                @relation("NotificationRecipient")
+  causedNotifications             Notification[]                @relation("NotificationActor")
+  assignedAttentionItems          AttentionItem[]               @relation("AttentionAssignee")
+  managedAttentionItems           AttentionItem[]               @relation("AttentionManager")
+  requestedTaskReviews            TaskReviewRequest[]           @relation("TaskReviewRequester")
+  assignedTaskReviews             TaskReviewRequest[]           @relation("TaskReviewReviewer")
+  taskTriageDecisions             TaskTriageState[]             @relation("TaskTriageDecider")
+  capacities                      UserCapacity[]
+  activityLogs                    ActivityLog[]
+  smsDeliveries                   SmsDelivery[]                 @relation("SmsDeliveryRequester")
+  createdAgentRuns                AgentRun[]
+  approvedActions                 AgentAction[]
+  sentInvites                     WorkspaceInvite[]             @relation("WorkspaceInviteInviter")
+  acceptedInvites                 WorkspaceInvite[]             @relation("WorkspaceInviteAccepter")
+  agentCredentials                AgentCredential[]             @relation("AgentCredentialAgent")
+  issuedAgentCredentials          AgentCredential[]             @relation("AgentCredentialIssuer")
+  revokedAgentCredentials         AgentCredential[]             @relation("AgentCredentialRevoker")
+  authoredSupportInteractions     SupportInteraction[]          @relation("SupportInteractionAuthor")
+  redactedSupportContent          SupportInteractionContent[]   @relation("SupportContentRedactor")
+  authoredSupportCaseEvents       SupportCaseEvent[]            @relation("SupportCaseEventActor")
+  revokedSupportConnectors        SupportIntakeConnector[]      @relation("SupportConnectorRevoker")
+  approvedSupportConnections      WorkspaceConnection[]         @relation("SupportConnectionApprover")
+  approvedTeamConnections         WorkspaceConnection[]         @relation("TeamConnectionApprover")
+  revokedWorkspaceConnections     WorkspaceConnection[]         @relation("WorkspaceConnectionRevoker")
+  createdDepartmentWorkTargets    DepartmentWorkTarget[]        @relation("DepartmentWorkTargetCreator")
+  createdSupportCaseTaskLinks     SupportCaseTaskLink[]         @relation("SupportCaseTaskLinkCreator")
+  createdSupportRoutingPolicies   SupportRoutingPolicy[]        @relation("SupportRoutingPolicyCreator")
+  activatedSupportRoutingPolicies SupportRoutingPolicy[]        @relation("SupportRoutingPolicyActivator")
+  createdSupportSuggestions       SupportAssistanceSuggestion[] @relation("SupportSuggestionCreator")
+  decidedSupportSuggestions       SupportAssistanceSuggestion[] @relation("SupportSuggestionDecider")
+  createdSupportCsatInvitations   SupportCsatInvitation[]       @relation("SupportCsatInvitationCreator")
+  createdSupportQualityRubrics    SupportQualityRubric[]        @relation("SupportQualityRubricCreator")
+  authoredSupportQualityReviews   SupportQualityReview[]        @relation("SupportQualityReviewReviewer")
+  receivedSupportQualityReviews   SupportQualityReview[]        @relation("SupportQualityReviewAssignee")
+  createdSupportEnablementDefinitions SupportEnablementDefinition[] @relation("SupportEnablementDefinitionCreator")
+  approvedSupportEnablementDefinitions SupportEnablementDefinition[] @relation("SupportEnablementDefinitionApprover")
+  retiredSupportEnablementDefinitions SupportEnablementDefinition[] @relation("SupportEnablementDefinitionRetirer")
+  appliedSupportEnablementApplications SupportEnablementApplication[] @relation("SupportEnablementApplicationApplier")
+  undoneSupportEnablementApplications SupportEnablementApplication[] @relation("SupportEnablementApplicationUndoer")
+  createdSupportProblemClusters SupportProblemCluster[] @relation("SupportProblemClusterCreator")
+  linkedSupportProblemClusterCases SupportProblemClusterCase[] @relation("SupportProblemClusterCaseLinker")
+  createdSupportCaseKnowledgeUses SupportCaseKnowledgeUse[] @relation("SupportCaseKnowledgeUseCreator")
+  createdSupportKnowledgeGaps SupportKnowledgeGap[] @relation("SupportKnowledgeGapCreator")
+  reviewedSupportKnowledgeGaps SupportKnowledgeGap[] @relation("SupportKnowledgeGapReviewer")
 
   // Lets AgentCredential carry a composite foreign key to (id, kind), which is what makes
   // "a credential can only ever belong to an AGENT" a database fact rather than a convention.
@@ -387,11 +701,13 @@ model AgentCredential {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agent     User      @relation("AgentCredentialAgent", fields: [userId, userKind], references: [id, kind], onDelete: Cascade)
-  createdBy User?     @relation("AgentCredentialIssuer", fields: [createdById], references: [id], onDelete: SetNull)
-  revokedBy User?     @relation("AgentCredentialRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent         User                     @relation("AgentCredentialAgent", fields: [userId, userKind], references: [id, kind], onDelete: Cascade)
+  createdBy     User?                    @relation("AgentCredentialIssuer", fields: [createdById], references: [id], onDelete: SetNull)
+  revokedBy     User?                    @relation("AgentCredentialRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  supportGrants SupportCredentialGrant[]
 
+  @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([userId])
 }
@@ -426,8 +742,13 @@ model WorkspaceMember {
   role        WorkspaceRole @default(MEMBER)
   createdAt   DateTime      @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace               Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentMemberships   DepartmentMember[]
+  supportSavedViews       SupportSavedView[]
+  supportPermissionGrants SupportPermissionGrant[]
+  supportAccessEpoch      SupportAccessEpoch?
+  supportCallCallbacks    SupportCallDetail[]
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -442,11 +763,11 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members         TeamMember[]
-  projects        Project[]
-  meetings        Meeting[]
-  knowledgeSpaces KnowledgeSpace[]
+  workspace         Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members           TeamMember[]
+  projects          Project[]
+  meetings          Meeting[]
+  knowledgeSpaces   KnowledgeSpace[]
   workingAgreements TeamWorkingAgreement[]
 
   @@unique([workspaceId, slug])
@@ -479,20 +800,22 @@ model Project {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  team               Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  parent             Project?            @relation("ProjectTree", fields: [parentId], references: [id], onDelete: SetNull)
-  subprojects        Project[]           @relation("ProjectTree")
-  lead               User?               @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
-  members            ProjectMember[]
-  tasks              Task[]
-  meetings           Meeting[]
-  knowledgeSpaces    KnowledgeSpace[]
-  healthUpdates      ProjectHealthUpdate[]
-  milestones         Milestone[]
-  cycles             Cycle[]
-  mattermostBindings MattermostBinding[]
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team                  Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  parent                Project?               @relation("ProjectTree", fields: [parentId], references: [id], onDelete: SetNull)
+  subprojects           Project[]              @relation("ProjectTree")
+  lead                  User?                  @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  members               ProjectMember[]
+  tasks                 Task[]
+  meetings              Meeting[]
+  knowledgeSpaces       KnowledgeSpace[]
+  healthUpdates         ProjectHealthUpdate[]
+  milestones            Milestone[]
+  cycles                Cycle[]
+  mattermostBindings    MattermostBinding[]
+  departmentWorkTargets DepartmentWorkTarget[]
 
+  @@unique([id, workspaceId])
   @@unique([workspaceId, keyPrefix])
   @@index([workspaceId, parentId])
 }
@@ -534,24 +857,24 @@ model ProjectMember {
 }
 
 model Milestone {
-  id          String          @id @default(uuid()) @db.Uuid
-  workspaceId String          @db.Uuid
-  projectId   String          @db.Uuid
-  ownerId     String?         @db.Uuid
+  id          String           @id @default(uuid()) @db.Uuid
+  workspaceId String           @db.Uuid
+  projectId   String           @db.Uuid
+  ownerId     String?          @db.Uuid
   name        String
   description String?
   kind        MilestoneKind
-  status      MilestoneStatus @default(PLANNED)
+  status      MilestoneStatus  @default(PLANNED)
   health      MilestoneHealth?
-  startsOn    DateTime?       @db.Date
-  targetOn    DateTime?       @db.Date
-  position    Int             @default(1024)
-  version     Int             @default(1)
+  startsOn    DateTime?        @db.Date
+  targetOn    DateTime?        @db.Date
+  position    Int              @default(1024)
+  version     Int              @default(1)
   completedAt DateTime?
   canceledAt  DateTime?
   archivedAt  DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -602,14 +925,14 @@ model Task {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project              Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  cycle                Cycle?             @relation(fields: [cycleId], references: [id], onDelete: SetNull)
-  milestone            Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
-  parent               Task?              @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
-  subtasks             Task[]             @relation("TaskTree")
-  assignee             User?              @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
-  reporter             User?              @relation("ReportedTasks", fields: [reporterId], references: [id], onDelete: SetNull)
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project              Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cycle                Cycle?                @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  milestone            Milestone?            @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  parent               Task?                 @relation("TaskTree", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks             Task[]                @relation("TaskTree")
+  assignee             User?                 @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporter             User?                 @relation("ReportedTasks", fields: [reporterId], references: [id], onDelete: SetNull)
   comments             TaskComment[]
   attachments          TaskAttachment[]
   labels               TaskLabel[]
@@ -619,10 +942,12 @@ model Task {
   triageState          TaskTriageState?
   meetingLinks         MeetingTask[]
   meetingActionItems   MeetingActionItem[]
-  blockingDependencies TaskDependency[]   @relation("TaskBlockedBy")
-  blockedTasks         TaskDependency[]   @relation("TaskBlocks")
+  blockingDependencies TaskDependency[]      @relation("TaskBlockedBy")
+  blockedTasks         TaskDependency[]      @relation("TaskBlocks")
   notifications        Notification[]
+  supportCaseLinks     SupportCaseTaskLink[]
 
+  @@unique([id, workspaceId])
   @@unique([workspaceId, key])
   @@unique([projectId, sequence])
   @@index([workspaceId, status])
@@ -900,8 +1225,8 @@ model AnnouncementPoll {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  announcement Announcement            @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  workspace    Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  announcement Announcement             @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   options      AnnouncementPollOption[]
   votes        AnnouncementPollVote[]
 
@@ -916,8 +1241,8 @@ model AnnouncementPollOption {
   position    Int
   createdAt   DateTime @default(now())
 
-  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  poll      AnnouncementPoll      @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  poll      AnnouncementPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
   votes     AnnouncementPollVote[]
 
   @@unique([pollId, position])
@@ -958,17 +1283,17 @@ model Meeting {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  workspace     Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  team          Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  project       Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  owner         User?                @relation("MeetingOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  createdBy     User?                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  participants  MeetingParticipant[]
-  tasks         MeetingTask[]
-  oneOnOneSeries OneOnOneSeries[]         @relation("OneOnOneLastMeeting")
-  agendaItems   OneOnOneAgendaItem[]
-  actionItems   MeetingActionItem[]
-  notifications Notification[]
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team           Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  project        Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  owner          User?                @relation("MeetingOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy      User?                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  participants   MeetingParticipant[]
+  tasks          MeetingTask[]
+  oneOnOneSeries OneOnOneSeries[]     @relation("OneOnOneLastMeeting")
+  agendaItems    OneOnOneAgendaItem[]
+  actionItems    MeetingActionItem[]
+  notifications  Notification[]
 
   @@index([workspaceId, status, scheduledAt])
   @@index([workspaceId, createdAt])
@@ -1031,23 +1356,23 @@ model CheckInResponse {
 }
 
 model OneOnOneSeries {
-  id              String   @id @default(uuid()) @db.Uuid
-  workspaceId     String   @db.Uuid
-  managerId       String   @db.Uuid
-  participantId   String   @db.Uuid
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  managerId       String    @db.Uuid
+  participantId   String    @db.Uuid
   title           String?
-  cadenceDays     Int      @default(14)
+  cadenceDays     Int       @default(14)
   nextScheduledAt DateTime?
-  lastMeetingId   String?  @db.Uuid
-  active          Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  lastMeetingId   String?   @db.Uuid
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  manager      User                  @relation("OneOnOneManager", fields: [managerId], references: [id], onDelete: Cascade)
-  participant  User                  @relation("OneOnOneParticipant", fields: [participantId], references: [id], onDelete: Cascade)
-  lastMeeting  Meeting?              @relation("OneOnOneLastMeeting", fields: [lastMeetingId], references: [id], onDelete: SetNull)
-  agendaItems  OneOnOneAgendaItem[]
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  manager     User                 @relation("OneOnOneManager", fields: [managerId], references: [id], onDelete: Cascade)
+  participant User                 @relation("OneOnOneParticipant", fields: [participantId], references: [id], onDelete: Cascade)
+  lastMeeting Meeting?             @relation("OneOnOneLastMeeting", fields: [lastMeetingId], references: [id], onDelete: SetNull)
+  agendaItems OneOnOneAgendaItem[]
 
   @@index([workspaceId, managerId, active, nextScheduledAt])
   @@index([workspaceId, participantId, active, nextScheduledAt])
@@ -1068,10 +1393,10 @@ model OneOnOneAgendaItem {
   createdAt   DateTime                @default(now())
   updatedAt   DateTime                @updatedAt
 
-  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  series    OneOnOneSeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  meeting   Meeting?        @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  createdBy User?           @relation("OneOnOneAgendaCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  series    OneOnOneSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  meeting   Meeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  createdBy User?          @relation("OneOnOneAgendaCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, seriesId, status, position])
   @@index([workspaceId, meetingId])
@@ -1170,8 +1495,11 @@ model KnowledgePage {
   subscriptions KnowledgePageSubscription[]
   attachments   KnowledgePageAttachment[]
   notifications Notification[]
+  supportCaseUses SupportCaseKnowledgeUse[]
+  supportKnowledgeGaps SupportKnowledgeGap[]
 
   @@unique([spaceId, path])
+  @@unique([workspaceId, id])
   @@index([workspaceId, status, updatedAt])
   @@index([workspaceId, ownerId])
   @@index([workspaceId, verificationExpiresAt])
@@ -1293,30 +1621,32 @@ model KnowledgePageReference {
 }
 
 model Notification {
-  id              String    @id @default(uuid()) @db.Uuid
-  workspaceId     String    @db.Uuid
-  userId          String    @db.Uuid
+  id              String        @id @default(uuid()) @db.Uuid
+  workspaceId     String        @db.Uuid
+  userId          String        @db.Uuid
   /// Who caused this notification, and what they were. Required on write so a new notification
   /// site cannot silently ship without provenance; SYSTEM with a null actorId is the honest
   /// answer for scheduled jobs, and is what rows written before this column carry.
-  actorId         String?   @db.Uuid
+  actorId         String?       @db.Uuid
   actorType       ActorType
   actorRuntime    AgentRuntime?
-  taskId          String?   @db.Uuid
-  announcementId  String?   @db.Uuid
-  meetingId       String?   @db.Uuid
-  knowledgePageId String?   @db.Uuid
+  taskId          String?       @db.Uuid
+  supportCaseId   String?       @db.Uuid
+  announcementId  String?       @db.Uuid
+  meetingId       String?       @db.Uuid
+  knowledgePageId String?       @db.Uuid
   type            String
   title           String
   body            String?
   deliveredAt     DateTime?
   readAt          DateTime?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime      @default(now())
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user          User           @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   actor         User?          @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
   task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  supportCase   SupportCase?   @relation(fields: [workspaceId, supportCaseId], references: [workspaceId, id], onDelete: Restrict)
   announcement  Announcement?  @relation(fields: [announcementId], references: [id], onDelete: SetNull)
   meeting       Meeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   knowledgePage KnowledgePage? @relation(fields: [knowledgePageId], references: [id], onDelete: SetNull)
@@ -1325,6 +1655,7 @@ model Notification {
   @@index([userId, deliveredAt])
   @@index([userId, createdAt, id])
   @@index([actorId])
+  @@index([supportCaseId])
   @@index([announcementId])
   @@index([meetingId])
   @@index([knowledgePageId])
@@ -1410,21 +1741,21 @@ model ClientMutation {
 }
 
 model ActivityLog {
-  id          String        @id @default(uuid()) @db.Uuid
-  workspaceId String        @db.Uuid
-  actorId     String?       @db.Uuid
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @db.Uuid
+  actorId      String?       @db.Uuid
   /// Snapshot of the author's nature at write time, derived from User.kind. Never re-joined:
   /// kind carries no history, so a later identity change must not reinterpret this row.
-  actorType   ActorType
+  actorType    ActorType
   /// Only ever set when actorType is AGENT — enforced by a CHECK constraint.
   actorRuntime AgentRuntime?
-  entityType  String
-  entityId    String
-  action      String
-  before      Json?
-  after       Json?
-  source      TaskSource @default(API)
-  createdAt   DateTime   @default(now())
+  entityType   String
+  entityId     String
+  action       String
+  before       Json?
+  after        Json?
+  source       TaskSource    @default(API)
+  createdAt    DateTime      @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
@@ -1434,24 +1765,24 @@ model ActivityLog {
 }
 
 model AttentionItem {
-  id              String              @id @default(uuid()) @db.Uuid
-  workspaceId     String              @db.Uuid
-  assigneeId      String?             @db.Uuid
-  managerId       String?             @db.Uuid
+  id              String                @id @default(uuid()) @db.Uuid
+  workspaceId     String                @db.Uuid
+  assigneeId      String?               @db.Uuid
+  managerId       String?               @db.Uuid
   entityType      String
   entityId        String
   reason          String
   severity        AttentionItemSeverity
-  status          AttentionItemStatus @default(OPEN)
-  firstSeenAt     DateTime            @default(now())
-  lastSeenAt      DateTime            @default(now())
+  status          AttentionItemStatus   @default(OPEN)
+  firstSeenAt     DateTime              @default(now())
+  lastSeenAt      DateTime              @default(now())
   snoozedUntil    DateTime?
   resolvedAt      DateTime?
   dismissedAt     DateTime?
   dismissalReason String?
   payload         Json
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignee  User?     @relation("AttentionAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
@@ -1523,4 +1854,1019 @@ model AgentAction {
 
   agentRun AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
   approver User?    @relation(fields: [approverId], references: [id], onDelete: SetNull)
+}
+
+/// One row per Support workspace. `nextCaseNumber` is incremented under a row lock so manual and
+/// connector intake share one monotonic, workspace-local Case key sequence.
+model SupportWorkspaceState {
+  workspaceId    String   @id @db.Uuid
+  keyPrefix      String
+  nextCaseNumber Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Department {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  name            String
+  slug            String
+  description     String?
+  active          Boolean  @default(true)
+  routingSettings Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace      Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members        DepartmentMember[]
+  cases          SupportCase[]
+  calendars      SupportBusinessCalendar[]
+  workTargets    DepartmentWorkTarget[]
+  routingRules   SupportRoutingRule[]
+  savedViews     SupportSavedView[]
+  qualityReviews SupportQualityReview[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, active, name])
+}
+
+/// A Case assignee points to this membership, not directly to User. That makes “assigned to an
+/// active member of the owning Department” a checkable invariant instead of a naming convention.
+model DepartmentMember {
+  id                  String                     @id @default(uuid()) @db.Uuid
+  workspaceId         String                     @db.Uuid
+  departmentId        String                     @db.Uuid
+  userId              String                     @db.Uuid
+  role                DepartmentMemberRole       @default(MEMBER)
+  active              Boolean                    @default(true)
+  routingAvailability SupportRoutingAvailability @default(UNAVAILABLE)
+  routingCapacity     Int                        @default(0)
+  routingSkills       String[]                   @default([])
+  deactivatedAt       DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  department      Department      @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Cascade)
+  workspaceMember WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+  assignedCases   SupportCase[]   @relation("SupportCaseAssignee")
+
+  @@unique([workspaceId, departmentId, id])
+  @@unique([workspaceId, departmentId, userId])
+  @@index([workspaceId, userId, active])
+  @@index([departmentId, role, active])
+}
+
+model SupportPermissionGrant {
+  id          String                @id @default(uuid()) @db.Uuid
+  workspaceId String                @db.Uuid
+  userId      String                @db.Uuid
+  role        SupportPermissionRole
+  createdAt   DateTime              @default(now())
+
+  workspaceMember WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, role])
+  @@index([workspaceId, role, userId])
+}
+
+model SupportCredentialGrant {
+  id           String                 @id @default(uuid()) @db.Uuid
+  workspaceId  String                 @db.Uuid
+  credentialId String                 @db.Uuid
+  scope        SupportCredentialScope
+  createdAt    DateTime               @default(now())
+
+  credential AgentCredential @relation(fields: [credentialId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, credentialId, scope])
+  @@index([workspaceId, scope])
+}
+
+/// Included in every Support bootstrap/cursor. Authorization changes increment it transactionally,
+/// forcing clients to discard any now-inaccessible in-memory Case projection.
+model SupportAccessEpoch {
+  workspaceId String   @db.Uuid
+  userId      String   @db.Uuid
+  epoch       BigInt   @default(1)
+  updatedAt   DateTime @updatedAt
+
+  workspaceMember WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+}
+
+model SupportContact {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  name            String?
+  email           String?
+  normalizedEmail String?
+  phone           String?
+  normalizedPhone String?
+  metadata        Json?
+  retentionUntil  DateTime?
+  redactedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  cases        SupportCase[]
+  externalRefs SupportExternalRef[]
+  interactions SupportInteraction[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, normalizedEmail])
+  @@index([workspaceId, normalizedPhone])
+}
+
+model SupportCase {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  workspaceId              String                     @db.Uuid
+  key                      String
+  sequence                 Int
+  title                    String
+  description              String?
+  sourceChannel            SupportCaseSourceChannel
+  typeKey                  String
+  priority                 SupportCasePriority        @default(NORMAL)
+  impact                   SupportCaseImpact?
+  urgency                  SupportCaseUrgency?
+  status                   SupportCaseStatus          @default(NEW)
+  waitingReason            String?
+  departmentId             String?                    @db.Uuid
+  assigneeMembershipId     String?                    @db.Uuid
+  contactId                String?                    @db.Uuid
+  duplicateOfCaseId        String?                    @db.Uuid
+  receivedAt               DateTime                   @default(now())
+  firstResponseAt          DateTime?
+  lastCustomerActivityAt   DateTime?
+  lastHumanResponseAt      DateTime?
+  lastMeaningfulActivityAt DateTime                   @default(now())
+  nextActionAt             DateTime?
+  snoozedUntil             DateTime?
+  resolutionCode           SupportCaseResolutionCode?
+  resolutionSummary        String?
+  resolvedAt               DateTime?
+  closedAt                 DateTime?
+  reopenedAt               DateTime?
+  reopenCount              Int                        @default(0)
+  nextSlaDueAt             DateTime?
+  version                  Int                        @default(1)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  workspace             Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department            Department?                   @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Restrict)
+  assigneeMembership    DepartmentMember?             @relation("SupportCaseAssignee", fields: [workspaceId, departmentId, assigneeMembershipId], references: [workspaceId, departmentId, id], onDelete: Restrict)
+  contact               SupportContact?               @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict)
+  duplicateOf           SupportCase?                  @relation("SupportCaseDuplicates", fields: [workspaceId, duplicateOfCaseId], references: [workspaceId, id], onDelete: NoAction)
+  duplicates            SupportCase[]                 @relation("SupportCaseDuplicates")
+  externalRefs          SupportExternalRef[]
+  interactions          SupportInteraction[]
+  events                SupportCaseEvent[]
+  intakeReceipts        SupportIntakeReceipt[]
+  outboxEvents          SupportOutboxEvent[]
+  slaClocks             SupportCaseSlaClock[]
+  taskLinks             SupportCaseTaskLink[]
+  notifications         Notification[]
+  assistanceSuggestions SupportAssistanceSuggestion[]
+  csatInvitations       SupportCsatInvitation[]
+  qualityReviews        SupportQualityReview[]
+  enablementApplications SupportEnablementApplication[]
+  problemClusterLinks   SupportProblemClusterCase[]
+  knowledgeUses         SupportCaseKnowledgeUse[]
+  knowledgeGaps         SupportKnowledgeGap[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, sequence])
+  @@index([workspaceId, departmentId, assigneeMembershipId, status])
+  @@index([workspaceId, assigneeMembershipId, status])
+  @@index([workspaceId, status, nextActionAt])
+  @@index([workspaceId, status, nextSlaDueAt])
+  @@index([workspaceId, status, lastMeaningfulActivityAt])
+  @@index([workspaceId, contactId, receivedAt])
+}
+
+/// A connector-owned identity for the source thread. Email and phone are lookup hints, never
+/// durable customer or Case identifiers.
+model SupportExternalRef {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @db.Uuid
+  connectorId       String   @db.Uuid
+  caseId            String   @db.Uuid
+  contactId         String?  @db.Uuid
+  externalCaseId    String
+  externalContactId String?
+  sourceSequence    String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  connector SupportIntakeConnector @relation(fields: [workspaceId, connectorId], references: [workspaceId, id], onDelete: Cascade)
+  case      SupportCase            @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  contact   SupportContact?        @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict)
+
+  @@unique([connectorId, externalCaseId])
+  @@index([workspaceId, caseId])
+  @@index([workspaceId, contactId])
+  @@index([connectorId, externalContactId])
+}
+
+/// Immutable interaction envelope. Sensitive body bytes live in SupportInteractionContent so the
+/// body can be redacted without destroying provenance, ordering, or SLA evidence.
+model SupportInteraction {
+  id          String                       @id @default(uuid()) @db.Uuid
+  workspaceId String                       @db.Uuid
+  caseId      String                       @db.Uuid
+  connectorId String?                      @db.Uuid
+  kind        SupportInteractionKind
+  visibility  SupportInteractionVisibility
+  channel     SupportCaseSourceChannel
+  direction   SupportInteractionDirection
+  authorId    String?                      @db.Uuid
+  contactId   String?                      @db.Uuid
+  externalId  String?
+  occurredAt  DateTime
+  receivedAt  DateTime                     @default(now())
+  contentHash String?
+  createdAt   DateTime                     @default(now())
+
+  case      SupportCase                @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  connector SupportIntakeConnector?    @relation(fields: [workspaceId, connectorId], references: [workspaceId, id], onDelete: Restrict)
+  author    User?                      @relation("SupportInteractionAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  contact   SupportContact?            @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict)
+  content   SupportInteractionContent?
+  call      SupportCallDetail?
+
+  @@unique([workspaceId, id])
+  @@unique([connectorId, externalId])
+  @@index([workspaceId, caseId, occurredAt, id])
+  @@index([workspaceId, contactId, occurredAt])
+}
+
+model SupportInteractionContent {
+  interactionId   String    @id @db.Uuid
+  bodyCiphertext  Bytes?
+  bodyHash        String
+  format          String    @default("text/plain")
+  encryptionKeyId String?
+  redactedAt      DateTime?
+  redactedById    String?   @db.Uuid
+  redactionReason String?
+  retentionUntil  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  interaction SupportInteraction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  redactedBy  User?              @relation("SupportContentRedactor", fields: [redactedById], references: [id], onDelete: SetNull)
+
+  @@index([retentionUntil])
+  @@index([redactedAt])
+}
+
+model SupportCallDetail {
+  interactionId    String                      @id @db.Uuid
+  workspaceId      String                      @db.Uuid
+  direction        SupportInteractionDirection
+  disposition      SupportCallDisposition
+  startedAt        DateTime
+  answeredAt       DateTime?
+  endedAt          DateTime?
+  durationSeconds  Int?
+  recordingConsent SupportRecordingConsent     @default(UNKNOWN)
+  recordingExists  Boolean                     @default(false)
+  callbackOwnerId  String?                     @db.Uuid
+  callbackDueAt    DateTime?
+  externalCallId   String?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  interaction   SupportInteraction @relation(fields: [workspaceId, interactionId], references: [workspaceId, id], onDelete: Cascade)
+  callbackOwner WorkspaceMember?   @relation(fields: [workspaceId, callbackOwnerId], references: [workspaceId, userId], onDelete: Restrict)
+
+  @@unique([workspaceId, interactionId])
+  @@unique([workspaceId, externalCallId])
+  @@index([workspaceId, callbackOwnerId, callbackDueAt])
+  @@index([workspaceId, disposition, startedAt])
+}
+
+/// Append-only operational and security ledger. Deltas intentionally exclude conversation bodies
+/// and requester PII; those live in redaction-capable tables.
+model SupportCaseEvent {
+  id             String                 @id @default(uuid()) @db.Uuid
+  workspaceId    String                 @db.Uuid
+  caseId         String                 @db.Uuid
+  sequence       Int
+  actorId        String?                @db.Uuid
+  actorType      ActorType
+  actorRuntime   AgentRuntime?
+  source         SupportCaseEventSource
+  correlationId  String?
+  idempotencyKey String?
+  action         String
+  before         Json?
+  after          Json?
+  reason         String?
+  occurredAt     DateTime               @default(now())
+  createdAt      DateTime               @default(now())
+
+  case  SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  actor User?       @relation("SupportCaseEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([caseId, sequence])
+  @@unique([workspaceId, caseId, id])
+  @@index([workspaceId, occurredAt, id])
+  @@index([workspaceId, actorId, occurredAt])
+  @@index([workspaceId, correlationId])
+}
+
+/// Write-only source credential/configuration. `secretHash` is the only secret representation kept
+/// here; plaintext is returned once on creation and never stored.
+model SupportIntakeConnector {
+  id                    String                          @id @default(uuid()) @db.Uuid
+  workspaceId           String                          @db.Uuid
+  name                  String
+  sourceKey             String
+  sourceChannel         SupportCaseSourceChannel
+  lookupId              String                          @unique
+  secretHash            String
+  /// AES-GCM encrypted signing secret. HMAC verification needs the original high-entropy key;
+  /// plaintext is returned once and never stored or exposed by read APIs.
+  secretCiphertext      String
+  secretEncryptionKeyId String?
+  secretVersion         Int                             @default(1)
+  signatureScheme       SupportConnectorSignatureScheme @default(HMAC_SHA256)
+  status                SupportConnectorStatus          @default(ACTIVE)
+  replayWindowSeconds   Int                             @default(300)
+  maxPayloadBytes       Int                             @default(1048576)
+  rateLimitPerMinute    Int                             @default(120)
+  config                Json?
+  rotatedAt             DateTime?
+  revokedAt             DateTime?
+  revokedById           String?                         @db.Uuid
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  revokedBy    User?                  @relation("SupportConnectorRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  externalRefs SupportExternalRef[]
+  interactions SupportInteraction[]
+  receipts     SupportIntakeReceipt[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, sourceKey])
+  @@index([workspaceId, status])
+}
+
+model SupportIntakeReceipt {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  workspaceId            String                     @db.Uuid
+  connectorId            String                     @db.Uuid
+  eventKey               String
+  idempotencyKey         String?
+  payloadHash            String
+  payloadRef             String?
+  /// Exact request bytes, encrypted at rest until processing/retention cleanup. `payloadRef` is
+  /// reserved for deployments that move the ciphertext into an external private object store.
+  payloadCiphertext      Bytes?
+  payloadEncryptionKeyId String?
+  payloadRetentionUntil  DateTime?
+  sourceOccurredAt       DateTime?
+  sourceSequence         String?
+  status                 SupportIntakeReceiptStatus @default(RECEIVED)
+  attemptCount           Int                        @default(0)
+  nextAttemptAt          DateTime                   @default(now())
+  leaseOwner             String?
+  leaseExpiresAt         DateTime?
+  caseId                 String?                    @db.Uuid
+  lastErrorCode          String?
+  lastErrorMessage       String?
+  deadLetteredAt         DateTime?
+  receivedAt             DateTime                   @default(now())
+  processedAt            DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+
+  connector    SupportIntakeConnector @relation(fields: [workspaceId, connectorId], references: [workspaceId, id], onDelete: Cascade)
+  case         SupportCase?           @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Restrict)
+  outboxEvents SupportOutboxEvent[]
+
+  @@unique([workspaceId, id])
+  @@unique([connectorId, eventKey])
+  @@unique([connectorId, idempotencyKey])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([workspaceId, status, receivedAt])
+  @@index([workspaceId, caseId])
+  @@index([payloadRetentionUntil])
+}
+
+model SupportOutboxEvent {
+  id               String              @id @default(uuid()) @db.Uuid
+  workspaceId      String              @db.Uuid
+  caseId           String?             @db.Uuid
+  receiptId        String?             @db.Uuid
+  topic            String
+  aggregateType    String
+  aggregateId      String
+  dedupeKey        String
+  payload          Json
+  status           SupportOutboxStatus @default(PENDING)
+  attemptCount     Int                 @default(0)
+  nextAttemptAt    DateTime            @default(now())
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  deliveredAt      DateTime?
+  deadLetteredAt   DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case      SupportCase?          @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  receipt   SupportIntakeReceipt? @relation(fields: [workspaceId, receiptId], references: [workspaceId, id], onDelete: Restrict)
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([workspaceId, caseId, createdAt])
+  @@index([workspaceId, receiptId])
+}
+
+model SupportBusinessCalendar {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @db.Uuid
+  departmentId String?  @db.Uuid
+  name         String
+  timezone     String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace  Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department Department?                      @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Restrict)
+  periods    SupportBusinessCalendarPeriod[]
+  holidays   SupportBusinessCalendarHoliday[]
+  policies   SupportSlaPolicy[]
+  clocks     SupportCaseSlaClock[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, name])
+  @@index([workspaceId, departmentId, active])
+}
+
+/// Day numbers follow ISO-8601: Monday=1 through Sunday=7. Minutes are measured from local midnight.
+model SupportBusinessCalendarPeriod {
+  id          String @id @default(uuid()) @db.Uuid
+  calendarId  String @db.Uuid
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+
+  calendar SupportBusinessCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, dayOfWeek, startMinute, endMinute])
+  @@index([calendarId, dayOfWeek, startMinute])
+}
+
+model SupportBusinessCalendarHoliday {
+  id         String   @id @default(uuid()) @db.Uuid
+  calendarId String   @db.Uuid
+  date       DateTime @db.Date
+  name       String
+  working    Boolean  @default(false)
+
+  calendar SupportBusinessCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, date])
+}
+
+/// Each row is one immutable policy version once a clock references it. Conditions, targets and
+/// pause rules are versioned together so historical SLA results remain reproducible.
+model SupportSlaPolicy {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  calendarId     String    @db.Uuid
+  policyKey      String
+  name           String
+  version        Int
+  priority       Int       @default(100)
+  conditions     Json
+  targets        Json
+  pauseRules     Json
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  calendar  SupportBusinessCalendar @relation(fields: [workspaceId, calendarId], references: [workspaceId, id], onDelete: Restrict)
+  clocks    SupportCaseSlaClock[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, policyKey, version])
+  @@index([workspaceId, active, priority, effectiveFrom])
+}
+
+/// An immutable, workspace-scoped routing ruleset. Creating a new version copies the complete
+/// ordered decision table; activation only changes which version new simulations evaluate.
+model SupportRoutingPolicy {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  version       Int
+  label         String?
+  active        Boolean   @default(false)
+  createdById   String?   @db.Uuid
+  activatedById String?   @db.Uuid
+  activatedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?                @relation("SupportRoutingPolicyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  activatedBy User?                @relation("SupportRoutingPolicyActivator", fields: [activatedById], references: [id], onDelete: SetNull)
+  rules       SupportRoutingRule[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, version])
+  @@index([workspaceId, active, version])
+}
+
+/// Empty condition arrays are wildcards. Non-empty arrays are strict allowlists and all condition
+/// dimensions must match. Rules are evaluated by order, then id, for deterministic tie-breaking.
+model SupportRoutingRule {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  workspaceId        String                       @db.Uuid
+  policyId           String                       @db.Uuid
+  order              Int
+  name               String
+  enabled            Boolean                      @default(true)
+  caseTypeKeys       String[]                     @default([])
+  priorities         SupportCasePriority[]        @default([])
+  sourceChannels     SupportCaseSourceChannel[]   @default([])
+  impacts            SupportCaseImpact[]          @default([])
+  urgencies          SupportCaseUrgency[]         @default([])
+  targetDepartmentId String                       @db.Uuid
+  assignmentMode     SupportRoutingAssignmentMode @default(DEPARTMENT_INBOX)
+  requiredSkills     String[]                     @default([])
+  createdAt          DateTime                     @default(now())
+
+  policy           SupportRoutingPolicy @relation(fields: [workspaceId, policyId], references: [workspaceId, id], onDelete: Cascade)
+  targetDepartment Department           @relation(fields: [workspaceId, targetDepartmentId], references: [workspaceId, id], onDelete: Restrict)
+
+  @@unique([policyId, order])
+  @@index([workspaceId, policyId, order, id])
+  @@index([workspaceId, targetDepartmentId])
+}
+
+/// Filters are a versioned JSON envelope parsed through the strict SupportSavedView filter schema;
+/// raw Prisma, SQL, relation predicates and free-text customer searches are never accepted.
+model SupportSavedView {
+  id           String                     @id @default(uuid()) @db.Uuid
+  workspaceId  String                     @db.Uuid
+  ownerId      String                     @db.Uuid
+  name         String
+  visibility   SupportSavedViewVisibility @default(PRIVATE)
+  departmentId String?                    @db.Uuid
+  filters      Json
+  version      Int                        @default(1)
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner      WorkspaceMember @relation(fields: [workspaceId, ownerId], references: [workspaceId, userId], onDelete: Cascade)
+  department Department?     @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, ownerId, updatedAt])
+  @@index([workspaceId, visibility, departmentId, updatedAt], map: "SupportSavedView_scope_updated_idx")
+}
+
+/// Provider output is Case-scoped. Provenance stores a digest of the input context, never a copy
+/// of conversation/customer context. A suggestion can only be applied by a later human decision.
+model SupportAssistanceSuggestion {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  workspaceId         String                    @db.Uuid
+  caseId              String                    @db.Uuid
+  kind                SupportAssistanceKind
+  payload             Json
+  provider            String
+  modelOrRule         String
+  version             String
+  confidence          Float
+  contextDigest       String
+  decision            SupportAssistanceDecision @default(PENDING)
+  decisionReason      String?
+  decisionCaseVersion Int?
+  createdById         String?                   @db.Uuid
+  decidedById         String?                   @db.Uuid
+  decidedByKind       UserKind?
+  decidedAt           DateTime?
+  expiresAt           DateTime?
+  createdAt           DateTime                  @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case      SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  createdBy User?       @relation("SupportSuggestionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  decidedBy User?       @relation("SupportSuggestionDecider", fields: [decidedById, decidedByKind], references: [id, kind], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, caseId, decision, createdAt], map: "SupportAssistanceSuggestion_case_decision_created_idx")
+  @@index([workspaceId, decision, expiresAt], map: "SupportAssistanceSuggestion_decision_expiry_idx")
+}
+
+/// The plaintext CSAT token is returned once for delivery. Only its high-entropy token hash is
+/// durable, and the response consumes it atomically without exposing whether a Case exists.
+model SupportCsatInvitation {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  caseId        String    @db.Uuid
+  tokenHash     String    @unique
+  scaleMin      Int       @default(1)
+  scaleMax      Int       @default(5)
+  createdById   String?   @db.Uuid
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  invalidatedAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  workspace Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case      SupportCase          @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  createdBy User?                @relation("SupportCsatInvitationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  response  SupportCsatResponse?
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, caseId, createdAt])
+  @@index([expiresAt, consumedAt])
+}
+
+model SupportCsatResponse {
+  invitationId String   @id @db.Uuid
+  score        Int
+  comment      String?
+  submittedAt  DateTime @default(now())
+
+  invitation SupportCsatInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+}
+
+/// Each rubric row is one immutable version. Reviews retain the rubric version and Department and
+/// assignee snapshots used for access decisions even when current Case ownership later changes.
+model SupportQualityRubric {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  rubricKey   String
+  name        String
+  version     Int
+  criteria    Json
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?                  @relation("SupportQualityRubricCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  reviews   SupportQualityReview[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, rubricKey, version])
+  @@index([workspaceId, rubricKey, version])
+}
+
+model SupportQualityReview {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  caseId         String    @db.Uuid
+  rubricId       String    @db.Uuid
+  rubricVersion  Int
+  departmentId   String    @db.Uuid
+  assigneeUserId String?   @db.Uuid
+  reviewerId     String?   @db.Uuid
+  reviewerKind   UserKind?
+  sampleReason   String
+  score          Int
+  findings       Json
+  completedAt    DateTime
+  createdAt      DateTime  @default(now())
+
+  workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case       SupportCase          @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  rubric     SupportQualityRubric @relation(fields: [workspaceId, rubricId], references: [workspaceId, id], onDelete: Restrict)
+  department Department           @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Restrict)
+  assignee   User?                @relation("SupportQualityReviewAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  reviewer   User?                @relation("SupportQualityReviewReviewer", fields: [reviewerId, reviewerKind], references: [id, kind], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@unique([caseId, rubricId])
+  @@index([workspaceId, departmentId, completedAt], map: "SupportQualityReview_department_completed_idx")
+  @@index([workspaceId, assigneeUserId, completedAt], map: "SupportQualityReview_assignee_completed_idx")
+  @@index([workspaceId, reviewerId, completedAt], map: "SupportQualityReview_reviewer_completed_idx")
+}
+
+/// Each row is an immutable configuration version. Approval/retirement is a narrow lifecycle
+/// envelope; actions and conditions are parsed as closed unions before they reach JSON storage.
+model SupportEnablementDefinition {
+  id           String                  @id @default(uuid()) @db.Uuid
+  workspaceId  String                  @db.Uuid
+  kind         SupportEnablementKind
+  definitionKey String
+  version      Int
+  name         String
+  description  String?
+  status       SupportEnablementStatus @default(DRAFT)
+  conditions   Json?
+  actions      Json
+  createdById  String?                 @db.Uuid
+  approvedById String?                 @db.Uuid
+  approvedAt   DateTime?
+  retiredById  String?                 @db.Uuid
+  retiredAt    DateTime?
+  createdAt    DateTime                @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User? @relation("SupportEnablementDefinitionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy  User? @relation("SupportEnablementDefinitionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  retiredBy   User? @relation("SupportEnablementDefinitionRetirer", fields: [retiredById], references: [id], onDelete: SetNull)
+  applications SupportEnablementApplication[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, kind, definitionKey, version])
+  @@index([workspaceId, kind, status, definitionKey, version])
+}
+
+/// A human-approved application stores only the reversible Case fields it changed. Undo uses the
+/// exact post-application field snapshot and a fresh Case version so it cannot clobber later work.
+model SupportEnablementApplication {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @db.Uuid
+  definitionId      String   @db.Uuid
+  caseId            String   @db.Uuid
+  caseVersionBefore Int
+  caseVersionAfter  Int
+  previewHash       String
+  before            Json
+  after             Json
+  appliedById       String?  @db.Uuid
+  appliedAt         DateTime @default(now())
+  undoneById        String?  @db.Uuid
+  undoneAt          DateTime?
+  undoCaseVersion   Int?
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  definition SupportEnablementDefinition @relation(fields: [workspaceId, definitionId], references: [workspaceId, id], onDelete: Restrict)
+  case       SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  appliedBy  User? @relation("SupportEnablementApplicationApplier", fields: [appliedById], references: [id], onDelete: SetNull)
+  undoneBy   User? @relation("SupportEnablementApplicationUndoer", fields: [undoneById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, caseId, appliedAt])
+  @@index([workspaceId, definitionId, appliedAt])
+}
+
+/// A sanitized canonical problem record. Membership visibility is always derived from the linked
+/// Cases the current actor can independently read; no unrestricted member count is exposed.
+model SupportProblemCluster {
+  id          String                      @id @default(uuid()) @db.Uuid
+  workspaceId String                      @db.Uuid
+  title       String
+  summary     String?
+  status      SupportProblemClusterStatus @default(OPEN)
+  version     Int                         @default(1)
+  createdById String?                     @db.Uuid
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("SupportProblemClusterCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  cases     SupportProblemClusterCase[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status, updatedAt])
+}
+
+model SupportProblemClusterCase {
+  workspaceId String   @db.Uuid
+  clusterId   String   @db.Uuid
+  caseId      String   @db.Uuid
+  linkedById  String?  @db.Uuid
+  linkedAt    DateTime @default(now())
+
+  cluster  SupportProblemCluster @relation(fields: [workspaceId, clusterId], references: [workspaceId, id], onDelete: Cascade)
+  case     SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  linkedBy User? @relation("SupportProblemClusterCaseLinker", fields: [linkedById], references: [id], onDelete: SetNull)
+
+  @@id([clusterId, caseId])
+  @@index([workspaceId, caseId])
+}
+
+/// KCS usage is Support-side evidence only. It references the Knowledge page/version but never
+/// copies Case/contact content into Knowledge metadata or grants access in either direction.
+model SupportCaseKnowledgeUse {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  workspaceId          String                       @db.Uuid
+  caseId               String                       @db.Uuid
+  knowledgePageId      String                       @db.Uuid
+  caseVersion          Int
+  knowledgePageVersion Int
+  usefulness           SupportKnowledgeUsefulness
+  outcome              SupportKnowledgeOutcome
+  createdById          String?                      @db.Uuid
+  createdAt            DateTime                     @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  knowledgePage KnowledgePage @relation(fields: [workspaceId, knowledgePageId], references: [workspaceId, id], onDelete: Restrict)
+  createdBy User? @relation("SupportCaseKnowledgeUseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, caseId, createdAt])
+  @@index([workspaceId, knowledgePageId, usefulness, createdAt])
+}
+
+/// A Knowledge gap remains in Support until a human review resolves it. WRONG gaps reference an
+/// independently-authorized page; MISSING gaps deliberately have no page reference.
+model SupportKnowledgeGap {
+  id              String                    @id @default(uuid()) @db.Uuid
+  workspaceId     String                    @db.Uuid
+  caseId          String                    @db.Uuid
+  knowledgePageId String?                   @db.Uuid
+  kind            SupportKnowledgeGapKind
+  status          SupportKnowledgeGapStatus @default(OPEN)
+  feedback        String
+  reviewOwnerId   String?                   @db.Uuid
+  createdById     String?                   @db.Uuid
+  resolvedAt      DateTime?
+  version         Int                       @default(1)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  case SupportCase @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  knowledgePage KnowledgePage? @relation(fields: [workspaceId, knowledgePageId], references: [workspaceId, id], onDelete: Restrict)
+  reviewOwner User? @relation("SupportKnowledgeGapReviewer", fields: [reviewOwnerId], references: [id], onDelete: SetNull)
+  createdBy User? @relation("SupportKnowledgeGapCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, caseId, createdAt])
+  @@index([workspaceId, reviewOwnerId, status])
+}
+
+model SupportCaseSlaClock {
+  id                       String               @id @default(uuid()) @db.Uuid
+  workspaceId              String               @db.Uuid
+  caseId                   String               @db.Uuid
+  policyId                 String               @db.Uuid
+  calendarId               String               @db.Uuid
+  metric                   SupportSlaMetric
+  cycle                    Int                  @default(1)
+  policyVersion            Int
+  targetBusinessSeconds    Int
+  pauseRulesSnapshot       Json
+  state                    SupportSlaClockState @default(RUNNING)
+  startedAt                DateTime
+  dueAt                    DateTime
+  pausedAt                 DateTime?
+  metAt                    DateTime?
+  breachedAt               DateTime?
+  canceledAt               DateTime?
+  accumulatedPausedSeconds BigInt               @default(0)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  case     SupportCase             @relation(fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  policy   SupportSlaPolicy        @relation(fields: [workspaceId, policyId], references: [workspaceId, id], onDelete: Restrict)
+  calendar SupportBusinessCalendar @relation(fields: [workspaceId, calendarId], references: [workspaceId, id], onDelete: Restrict)
+
+  @@unique([caseId, metric, cycle])
+  @@index([workspaceId, state, dueAt])
+  @@index([workspaceId, caseId, metric, cycle])
+}
+
+/// Retryable sub-day job bucket. Unlike ScheduledJobRun, failures remain claimable after lease
+/// expiry and are isolated by Support workspace.
+model SupportJobLease {
+  id               String                @id @default(uuid()) @db.Uuid
+  workspaceId      String                @db.Uuid
+  jobKey           String
+  bucketKey        String
+  status           SupportJobLeaseStatus @default(PENDING)
+  attemptCount     Int                   @default(0)
+  nextAttemptAt    DateTime              @default(now())
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  completedAt      DateTime?
+  deadLetteredAt   DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([jobKey, workspaceId, bucketKey])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([workspaceId, jobKey, createdAt])
+}
+
+/// A dual-approved, revocable relationship from exactly one SUPPORT workspace to one TEAM
+/// workspace. It grants no ambient access; DepartmentWorkTarget carries the project allowlist.
+model WorkspaceConnection {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  supportWorkspaceId  String                    @db.Uuid
+  teamWorkspaceId     String                    @db.Uuid
+  status              WorkspaceConnectionStatus @default(PENDING)
+  supportApprovedById String?                   @db.Uuid
+  supportApprovedAt   DateTime?
+  teamApprovedById    String?                   @db.Uuid
+  teamApprovedAt      DateTime?
+  revokedById         String?                   @db.Uuid
+  revokedAt           DateTime?
+  revokeReason        String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  supportWorkspace  Workspace              @relation("SupportWorkspaceConnections", fields: [supportWorkspaceId], references: [id], onDelete: Cascade)
+  teamWorkspace     Workspace              @relation("TeamWorkspaceConnections", fields: [teamWorkspaceId], references: [id], onDelete: Cascade)
+  supportApprovedBy User?                  @relation("SupportConnectionApprover", fields: [supportApprovedById], references: [id], onDelete: SetNull)
+  teamApprovedBy    User?                  @relation("TeamConnectionApprover", fields: [teamApprovedById], references: [id], onDelete: SetNull)
+  revokedBy         User?                  @relation("WorkspaceConnectionRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  workTargets       DepartmentWorkTarget[]
+
+  @@unique([id, supportWorkspaceId, teamWorkspaceId])
+  @@unique([supportWorkspaceId, teamWorkspaceId])
+  @@index([supportWorkspaceId, status])
+  @@index([teamWorkspaceId, status])
+}
+
+model DepartmentWorkTarget {
+  id                 String   @id @default(uuid()) @db.Uuid
+  connectionId       String   @db.Uuid
+  supportWorkspaceId String   @db.Uuid
+  teamWorkspaceId    String   @db.Uuid
+  departmentId       String   @db.Uuid
+  projectId          String   @db.Uuid
+  allowCreateTasks   Boolean  @default(false)
+  allowLinkTasks     Boolean  @default(true)
+  active             Boolean  @default(true)
+  createdById        String?  @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  connection WorkspaceConnection   @relation(fields: [connectionId, supportWorkspaceId, teamWorkspaceId], references: [id, supportWorkspaceId, teamWorkspaceId], onDelete: Cascade)
+  department Department            @relation(fields: [supportWorkspaceId, departmentId], references: [workspaceId, id], onDelete: Cascade)
+  project    Project               @relation(fields: [teamWorkspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  createdBy  User?                 @relation("DepartmentWorkTargetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  caseLinks  SupportCaseTaskLink[]
+
+  @@unique([id, connectionId, supportWorkspaceId, teamWorkspaceId])
+  @@unique([connectionId, departmentId, projectId])
+  @@index([supportWorkspaceId, departmentId, active])
+  @@index([teamWorkspaceId, projectId, active])
+}
+
+/// Sanitized, versioned bridge between aggregates. `taskWorkspaceId` is nullable with `taskId` so
+/// hard Task deletion can null the live FK while retaining the approved Team workspace and frozen
+/// Task key/title/status tombstone.
+model SupportCaseTaskLink {
+  id                           String                  @id @default(uuid()) @db.Uuid
+  idempotencyKey               String
+  idempotencyHash              String
+  version                      Int                     @default(1)
+  connectionId                 String                  @db.Uuid
+  workTargetId                 String                  @db.Uuid
+  supportWorkspaceId           String                  @db.Uuid
+  teamWorkspaceId              String                  @db.Uuid
+  caseId                       String                  @db.Uuid
+  taskId                       String?                 @db.Uuid
+  taskWorkspaceId              String?                 @db.Uuid
+  relationType                 SupportCaseTaskLinkType
+  handoffTitle                 String
+  handoffSummary               String
+  teamWorkspaceNameSnapshot    String
+  taskKeySnapshot              String
+  taskTitleSnapshot            String
+  taskStatusSnapshot           TaskStatus
+  supportWorkspaceNameSnapshot String
+  caseKeySnapshot              String
+  caseTitleSnapshot            String
+  caseStatusSnapshot           SupportCaseSignalStatus
+  lastTaskSignalAt             DateTime?
+  lastCaseSignalAt             DateTime?
+  connectionRevokedAt          DateTime?
+  taskDeletedAt                DateTime?
+  unlinkedAt                   DateTime?
+  createdById                  String?                 @db.Uuid
+  createdAt                    DateTime                @default(now())
+  updatedAt                    DateTime                @updatedAt
+
+  workTarget DepartmentWorkTarget @relation(fields: [workTargetId, connectionId, supportWorkspaceId, teamWorkspaceId], references: [id, connectionId, supportWorkspaceId, teamWorkspaceId], onDelete: Restrict)
+  case       SupportCase          @relation(fields: [supportWorkspaceId, caseId], references: [workspaceId, id], onDelete: Cascade)
+  task       Task?                @relation(fields: [taskWorkspaceId, taskId], references: [workspaceId, id], onDelete: SetNull)
+  createdBy  User?                @relation("SupportCaseTaskLinkCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([caseId, teamWorkspaceId, taskKeySnapshot, relationType])
+  @@unique([supportWorkspaceId, idempotencyKey])
+  @@index([supportWorkspaceId, caseId, unlinkedAt])
+  @@index([teamWorkspaceId, taskId, unlinkedAt])
+  @@index([connectionId, connectionRevokedAt])
 }

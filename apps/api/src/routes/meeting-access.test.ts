@@ -415,12 +415,15 @@ async function createFixture(): Promise<Fixture> {
       { workspaceId: workspace.id, meetingId: meeting.id, userId: guest.id, role: 'PARTICIPANT' }
     ]
   });
-  // `createdAt: desc` orders the include, so the walled link has to be written last to sit first.
+  // The include is newest-first. Encode that order explicitly: two sequential inserts can share a
+  // millisecond, in which case the production `taskId` tiebreaker — correctly — decides the order.
+  const walledLinkedAt = new Date();
+  const openLinkedAt = new Date(walledLinkedAt.getTime() - 1);
   await prisma.meetingTask.create({
-    data: { meetingId: meeting.id, taskId: openTask.id, createdById: host.id }
+    data: { meetingId: meeting.id, taskId: openTask.id, createdById: host.id, createdAt: openLinkedAt }
   });
   await prisma.meetingTask.create({
-    data: { meetingId: meeting.id, taskId: walledTask.id, createdById: host.id }
+    data: { meetingId: meeting.id, taskId: walledTask.id, createdById: host.id, createdAt: walledLinkedAt }
   });
 
   const actionItemTitle = `walled action item ${suffix}`;

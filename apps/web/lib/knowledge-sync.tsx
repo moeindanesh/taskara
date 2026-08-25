@@ -11,6 +11,8 @@ import type {
    TaskaraTeam,
    TaskaraUser,
 } from '@/lib/taskara-types';
+import { workspaceUserCacheKey, type WorkspaceCachePersistence } from '@/lib/workspace-cache';
+import type { WorkspaceMode } from '@/lib/workspace-mode';
 
 type KnowledgeSnapshot = {
    commentsByPageId: Record<string, TaskaraKnowledgeComment[]>;
@@ -58,12 +60,18 @@ const knowledgeRefreshOrigin = 'knowledge-view';
 
 export function WorkspaceKnowledgeSyncProvider({
    children,
+   mode,
+   persistence = 'local',
+   userId,
    workspaceSlug,
 }: {
    children: ReactNode;
+   mode: WorkspaceMode;
+   persistence?: WorkspaceCachePersistence;
+   userId: string;
    workspaceSlug: string;
 }) {
-   const controller = useKnowledgeSync(workspaceSlug);
+   const controller = useKnowledgeSync(workspaceSlug, userId, mode, persistence);
    return <KnowledgeSyncContext.Provider value={controller}>{children}</KnowledgeSyncContext.Provider>;
 }
 
@@ -73,8 +81,16 @@ export function useWorkspaceKnowledgeSync(): WorkspaceKnowledgeSyncController {
    return sync;
 }
 
-function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncController {
-   const cacheKey = useMemo(() => `${knowledgeCachePrefix}${workspaceSlug}`, [workspaceSlug]);
+function useKnowledgeSync(
+   workspaceSlug: string,
+   userId: string,
+   mode: WorkspaceMode,
+   persistence: WorkspaceCachePersistence
+): WorkspaceKnowledgeSyncController {
+   const cacheKey = useMemo(
+      () => workspaceUserCacheKey(knowledgeCachePrefix, workspaceSlug, userId, persistence),
+      [persistence, userId, workspaceSlug]
+   );
    const [state, setState] = useState<KnowledgeSyncState>({
       commentsByPageId: {},
       detailsLoadingByPageId: {},
@@ -91,7 +107,7 @@ function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncControll
 
    const saveSnapshot = useCallback(
       (snapshot: Omit<KnowledgeSnapshot, 'savedAt'>) => {
-         if (typeof window === 'undefined') return;
+         if (typeof window === 'undefined' || !cacheKey) return;
          try {
             window.localStorage.setItem(
                cacheKey,
@@ -133,8 +149,8 @@ function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncControll
                limit: 0,
                offset: 0,
             })),
-            taskaraRequest<TaskaraTeam[]>('/teams').catch(() => []),
-            taskaraRequest<TaskaraProject[]>('/projects').catch(() => []),
+            mode === 'TEAM' ? taskaraRequest<TaskaraTeam[]>('/teams').catch(() => []) : Promise.resolve([]),
+            mode === 'TEAM' ? taskaraRequest<TaskaraProject[]>('/projects').catch(() => []) : Promise.resolve([]),
          ]);
 
          setState((current) => {
@@ -159,7 +175,7 @@ function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncControll
             loading: false,
          }));
       }
-   }, [persistFromState]);
+   }, [mode, persistFromState]);
 
    const loadPages = useCallback(
       async (space: TaskaraKnowledgeSpace, options: { force?: boolean } = {}) => {
@@ -274,7 +290,7 @@ function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncControll
    useEffect(() => {
       let restored = false;
       try {
-         const raw = typeof window === 'undefined' ? null : window.localStorage.getItem(cacheKey);
+         const raw = typeof window === 'undefined' || !cacheKey ? null : window.localStorage.getItem(cacheKey);
          const snapshot = raw ? JSON.parse(raw) : null;
          if (isKnowledgeSnapshot(snapshot)) {
             restored = true;
@@ -295,7 +311,21 @@ function useKnowledgeSync(workspaceSlug: string): WorkspaceKnowledgeSyncControll
          // Ignore corrupted cache and rehydrate from the API.
       }
 
-      if (!restored) setState((current) => ({ ...current, loading: true }));
+      if (!restored) {
+         setState({
+            commentsByPageId: {},
+            detailsLoadingByPageId: {},
+            error: '',
+            loading: true,
+            pagesBySpaceId: {},
+            pagesLoadingBySpaceId: {},
+            pageDetailsById: {},
+            projects: [],
+            spaces: [],
+            teams: [],
+            users: [],
+         });
+      }
       void refresh();
    }, [cacheKey, refresh]);
 

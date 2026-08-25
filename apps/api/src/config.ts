@@ -66,6 +66,11 @@ export const envSchema = z.object({
   SMS_KAVEH_KEY: optionalString,
   SMS_KAVEH_SENDER: optionalString,
   TASKARA_AI_CREDENTIAL_SECRET: optionalString,
+  // 32+ bytes of deployment secret material used only to encrypt Support connector secrets and
+  // transient intake payloads at rest. Connector administration fails closed when it is absent.
+  TASKARA_SUPPORT_DATA_SECRET: optionalString,
+  TASKARA_SUPPORT_INTAKE_WORKER_ENABLED: envFlag(true),
+  TASKARA_SUPPORT_RECOVERY_WORKER_ENABLED: envFlag(true),
   TASKARA_WORKSPACE_TIMEZONE: z.string().min(1).default('Asia/Tehran'),
   TASKARA_SCHEDULED_JOBS_ENABLED: envFlag(false),
   TASKARA_DAILY_REPORT_SMS_ENABLED: envFlag(false)

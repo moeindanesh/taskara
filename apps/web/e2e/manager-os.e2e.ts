@@ -204,8 +204,10 @@ test.describe('@manager-os manager surfaces', () => {
 
     await gotoApp(page, `/${workspaceSlug}/team-health`);
     await expect(page.getByTestId('team-health-screen')).toBeVisible();
+    await expect(page.getByText('روند گزارش‌های روزانه')).toBeVisible();
     await expect(page.getByText('جریان و WIP')).toBeVisible();
     await expect(page.getByText('گلوگاه‌های قابل اقدام')).toBeVisible();
+    expect(requestedPaths).toContain('/check-ins/trends');
     await expectNoPageOverflow(page);
 
     await gotoApp(page, `/${workspaceSlug}/projects`);
@@ -310,7 +312,7 @@ test.describe('@manager-os manager surfaces', () => {
 
     await gotoApp(page, `/${workspaceSlug}/inbox`);
     await expect(page.getByRole('heading', { name: 'اعلان‌ها' })).toBeVisible();
-    await expect(page.getByText('اعلانی برای کارهای دنبال‌شده، واگذاری‌ها یا منشن‌های شما وجود ندارد.')).toBeVisible();
+    await expect(page.getByText('هنوز اعلان مرتبطی برای واگذاری‌ها، پیگیری‌ها یا منشن‌های شما وجود ندارد.')).toBeVisible();
     await expectNoPageOverflow(page);
 
     await gotoApp(page, `/${workspaceSlug}/meetings`);
@@ -397,14 +399,17 @@ test.describe('@manager-os manager surfaces', () => {
   test('member navigation keeps personal work as the default entry', async ({ page }, testInfo) => {
     await setupManagerPage(page, { scenario: 'limited-member' });
     await gotoApp(page, `/${workspaceSlug}/team/all/all`);
+    await expect(page.getByRole('heading', { name: 'کارهای من' })).toBeVisible();
 
     if (!testInfo.project.name.includes('mobile')) {
       await expect(page.getByRole('link', { name: 'کارهای من' })).toHaveCount(1);
       await expect(page.getByRole('link', { name: 'میز مدیر' })).toHaveCount(0);
     }
     await page.keyboard.press('Control+k');
-    await expect(page.getByText('رفتن به کارها')).toBeVisible();
-    await expect(page.getByText('رفتن به میز مدیر')).toHaveCount(0);
+    const command = page.getByRole('dialog', { name: 'منوی فرمان' });
+    await expect(command).toBeVisible();
+    await expect(command.getByText('رفتن به کارها')).toBeVisible();
+    await expect(command.getByText('رفتن به میز مدیر')).toHaveCount(0);
   });
 
   test('workspace admins with no team membership still see manager queues', async ({ page }) => {
@@ -796,6 +801,7 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
       const items = fixture.attentionResponse.items.filter((item) => !resolvedAttentionIds.has(item.id));
       return json(route, { ...fixture.attentionResponse, items, total: items.length });
     }
+    if (path === '/check-ins/trends') return json(route, dailyReportTrends);
     if (path === '/check-ins/missing') return json(route, fixture.missingCheckIns);
     if (path === '/one-on-ones') return json(route, { items: fixture.oneOnOnes, total: fixture.oneOnOnes.length, limit: 50, offset: 0 });
     if (path === '/capacity/users') return json(route, { items: fixture.capacityUsers, total: fixture.capacityUsers.length });
@@ -1611,6 +1617,50 @@ const missingCheckIns = {
   total: 1,
   thresholdHours: 24,
   generatedAt: now,
+};
+
+const dailyReportTrendDateKeys = [
+  '2026-06-23',
+  '2026-06-24',
+  '2026-06-25',
+  '2026-06-26',
+  '2026-06-27',
+  '2026-06-28',
+  '2026-06-29',
+  '2026-06-30',
+  '2026-07-01',
+  '2026-07-02',
+  '2026-07-03',
+  '2026-07-04',
+  '2026-07-05',
+  '2026-07-06',
+] as const;
+
+const dailyReportTrends = {
+  from: dailyReportTrendDateKeys[0],
+  to: dailyReportTrendDateKeys.at(-1),
+  days: dailyReportTrendDateKeys.length,
+  workdays: 10,
+  byDay: dailyReportTrendDateKeys.map((dateKey) => {
+    const offDay = dateKey === '2026-06-25' || dateKey === '2026-06-26' || dateKey === '2026-07-02' || dateKey === '2026-07-03';
+    const submitted = dateKey === '2026-07-05' ? 2 : dateKey === '2026-07-06' ? 1 : 0;
+    return {
+      dateKey,
+      workday: !offDay,
+      submitted,
+      counted: submitted,
+      expected: offDay ? 0 : 3,
+      unplanned: dateKey === '2026-07-05' ? 1 : 0,
+      blockers: dateKey === '2026-07-06' ? 1 : 0,
+      unplannedShare: dateKey === '2026-07-05' ? 50 : 0,
+    };
+  }),
+  byPerson: [
+    { user: users.admin, submitted: 2, possible: 10, unplannedDays: 1, blockerDays: 0 },
+    { user: users.reviewer, submitted: 1, possible: 10, unplannedDays: 0, blockerDays: 1 },
+    { user: users.overloaded, submitted: 0, possible: 10, unplannedDays: 0, blockerDays: 0 },
+  ],
+  totals: { submitted: 3, possible: 30, unplannedShare: 33, blockerShare: 33 },
 };
 
 const oneOnOnes = [

@@ -11,6 +11,7 @@ import {
 } from './notifications';
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { serializeTaskForResponse, taskInclude } from './tasks';
+import { assertTeamWorkspace } from './workspace-mode';
 
 /**
  * How far the cycle walk will follow blocking edges before giving up.
@@ -43,6 +44,7 @@ export async function addTaskDependency(
   blocker: TaskEndpoint,
   syncMutation?: SyncMutationMeta
 ): Promise<{ dependency: { id: string; taskId: string; blockedByTaskId: string; createdAt: Date }; created: boolean }> {
+  assertTeamWorkspace(actor.workspace);
   if (task.id === blocker.id) throw new HttpError(400, 'Task cannot block itself');
 
   let syncEvents: SyncEvent[] = [];
@@ -107,6 +109,7 @@ export async function removeTaskDependency(
   blocker: TaskEndpoint,
   syncMutation?: SyncMutationMeta
 ): Promise<void> {
+  assertTeamWorkspace(actor.workspace);
   const event = await prisma.$transaction(async (tx) => {
     const before = await tx.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
     const deleted = await tx.taskDependency.deleteMany({

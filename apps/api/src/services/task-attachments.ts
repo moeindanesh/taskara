@@ -5,6 +5,7 @@ import { openBlockerCountSelect } from './blockers';
 import { HttpError } from './http';
 import { buildMediaUrl, type UploadedMediaObject } from './media';
 import { appendSyncEvent, publishSyncEvent } from './sync';
+import { assertTeamWorkspace } from './workspace-mode';
 
 export type TaskAttachmentResponse = TaskAttachment & { url: string };
 
@@ -42,6 +43,7 @@ export function serializeTaskAttachment(attachment: TaskAttachment): TaskAttachm
 }
 
 export async function listTaskAttachments(actor: RequestActor, taskId: string): Promise<TaskAttachmentResponse[]> {
+  assertTeamWorkspace(actor.workspace);
   await ensureTaskInWorkspace(actor.workspace.id, taskId);
   const attachments = await prisma.taskAttachment.findMany({
     where: { taskId, commentId: null },
@@ -56,6 +58,7 @@ export async function createTaskAttachment(
   media: UploadedMediaObject,
   commentId?: string
 ): Promise<TaskAttachmentResponse> {
+  assertTeamWorkspace(actor.workspace);
   const task = await ensureTaskInWorkspace(actor.workspace.id, taskId);
   if (commentId) await ensureCommentForTask(taskId, commentId);
 

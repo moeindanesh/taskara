@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { workspaceModeSchema } from './support';
+
+export * from './support';
 
 export const taskStatuses = [
   'BACKLOG',
@@ -214,7 +217,8 @@ export const authRegisterSchema = z.object({
 export const createAuthWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().trim().toLowerCase().min(2).max(48).regex(/^[a-z0-9-]+$/),
-  description: z.string().trim().max(2000).optional()
+  description: z.string().trim().max(2000).optional(),
+  mode: workspaceModeSchema.default('TEAM')
 });
 
 export const authOnboardingSchema = createAuthWorkspaceSchema;
@@ -459,6 +463,7 @@ export const milestoneCompletionSchema = milestoneTransitionSchema.extend({
  * "up to" figures — about 15 KB and 60 KB in English, about 29 KB and 116 KB in Persian.
  */
 export const WORK_DESCRIPTION_MAX_CHARS = 15_000;
+export const TASK_COMMENT_MAX_CHARS = 15_000;
 
 /**
  * An Effort's description *is* the wayfinder map — Destination, Notes, and a Decisions-so-far
@@ -571,7 +576,7 @@ export const taskPatchConcurrencySchema = z.object({
 });
 
 export const createCommentSchema = z.object({
-  body: z.string().min(1).max(15000),
+  body: z.string().min(1).max(TASK_COMMENT_MAX_CHARS),
   source: z.enum(['WEB', 'API', 'MATTERMOST', 'CODEX', 'AGENT', 'SYSTEM']).default('API'),
   mattermostPostId: z.string().optional()
 });

@@ -27,6 +27,11 @@ import {
 import { appendSyncEvent, publishSyncEvent, type SyncMutationMeta } from './sync';
 import { subscribeToTask } from './task-subscriptions';
 import { taskWhereForAccess, type WorkspaceAccess } from './team-access';
+import {
+  signalSupportLinksForTaskUpdate,
+  tombstoneSupportLinksForTaskDeletion
+} from './support-task-link-signals';
+import { assertTeamWorkspace, assertTeamWorkspaceId } from './workspace-mode';
 
 type CreateTaskInput = z.infer<typeof createTaskSchema>;
 type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
@@ -109,6 +114,7 @@ export const taskInclude = {
 
 
 export async function ensureDefaultProject(workspaceId: string): Promise<{ id: string; keyPrefix: string }> {
+  await assertTeamWorkspaceId(workspaceId);
   return prisma.project.upsert({
     where: { workspaceId_keyPrefix: { workspaceId, keyPrefix: 'INBOX' } },
     update: {},
@@ -123,90 +129,8 @@ export async function ensureDefaultProject(workspaceId: string): Promise<{ id: s
 }
 
 export async function createTask(actor: RequestActor, input: CreateTaskInput, syncMutation?: SyncMutationMeta) {
-  assertDescriptionFitsKind(input.description, input.kind);
-  assertEffortShape(input);
-
-  let syncEvents: SyncEvent[] = [];
-  const task = await prisma.$transaction(async (tx) => {
-    await assertActorCanAccessProject(tx, actor, input.projectId);
-    await assertTaskRelations(tx, actor.workspace.id, input, input.projectId);
-
-    const { key, sequence } = await reserveTaskKey(tx, input.projectId);
-
-    const created = await tx.task.create({
-      data: {
-        workspaceId: actor.workspace.id,
-        projectId: input.projectId,
-        parentId: input.parentId,
-        cycleId: input.cycleId,
-        milestoneId: input.milestoneId,
-        key,
-        sequence,
-        title: input.title,
-        kind: input.kind,
-        description: input.description,
-        status: input.status,
-        priority: input.priority,
-        weight: input.weight ?? undefined,
-        assigneeId: input.assigneeId,
-        reporterId: actor.user.id,
-        dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
-        source: input.source
-      },
-      include: taskInclude
-    });
-
-    await syncTaskLabels(tx, actor.workspace.id, created.id, input.labels);
-    const task = await tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
-    await subscribeTaskParticipants(tx, {
-      workspaceId: actor.workspace.id,
-      task,
-      userIds: [actor.user.id]
-    });
-    await createTaskMentionNotifications(tx, {
-      workspaceId: actor.workspace.id,
-      actorUserId: actor.user.id,
-      actorName: actor.user.name,
-      attribution: attributedTo(actor),
-      task,
-      body: task.description
-    });
-    if (task.assigneeId && task.assigneeId !== actor.user.id) {
-      await tx.notification.create({
-        data: {
-          workspaceId: actor.workspace.id,
-          userId: task.assigneeId,
-          ...attributedTo(actor),
-          taskId: task.id,
-          type: TASK_ASSIGNED_NOTIFICATION_TYPE,
-          title: `${task.key}: ${task.title}`,
-          body: taskAssignedNotificationBody(actor.user.name)
-        }
-      });
-    }
-    const taskEvent = await appendSyncEvent(tx, {
-      workspaceId: actor.workspace.id,
-      entityType: 'task',
-      entityId: task.id,
-      operation: 'created',
-      entityVersion: task.version,
-      actorId: actor.user.id,
-      payload: {
-        after: serializeTaskForResponse(task),
-        changedFields: Object.keys(input)
-      },
-      mutation: syncMutation
-    });
-    syncEvents = [
-      taskEvent,
-      ...await appendMilestoneProgressSyncEvents(tx, {
-        workspaceId: actor.workspace.id,
-        actorId: actor.user.id,
-        milestoneIds: [task.milestoneId]
-      })
-    ];
-    return task;
-  });
+  const created = await prisma.$transaction((tx) => createTaskInTransaction(tx, actor, input, syncMutation));
+  const { task, syncEvents } = created;
 
   for (const event of syncEvents) publishSyncEvent(event);
 
@@ -223,6 +147,99 @@ export async function createTask(actor: RequestActor, input: CreateTaskInput, sy
   }).catch(() => undefined);
 
   return task;
+}
+
+/**
+ * The atomic Task-create primitive used by ordinary Team creation and the dual-workspace Support
+ * handoff. It owns every Task-side relation, notification and sync write but does not commit or
+ * publish; callers can add their own rows in the same transaction and publish only after commit.
+ */
+export async function createTaskInTransaction(
+  tx: Prisma.TransactionClient,
+  actor: RequestActor,
+  input: CreateTaskInput,
+  syncMutation?: SyncMutationMeta
+) {
+  assertTeamWorkspace(actor.workspace);
+  assertDescriptionFitsKind(input.description, input.kind);
+  assertEffortShape(input);
+  await assertActorCanCreateTaskInProject(tx, actor, input.projectId);
+  await assertTaskRelations(tx, actor.workspace.id, input, input.projectId);
+
+  const { key, sequence } = await reserveTaskKey(tx, input.projectId);
+  const created = await tx.task.create({
+    data: {
+      workspaceId: actor.workspace.id,
+      projectId: input.projectId,
+      parentId: input.parentId,
+      cycleId: input.cycleId,
+      milestoneId: input.milestoneId,
+      key,
+      sequence,
+      title: input.title,
+      kind: input.kind,
+      description: input.description,
+      status: input.status,
+      priority: input.priority,
+      weight: input.weight ?? undefined,
+      assigneeId: input.assigneeId,
+      reporterId: actor.user.id,
+      dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
+      source: input.source
+    },
+    include: taskInclude
+  });
+
+  await syncTaskLabels(tx, actor.workspace.id, created.id, input.labels);
+  const task = await tx.task.findUniqueOrThrow({ where: { id: created.id }, include: taskInclude });
+  await subscribeTaskParticipants(tx, {
+    workspaceId: actor.workspace.id,
+    task,
+    userIds: [actor.user.id]
+  });
+  await createTaskMentionNotifications(tx, {
+    workspaceId: actor.workspace.id,
+    actorUserId: actor.user.id,
+    actorName: actor.user.name,
+    attribution: attributedTo(actor),
+    task,
+    body: task.description
+  });
+  if (task.assigneeId && task.assigneeId !== actor.user.id) {
+    await tx.notification.create({
+      data: {
+        workspaceId: actor.workspace.id,
+        userId: task.assigneeId,
+        ...attributedTo(actor),
+        taskId: task.id,
+        type: TASK_ASSIGNED_NOTIFICATION_TYPE,
+        title: `${task.key}: ${task.title}`,
+        body: taskAssignedNotificationBody(actor.user.name)
+      }
+    });
+  }
+  const taskEvent = await appendSyncEvent(tx, {
+    workspaceId: actor.workspace.id,
+    entityType: 'task',
+    entityId: task.id,
+    operation: 'created',
+    entityVersion: task.version,
+    actorId: actor.user.id,
+    payload: {
+      after: serializeTaskForResponse(task),
+      changedFields: Object.keys(input)
+    },
+    mutation: syncMutation
+  });
+  const syncEvents = [
+    taskEvent,
+    ...await appendMilestoneProgressSyncEvents(tx, {
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      milestoneIds: [task.milestoneId]
+    })
+  ];
+  return { task, syncEvents };
 }
 
 async function reserveTaskKey(
@@ -341,6 +358,7 @@ export async function updateTask(
   syncMutation?: SyncMutationMeta,
   baseVersion?: number
 ) {
+  assertTeamWorkspace(actor.workspace);
   const existing = await prisma.task.findFirst({
     where: { id: taskId, workspaceId: actor.workspace.id },
     include: taskInclude
@@ -361,7 +379,7 @@ export async function updateTask(
         : undefined;
 
     if (isProjectChange) {
-      await assertActorCanAccessProject(tx, actor, targetProjectId);
+      await assertActorCanCreateTaskInProject(tx, actor, targetProjectId);
     }
 
     await assertTaskRelations(
@@ -464,6 +482,7 @@ export async function updateTask(
     }
 
     const task = await tx.task.findUniqueOrThrow({ where: { id: updated.id }, include: taskInclude });
+    const supportLinkEvents = await signalSupportLinksForTaskUpdate(tx, actor, existing, task);
     if (input.assigneeId) {
       await subscribeUsersToTask(tx, {
         workspaceId: actor.workspace.id,
@@ -557,7 +576,7 @@ export async function updateTask(
       actorId: actor.user.id,
       milestoneIds: [existing.milestoneId, task.milestoneId]
     });
-    syncEvents = [taskEvent, ...reviewCancellation.events, ...milestoneEvents];
+    syncEvents = [...supportLinkEvents, taskEvent, ...reviewCancellation.events, ...milestoneEvents];
     return task;
   });
 
@@ -623,6 +642,7 @@ async function findTaskWithInclude(workspaceId: string, taskId: string) {
  * just won a race it never entered.
  */
 export async function claimTask(actor: RequestActor, taskId: string): Promise<ClaimTaskResult> {
+  assertTeamWorkspace(actor.workspace);
   const existing = await prisma.task.findFirst({
     where: { id: taskId, workspaceId: actor.workspace.id },
     select: { id: true, kind: true }
@@ -683,6 +703,7 @@ export async function claimTask(actor: RequestActor, taskId: string): Promise<Cl
 }
 
 export async function deleteTask(actor: RequestActor, taskId: string, syncMutation?: SyncMutationMeta) {
+  assertTeamWorkspace(actor.workspace);
   let syncEvents: SyncEvent[] = [];
   const existing = await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findFirst({
@@ -703,6 +724,7 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
     ) {
       throw new HttpError(409, 'Task changed on another client');
     }
+    const supportLinkEvents = await tombstoneSupportLinksForTaskDeletion(tx, actor, existing);
     await tx.task.delete({ where: { id: taskId } });
     const taskEvent = await appendSyncEvent(tx, {
       workspaceId: actor.workspace.id,
@@ -718,6 +740,7 @@ export async function deleteTask(actor: RequestActor, taskId: string, syncMutati
       mutation: syncMutation
     });
     syncEvents = [
+      ...supportLinkEvents,
       taskEvent,
       ...await appendMilestoneProgressSyncEvents(tx, {
         workspaceId: actor.workspace.id,
@@ -753,6 +776,7 @@ export async function addTaskComment(
   mattermostPostId?: string,
   syncMutation?: SyncMutationMeta
 ) {
+  assertTeamWorkspace(actor.workspace);
   let syncEvent: SyncEvent | null = null;
   const { task, comment } = await prisma.$transaction(async (tx) => {
     const task = await tx.task.findFirst({ where: { id: taskId, workspaceId: actor.workspace.id } });
@@ -944,6 +968,7 @@ export async function findTaskByIdOrKey(
   idOrKey: string,
   access: WorkspaceAccess
 ): Promise<Task | null> {
+  await assertTeamWorkspaceId(workspaceId);
   const normalized = idOrKey.trim();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
 
@@ -1165,18 +1190,18 @@ async function assertParentIsNotDescendant(
   }
 }
 
-async function assertActorCanAccessProject(
+export async function assertActorCanCreateTaskInProject(
   tx: Prisma.TransactionClient,
   actor: RequestActor,
   projectId: string
-): Promise<{ id: string; teamId: string | null }> {
+): Promise<{ id: string; teamId: string | null; leadId: string | null }> {
   const project = await tx.project.findFirst({
     where: { id: projectId, workspaceId: actor.workspace.id },
     select: { id: true, teamId: true, leadId: true }
   });
   if (!project) throw new HttpError(400, 'Project not found in this workspace');
 
-  if (!project.teamId || isWorkspaceAdminRole(actor.role) || project.leadId === actor.user.id) return project;
+  if (isWorkspaceAdminRole(actor.role) || project.leadId === actor.user.id) return project;
 
   const projectMembership = await tx.projectMember.findUnique({
     where: {
@@ -1185,10 +1210,18 @@ async function assertActorCanAccessProject(
         userId: actor.user.id
       }
     },
-    select: { id: true }
+    select: { id: true, role: true }
   });
 
-  if (projectMembership) return project;
+  if (projectMembership) {
+    if (projectMembership.role === 'LEAD' || projectMembership.role === 'MEMBER') return project;
+    throw new HttpError(403, 'Project write access denied');
+  }
+
+  if (!project.teamId) {
+    if (actor.role === 'MEMBER' || actor.role === 'AGENT') return project;
+    throw new HttpError(403, 'Project write access denied');
+  }
 
   const membership = await tx.teamMember.findUnique({
     where: {
@@ -1197,10 +1230,13 @@ async function assertActorCanAccessProject(
         userId: actor.user.id
       }
     },
-    select: { id: true }
+    select: { id: true, role: true }
   });
 
-  if (!membership) throw new HttpError(403, 'Project access denied');
+  if (
+    !membership
+    || !['OWNER', 'ADMIN', 'MEMBER', 'AGENT'].includes(membership.role)
+  ) throw new HttpError(403, 'Project write access denied');
   return project;
 }
 
@@ -1302,6 +1338,7 @@ export async function addTaskProgressStartedAt<T extends TaskWithProgressTimesta
   workspaceId: string,
   tasks: T[]
 ): Promise<T[]> {
+  await assertTeamWorkspaceId(workspaceId);
   const progressTasks = tasks.filter((task) => task.id && isProgressTaskStatus(task.status));
   if (progressTasks.length === 0) {
     return tasks.map((task) => ({ ...task, progressStartedAt: null }));

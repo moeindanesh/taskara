@@ -21,6 +21,7 @@ import {
 import { appendSyncEvent, publishSyncEvent } from './sync';
 import { filterUsersWithTaskAccess, resolveWorkspaceAccess, taskWhereForAccess } from './team-access';
 import { findTaskByIdOrKey, serializeTaskForResponse, taskInclude, updateTask } from './tasks';
+import { assertTeamWorkspace } from './workspace-mode';
 
 type RequestTaskReviewInput = z.infer<typeof requestTaskReviewSchema>;
 type ReassignTaskReviewInput = z.infer<typeof reassignTaskReviewSchema>;
@@ -65,6 +66,7 @@ export interface SerializedTaskReview {
 }
 
 export async function listMyTaskReviews(actor: RequestActor, input: { status?: string; limit?: number; offset?: number } = {}) {
+  assertTeamWorkspace(actor.workspace);
   const access = await resolveWorkspaceAccess(actor);
   const where: Prisma.TaskReviewRequestWhereInput = {
     workspaceId: actor.workspace.id,
@@ -92,6 +94,7 @@ export async function listMyTaskReviews(actor: RequestActor, input: { status?: s
 }
 
 export async function listTaskReviews(actor: RequestActor, idOrKey: string): Promise<SerializedTaskReview[]> {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireTaskForReview(actor, idOrKey);
   const rows = await prisma.taskReviewRequest.findMany({
     where: { workspaceId: actor.workspace.id, taskId: task.id },
@@ -102,6 +105,7 @@ export async function listTaskReviews(actor: RequestActor, idOrKey: string): Pro
 }
 
 export async function requestTaskReview(actor: RequestActor, idOrKey: string, input: RequestTaskReviewInput): Promise<SerializedTaskReview> {
+  assertTeamWorkspace(actor.workspace);
   const task = await requireTaskForReview(actor, idOrKey);
   const reviewer = await requireWorkspaceReviewer(actor.workspace.id, task.id, input.reviewerId);
   const existing = await prisma.taskReviewRequest.findFirst({
@@ -203,6 +207,7 @@ export async function requestTaskReview(actor: RequestActor, idOrKey: string, in
 }
 
 export async function reassignTaskReview(actor: RequestActor, reviewId: string, input: ReassignTaskReviewInput): Promise<SerializedTaskReview> {
+  assertTeamWorkspace(actor.workspace);
   const accessRecord = await requireReviewAccessForActor(actor, reviewId);
   if (accessRecord.status !== 'REQUESTED') throw new HttpError(400, 'Only requested reviews can be reassigned');
   assertCanManageTaskReview(actor, accessRecord);
@@ -256,6 +261,7 @@ export async function reassignTaskReview(actor: RequestActor, reviewId: string, 
 }
 
 export async function approveTaskReview(actor: RequestActor, reviewId: string, input: ReviewDecisionInput = {}): Promise<SerializedTaskReview> {
+  assertTeamWorkspace(actor.workspace);
   const accessRecord = await requireReviewAccessForActor(actor, reviewId);
   assertReviewer(actor, accessRecord);
   if (accessRecord.status !== 'REQUESTED') throw new HttpError(400, 'Only requested reviews can be approved');
@@ -325,6 +331,7 @@ export async function approveTaskReview(actor: RequestActor, reviewId: string, i
 }
 
 export async function requestTaskReviewChanges(actor: RequestActor, reviewId: string, input: ReviewDecisionInput = {}): Promise<SerializedTaskReview> {
+  assertTeamWorkspace(actor.workspace);
   const accessRecord = await requireReviewAccessForActor(actor, reviewId);
   assertReviewer(actor, accessRecord);
   if (accessRecord.status !== 'REQUESTED') throw new HttpError(400, 'Only requested reviews can request changes');
@@ -394,6 +401,7 @@ export async function requestTaskReviewChanges(actor: RequestActor, reviewId: st
 }
 
 export async function cancelTaskReview(actor: RequestActor, reviewId: string, input: ReviewDecisionInput = {}): Promise<SerializedTaskReview> {
+  assertTeamWorkspace(actor.workspace);
   const accessRecord = await requireReviewAccessForActor(actor, reviewId);
   if (accessRecord.status !== 'REQUESTED') throw new HttpError(400, 'Only requested reviews can be canceled');
   if (!canManageTaskReview(actor, accessRecord)) {

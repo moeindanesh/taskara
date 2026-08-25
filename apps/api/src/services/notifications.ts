@@ -1,6 +1,7 @@
 import type { Prisma, TaskStatus, UserKind } from '@taskara/db';
 import { statusLabel } from '@taskara/shared';
 import type { ActorAttribution } from './actor-provenance';
+import type { RequestActor } from './actor';
 import { workTaskWhere } from './measured-work';
 import {
   announcementWhereForAccess,
@@ -10,6 +11,8 @@ import {
   taskWhereForAccess,
   type WorkspaceAccess
 } from './team-access';
+import { resolveWorkspaceAccess } from './team-access';
+import { resolveSupportAccess, supportCaseWhereForAccess } from './support-access';
 
 /**
  * Who a notification can be delivered to: a person.
@@ -188,15 +191,27 @@ export function parseNotificationCursor(cursor?: string): NotificationCursor | n
  */
 export function taskInboxNotificationWhere(
   access: WorkspaceAccess,
-  options: { unreadOnly?: boolean } = {}
+  options: {
+    unreadOnly?: boolean;
+    supportCaseWhere?: Prisma.SupportCaseWhereInput;
+  } = {}
 ): Prisma.NotificationWhereInput {
   const { workspaceId, userId } = access;
   return {
     workspaceId,
     userId,
     OR: [
-      { taskId: null, announcementId: null, meetingId: null, knowledgePageId: null },
+      {
+        taskId: null,
+        supportCaseId: null,
+        announcementId: null,
+        meetingId: null,
+        knowledgePageId: null
+      },
       { task: { is: { ...taskWhereForAccess(access), ...workTaskWhere } } },
+      ...(options.supportCaseWhere
+        ? [{ supportCase: { is: options.supportCaseWhere } }]
+        : []),
       { announcement: { is: announcementWhereForAccess(access) } },
       { meeting: { is: { workspaceId, ...meetingWhereForAccess(access) } } },
       { knowledgePage: { is: { workspaceId, space: { is: knowledgeSpaceWhereForAccess(access) } } } }
@@ -205,9 +220,26 @@ export function taskInboxNotificationWhere(
   };
 }
 
+/** The mode-aware inbox gate used by every HTTP read/touch path. */
+export async function inboxNotificationWhereForActor(
+  actor: RequestActor,
+  options: { unreadOnly?: boolean } = {}
+): Promise<Prisma.NotificationWhereInput> {
+  const workspaceAccess = await resolveWorkspaceAccess(actor);
+  if (actor.workspace.mode !== 'SUPPORT') {
+    return taskInboxNotificationWhere(workspaceAccess, options);
+  }
+  const supportAccess = await resolveSupportAccess(actor);
+  return taskInboxNotificationWhere(workspaceAccess, {
+    ...options,
+    supportCaseWhere: supportCaseWhereForAccess(supportAccess)
+  });
+}
+
 type InboxNotificationThreadEntity = {
   id: string;
   taskId?: string | null;
+  supportCaseId?: string | null;
   announcementId?: string | null;
   meetingId?: string | null;
   knowledgePageId?: string | null;
@@ -253,6 +285,7 @@ export function inboxNotificationThreadScope(
   notification: InboxNotificationThreadEntity
 ): Prisma.NotificationWhereInput {
   if (notification.taskId) return { taskId: notification.taskId };
+  if (notification.supportCaseId) return { supportCaseId: notification.supportCaseId };
   if (notification.announcementId) return { announcementId: notification.announcementId };
   if (notification.meetingId) return { meetingId: notification.meetingId };
   if (notification.knowledgePageId) return { knowledgePageId: notification.knowledgePageId };
@@ -261,6 +294,7 @@ export function inboxNotificationThreadScope(
 
 function inboxNotificationThreadKey(notification: InboxNotificationThreadEntity): string {
   if (notification.taskId) return `task:${notification.taskId}`;
+  if (notification.supportCaseId) return `support-case:${notification.supportCaseId}`;
   if (notification.announcementId) return `announcement:${notification.announcementId}`;
   if (notification.meetingId) return `meeting:${notification.meetingId}`;
   if (notification.knowledgePageId) return `knowledge:${notification.knowledgePageId}`;
