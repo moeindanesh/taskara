@@ -158,6 +158,110 @@ export interface UserListResponse {
   offset: number;
 }
 
+/**
+ * A person as the check-in routes name them.
+ *
+ * Not `WorkspaceMember`: these rows come from a different select and carry no membership, so they
+ * have no `role` and no `kind` — and they do carry a **phone number**, which is why both shells
+ * project this down rather than printing it. A digest is the one read whose whole payload is other
+ * people's details, and it is read out loud in standups.
+ */
+export interface CheckInPerson {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  avatarUrl?: string | null;
+}
+
+/**
+ * One filed daily report.
+ *
+ * `userId` and `authorId` differ when somebody filed on another person's behalf, which is the only
+ * reason `author` is worth carrying: a report in a manager's voice reads differently from one in the
+ * subject's, and nothing else on the row says which it is.
+ */
+export interface CheckInRow {
+  id: string;
+  userId: string;
+  authorId: string;
+  completedText: string | null;
+  unplannedText: string | null;
+  blockersText: string | null;
+  planText: string | null;
+  helpText: string | null;
+  dateKey: string | null;
+  submittedFor: string;
+  user: CheckInPerson;
+  author?: CheckInPerson | null;
+}
+
+/** Yesterday's plan against today's result, per person, with the task keys made comparable. */
+export interface PlanVsDone {
+  userId: string;
+  user: CheckInPerson;
+  plannedYesterday: string | null;
+  completedToday: string | null;
+  tasks: Array<{ key: string; status: 'done' | 'slipped' }>;
+}
+
+/**
+ * The manager's morning artifact.
+ *
+ * The two halves are not interchangeable and the server draws them from different populations on
+ * purpose. `reports`, `blockersFirst`, `unplanned` and `planVsDone` are what a manager READS — every
+ * report filed that day, a guest's included. `stats` is what a manager is SCORED BY — the measured
+ * roster only, humans who are not guests. So `reports.length` and `stats.submitted` may legitimately
+ * disagree, and reconciling them would re-merge visibility with measurement.
+ *
+ * `workday: false` is a weekend: nobody was asked, so `expected` is 0 and `missing` is empty. Read it
+ * as "nothing was owed", never as "everybody skipped it".
+ */
+export interface DailyReportDigest {
+  dateKey: string;
+  workday: boolean;
+  reports: CheckInRow[];
+  blockersFirst: CheckInRow[];
+  unplanned: CheckInRow[];
+  planVsDone: PlanVsDone[];
+  missing: CheckInPerson[];
+  stats: {
+    expected: number;
+    submitted: number;
+    missing: number;
+    participationRate: number;
+    blockerCount: number;
+    unplannedShare: number;
+  };
+}
+
+/** Who owes a report for one workspace day. What `GET /check-ins/missing?dateKey=…` answers. */
+export interface MissingForDay {
+  dateKey: string;
+  items: CheckInPerson[];
+  total: number;
+  expected: number;
+}
+
+/** Who has filed nothing at all lately. What the same path answers with no `dateKey`. */
+export interface MissingInWindow {
+  items: Array<{ user: CheckInPerson; lastCheckInAt: string | null; hoursSinceLastCheckIn: number | null }>;
+  total: number;
+  thresholdHours: number;
+  generatedAt: string;
+}
+
+/**
+ * One path, two answers. The `dateKey` the caller sent is what chose between them, so a reader that
+ * did not send one cannot be handed a day's roster and vice versa.
+ */
+export type MissingDailyReports = MissingForDay | MissingInWindow;
+
+/** Which of the two arrived. The wire's discriminant, asked in one place. */
+export function isMissingForDay(result: MissingDailyReports): result is MissingForDay {
+  return 'dateKey' in result;
+}
+
 export interface MilestoneProgress {
   totalTasks: number;
   eligibleTasks: number;

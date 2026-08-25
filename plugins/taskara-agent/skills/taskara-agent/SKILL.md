@@ -59,6 +59,11 @@ taskara project list  [--include-archived]
 taskara project create --name <s> --key-prefix <CORE> [--body <s> | --body-file <path|->]
                       [--parent <keyPrefix|id>]
 
+taskara report digest  [--date YYYY-MM-DD]     # the team's day; defaults to today
+taskara report missing [--date YYYY-MM-DD] | [--hours n]
+                      # --date: who owes a report for that day
+                      # no --date: who has filed nothing in the last n hours (24 default)
+
 taskara user list     [--query <s>] [--kind HUMAN|AGENT] [--role R] [--limit n] [--offset n]
 ```
 
@@ -227,12 +232,41 @@ Same `noun_verb` grammar as the CLI.
 | `task_sms` | Texting the assignee's phone. A separate channel from the above: a muted watcher still gets it |
 | `task_propose` `agent_action_apply` | Turning a discussion into proposed tasks, then applying them |
 | `plan_daily` `plan_work` `backlog_triage` `blocker_detect` | Planning |
-| `report_daily_draft` `report_daily_submit` `report_weekly` | Reports |
+| `report_daily_draft` `report_daily_submit` `report_weekly` | Reports — your own day, and the workspace's week |
+| `report_daily_digest` `report_daily_missing` | The team's day and who has not filed it. Admin-only |
 | `user_list` | The workspace roster, readable by any member including an agent credential. Agents are in it, marked by `kind` |
 | `user_create` `user_set_role` | Admin-only; not reachable with an agent credential |
 
 `task_search` carries the whole query vocabulary, so the frontier is one call:
 `parentId`, `status: 'unfinished'`, `assigneeId: 'none'`, `blockers: 'none'`, `sort: 'createdAt:asc'`.
+
+## Daily reports
+
+The split is a permission line, not a topic one. **Your own** report — `report_daily_draft`,
+`report_daily_submit` — is reachable by any member and is MCP-only, because filing one is drafting
+somebody's voice and needs a human to approve the wording before it is written. **Everybody's** —
+`report digest` / `report missing` on the CLI, `report_daily_digest` / `report_daily_missing` on
+MCP — is gated on OWNER or ADMIN, so a MEMBER identity gets `403 Workspace admin access required`
+(CLI exit **3**). Read that as an answer about your role, never as an empty day: reports you cannot
+see are still being filed. Unlike `user create`, the gate here is the role alone — an agent whose
+membership carries ADMIN does reach these.
+
+`missing` asks two different questions and the date is which one. With `--date` / `dateKey` it is
+*who owes a report for that day*, counted against that day's roster. Without one it is *who has
+filed nothing at all in the last hours* — the staleness question, which names somebody who reported
+four days running and then stopped. The CLI labels its answer `question: "owed-for-day"` or
+`"silent-for-hours"`; on MCP, tell them apart by what you sent. Both list only the people the ritual
+measures — humans who are not guests — so agents, including you, are never named as missing.
+
+Reading and counting are separate in the digest on purpose. `reports`, `blockersFirst`, `unplanned`
+and `planVsDone` carry **every** report filed that day, a guest's included, because a blocker is
+worth reading whoever raised it. `stats` counts the measured roster only. So `reports.length` and
+`stats.submitted` can legitimately differ; do not repair one with the other. A weekend has no
+denominator at all: `workday: false` means nobody owed anything, not that everybody skipped it.
+
+The CLI prints each report narrowed — the person, the five answers, and `author` only where somebody
+filed on another person's behalf. The phone numbers the API returns on every named person are
+dropped; MCP returns the rows as the server sent them.
 
 ## Safety
 
