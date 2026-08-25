@@ -63,6 +63,22 @@ export function linkEndId(end: GraphLink['source']): string {
    return typeof end === 'string' ? end : end.id;
 }
 
+/**
+ * Everything the force layout can see, and nothing else.
+ *
+ * A graph is rebuilt from scratch on every sync update, and most of those say nothing new: the
+ * 45-second safety-net poll hands back the same workspace with fresh object identities. Re-running
+ * the layout for one of those is what walks a settled graph across the canvas, so the simulation
+ * compares this instead of the object it was handed. Sorted, because a rename can reorder people
+ * without moving anything, and status, overdueness and labels are absent, because they change what
+ * a node looks like rather than where it belongs.
+ */
+export function layoutSignature(graph: TeamOverviewGraph): string {
+   const nodes = graph.nodes.map((node) => `${node.id}@${node.radius}`).sort();
+   const links = graph.links.map((link) => `${linkEndId(link.source)}>${linkEndId(link.target)}`).sort();
+   return `${nodes.join(',')}|${links.join(',')}`;
+}
+
 export const workspaceNodeId = 'workspace';
 export const personNodeId = (userId: string) => `user:${userId}`;
 export const taskNodeId = (taskId: string) => `task:${taskId}`;

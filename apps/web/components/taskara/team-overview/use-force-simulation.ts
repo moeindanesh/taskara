@@ -12,7 +12,7 @@ import {
    forceY,
 } from 'd3-force';
 import type { GraphLink, GraphNode, TeamOverviewGraph } from './graph-model';
-import { linkEndId, workspaceNodeId } from './graph-model';
+import { layoutSignature, linkEndId, workspaceNodeId } from './graph-model';
 
 // Simulation coordinates are centred on the origin; the canvas translates them into view space.
 const membershipDistance = 175;
@@ -24,7 +24,8 @@ const personOrbitRadius = 190;
  *
  * Nodes are matched by id across rebuilds so a sync update — a task finishing, someone else's
  * work arriving — nudges the layout instead of scattering it. New nodes spawn on their parent so
- * they visibly bud off the person who owns them.
+ * they visibly bud off the person who owns them. An update the layout cannot see does not nudge it
+ * at all: a settled graph stays exactly where the reader left it.
  */
 export function useForceSimulation(graph: TeamOverviewGraph, onSettle?: () => void) {
    const settleRef = useRef(onSettle);
@@ -33,9 +34,14 @@ export function useForceSimulation(graph: TeamOverviewGraph, onSettle?: () => vo
    const simulationRef = useRef<Simulation<GraphNode, GraphLink> | null>(null);
    const nodesRef = useRef<GraphNode[]>([]);
    const linksRef = useRef<GraphLink[]>([]);
+   const signatureRef = useRef<string | null>(null);
    const [, setFrame] = useState(0);
 
    useEffect(() => {
+      const signature = layoutSignature(graph);
+      const layoutChanged = signature !== signatureRef.current;
+      signatureRef.current = signature;
+
       const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
       const parentById = new Map<string, string>();
       for (const link of graph.links) parentById.set(linkEndId(link.target), linkEndId(link.source));
@@ -84,17 +90,20 @@ export function useForceSimulation(graph: TeamOverviewGraph, onSettle?: () => vo
             .force('x', forceX<GraphNode>(0).strength(0.012))
             .force('y', forceY<GraphNode>(0).strength(0.012));
 
-      simulation
-         .nodes(nodes)
-         .force(
-            'link',
-            forceLink<GraphNode, GraphLink>(links)
-               .id((node) => node.id)
-               .distance((link) => (link.kind === 'membership' ? membershipDistance : assignmentDistance))
-               .strength((link) => (link.kind === 'membership' ? 0.35 : 0.9))
-         )
-         .alpha(simulationRef.current ? 0.55 : 1)
-         .restart();
+      simulation.nodes(nodes).force(
+         'link',
+         forceLink<GraphNode, GraphLink>(links)
+            .id((node) => node.id)
+            .distance((link) => (link.kind === 'membership' ? membershipDistance : assignmentDistance))
+            .strength((link) => (link.kind === 'membership' ? 0.35 : 0.9))
+      );
+
+      // Handing d3 the rebuilt nodes costs nothing and moves nothing; reheating is what moves
+      // things, so it is spent only on a graph the layout would actually place differently. The
+      // frame bump is what a skipped reheat owes the canvas: the nodes it is drawing were just
+      // swapped for new objects carrying the new status, weight and titles.
+      if (layoutChanged) simulation.alpha(simulationRef.current ? 0.55 : 1).restart();
+      else setFrame((frame) => frame + 1);
 
       if (!simulationRef.current) {
          simulation.on('tick', () => setFrame((frame) => frame + 1));
@@ -118,18 +127,28 @@ export function useForceSimulation(graph: TeamOverviewGraph, onSettle?: () => vo
 
    useEffect(
       () => () => {
+         // Everything the layout remembers goes with the simulation it belongs to. Leaving the
+         // signature behind would tell a remount that the graph it is holding has already been laid
+         // out, and it would sit on a stopped simulation forever — which is exactly what a
+         // StrictMode double mount does in development.
          simulationRef.current?.stop();
+         simulationRef.current = null;
+         signatureRef.current = null;
       },
       []
    );
 
+   // Pinning where the node already sits moves nothing. The layout is deliberately left cold until
+   // the first actual move, because most presses on a node are a click that opens it, and those
+   // have no business stirring the graph.
    const startDrag = useCallback((node: GraphNode) => {
-      simulationRef.current?.alphaTarget(0.3).restart();
       node.fx = node.x;
       node.fy = node.y;
    }, []);
 
    const moveDrag = useCallback((node: GraphNode, x: number, y: number) => {
+      const simulation = simulationRef.current;
+      if (simulation && simulation.alphaTarget() === 0) simulation.alphaTarget(0.3).restart();
       node.fx = x;
       node.fy = y;
       setFrame((frame) => frame + 1);

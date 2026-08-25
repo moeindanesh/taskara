@@ -239,15 +239,25 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    const { orgId, taskKey: routeTaskKey } = useParams();
    const taskKey = taskKeyOverride || routeTaskKey;
    const taskSync = useWorkspaceTaskSync();
-   const [task, setTask] = useState<TaskaraTask | null>(null);
+   // Read before the state it seeds. Anything opened from a list, a graph or a sheet is already in
+   // the sync store, so the first render has the task in hand — starting at "loading" and correcting
+   // it from an effect would spend a turn of the event loop showing a placeholder for work that was
+   // never fetched. What is genuinely absent still loads: no cached task means no seed, and the
+   // placeholder is then the truth.
+   const issueData = useMemo(
+      () => selectIssueDetail(taskSync.workspaceData, taskKey),
+      [taskKey, taskSync.workspaceData]
+   );
+   const cachedTask = issueData.task;
+   const [task, setTask] = useState<TaskaraTask | null>(cachedTask);
    const [activities, setActivities] = useState<TaskaraActivity[]>([]);
-   const [users, setUsers] = useState<TaskaraUser[]>([]);
+   const [users, setUsers] = useState<TaskaraUser[]>(issueData.users);
    const [projects, setProjects] = useState<TaskaraProject[]>([]);
-   const [titleDraft, setTitleDraft] = useState('');
-   const [descriptionDraft, setDescriptionDraft] = useState('');
+   const [titleDraft, setTitleDraft] = useState(cachedTask?.title || '');
+   const [descriptionDraft, setDescriptionDraft] = useState(cachedTask?.description || '');
    const [commentBody, setCommentBody] = useState('');
    const [commentFiles, setCommentFiles] = useState<File[]>([]);
-   const [loading, setLoading] = useState(true);
+   const [loading, setLoading] = useState(!cachedTask);
    const [error, setError] = useState('');
    const [savingField, setSavingField] = useState<SavingField>(null);
    const [descriptionUploading, setDescriptionUploading] = useState(false);
@@ -267,13 +277,11 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    const fallbackIssuesPath = `/${orgId || 'taskara'}/team/all/all`;
    const currentPath = `${location.pathname}${location.search}${location.hash}`;
    const returnPath = getIssueReturnPath(location.state);
-   const issueData = useMemo(
-      () => selectIssueDetail(taskSync.workspaceData, taskKey),
-      [taskKey, taskSync.workspaceData]
-   );
-   const cachedTask = issueData.task;
-   const cachedTaskRef = useRef<TaskaraTask | null>(null);
-   const syncUsersRef = useRef<TaskaraUser[]>([]);
+   // Seeded, not empty: `load` reads these to decide whether it is refreshing something already on
+   // screen or fetching a task from nothing, and on the first pass it runs before any effect has
+   // filled them in.
+   const cachedTaskRef = useRef<TaskaraTask | null>(cachedTask);
+   const syncUsersRef = useRef<TaskaraUser[]>(issueData.users);
    const loadRequestRef = useRef(0);
 
    const closeIssuePage = useCallback(() => {
