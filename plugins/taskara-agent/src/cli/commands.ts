@@ -15,7 +15,8 @@ import {
   claimTask,
   commentOnTask,
   createProject,
-  createTask,
+  createTaskWithAttachments,
+  uploadTaskAttachment,
   getTask,
   listProjects,
   listTasks,
@@ -51,6 +52,7 @@ type Handler = (client: TaskaraClient, flags: Flags, positionals: string[]) => P
 
 const taskVerbs: Record<string, Handler> = {
   create: taskCreate,
+  attach: taskAttach,
   view: taskView,
   list: taskList,
   edit: taskEdit,
@@ -94,7 +96,8 @@ export const usage = `taskara <noun> <verb> [arguments]
   task create   --project <keyPrefix|id> --title <s> [--body <s> | --body-file <path|->]
                 [--kind WORK|EFFORT] [--parent <key|id>] [--status S] [--priority P]
                 [--label a,b] [--assignee <id|email>] [--due-at <iso>] [--milestone <id>]
-                [--weight n]
+                [--weight n] [--attach <path>]...
+  task attach   <key|id> --file <path> [--name <s>]
   task view     <key|id> [--comments]   # body always; --comments adds the thread
   task list     [--parent <key|id|none>] [--status unfinished|S,S]
                 [--assignee <id|email>|none|me]
@@ -197,9 +200,18 @@ async function taskCreate(client: TaskaraClient, flags: Flags): Promise<CommandR
   const parent = flags.get('parent');
   if (parent) input.parentId = await resolveTaskId(client, parent);
 
+  const attachments = flags.all('attach').map(filePath => ({ filePath }));
   flags.assertNoUnknown();
-  const task = await createTask(client, dropUndefined(input));
-  return { data: taskSummary(task), note: noted(`Created ${task.key}`, body, 'description') };
+  const task = await createTaskWithAttachments(client, dropUndefined(input), attachments);
+  return { data: { ...taskSummary(task), attachments: task.attachments ?? [] }, note: noted(`Created ${task.key}`, body, 'description') };
+}
+
+async function taskAttach(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
+  const task = requireTaskRef(positionals, 'task attach');
+  const file = flags.require('file');
+  const name = flags.get('name');
+  flags.assertNoUnknown();
+  return { data: await uploadTaskAttachment(client, task, file, name) };
 }
 
 async function taskView(client: TaskaraClient, flags: Flags, positionals: string[]): Promise<CommandResult> {
@@ -692,6 +704,7 @@ export function taskDetails(task: Task, options: { withComments?: boolean } = {}
   return {
     ...taskSummary(task),
     description: task.description ?? null,
+    attachments: task.attachments ?? [],
     createdAt: task.createdAt ?? null,
     updatedAt: task.updatedAt ?? null,
     completedAt: task.completedAt ?? null,

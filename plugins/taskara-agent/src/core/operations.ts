@@ -1,3 +1,4 @@
+import { access, stat } from 'node:fs/promises';
 import type {
   MilestoneHealthValue,
   MilestoneKindValue,
@@ -298,14 +299,45 @@ export async function uploadTaskAttachment(
   filePath: string,
   name?: string
 ): Promise<TaskAttachment> {
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) {
-    throw new TaskaraError(`File not found: ${filePath}`, { exitCode: exitCodes.usage });
-  }
+  const file = await attachmentFile(filePath);
   const form = new FormData();
   if (name) form.set('name', name);
   form.set('file', file, filePath.split('/').pop() ?? 'attachment');
   return client.requestForm<TaskAttachment>(`/tasks/${encodeURIComponent(idOrKey)}/attachments`, form);
+}
+
+export async function attachmentFile(filePath: string): Promise<Blob> {
+  const file = Bun.file(filePath);
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile() || info.size === 0) throw new Error('not a nonempty file');
+    await access(filePath, 4);
+  } catch {
+    throw new TaskaraError(`Cannot read nonempty file: ${filePath}`, { exitCode: exitCodes.usage });
+  }
+  return file;
+}
+
+export async function createTaskWithAttachments(
+  client: TaskaraClient, input: CreateTaskInput, attachments: Array<{ filePath: string; name?: string }> = []
+): Promise<Task> {
+  // Validate every local path before creating anything remotely.
+  for (const attachment of attachments) await attachmentFile(attachment.filePath);
+  const task = await createTask(client, input);
+  if (!attachments.length) return task;
+  task.attachments = [];
+  for (const attachment of attachments) {
+    try {
+      task.attachments.push(await uploadTaskAttachment(client, task.key, attachment.filePath, attachment.name));
+    } catch (error) {
+      throw new TaskaraError(
+        `Task ${task.key} was created; attachment ${attachment.filePath} failed. Do not create it again. `
+        + `Use task attach / task_attach to retry the missing attachment. ${error instanceof Error ? error.message : String(error)}`,
+        { exitCode: error instanceof TaskaraError ? error.exitCode : exitCodes.server, cause: error }
+      );
+    }
+  }
+  return task;
 }
 
 /**

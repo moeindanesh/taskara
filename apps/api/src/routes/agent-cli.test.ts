@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { prisma } from '@taskara/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApp } from '../app';
+import { config } from '../config';
 import {
   lineBreakNotice,
   readFileBody,
@@ -127,6 +128,73 @@ describe('taskara CLI', () => {
       }
     });
     await app.close();
+  });
+
+  test('agents create with images, attach later, and read attachment metadata', async () => {
+    const previous = config.TASKARA_CDN_UPLOAD_URL;
+    const uploads: string[] = [];
+    const cdn = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+      expect(request.headers.get('authorization')).toBeNull();
+      const form = await request.formData();
+      const file = form.get('file') as File;
+      uploads.push(await file.text());
+      expect(form.get('app')).toBe(config.TASKARA_CDN_APP);
+      return Response.json({ id: `image-${uploads.length}` });
+    } });
+    config.TASKARA_CDN_UPLOAD_URL = cdn.url.toString();
+    const directory = mkdtempSync(join(tmpdir(), 'taskara-images-'));
+    const path = join(directory, 'تصویر, one.png');
+    writeFileSync(path, 'image bytes');
+    const agent = { TASKARA_AGENT_TOKEN: fixture.agentToken, TASKARA_USER_EMAIL: undefined };
+    try {
+      const created = await run(['task', 'create', '--project', fixture.projectId, '--title', 'Images',
+        '--attach', path, '--attach', path], agent);
+      expect(created.code).toBe(0);
+      const key = String(created.json.key);
+      expect(created.json.attachments).toHaveLength(2);
+      const attached = await run(['task', 'attach', key, '--file', path, '--name', 'نمونه'], agent);
+      expect(attached.code).toBe(0);
+      expect(attached.json.name).toBe('نمونه');
+      expect(attached.json.mimeType).toBe('image/png');
+      expect(attached.json.sizeBytes).toBe(11);
+      expect(attached.json.url).toContain('image-3');
+      expect((await run(['task', 'view', key], agent)).json.attachments).toHaveLength(3);
+      expect(uploads).toEqual(['image bytes', 'image bytes', 'image bytes']);
+      expect((await run(['task', 'attach', 'MISSING-999', '--file', path], agent)).code).toBe(4);
+      expect(uploads).toHaveLength(3);
+      const headers = { authorization: `Bearer ${fixture.agentToken}`, 'x-workspace-slug': fixture.workspaceSlug };
+      const sendForm = (form: FormData) => fetch(`${baseUrl}/tasks/${key}/attachments`, { method: 'POST', headers, body: form });
+      const empty = new FormData();
+      empty.set('file', new File([], 'empty.png'));
+      expect((await sendForm(empty)).status).toBe(400);
+      const duplicate = new FormData();
+      duplicate.append('file', new File(['a'], 'one.png'));
+      duplicate.append('file', new File(['b'], 'two.png'));
+      expect((await sendForm(duplicate)).status).toBe(400);
+      const limit = config.TASKARA_UPLOAD_MAX_BYTES;
+      try {
+        config.TASKARA_UPLOAD_MAX_BYTES = 1;
+        const large = new FormData();
+        large.set('file', new File(['too big'], 'large.png'));
+        expect((await sendForm(large)).status).toBe(413);
+      } finally {
+        config.TASKARA_UPLOAD_MAX_BYTES = limit;
+      }
+      expect(uploads).toHaveLength(3);
+      config.TASKARA_CDN_UPLOAD_URL = undefined;
+      const failed = await run(['task', 'create', '--project', fixture.projectId, '--title', 'Partial', '--attach', path], agent);
+      expect(failed.code).toBe(7);
+      expect(failed.stderr).toContain('was created');
+      expect(failed.stderr).toContain('Do not create it again');
+      const before = await prisma.task.count({ where: { workspaceId: fixture.workspaceId } });
+      expect((await run(['task', 'create', '--project', fixture.projectId, '--title', 'Missing image',
+        '--attach', join(directory, 'missing.png')], agent)).code).toBe(1);
+      expect(await prisma.task.count({ where: { workspaceId: fixture.workspaceId } })).toBe(before);
+    } finally {
+      config.TASKARA_CDN_UPLOAD_URL = previous;
+      cdn.stop(true);
+      await import('node:fs/promises').then(fs => fs.rm(directory, { recursive: true }));
+    }
   });
 
   describe('exit codes', () => {

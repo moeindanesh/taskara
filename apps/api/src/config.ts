@@ -52,6 +52,8 @@ export const envSchema = z.object({
   WEB_ORIGIN: z.string().url(),
   TASKARA_ALLOWED_ORIGINS: z.string().default(''),
   TASKARA_CDN_MEDIA_BASE_URL: optionalUrl,
+  TASKARA_CDN_UPLOAD_URL: optionalUrl,
+  TASKARA_CDN_APP: z.string().default('taskara'),
   TASKARA_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   TASKARA_SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   // Legacy `x-user-email` authentication. Defaults on so shipped consumers keep working; set it to

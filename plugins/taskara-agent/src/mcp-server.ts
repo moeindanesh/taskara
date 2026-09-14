@@ -345,12 +345,16 @@ registerTool('task_create', {
     labels: z.array(z.string().min(1).max(40)).max(12).default([]),
     parentId: z.string().uuid().optional(),
     cycleId: z.string().uuid().optional(),
+    attachments: z.array(z.object({
+      filePath: z.string().min(1).describe('Path to a file on the MCP server host'),
+      name: z.string().min(1).max(300).optional()
+    })).max(20).optional().describe('Local images or files to upload after creating the task'),
     milestoneId: z.string().uuid().optional()
   }
-}, async (input) => {
+}, async ({ attachments, ...input }) => {
   const description = inlineBody(input.description);
-  const task = await api.createTask(client, description ? { ...input, description: description.text } : input);
-  return withBodyNotices({ task: taskSummary(task) }, description, 'description');
+  const task = await api.createTaskWithAttachments(client, description ? { ...input, description: description.text } : input, attachments);
+  return withBodyNotices({ task: { ...taskSummary(task), attachments: task.attachments ?? [] } }, description, 'description');
 });
 
 registerTool('task_edit', {

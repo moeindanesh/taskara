@@ -70,3 +70,21 @@ Bundled as Bun modules and run with the Bun runtime — `bun install -g taskara`
 ## Licence
 
 MIT.
+
+## Images and attachments
+
+```bash
+taskara task create --project CORE --title "Visual bug" --attach /tmp/screenshot.png --attach /tmp/reference.jpg
+taskara task attach CORE-123 --file /tmp/screenshot.png --name "Screenshot"
+taskara task view CORE-123
+```
+
+MCP `task_create` accepts `attachments: [{ filePath, name? }]`; `task_attach` uploads one file to
+an existing task. Paths refer to the machine running the CLI or MCP server. Results include
+attachment URLs, names, MIME types and sizes. The API forwards files to its configured
+`TASKARA_CDN_UPLOAD_URL` with `TASKARA_CDN_APP` (default `taskara`); agents need no CDN credentials.
+`TASKARA_UPLOAD_MAX_BYTES` limits each file (default 25 MiB).
+
+Creation and attachment uploads are sequential. If an upload fails after creation, the error names
+the created task: do not repeat creation; use `task view` / `task_view` to inspect its attachments,
+then `task attach` / `task_attach` for missing files. Local files are checked before task creation.
