@@ -113,12 +113,12 @@ function HidePersonBadge({ node, onHide }: { node: PersonGraphNode; onHide: (nod
          <title>{label}</title>
          <g className="team-overview-hide">
             <circle
-               className="fill-[#141417] stroke-white/20 transition-colors hover:fill-[#26262b]"
+               className="fill-card stroke-border transition-colors hover:fill-muted"
                r={9}
                strokeWidth={1}
             />
             <EyeOff
-               className="pointer-events-none text-zinc-300"
+               className="pointer-events-none text-muted-foreground"
                height={10}
                strokeWidth={2.25}
                width={10}

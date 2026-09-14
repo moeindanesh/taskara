@@ -97,6 +97,18 @@ test.describe('@team-overview workspace graph', () => {
       await expect(circle).toHaveCSS('fill', 'rgb(161, 161, 170)');
    });
 
+   test('keeps the hide-person eye legible in light mode', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('theme', 'light'));
+      await page.goto(`/${workspaceSlug}/overview`);
+
+      const person = page.locator(`[data-node-id="user:${people.member.id}"]`);
+      await person.hover();
+      const badge = person.getByTestId('hide-person');
+      await expect(badge).toBeVisible();
+      await expect(badge.locator('circle')).toHaveCSS('fill', 'rgb(255, 255, 255)');
+      await expect(badge.locator('svg')).toHaveCSS('color', 'color(srgb 0.479137 0.483686 0.49051)');
+   });
+
    test('previews composer images and file metadata without input outlines', async ({ page }) => {
       await page.goto(`/${workspaceSlug}/overview`);
       await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
