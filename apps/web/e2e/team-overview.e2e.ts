@@ -89,6 +89,48 @@ test.describe('@team-overview workspace graph', () => {
       await mockTaskaraApi(page);
    });
 
+   test('uses a neutral TODO fill in light mode', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('theme', 'light'));
+      await page.goto(`/${workspaceSlug}/overview`);
+      const circle = page.locator('[data-status="TODO"] circle.fill-current').first();
+      await expect(circle).toBeVisible();
+      await expect(circle).toHaveCSS('fill', 'rgb(161, 161, 170)');
+   });
+
+   test('previews composer images and file metadata without input outlines', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/overview`);
+      await expect(page.locator('[data-node-kind="task"]')).toHaveCount(3);
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')));
+      const title = page.getByPlaceholder('عنوان کار');
+      await expect(title).toBeVisible();
+      await title.focus();
+      await expect(title).toHaveCSS('outline-style', 'none');
+      const dialog = page.getByRole('dialog');
+      await dialog.locator('input[type="file"]').setInputFiles([
+         { name: 'تصویر نمونه.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') },
+         { name: 'گزارش نهایی.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 sample') },
+      ]);
+      const preview = dialog.getByRole('img', { name: 'تصویر نمونه.png' });
+      await expect(preview).toBeVisible();
+      await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+      await expect(dialog.getByText('گزارش نهایی.pdf', { exact: true })).toBeVisible();
+      await expect(dialog.getByText(/PDF ·/)).toBeVisible();
+      await dialog.getByRole('button', { name: /تصویر نمونه.png/ }).click();
+      await expect(preview).toHaveCount(0);
+      await expect(dialog.getByText('گزارش نهایی.pdf', { exact: true })).toBeVisible();
+   });
+
+   test('opens tasks from the list and direct links in dialogs', async ({ page }) => {
+      await page.goto(`/${workspaceSlug}/tasks`);
+      await page.getByText('CORE-102', { exact: true }).first().click();
+      await expect(page.getByRole('dialog').getByText('CORE-102').first()).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/tasks`));
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await page.goto(`/${workspaceSlug}/issue/CORE-102`);
+      await expect(page.getByRole('dialog').getByText('CORE-102').first()).toBeVisible();
+   });
+
    test('is where every role lands, and draws the workspace, its people and their Today Load', async ({ page }) => {
       await page.goto('/', { waitUntil: 'domcontentloaded' });
       await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/overview$`));
@@ -617,6 +659,7 @@ async function mockTaskaraApi(page: Page) {
             total: 1,
          });
       }
+      if (path === '/tasks/archive') return json(route, { items: [], nextCursor: null, hasMore: false });
       if (path === '/teams') return json(route, teams);
       if (path === '/projects') return json(route, projects);
       if (path === '/users') return json(route, pageResult(taskaraUsers));

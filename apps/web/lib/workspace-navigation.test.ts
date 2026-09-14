@@ -20,30 +20,26 @@ describe('workspace navigation registry', () => {
       expect(defaultWorkspacePath('acme', runtime)).toBe('/acme/overview');
       expect(workspaceSidebarRoutes(runtime, 'primary').map((route) => route.id)).toEqual([
          'team-overview',
-         'daily-report',
          'my-tasks',
          'all-tasks',
-         'milestones',
       ]);
       expect(workspaceCommandRoutes(runtime).some((route) => route.id.startsWith('support-'))).toBeFalse();
       expect(workspaceCreateAction(runtime)?.eventName).toBe('taskara:create-issue');
    });
 
-   test('selects the manager daily-report destination without duplicating the sidebar entry', () => {
+   test('removes daily reports from manager navigation and direct routes', () => {
       const routes = workspaceSidebarRoutes(navRuntime('TEAM', 'ADMIN'), 'primary');
-      expect(routes.filter((route) => route.id.startsWith('daily-')).map((route) => route.id)).toEqual([
-         'daily-reports-digest',
-      ]);
+      expect(routes.filter((route) => route.id.startsWith('daily-')).map((route) => route.id)).toEqual([]);
+      expect(workspacePathIsAvailable('/acme/today', 'acme', navRuntime('TEAM', 'ADMIN'))).toBeFalse();
+      expect(workspacePathIsAvailable('/acme/daily-reports', 'acme', navRuntime('TEAM', 'MEMBER'))).toBeFalse();
    });
 
    test('keeps the established Team command ordering and labels', () => {
       const entries = workspaceCommandEntries(navRuntime('TEAM', 'MEMBER'));
-      expect(entries.slice(0, 5).map((entry) => entry.id)).toEqual([
+      expect(entries.slice(0, 3).map((entry) => entry.id)).toEqual([
          'go-manager-cockpit',
          'go-decision-queues',
          'go-people-workload',
-         'go-daily-report',
-         'go-daily-reports-digest',
       ]);
       expect(entries.find((entry) => entry.id === 'go-heartbeat')?.label).toBe('رفتن به نبض تیم‌ها');
       expect(entries.find((entry) => entry.id === 'go-today-plan')?.route.id).toBe('heartbeat');

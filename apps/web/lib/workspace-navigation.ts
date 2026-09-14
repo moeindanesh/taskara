@@ -552,6 +552,7 @@ export function workspaceRouteIsAvailable(
    route: WorkspaceRouteDefinition,
    runtime: WorkspaceNavigationRuntime
 ): boolean {
+   if (route.id === 'daily-report' || route.id === 'daily-reports-digest') return false;
    if (route.mode !== 'COMMON' && route.mode !== runtime.mode) return false;
    if (!workspaceHasCapability(runtime.capabilities, route.capability)) return false;
    if (!route.audience) return true;
@@ -594,6 +595,7 @@ export function workspaceSidebarRoutes(
    group?: WorkspaceRouteDefinition['sidebar']
 ): WorkspaceRouteDefinition[] {
    return workspaceRouteRegistry
+      .filter((route) => route.id !== 'milestones')
       .filter((route) => route.sidebar && (!group || route.sidebar === group))
       .filter((route) => workspaceRouteIsAvailable(route, runtime))
       .filter((route) => !route.sidebarRoles || route.sidebarRoles.includes(runtime.role || ''))

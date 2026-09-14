@@ -88,7 +88,8 @@ import {
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { TaskBlockedBadge } from '@/components/taskara/task-dependencies';
-import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
+import { IssuePage } from './issue-page';
+import { ComposerAttachmentPreviewList } from './composer-attachment-preview';
 import {
    TaskDueDateControl,
    makeDueDate,
@@ -614,7 +615,6 @@ const groupingOptions: Array<{ value: TaskViewGrouping; label: string }> = [
    { value: 'status', label: fa.issue.status },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'project', label: fa.issue.project },
-   { value: 'milestone', label: fa.project.milestones },
    { value: 'priority', label: fa.issue.priority },
 ];
 
@@ -630,7 +630,6 @@ const linearGroupingOptions: Array<{ value: TaskViewGrouping; label: string }> =
    { value: 'status', label: fa.issue.status },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'project', label: fa.issue.project },
-   { value: 'milestone', label: fa.project.milestones },
    { value: 'priority', label: fa.issue.priority },
 ];
 
@@ -663,7 +662,6 @@ const defaultDisplayProperties: TaskViewDisplayProperty[] = [
    'blockers',
    'assignee',
    'priority',
-   'milestone',
    'dueAt',
    'labels',
    'createdAt',
@@ -675,7 +673,6 @@ const displayPropertyOptions: Array<{ value: TaskViewDisplayProperty; label: str
    { value: 'blockers', label: fa.blockers.filter },
    { value: 'assignee', label: fa.issue.assignee },
    { value: 'priority', label: fa.issue.priority },
-   { value: 'milestone', label: fa.project.milestones },
    { value: 'dueAt', label: fa.issue.dueAt },
    { value: 'labels', label: fa.issue.labels },
 ];
@@ -799,9 +796,10 @@ function normalizeViewState(
       assigneeIds: state?.assigneeIds || [],
       priority: state?.priority || [],
       projectIds: state?.projectIds || [],
-      milestoneIds: state?.milestoneIds || [],
+      milestoneIds: [],
+      groupBy: state?.groupBy === 'milestone' ? 'status' : state?.groupBy || 'status',
       labels: state?.labels || [],
-      subGroupBy: state?.subGroupBy || 'none',
+      subGroupBy: state?.subGroupBy === 'milestone' ? 'none' : state?.subGroupBy || 'none',
       showSubIssues: state?.showSubIssues ?? true,
       nestedSubIssues: state?.nestedSubIssues ?? false,
       orderCompletedByRecency: state?.orderCompletedByRecency ?? false,
@@ -816,11 +814,7 @@ function normalizeDisplayProperties(
 ): TaskViewDisplayProperty[] {
    if (!displayProperties) return [...defaultDisplayProperties];
 
-   // Replace the legacy project column in saved issue-list layouts so the new
-   // milestone-focused default is applied to existing system and saved views too.
-   return [...new Set(displayProperties.map((property) => (
-      property === 'project' ? 'milestone' : property
-   )))];
+   return [...new Set(displayProperties.filter((property) => property !== 'milestone'))];
 }
 
 function viewBelongsToTaskPage(view: TaskaraView, currentTeamKey: string) {
@@ -1133,6 +1127,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    const [displayOpen, setDisplayOpen] = useState(false);
    const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
    const [activeFilterSection, setActiveFilterSection] = useState<FilterMenuSection | null>(null);
+   const [issueTaskKey, setIssueTaskKey] = useState<string | null>(null);
    const [saveDialogOpen, setSaveDialogOpen] = useState(false);
    const [viewActionsOpen, setViewActionsOpen] = useState(false);
    const [saveMode, setSaveMode] = useState<'create' | 'update'>('create');
@@ -2003,25 +1998,9 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             return;
          }
          saveIssueListScrollSnapshot(task.id);
-         const returnSearch = getCurrentIssueListReturnSearch();
-         navigate(`/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`, {
-            state: {
-               from: {
-                  hash: location.hash,
-                  pathname: location.pathname,
-                  search: returnSearch,
-               },
-            },
-         });
+         setIssueTaskKey(task.key);
       },
-      [
-         getCurrentIssueListReturnSearch,
-         location.hash,
-         location.pathname,
-         navigate,
-         orgId,
-         saveIssueListScrollSnapshot,
-      ]
+      [saveIssueListScrollSnapshot]
    );
 
    useEffect(() => {
@@ -2039,7 +2018,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
 
    useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
-         if (isEditableTarget(event.target)) return;
+         if (isEditableTarget(event.target) || document.querySelector('[role="dialog"][data-state="open"]')) return;
          const key = event.key.toLowerCase();
          const hasSystemModifier = hasSystemShortcutModifier(event);
 
@@ -2786,7 +2765,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       (draftView.query.trim() ? 1 : 0);
    const composerProject =
       scopedProjects.find((project) => project.id === form.projectId) || scopedProjects[0] || null;
-   const composerMilestone = scopedMilestones.find((milestone) => milestone.id === form.milestoneId) || null;
    const composerAssignee = users.find((user) => user.id === form.assigneeId) || null;
 
    return (
@@ -3042,6 +3020,14 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             </main>
          </div>
 
+         <Dialog open={Boolean(issueTaskKey)} onOpenChange={(open) => !open && setIssueTaskKey(null)}>
+            <DialogContent className="h-[calc(100svh-2rem)] max-h-[920px] max-w-[1280px] gap-0 overflow-hidden rounded-2xl border-white/10 bg-[#101011] p-0 text-zinc-100 [direction:rtl]" showCloseButton={false}>
+               <DialogTitle className="sr-only">جزئیات کار {issueTaskKey}</DialogTitle>
+               <DialogDescription className="sr-only">مشاهده و ویرایش جزئیات کار</DialogDescription>
+               {issueTaskKey ? <IssuePage taskKey={issueTaskKey} onClose={() => setIssueTaskKey(null)} /> : null}
+            </DialogContent>
+         </Dialog>
+
          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
             <DialogContent className="border-white/10 bg-[#1d1d20] text-zinc-100">
                <DialogHeader>
@@ -3292,6 +3278,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         placeholder={fa.issue.descriptionPlaceholder}
                      />
                      <ComposerAttachmentPreviewList
+                        disabled={composerSubmitting}
                         files={composerFiles}
                         onRemove={removeComposerFile}
                      />
@@ -3423,18 +3410,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               }))
                            }
                         />
-                        <MilestoneSelector
-                           className="h-6 max-w-[168px] rounded-full border-white/8 bg-[#2a2a2d] px-2.5 text-[12px] text-zinc-300 hover:bg-[#303033]"
-                           currentMilestone={composerMilestone}
-                           milestones={scopedMilestones}
-                           placeholder={fa.milestone.selectMilestone}
-                           projectId={form.projectId}
-                           value={form.milestoneId || null}
-                           variant="pill"
-                           onChange={(milestoneId) =>
-                              setForm((current) => ({ ...current, milestoneId: milestoneId || '' }))
-                           }
-                        />
                         <ComposerWeightPill
                            weight={form.weight}
                            onChange={(weight) => setForm((current) => ({ ...current, weight }))}
@@ -3505,112 +3480,6 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    );
 }
 
-function formatFileSize(bytes: number) {
-   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-
-   const units = ['B', 'KB', 'MB', 'GB'];
-   let size = bytes;
-   let unitIndex = 0;
-
-   while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex += 1;
-   }
-
-   return `${size.toLocaleString('fa-IR', {
-      maximumFractionDigits: unitIndex === 0 ? 0 : 1,
-   })} ${units[unitIndex]}`;
-}
-
-function ComposerAttachmentPreviewList({
-   files,
-   onRemove,
-}: {
-   files: File[];
-   onRemove: (index: number) => void;
-}) {
-   if (!files.length) return null;
-
-   return (
-      <div className="mt-4 mb-5 flex max-h-[132px] flex-wrap gap-2 overflow-y-auto pe-1">
-         {files.map((file, index) => (
-            <ComposerAttachmentPreview
-               key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-               file={file}
-               index={index}
-               onRemove={onRemove}
-            />
-         ))}
-      </div>
-   );
-}
-
-function ComposerAttachmentPreview({
-   file,
-   index,
-   onRemove,
-}: {
-   file: File;
-   index: number;
-   onRemove: (index: number) => void;
-}) {
-   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-   const [previewFailed, setPreviewFailed] = useState(false);
-   const canPreview = isPreviewableImageFile(file);
-   const extension = fileExtension(file.name) || fileKindLabel(file);
-
-   useEffect(() => {
-      setPreviewFailed(false);
-      if (!canPreview) {
-         setPreviewUrl(null);
-         return;
-      }
-
-      const nextUrl = URL.createObjectURL(file);
-      setPreviewUrl(nextUrl);
-      return () => URL.revokeObjectURL(nextUrl);
-   }, [canPreview, file]);
-
-   return (
-      <div
-         className="group relative h-20 w-[132px] overflow-hidden rounded-lg border border-white/8 bg-[#17171a] shadow-[inset_0_1px_0_rgb(255_255_255/0.03)]"
-         title={file.name}
-      >
-         {previewUrl && !previewFailed ? (
-            <img
-               alt={file.name}
-               className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
-               src={previewUrl}
-               onError={() => setPreviewFailed(true)}
-            />
-         ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-white/[0.025] px-3 pb-7 pt-3 text-zinc-500">
-               <Paperclip className="size-5" />
-               <span className="max-w-full truncate text-[11px] uppercase text-zinc-600">
-                  {extension}
-               </span>
-            </div>
-         )}
-         <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5">
-            <span className="block truncate text-[11px] font-medium text-zinc-100" dir="auto">
-               {file.name}
-            </span>
-            <span className="block truncate text-[10px] text-zinc-400">
-               {formatFileSize(file.size)}
-            </span>
-         </div>
-         <button
-            aria-label={fa.issue.removeAttachment}
-            className="absolute top-1 end-1 inline-flex size-5 items-center justify-center rounded-full bg-black/55 text-zinc-300 opacity-90 transition hover:bg-black/80 hover:text-white focus-visible:ring-1 focus-visible:ring-indigo-400/70 focus-visible:outline-none"
-            type="button"
-            onClick={() => onRemove(index)}
-         >
-            <X className="size-3.5" />
-         </button>
-      </div>
-   );
-}
-
 function clipboardImageFiles(clipboardData: DataTransfer): File[] {
    const itemFiles = Array.from(clipboardData.items)
       .filter((item) => item.kind === 'file' && item.type.toLowerCase().startsWith('image/'))
@@ -3677,11 +3546,6 @@ function imageExtensionFromMimeType(mimeType: string): string {
 function fileExtension(name: string): string {
    const extension = name.split('.').pop();
    return extension && extension !== name ? extension.toLowerCase() : '';
-}
-
-function fileKindLabel(file: File): string {
-   if (file.type) return file.type.split('/').pop() || 'file';
-   return 'file';
 }
 
 function ViewChip({
@@ -4199,13 +4063,6 @@ function TaskFilterPopover({
          icon: <Box className="size-4 text-zinc-400" />,
          section: 'project',
          count: draftView.projectIds.length,
-      },
-      {
-         key: 'milestone',
-         label: fa.project.milestones,
-         icon: <Diamond className="size-4 text-violet-300" />,
-         section: 'milestone',
-         count: draftView.milestoneIds.length,
       },
       {
          key: 'blockers',
@@ -5762,7 +5619,6 @@ function TaskIssueContextMenu({
    onDelete: () => void;
 }) {
    const { session } = useAuthSession();
-   const { milestones } = useWorkspaceTaskSync();
    const currentUserId = session?.user.id || null;
    const [assigneeQuery, setAssigneeQuery] = useState('');
    const [projectQuery, setProjectQuery] = useState('');
@@ -5773,16 +5629,6 @@ function TaskIssueContextMenu({
    const filteredProjects = useMemo(
       () => filterProjectOptions(projects, projectQuery),
       [projects, projectQuery]
-   );
-   const selectableMilestones = useMemo(
-      () =>
-         milestones.filter(
-            (milestone) =>
-               milestone.projectId === task.project?.id &&
-               !milestone.archivedAt &&
-               (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE')
-         ),
-      [milestones, task.project?.id]
    );
    const taskLabelNames = labelNames(task);
    const allLabelOptions = [
@@ -5887,54 +5733,7 @@ function TaskIssueContextMenu({
             </ContextMenuSubContent>
          </ContextMenuSub>
 
-         <ContextMenuSub>
-            <LinearContextSubTrigger
-               icon={
-                  task.milestone ? (
-                     <Diamond className="size-4 text-violet-300" />
-                  ) : (
-                     <CircleDashed className="size-4 text-zinc-500" />
-                  )
-               }
-               label={fa.project.milestones}
-               shortcut="M"
-            />
-            <ContextMenuSubContent
-               dir="rtl"
-               className="w-72 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
-            >
-               <div className="max-h-72 overflow-y-auto overscroll-contain pe-1">
-                  <LinearContextItem
-                     active={!task.milestone?.id && !task.milestoneId}
-                     icon={<CircleDashed className="size-4 text-zinc-500" />}
-                     label="بدون گام"
-                     onSelect={() => onMilestoneChange(null)}
-                  />
-                  {task.milestone && !selectableMilestones.some((item) => item.id === task.milestone?.id) ? (
-                     <LinearContextItem
-                        active
-                        icon={<Diamond className="size-4 text-zinc-400" />}
-                        label={`${task.milestone.name} · فعلی`}
-                        onSelect={() => onMilestoneChange(task.milestone?.id || null)}
-                     />
-                  ) : null}
-                  {selectableMilestones.map((milestone) => (
-                     <LinearContextItem
-                        key={milestone.id}
-                        active={(task.milestone?.id || task.milestoneId) === milestone.id}
-                        icon={<Diamond className="size-4 text-violet-300" />}
-                        label={milestone.name}
-                        onSelect={() => onMilestoneChange(milestone.id)}
-                     />
-                  ))}
-                  {!selectableMilestones.length && !task.milestone ? (
-                     <ContextMenuItem disabled className="text-zinc-500">
-                        گام بازی برای این پروژه وجود ندارد
-                     </ContextMenuItem>
-                  ) : null}
-               </div>
-            </ContextMenuSubContent>
-         </ContextMenuSub>
+
 
          <ContextMenuSub>
             <LinearContextSubTrigger

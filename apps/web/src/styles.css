@@ -186,7 +186,7 @@
       min-height: 100dvh;
    }
 
-   :where(a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex='-1'])):focus-visible {
+   :where(a[href], button, select, summary, [tabindex]:not([tabindex='-1'])):not(input):not(textarea):not([contenteditable='true']):focus-visible {
       outline: 2px solid #818cf8 !important;
       outline-offset: 2px !important;
    }
@@ -800,4 +800,10 @@ input[type='search'] {
    .team-overview-hide {
       animation: team-overview-hide-in 160ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
    }
+}
+
+/* Text editing stays quiet; keyboard navigation retains its focus indicator. */
+input:focus-visible, textarea:focus-visible, [contenteditable='true']:focus-visible {
+   outline: none !important;
+   --tw-ring-shadow: 0 0 #0000 !important;
 }

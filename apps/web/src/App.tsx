@@ -4,11 +4,9 @@ import MainLayout from '@/components/layout/main-layout';
 import { SupportMainLayout } from '@/components/layout/support-main-layout';
 import { AcceptInvitePage, LoginPage, OnboardingPage, SignupPage, destinationFor } from '@/components/taskara/auth-pages';
 import { CommunicationsView } from '@/components/taskara/communications-view';
-import { DailyReportView } from '@/components/taskara/daily-report-view';
-import { DailyReportsDigestView } from '@/components/taskara/daily-reports-digest-view';
 import { HeartbeatView } from '@/components/taskara/heartbeat-view';
 import { InboxView } from '@/components/taskara/inbox-view';
-import { IssuePage } from '@/components/taskara/issue-page';
+import { IssueRouteDialog } from '@/components/taskara/issue-route-dialog';
 import { KnowledgeView } from '@/components/taskara/knowledge-view';
 import { CapacitySettingsView } from '@/components/taskara/capacity-settings-view';
 import { DecisionQueuesView } from '@/components/taskara/decision-queues-view';
@@ -180,8 +178,8 @@ export function App() {
         <Route path="queues" element={<WorkspacePage><DecisionQueuesView /></WorkspacePage>} />
         <Route path="reviews" element={<WorkspacePage><ReviewsView /></WorkspacePage>} />
         <Route path="people" element={<WorkspacePage><PeopleWorkloadView /></WorkspacePage>} />
-        <Route path="today" element={<WorkspacePage><DailyReportView /></WorkspacePage>} />
-        <Route path="daily-reports" element={<WorkspacePage><DailyReportsDigestView /></WorkspacePage>} />
+        <Route path="today" element={<WorkspacePage><WorkspaceRedirect /></WorkspacePage>} />
+        <Route path="daily-reports" element={<WorkspacePage><WorkspaceRedirect /></WorkspacePage>} />
         <Route path="capacity" element={<WorkspacePage><CapacitySettingsView /></WorkspacePage>} />
         <Route path="inbox" element={<WorkspacePage><InboxView /></WorkspacePage>} />
         <Route path="communications" element={<WorkspacePage><CommunicationsView /></WorkspacePage>} />
@@ -206,7 +204,7 @@ export function App() {
         <Route path="tasks" element={<WorkspacePage><TasksView defaultSystemView="all" personalOnly={false} /></WorkspacePage>} />
         <Route path="team/:teamId/all" element={<WorkspacePage><TasksView /></WorkspacePage>} />
         <Route path="team/:teamId/projects" element={<WorkspacePage><ProjectsView /></WorkspacePage>} />
-        <Route path="issue/:taskKey" element={<WorkspacePage><IssuePage /></WorkspacePage>} />
+        <Route path="issue/:taskKey" element={<WorkspacePage><IssueRouteDialog /></WorkspacePage>} />
         <Route path="teams" element={<WorkspacePage><TeamsView /></WorkspacePage>} />
         <Route path="support/setup" element={<WorkspacePage><SupportSetupView /></WorkspacePage>} />
         <Route path="support/no-access" element={<WorkspacePage><SupportNoAccessView /></WorkspacePage>} />

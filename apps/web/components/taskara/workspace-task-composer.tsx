@@ -17,7 +17,6 @@ import {
    CalendarClock,
    Check,
    ChevronDown,
-   Diamond,
    Loader2,
    Paperclip,
    UploadCloud,
@@ -38,7 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { DescriptionEditor, type DescriptionSlashCommand } from '@/components/taskara/description-editor';
-import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
+import { ComposerAttachmentPreviewList as PendingComposerAttachmentList } from './composer-attachment-preview';
 import { LinearAvatar, PriorityIcon, ProjectGlyph, StatusIcon, linearPriorityMeta, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
@@ -66,7 +65,7 @@ const initialTaskForm = {
 
 type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'milestone' | 'weight' | 'dueAt';
 
-const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'milestone', 'weight', 'dueAt'];
+const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'weight', 'dueAt'];
 
 type TaskComposerOpenDetail = {
    assigneeId?: string;
@@ -184,7 +183,6 @@ export function WorkspaceTaskComposer() {
    }, [currentUserId, users]);
 
    const selectedProject = projects.find((project) => project.id === form.projectId) || null;
-   const selectedMilestone = milestones.find((milestone) => milestone.id === form.milestoneId) || null;
    const selectedAssignee = users.find((user) => user.id === form.assigneeId) || null;
 
    const focusDescription = useCallback(() => {
@@ -256,14 +254,6 @@ export function WorkspaceTaskComposer() {
             title: 'پروژه',
          },
          {
-            command: () => openComposerField('milestone'),
-            description: 'اتصال کار به یک گام پروژه',
-            icon: <Diamond className="size-4 text-violet-300" />,
-            key: 'taskara-milestone',
-            keywords: ['milestone', 'goal', 'مایلستون', 'هدف', 'فاز', 'ویژگی'],
-            title: fa.project.milestones,
-         },
-         {
             command: () => openComposerField('priority'),
             description: 'انتخاب اولویت کار',
             icon: <PriorityIcon priority={form.priority} className="size-4" />,
@@ -306,7 +296,6 @@ export function WorkspaceTaskComposer() {
          openComposerField,
          selectedAssignee,
          selectedProject?.name,
-         selectedMilestone?.name,
          startSetupFlow,
       ]
    );
@@ -754,19 +743,6 @@ export function WorkspaceTaskComposer() {
                         onAfterChange={() => handleComposerFieldPicked('project')}
                         onOpenChange={(nextOpen) => handleComposerFieldOpenChange('project', nextOpen)}
                      />
-                     <MilestoneSelector
-                        className="h-6 max-w-[168px] rounded-full border-white/8 bg-[#2a2a2d] px-2.5 text-[12px] text-zinc-300 hover:bg-[#303033]"
-                        currentMilestone={selectedMilestone}
-                        milestones={milestones}
-                        placeholder={fa.milestone.selectMilestone}
-                        projectId={form.projectId}
-                        value={form.milestoneId || null}
-                        variant="pill"
-                        onChange={(milestoneId) => {
-                           setForm((current) => ({ ...current, milestoneId: milestoneId || '' }));
-                           handleComposerFieldPicked('milestone');
-                        }}
-                     />
                      <ComposerWeightPill
                         open={activeComposerField === 'weight'}
                         weight={form.weight}
@@ -820,49 +796,6 @@ export function WorkspaceTaskComposer() {
          </DialogContent>
       </Dialog>
    );
-}
-
-function PendingComposerAttachmentList({
-   disabled,
-   files,
-   onRemove,
-}: {
-   disabled: boolean;
-   files: File[];
-   onRemove: (index: number) => void;
-}) {
-   if (!files.length) return null;
-
-   return (
-      <div className="mt-3 flex max-h-24 flex-wrap gap-2 overflow-y-auto pb-1 pe-1">
-         {files.map((file, index) => (
-            <div
-               key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-               className="inline-flex h-8 max-w-full items-center gap-2 rounded-md border border-white/8 bg-[#171719] px-2 text-zinc-300"
-            >
-               <Paperclip className="size-3.5 shrink-0 text-zinc-500" />
-               <span className="min-w-0 max-w-56 truncate text-xs">{file.name}</span>
-               <span className="shrink-0 text-[11px] text-zinc-600">{formatComposerFileSize(file.size)}</span>
-               <button
-                  aria-label={fa.issue.removeAttachment}
-                  className="shrink-0 rounded-full p-0.5 text-zinc-500 transition hover:bg-white/8 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={disabled}
-                  type="button"
-                  onClick={() => onRemove(index)}
-               >
-                  <X className="size-3.5" />
-               </button>
-            </div>
-         ))}
-      </div>
-   );
-}
-
-function formatComposerFileSize(bytes: number): string {
-   if (bytes < 1024) return `${bytes.toLocaleString('fa-IR')} B`;
-   const kilobytes = bytes / 1024;
-   if (kilobytes < 1024) return `${kilobytes.toLocaleString('fa-IR', { maximumFractionDigits: 1 })} KB`;
-   return `${(kilobytes / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} MB`;
 }
 
 function ComposerMenuPill({

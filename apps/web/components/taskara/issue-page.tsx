@@ -39,7 +39,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
-import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { SmsConfirmDialog } from '@/components/taskara/sms-confirm-dialog';
 import {
    TaskDependenciesSection,
@@ -1280,26 +1279,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                         requestIssueProjectChange(projectId);
                      }}
                   />
-                  <MilestoneSelector
-                     className="h-9 rounded-lg border-transparent bg-transparent px-2 hover:bg-white/[0.04]"
-                     currentMilestone={
-                        task.milestone && task.project?.id
-                           ? { ...task.milestone, projectId: task.milestone.projectId || task.project.id }
-                           : null
-                     }
-                     disabled={!task.project?.id}
-                     milestones={taskSync.milestones}
-                     projectId={task.project?.id}
-                     value={task.milestone?.id || task.milestoneId || null}
-                     onChange={(milestoneId) => void updateTask({ milestoneId })}
-                     onCreate={(projectId) => {
-                        window.dispatchEvent(
-                           new CustomEvent('taskara:create-milestone', {
-                              detail: { projectId, assignTaskId: task.id, assignTaskKey: task.key },
-                           })
-                        );
-                     }}
-                  />
+
                </div>
             </SidebarSection>
 

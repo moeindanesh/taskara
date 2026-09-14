@@ -50,10 +50,8 @@ import {
 import { useWorkspaceNavigationRuntime, useWorkspaceRuntime } from '@/lib/workspace-runtime';
 import {
    ChevronDown,
-   ClipboardList,
    Laptop,
    Moon,
-   NotebookPen,
    Plus,
    Search,
    Sun,
@@ -77,7 +75,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
    const navigationRuntime = useWorkspaceNavigationRuntime();
    const taskSync = useWorkspaceTaskSync();
    const [workspaces, setWorkspaces] = React.useState<TaskaraWorkspaceMembership[]>([]);
-   const [showTeams, setShowTeams] = React.useState(false);
+   const [showTeams, setShowTeams] = React.useState(true);
    const loadRequestRef = React.useRef(0);
    const teams = taskSync.workspaceData.teams;
    const loadingTeams = !taskSync.hasBootstrapped;
@@ -86,10 +84,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       [runtime.me.user.id, taskSync.workspaceData]
    );
 
-   const currentRole = runtime.role || getAuthSession()?.role;
-   // Matches the API's admin concept (isWorkspaceAdminRole), so manager surfaces in the sidebar and
-   // the routes behind them agree on who counts as a manager.
-   const isManager = currentRole === 'OWNER' || currentRole === 'ADMIN';
    const primaryRoutes = workspaceSidebarRoutes(navigationRuntime, 'primary');
    const activeRoute = workspaceRouteForPath(pathname, orgId);
    const createAction = workspaceCreateAction(navigationRuntime);
@@ -133,7 +127,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       workspaceEventFilter: sidebarRefreshSourceMatches,
    });
 
-   React.useEffect(() => setShowTeams(false), [orgId]);
+   React.useEffect(() => setShowTeams(true), [orgId]);
 
    const workspaceName = runtime.me.workspace.name || fa.app.fallbackWorkspace;
    const workspaceItems = workspaces.length
@@ -280,26 +274,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                <SidebarMenu>
                   {primaryRoutes.map((route) => {
                      const RegistryIcon = workspaceNavigationIcons[route.icon];
-                     const RouteIcon = route.id === 'my-tasks'
-                        ? SidebarIssueIcon
-                        : route.id === 'daily-report' || route.id === 'daily-reports-digest'
-                           ? isManager ? ClipboardList : NotebookPen
-                           : RegistryIcon;
+                     const RouteIcon = route.id === 'my-tasks' ? SidebarIssueIcon : RegistryIcon;
                      return (
                         <SidebarMenuItem key={route.id}>
                            <SidebarMenuButton asChild isActive={activeRoute?.id === route.id} className={sidebarItemClassName}>
                               <Link to={route.path(orgId, navigationRuntime)}>
-                                 <RouteIcon className={route.id === 'milestones' ? 'size-4 shrink-0 text-indigo-400' : undefined} />
+                                 <RouteIcon />
                                  <span className="min-w-0 flex-1 truncate text-right">{route.label}</span>
-                                 {route.id === 'milestones' && sidebarCounts.myOverdueMilestoneCount > 0 ? (
-                                    <span
-                                       aria-label={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده متعلق به شما`}
-                                       className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-400/12 px-1.5 text-[10px] tabular-nums text-rose-300"
-                                       title={`${sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')} گام عقب‌افتاده`}
-                                    >
-                                       {sidebarCounts.myOverdueMilestoneCount.toLocaleString('fa-IR')}
-                                    </span>
-                                 ) : null}
                               </Link>
                            </SidebarMenuButton>
                         </SidebarMenuItem>

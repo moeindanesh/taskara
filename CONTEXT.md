@@ -86,7 +86,7 @@ What a person *says* they will do, self-reported as free text in their daily rep
 _Avoid_: Today load
 
 **Daily Report** (گزارش روزانه):
-A person's end-of-day check-in for one `dateKey`: what was completed, what was unplanned, blockers, the next plan, and help needed. One per member per day; it *is* the check-in (no separate model).
+A person's end-of-day check-in for one `dateKey`: what was completed, what was unplanned, blockers, the next plan, and help needed. One per member per day; it *is* the check-in (no separate model). The web reporting section has been retired; existing records and API contracts remain available.
 
 **Unfinished**:
 A Task that is neither DONE nor CANCELED.

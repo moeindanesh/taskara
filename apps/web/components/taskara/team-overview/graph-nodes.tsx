@@ -34,7 +34,11 @@ function initials(name: string): string {
 
 /** The colour a node paints with, as a Tailwind text class consumed through currentColor. */
 function nodeColorClassName(node: GraphNode): string {
-   if (node.kind === 'task') return (linearStatusMeta[node.status] || linearStatusMeta.TODO).iconClassName;
+   if (node.kind === 'task') {
+      // Graph fills must not inherit the light-mode overrides intended for readable text.
+      if (node.status === 'TODO') return 'text-[#a1a1aa] dark:text-[#d4d4d8]';
+      return (linearStatusMeta[node.status] || linearStatusMeta.TODO).iconClassName;
+   }
    return 'text-primary';
 }
 
@@ -127,7 +131,6 @@ function HidePersonBadge({ node, onHide }: { node: PersonGraphNode; onHide: (nod
 }
 
 function TaskShape({ node }: { node: TaskGraphNode }) {
-   const meta = linearStatusMeta[node.status] || linearStatusMeta.TODO;
    const unestimated = node.weight === null;
 
    return (
@@ -137,7 +140,7 @@ function TaskShape({ node }: { node: TaskGraphNode }) {
          ) : null}
          <circle
             // The status colour comes from the same map the task lists use, painted via currentColor.
-            className={cn(meta.iconClassName, unestimated ? 'fill-none stroke-current' : 'fill-current')}
+            className={cn(nodeColorClassName(node), unestimated ? 'fill-none stroke-current' : 'fill-current')}
             r={node.radius}
             strokeDasharray={unestimated ? '3 2.5' : undefined}
             strokeWidth={unestimated ? 1.75 : undefined}
