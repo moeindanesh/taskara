@@ -90,6 +90,7 @@ const nouns: Record<string, Record<string, Handler>> = {
 };
 
 export const usage = `taskara <noun> <verb> [arguments]
+  taskara --version
 
   login         [--api-url <url>] [--workspace <slug>] [--email <address>]
 

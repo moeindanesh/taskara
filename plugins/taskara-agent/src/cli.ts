@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { version } from '../package.json';
 import { TaskaraClient } from './core/client';
 import { readConfig } from './core/config';
 import { TaskaraError, exitCodes, type ExitCode } from './core/errors';
@@ -20,6 +21,10 @@ import { runLoginCommand } from './cli/login-command';
  */
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
+  if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
+    process.stdout.write(`${JSON.stringify({ version })}\n`);
+    return exitCodes.ok;
+  }
 
   // Help comes before configuration on purpose. Someone running `taskara` for the first time has
   // nothing set up yet, and answering "TASKARA_API_URL is required" to a request for the command

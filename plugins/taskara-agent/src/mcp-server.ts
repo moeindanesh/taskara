@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { version } from '../package.json';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -54,7 +55,7 @@ const MilestoneDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 const config = readConfig();
 const client = new TaskaraClient(config);
-const server = new McpServer({ name: 'taskara-agent', version: '0.1.0' });
+const server = new McpServer({ name: 'taskara-agent', version });
 
 /* -------------------------------------------------------------- workspace */
 

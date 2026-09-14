@@ -88,3 +88,14 @@ attachment URLs, names, MIME types and sizes. The API forwards files to its conf
 Creation and attachment uploads are sequential. If an upload fails after creation, the error names
 the created task: do not repeat creation; use `task view` / `task_view` to inspect its attachments,
 then `task attach` / `task_attach` for missing files. Local files are checked before task creation.
+
+## Updating
+
+```bash
+bun install -g taskara@latest
+taskara --version
+```
+
+Version 0.1.2 adds image/file uploads in CLI and MCP, repeatable `task create --attach`,
+`task attach`, attachment metadata in `task view`, and `--version` (JSON output).
+A release tarball can also be installed directly with `bun install -g /path/to/taskara-0.1.2.tgz`.
