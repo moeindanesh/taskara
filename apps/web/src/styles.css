@@ -32,76 +32,102 @@
    --app-font-family: var(--font-vazirmatn);
    --app-font-scale-body: 1;
    --app-font-scale-title: 1;
-   --card: oklch(1 0 0);
-   --card-foreground: oklch(0.141 0.005 285.823);
-   --popover: oklch(1 0 0);
-   --popover-foreground: oklch(0.141 0.005 285.823);
-   --primary: oklch(0.21 0.006 285.885);
-   --primary-foreground: oklch(0.985 0 0);
-   --secondary: oklch(0.967 0.001 286.375);
-   --secondary-foreground: oklch(0.21 0.006 285.885);
-   --muted: oklch(0.967 0.001 286.375);
-   --muted-foreground: oklch(0.552 0.016 285.938);
-   --accent: oklch(0.967 0.001 286.375);
-   --accent-foreground: oklch(0.21 0.006 285.885);
-   --destructive: oklch(0.577 0.245 27.325);
-   --destructive-foreground: oklch(0.577 0.245 27.325);
-   --border: oklch(0.92 0.004 286.32);
-   --input: oklch(0.92 0.004 286.32);
-   --ring: oklch(0.871 0.006 286.286);
-   --chart-1: oklch(0.646 0.222 41.116);
-   --chart-2: oklch(0.6 0.118 184.704);
-   --chart-3: oklch(0.398 0.07 227.392);
-   --chart-4: oklch(0.828 0.189 84.429);
-   --chart-5: oklch(0.769 0.188 70.08);
+   color-scheme: light;
+   /* codex-theme-v1 / light. Keep the supplied colors as the palette source of truth. */
+   --theme-surface: #ffffff;
+   --theme-ink: #1a1c1f;
+   --theme-accent: #3a83f7;
+   --theme-diff-added: #00a240;
+   --theme-diff-removed: #ba2623;
+   --theme-skill: #924ff7;
+   --background: var(--theme-surface);
+   --foreground: var(--theme-ink);
+   --card: var(--theme-surface);
+   --card-foreground: var(--theme-ink);
+   --popover: var(--theme-surface);
+   --popover-foreground: var(--theme-ink);
+   --primary: var(--theme-accent);
+   --primary-foreground: #ffffff;
+   --secondary: color-mix(in srgb, var(--theme-ink) 6%, var(--theme-surface));
+   --secondary-foreground: var(--theme-ink);
+   --muted: color-mix(in srgb, var(--theme-ink) 5%, var(--theme-surface));
+   --muted-foreground: color-mix(in srgb, var(--theme-ink) 58%, var(--theme-surface));
+   --accent: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+   --accent-foreground: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-ink));
+   --destructive: var(--theme-diff-removed);
+   --destructive-foreground: var(--theme-diff-removed);
+   --border: color-mix(in srgb, var(--theme-ink) 14%, var(--theme-surface));
+   --input: color-mix(in srgb, var(--theme-ink) 18%, var(--theme-surface));
+   --ring: var(--theme-accent);
+   --chart-1: var(--theme-accent);
+   --chart-2: var(--theme-diff-added);
+   --chart-3: var(--theme-skill);
+   --chart-4: #d97706;
+   --chart-5: var(--theme-diff-removed);
    --radius: 0.625rem;
-   --sidebar: oklch(0.985 0 0);
-   --sidebar-foreground: oklch(0.141 0.005 285.823);
-   --sidebar-primary: oklch(0.21 0.006 285.885);
-   --sidebar-primary-foreground: oklch(0.985 0 0);
-   --sidebar-accent: oklch(0.967 0.001 286.375);
-   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-   --sidebar-border: oklch(0.92 0.004 286.32);
-   --sidebar-ring: oklch(0.871 0.006 286.286);
-   --background: #f5f5f4;
-   --foreground: #19191b;
-   --container: #ffffff;
+   --sidebar: color-mix(in srgb, var(--theme-ink) 2%, var(--theme-surface));
+   --sidebar-foreground: color-mix(in srgb, var(--theme-ink) 62%, var(--theme-surface));
+   --sidebar-primary: var(--theme-accent);
+   --sidebar-primary-foreground: #ffffff;
+   --sidebar-accent: var(--accent);
+   --sidebar-accent-foreground: var(--theme-ink);
+   --sidebar-border: var(--border);
+   --sidebar-ring: var(--theme-accent);
+   --container: var(--theme-surface);
+   --surface-raised: color-mix(in srgb, var(--theme-ink) 3%, var(--theme-surface));
+   --surface-overlay: color-mix(in srgb, var(--theme-ink) 6%, var(--theme-surface));
+   --surface-subtle: color-mix(in srgb, var(--theme-ink) 5%, transparent);
+   --border-subtle: color-mix(in srgb, var(--theme-ink) 8%, transparent);
+   --border-strong: color-mix(in srgb, var(--theme-ink) 20%, transparent);
 }
 
 .dark {
-   --background: #050506;
-   --foreground: #f4f4f5;
-   --card: #19191b;
-   --card-foreground: #f4f4f5;
-   --popover: #202023;
-   --popover-foreground: #f4f4f5;
-   --primary: #6f72e8;
+   color-scheme: dark;
+   /* codex-theme-v1 / dark. Derived surfaces retain the supplied surface and ink hue. */
+   --theme-surface: #0d1117;
+   --theme-ink: #e6edf3;
+   --theme-accent: #1f6feb;
+   --theme-diff-added: #3fb950;
+   --theme-diff-removed: #f85149;
+   --theme-skill: #bc8cff;
+   --background: var(--theme-surface);
+   --foreground: var(--theme-ink);
+   --card: color-mix(in srgb, var(--theme-ink) 5%, var(--theme-surface));
+   --card-foreground: var(--theme-ink);
+   --popover: color-mix(in srgb, var(--theme-ink) 8%, var(--theme-surface));
+   --popover-foreground: var(--theme-ink);
+   --primary: var(--theme-accent);
    --primary-foreground: #ffffff;
-   --secondary: #27272a;
-   --secondary-foreground: #f4f4f5;
-   --muted: #242426;
-   --muted-foreground: #8e8e93;
-   --accent: #2b2b2f;
-   --accent-foreground: #f4f4f5;
-   --destructive: oklch(0.396 0.141 25.723);
-   --destructive-foreground: oklch(0.637 0.237 25.331);
-   --border: #28282b;
-   --input: #313136;
-   --ring: #6f72e8;
-   --chart-1: oklch(0.488 0.243 264.376);
-   --chart-2: oklch(0.696 0.17 162.48);
-   --chart-3: oklch(0.769 0.188 70.08);
-   --chart-4: oklch(0.627 0.265 303.9);
-   --chart-5: oklch(0.645 0.246 16.439);
-   --sidebar: #080809;
-   --sidebar-foreground: #8f8f95;
-   --sidebar-primary: #6f72e8;
+   --secondary: color-mix(in srgb, var(--theme-ink) 9%, var(--theme-surface));
+   --secondary-foreground: var(--theme-ink);
+   --muted: color-mix(in srgb, var(--theme-ink) 8%, var(--theme-surface));
+   --muted-foreground: color-mix(in srgb, var(--theme-ink) 55%, var(--theme-surface));
+   --accent: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface));
+   --accent-foreground: var(--theme-ink);
+   --destructive: var(--theme-diff-removed);
+   --destructive-foreground: var(--theme-diff-removed);
+   --border: color-mix(in srgb, var(--theme-ink) 15%, var(--theme-surface));
+   --input: color-mix(in srgb, var(--theme-ink) 19%, var(--theme-surface));
+   --ring: var(--theme-accent);
+   --chart-1: var(--theme-accent);
+   --chart-2: var(--theme-diff-added);
+   --chart-3: var(--theme-skill);
+   --chart-4: #d29922;
+   --chart-5: var(--theme-diff-removed);
+   --sidebar: var(--theme-surface);
+   --sidebar-foreground: color-mix(in srgb, var(--theme-ink) 62%, var(--theme-surface));
+   --sidebar-primary: var(--theme-accent);
    --sidebar-primary-foreground: #ffffff;
-   --sidebar-accent: #171719;
-   --sidebar-accent-foreground: #f2f2f3;
-   --sidebar-border: #1b1b1d;
-   --sidebar-ring: #6f72e8;
-   --container: #101011;
+   --sidebar-accent: var(--accent);
+   --sidebar-accent-foreground: var(--theme-ink);
+   --sidebar-border: var(--border);
+   --sidebar-ring: var(--theme-accent);
+   --container: var(--theme-surface);
+   --surface-raised: var(--card);
+   --surface-overlay: var(--popover);
+   --surface-subtle: color-mix(in srgb, var(--theme-ink) 6%, transparent);
+   --border-subtle: color-mix(in srgb, var(--theme-ink) 8%, transparent);
+   --border-strong: color-mix(in srgb, var(--theme-ink) 20%, transparent);
 }
 
 @theme inline {
@@ -129,6 +155,9 @@
    --color-chart-3: var(--chart-3);
    --color-chart-4: var(--chart-4);
    --color-chart-5: var(--chart-5);
+   --color-diff-added: var(--theme-diff-added);
+   --color-diff-removed: var(--theme-diff-removed);
+   --color-skill: var(--theme-skill);
    --radius-sm: calc(var(--radius) - 4px);
    --radius-md: calc(var(--radius) - 2px);
    --radius-lg: var(--radius);
@@ -187,7 +216,7 @@
    }
 
    :where(a[href], button, select, summary, [tabindex]:not([tabindex='-1'])):not(input):not(textarea):not([contenteditable='true']):focus-visible {
-      outline: 2px solid #818cf8 !important;
+      outline: 2px solid var(--ring) !important;
       outline-offset: 2px !important;
    }
 }
@@ -255,17 +284,24 @@ input[type='search'] {
    font-weight: 600 !important;
 }
 
-/* Light-mode compatibility for legacy dark-only utility classes.
-   Keep these scoped away from `.dark` so the established dark theme stays unchanged. */
+/* Normalize legacy dark-only arbitrary utilities onto the active Codex palette. New UI should use
+   semantic tokens directly; this bridge keeps older and less-travelled screens theme-correct. */
 :root:not(.dark) [class~="bg-[#050506]"],
 :root:not(.dark) [class~="bg-[#070708]"],
 :root:not(.dark) [class~="bg-[#080809]"],
-:root:not(.dark) [class~="bg-[#09090a]"] {
+:root:not(.dark) [class~="bg-[#09090a]"],
+:root:not(.dark) [class~="bg-[#0a0a0b]"],
+:root:not(.dark) [class~="bg-[#0b0b0c]"],
+:root:not(.dark) [class~="bg-[#0c0c0e]"] {
    background-color: var(--background) !important;
 }
 
 :root:not(.dark) [class~="bg-[#101011]"] {
    background-color: var(--container) !important;
+}
+
+:root:not(.dark) [class~="bg-[#101011]/95"] {
+   background-color: color-mix(in srgb, var(--container) 95%, transparent) !important;
 }
 
 :root:not(.dark) [class~="bg-[#111113]"],
@@ -274,17 +310,23 @@ input[type='search'] {
 :root:not(.dark) [class~="bg-[#171719]"],
 :root:not(.dark) [class~="bg-[#17171a]"],
 :root:not(.dark) [class~="bg-[#18181a]"],
+:root:not(.dark) [class~="bg-[#18181b]"],
 :root:not(.dark) [class~="bg-[#19191b]"] {
    background-color: var(--card) !important;
 }
 
 :root:not(.dark) [class~="bg-[#1b1b1d]"],
+:root:not(.dark) [class~="bg-[#1c1c20]"],
 :root:not(.dark) [class~="bg-[#1d1d20]"],
 :root:not(.dark) [class~="bg-[#1e1e21]"],
 :root:not(.dark) [class~="bg-[#1f1f22]"],
 :root:not(.dark) [class~="bg-[#202023]"],
 :root:not(.dark) [class~="bg-[#202024]"] {
    background-color: var(--popover) !important;
+}
+
+:root:not(.dark) [class~="bg-[#202023]/95"] {
+   background-color: color-mix(in srgb, var(--popover) 95%, transparent) !important;
 }
 
 :root:not(.dark) [class~="bg-[#252529]"],
@@ -296,7 +338,12 @@ input[type='search'] {
 }
 
 :root:not(.dark) [class~="bg-[#6a6a70]"] {
-   background-color: oklch(0.871 0.006 286.286) !important;
+   background-color: var(--input) !important;
+}
+
+:root:not(.dark) [class~="bg-[#5e6ad2]"],
+:root:not(.dark) [class~="bg-[#6266e8]"] {
+   background-color: var(--primary) !important;
 }
 
 :root:not(.dark) [class~="hover:bg-[#1d1d20]"]:hover,
@@ -330,7 +377,7 @@ input[type='search'] {
 }
 
 :root:not(.dark) [class~="border-zinc-400"] {
-   border-color: oklch(0.871 0.006 286.286) !important;
+   border-color: var(--input) !important;
 }
 
 :root:not(.dark) [class~="bg-white/[0.015]"],
@@ -385,7 +432,7 @@ input[type='search'] {
 :root:not(.dark) [class~="bg-zinc-500"],
 :root:not(.dark) [class~="bg-zinc-600"],
 :root:not(.dark) [class~="bg-zinc-700"] {
-   background-color: oklch(0.871 0.006 286.286) !important;
+   background-color: var(--input) !important;
 }
 
 :root:not(.dark) [class~="text-zinc-50"],
@@ -395,11 +442,11 @@ input[type='search'] {
 }
 
 :root:not(.dark) [class~="text-zinc-300"] {
-   color: oklch(0.274 0.006 286.033) !important;
+   color: color-mix(in srgb, var(--foreground) 86%, var(--background)) !important;
 }
 
 :root:not(.dark) [class~="text-zinc-400"] {
-   color: oklch(0.442 0.017 285.786) !important;
+   color: color-mix(in srgb, var(--foreground) 72%, var(--background)) !important;
 }
 
 :root:not(.dark) [class~="text-zinc-500"],
@@ -421,14 +468,133 @@ input[type='search'] {
 :root:not(.dark) [class~="placeholder:text-zinc-500"]::placeholder,
 :root:not(.dark) [class~="placeholder:text-zinc-600"]::placeholder,
 :root:not(.dark) [class~="placeholder:text-zinc-700"]::placeholder {
-   color: oklch(0.705 0.015 286.067) !important;
+   color: color-mix(in srgb, var(--foreground) 45%, var(--background)) !important;
+}
+
+:root:not(.dark) [class~="text-[#5e6ad2]"] {
+   color: var(--primary) !important;
+}
+
+:root:not(.dark) [class~="ring-[#101011]"] {
+   --tw-ring-color: var(--background) !important;
+}
+
+.dark [class~="bg-[#050506]"],
+.dark [class~="bg-[#070708]"],
+.dark [class~="bg-[#080809]"],
+.dark [class~="bg-[#09090a]"],
+.dark [class~="bg-[#0a0a0b]"],
+.dark [class~="bg-[#0b0b0c]"],
+.dark [class~="bg-[#0c0c0e]"],
+.dark [class~="bg-[#101011]"],
+.dark [class~="dark:bg-[#101011]"] {
+   background-color: var(--background) !important;
+}
+
+.dark [class~="bg-[#101011]/95"],
+.dark [class~="dark:bg-[#101011]/95"] {
+   background-color: color-mix(in srgb, var(--background) 95%, transparent) !important;
+}
+
+.dark [class~="bg-[#111113]"],
+.dark [class~="bg-[#141416]"],
+.dark [class~="bg-[#151517]"],
+.dark [class~="bg-[#171719]"],
+.dark [class~="bg-[#17171a]"],
+.dark [class~="bg-[#18181a]"],
+.dark [class~="bg-[#18181b]"],
+.dark [class~="bg-[#19191b]"],
+.dark [class~="dark:bg-[#161618]"],
+.dark [class~="dark:bg-[#171719]"],
+.dark [class~="fill-[#141417]"] {
+   background-color: var(--card) !important;
+   fill: var(--card) !important;
+}
+
+.dark [class~="bg-[#1b1b1d]"],
+.dark [class~="bg-[#1c1c20]"],
+.dark [class~="bg-[#1d1d20]"],
+.dark [class~="bg-[#1e1e21]"],
+.dark [class~="bg-[#1f1f22]"],
+.dark [class~="bg-[#202023]"],
+.dark [class~="bg-[#202024]"] {
+   background-color: var(--popover) !important;
+}
+
+.dark [class~="bg-[#202023]/95"] {
+   background-color: color-mix(in srgb, var(--popover) 95%, transparent) !important;
+}
+
+.dark [class~="bg-[#252529]"],
+.dark [class~="bg-[#2a2a2d]"],
+.dark [class~="bg-[#2b2b2e]"],
+.dark [class~="bg-[#303033]"],
+.dark [class~="bg-[#333336]"],
+.dark [class~="bg-[#6a6a70]"] {
+   background-color: var(--muted) !important;
+}
+
+.dark [class~="bg-[#5e6ad2]"],
+.dark [class~="bg-[#6266e8]"] {
+   background-color: var(--primary) !important;
+}
+
+.dark [class~="hover:bg-[#1d1d20]"]:hover,
+.dark [class~="hover:bg-[#24242a]"]:hover,
+.dark [class~="hover:bg-[#252529]"]:hover,
+.dark [class~="hover:bg-[#303033]"]:hover,
+.dark [class~="hover:bg-[#333336]"]:hover {
+   background-color: var(--accent) !important;
+}
+
+.dark [class~="hover:fill-[#26262b]"]:hover {
+   fill: var(--accent) !important;
+}
+
+.dark [class~="text-[#5e6ad2]"] {
+   color: var(--primary) !important;
+}
+
+.dark [class~="text-[#a1a1aa]"],
+.dark [class~="dark:text-[#d4d4d8]"] {
+   color: var(--muted-foreground) !important;
+}
+
+.dark [class~="ring-[#101011]"] {
+   --tw-ring-color: var(--background) !important;
+}
+
+.dark [class~="text-zinc-50"],
+.dark [class~="text-zinc-100"],
+.dark [class~="text-zinc-200"],
+.dark [class~="dark:text-zinc-100"],
+.dark [class~="dark:text-zinc-200"] {
+   color: var(--foreground) !important;
+}
+
+.dark [class~="text-zinc-300"],
+.dark [class~="dark:text-zinc-300"] {
+   color: color-mix(in srgb, var(--foreground) 86%, var(--background)) !important;
+}
+
+.dark [class~="text-zinc-400"],
+.dark [class~="dark:text-zinc-400"] {
+   color: color-mix(in srgb, var(--foreground) 70%, var(--background)) !important;
+}
+
+.dark [class~="text-zinc-500"],
+.dark [class~="text-zinc-600"],
+.dark [class~="text-zinc-700"],
+.dark [class~="dark:text-zinc-500"],
+.dark [class~="dark:text-zinc-600"] {
+   color: var(--muted-foreground) !important;
 }
 
 .taskara-jalali-calendar {
    direction: rtl;
-   border: 1px solid rgb(255 255 255 / 0.10);
-   background: #1d1d20;
-   color: #d4d4d8;
+   border: 1px solid var(--border);
+   background: var(--popover);
+   color: var(--foreground);
    border-radius: 18px;
    box-shadow: 0 20px 70px rgb(0 0 0 / 0.45);
    overflow: hidden;
@@ -441,8 +607,8 @@ input[type='search'] {
 }
 
 .rmdp-ep-arrow.taskara-jalali-calendar::after {
-   border: 1px solid rgb(255 255 255 / 0.10);
-   background: #1d1d20;
+   border: 1px solid var(--border);
+   background: var(--popover);
 }
 
 .rmdp-ep-arrow.taskara-jalali-calendar[direction='bottom'] {
@@ -453,17 +619,17 @@ input[type='search'] {
 .taskara-jalali-calendar .rmdp-calendar,
 .taskara-jalali-calendar .rmdp-month-picker,
 .taskara-jalali-calendar .rmdp-year-picker {
-   background: #1d1d20;
+   background: var(--popover);
 }
 
 .taskara-jalali-calendar .rmdp-header-values,
 .taskara-jalali-calendar .rmdp-week-day,
 .taskara-jalali-calendar .rmdp-day:not(.rmdp-deactive) {
-   color: #d4d4d8;
+   color: var(--foreground);
 }
 
 .taskara-jalali-calendar .rmdp-day.rmdp-deactive {
-   color: #52525b;
+   color: var(--muted-foreground);
 }
 
 .taskara-jalali-calendar .rmdp-day span {
@@ -471,29 +637,29 @@ input[type='search'] {
 }
 
 .taskara-jalali-calendar .rmdp-day.rmdp-today span {
-   background: rgb(255 255 255 / 0.08);
-   color: #f4f4f5;
+   background: var(--accent);
+   color: var(--accent-foreground);
 }
 
 .taskara-jalali-calendar .rmdp-day.rmdp-selected span,
 .taskara-jalali-calendar .rmdp-day:not(.rmdp-disabled):not(.rmdp-day-hidden) span:hover {
-   background: #6f72e8;
-   color: #ffffff;
+   background: var(--primary);
+   color: var(--primary-foreground);
 }
 
 .taskara-jalali-calendar .rmdp-arrow-container:hover {
-   background: rgb(255 255 255 / 0.08);
+   background: var(--accent);
    box-shadow: none;
 }
 
 .taskara-jalali-calendar .rmdp-arrow {
-   border-color: #a1a1aa;
+   border-color: var(--muted-foreground);
 }
 
 .taskara-jalali-calendar .rmdp-time-picker {
-   border-top: 1px solid rgb(255 255 255 / 0.08);
-   background: #1d1d20;
-   color: #d4d4d8;
+   border-top: 1px solid var(--border-subtle);
+   background: var(--popover);
+   color: var(--foreground);
    padding: 10px 14px 12px;
 }
 
@@ -506,18 +672,18 @@ input[type='search'] {
    width: 42px;
    border: 0;
    border-radius: 10px;
-   background: #18181a;
-   color: #e4e4e7;
+   background: var(--card);
+   color: var(--foreground);
    font-size: 14px;
    line-height: 20px;
 }
 
 .taskara-jalali-calendar .rmdp-time-picker div input:focus {
-   outline: 1px solid rgb(129 140 248 / 0.55);
+   outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent);
 }
 
 .taskara-jalali-calendar .rmdp-time-picker .dvdr {
-   color: #71717a;
+   color: var(--muted-foreground);
    margin: 0 -2px;
 }
 
@@ -526,63 +692,6 @@ input[type='search'] {
    height: 24px;
    margin: 0 auto;
    border-radius: 8px;
-}
-
-:root:not(.dark) .taskara-jalali-calendar {
-   border-color: rgb(24 24 27 / 0.12);
-   background: #ffffff;
-   color: #3f3f46;
-   box-shadow: 0 20px 70px rgb(24 24 27 / 0.14);
-}
-
-:root:not(.dark) .rmdp-ep-arrow.taskara-jalali-calendar::after {
-   border-color: rgb(24 24 27 / 0.12);
-   background: #ffffff;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-header,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-calendar,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-month-picker,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-year-picker,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-time-picker {
-   background: #ffffff;
-   color: #3f3f46;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-header-values,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-week-day,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-day:not(.rmdp-deactive) {
-   color: #3f3f46;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-day.rmdp-deactive,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-time-picker .dvdr {
-   color: #a1a1aa;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-day.rmdp-today span,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-arrow-container:hover {
-   background: rgb(24 24 27 / 0.06);
-   color: #18181b;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-day.rmdp-selected span,
-:root:not(.dark) .taskara-jalali-calendar .rmdp-day:not(.rmdp-disabled):not(.rmdp-day-hidden) span:hover {
-   background: #6f72e8;
-   color: #ffffff;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-arrow {
-   border-color: #71717a;
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-time-picker {
-   border-top-color: rgb(24 24 27 / 0.08);
-}
-
-:root:not(.dark) .taskara-jalali-calendar .rmdp-time-picker div input {
-   background: #f4f4f5;
-   color: #18181b;
 }
 
 @font-face {

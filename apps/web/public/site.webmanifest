@@ -6,8 +6,8 @@
   "dir": "rtl",
   "display": "standalone",
   "start_url": "/",
-  "background_color": "#080809",
-  "theme_color": "#080809",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
   "icons": [
     {
       "src": "/brand/taskara-logo-192.png",

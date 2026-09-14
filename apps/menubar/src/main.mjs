@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, ipcMain, nativeImage, shell, screen } from 'electron';
+import { app, BrowserWindow, Tray, ipcMain, nativeImage, nativeTheme, shell, screen } from 'electron';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -273,6 +273,7 @@ function createPanelWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     vibrancy: 'under-window',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0d1117' : '#ffffff',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -361,6 +362,10 @@ app.whenReady().then(async () => {
   refreshTimer = setInterval(() => {
     void refreshTasks();
   }, Math.max(10_000, refreshMs));
+});
+
+nativeTheme.on('updated', () => {
+  panelWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0d1117' : '#ffffff');
 });
 
 app.on('activate', () => {
