@@ -16,7 +16,7 @@ import {
    Share2,
    Users,
    UsersRound,
-   Diamond,
+   Target,
 } from 'lucide-react';
 import type { WorkspaceNavigationIcon } from '@/lib/workspace-navigation';
 
@@ -33,7 +33,7 @@ export const workspaceNavigationIcons: Record<
    knowledge: BookOpen,
    manager: ScanEye,
    members: Users,
-   milestones: Diamond,
+   milestones: Target,
    overview: Share2,
    projects: FolderKanban,
    reports: FileChartColumn,

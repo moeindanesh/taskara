@@ -119,7 +119,7 @@ export function MilestoneLifecycleDialog({
 
             {isFinishAction ? (
                <div className="space-y-4">
-                  <div className="rounded-xl border border-border/70 bg-card/60 p-4">
+                  <div className="rounded-lg border border-border/70 bg-card/60 p-4">
                      <MilestoneProgress milestone={milestone} />
                      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                         <LifecycleStat label={fa.milestone.unfinishedTasks} value={unfinishedCount} />
@@ -171,7 +171,7 @@ export function MilestoneLifecycleDialog({
                                     </SelectContent>
                                  </Select>
                               ) : (
-                                 <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">گام باز دیگری در این پروژه وجود ندارد.</p>
+                                 <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">هدف باز دیگری در این پروژه وجود ندارد.</p>
                               )}
                            </div>
                         ) : null}
@@ -185,7 +185,7 @@ export function MilestoneLifecycleDialog({
                         />
                      </fieldset>
                   ) : (
-                     <div className="flex items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200">
+                     <div className="flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200">
                         <Check className="size-4" />
                         همه کارهای مشمول تکمیل شده‌اند؛ وضعیت کارها تغییر نمی‌کند.
                      </div>
@@ -203,7 +203,7 @@ export function MilestoneLifecycleDialog({
                   </label>
                </div>
             ) : action === 'archive' ? (
-               <div className="rounded-xl border border-amber-400/20 bg-amber-400/8 px-4 py-3 text-sm leading-6 text-amber-700 dark:text-amber-200">
+               <div className="rounded-lg border border-amber-400/20 bg-amber-400/8 px-4 py-3 text-sm leading-6 text-amber-700 dark:text-amber-200">
                   {fa.milestone.archiveDescription}
                </div>
             ) : null}
@@ -257,7 +257,7 @@ function PolicyCard({
 }) {
    return (
       <label className={cn(
-         'flex min-h-16 cursor-pointer items-start gap-3 rounded-xl border p-3 transition focus-within:ring-2 focus-within:ring-indigo-400/60',
+         'flex min-h-16 cursor-pointer items-start gap-3 rounded-lg border p-3 transition focus-within:ring-2 focus-within:ring-indigo-400/60',
          checked ? 'border-indigo-400/35 bg-indigo-400/10' : 'border-border/70 bg-card/40 hover:bg-muted/60',
          disabled && 'cursor-not-allowed opacity-45'
       )}>
@@ -295,8 +295,8 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: isReactivate ? fa.milestone.reactivate : fa.milestone.activate,
          description: isReactivate
-            ? 'گام به وضعیت فعال برمی‌گردد و تاریخ لغو پاک می‌شود.'
-            : 'گام برای اجرای روزانه فعال می‌شود.',
+            ? 'هدف به وضعیت فعال برمی‌گردد و تاریخ لغو پاک می‌شود.'
+            : 'هدف برای اجرای روزانه فعال می‌شود.',
          icon: RotateCcw,
          title: isReactivate ? fa.milestone.reactivate : fa.milestone.activate,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
@@ -312,7 +312,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
       reopen: {
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: fa.milestone.reopen,
-         description: 'گام تکمیل‌شده دوباره فعال می‌شود؛ پیوند کارها حفظ می‌شود.',
+         description: 'هدف تکمیل‌شده دوباره فعال می‌شود؛ پیوند کارها حفظ می‌شود.',
          icon: RotateCcw,
          title: fa.milestone.reopen,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
@@ -336,7 +336,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
       restore: {
          buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
          confirmLabel: fa.milestone.restore,
-         description: 'گام به فهرست بازمی‌گردد و وضعیت قبلی آن حفظ می‌شود.',
+         description: 'هدف به فهرست بازمی‌گردد و وضعیت قبلی آن حفظ می‌شود.',
          icon: RotateCcw,
          title: fa.milestone.restore,
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',

@@ -124,7 +124,7 @@ export function MilestoneSelector({
          >
             <SelectValue placeholder={loading ? fa.app.loading : placeholder} />
          </SelectTrigger>
-         <SelectContent className="max-h-80 rounded-xl border-border bg-popover p-1.5 text-popover-foreground [direction:rtl]">
+         <SelectContent className="max-h-80 rounded-lg border-border bg-popover p-1.5 text-popover-foreground [direction:rtl]">
             <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>
                <span className="flex items-center gap-2 text-muted-foreground">
                   <span className="inline-flex size-5 items-center justify-center rounded border border-dashed border-border">

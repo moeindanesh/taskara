@@ -66,7 +66,7 @@ function WorkspaceShell() {
     route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute ? null : (
       <PageHeader
         title={route.label}
-        description={route.description}
+        description={route.id === 'milestones' ? undefined : route.description}
         compact
         showViewControls={isTaskRoute}
       />

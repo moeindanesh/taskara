@@ -96,7 +96,7 @@ export function MilestoneDetail({
    const [loading, setLoading] = useState(!milestoneSummary);
    const [refreshing, setRefreshing] = useState(Boolean(milestoneSummary));
    const [error, setError] = useState('');
-   const [tab, setTab] = useState<DetailTab>('overview');
+   const [tab, setTab] = useState<DetailTab>('work');
    const [lifecycleAction, setLifecycleAction] = useState<MilestoneLifecycleAction | null>(null);
    const [savingField, setSavingField] = useState<string | null>(null);
    const [reordering, setReordering] = useState(false);
@@ -119,7 +119,7 @@ export function MilestoneDetail({
       milestoneRef.current = milestone;
    }, [milestone]);
 
-   const load = useCallback(async (preserve = true) => {
+   const load = useCallback(async (preserve = true, preserveDrafts = false) => {
       const requestId = ++requestRef.current;
       if (preserve && milestoneRef.current) setRefreshing(true);
       else setLoading(true);
@@ -133,7 +133,7 @@ export function MilestoneDetail({
          const detail = { ...summary, activity };
          setMilestone(detail);
          milestoneRef.current = detail;
-         syncDrafts(
+         if (!preserveDrafts) syncDrafts(
             detail,
             setNameDraft,
             setDescriptionDraft,
@@ -172,7 +172,7 @@ export function MilestoneDetail({
             setHealthDraft
          );
       }
-      setTab('overview');
+      setTab('work');
       if (milestoneSummary?.syncState === 'pending' && !online) {
          setLoading(false);
          setRefreshing(false);
@@ -329,7 +329,7 @@ export function MilestoneDetail({
          const index = ordered.findIndex((item) => item.id === current.id);
          const targetIndex = direction === 'up' ? index - 1 : index + 1;
          if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) {
-            toast.info(direction === 'up' ? 'این گام در ابتدای ترتیب پروژه است.' : 'این گام در انتهای ترتیب پروژه است.');
+            toast.info(direction === 'up' ? 'این هدف در ابتدای ترتیب پروژه است.' : 'این هدف در انتهای ترتیب پروژه است.');
             return;
          }
          const desired = [...ordered];
@@ -343,7 +343,7 @@ export function MilestoneDetail({
          milestoneRef.current = merged;
          onChanged(merged);
          if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
-         else toast.success('ترتیب گام به‌روز شد.');
+         else toast.success('ترتیب هدف به‌روز شد.');
          if (updated.syncState !== 'pending') void load(true);
       } catch (reorderError) {
          if (reorderError instanceof TaskSyncMutationError && reorderError.failure?.status === 'conflict') {
@@ -496,50 +496,50 @@ export function MilestoneDetail({
          </header>
 
          {error ? (
-            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
+            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
                <span>{error}</span>
                <button className="underline" type="button" onClick={() => void load(true)}>{fa.milestone.retry}</button>
             </div>
          ) : null}
          {milestone.archivedAt ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200">
+            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200">
                <Archive className="size-4 shrink-0" />
                {fa.milestone.readOnlyArchived}
             </div>
          ) : !canManage ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                <ShieldAlert className="size-4 shrink-0" />
-               شما دسترسی مشاهده دارید؛ تغییر گام به مجوز برنامه‌ریزی پروژه نیاز دارد.
+               شما دسترسی مشاهده دارید؛ تغییر هدف به مجوز برنامه‌ریزی پروژه نیاز دارد.
             </div>
          ) : milestone.syncState === 'pending' ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-indigo-400/20 bg-indigo-400/8 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-200" role="status">
+            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-indigo-400/20 bg-indigo-400/8 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-200" role="status">
                <ShieldAlert className="size-4 shrink-0" />
-               این گام یک تغییر همگام‌نشده دارد؛ ویرایش شما امن است و پس از اتصال تأیید می‌شود.
+               این هدف یک تغییر همگام‌نشده دارد؛ ویرایش شما امن است و پس از اتصال تأیید می‌شود.
             </div>
          ) : !online ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-200" role="status">
+            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-200" role="status">
                <ShieldAlert className="size-4 shrink-0" />
-               آفلاین هستید. تغییرهای گام روی دستگاه ذخیره و پس از اتصال همگام می‌شوند.
+               آفلاین هستید. تغییرهای هدف روی دستگاه ذخیره و پس از اتصال همگام می‌شوند.
             </div>
          ) : null}
 
          <div className="flex min-h-0 flex-1 flex-col">
             <div className="shrink-0 border-b border-border/60 px-3 sm:px-5">
                <div aria-label={fa.milestone.title} className="flex h-10 items-center" role="tablist">
-                  <DetailTabTrigger active={tab === 'overview'} icon={Sparkles} label={fa.milestone.overview} value="overview" onSelect={setTab} />
                   <DetailTabTrigger active={tab === 'work'} icon={ListTodo} label={fa.milestone.work} value="work" count={milestone.progress.totalTasks} onSelect={setTab} />
+                  <DetailTabTrigger active={tab === 'overview'} icon={Sparkles} label={fa.milestone.overview} value="overview" onSelect={setTab} />
                   <DetailTabTrigger active={tab === 'activity'} icon={Activity} label={fa.milestone.activity} value="activity" onSelect={setTab} />
                </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-               {tab === 'overview' ? (
+               {tab === 'overview' || tab === 'work' ? (
                <div role="tabpanel">
                   <div className="mx-auto grid w-full max-w-[1120px] gap-8 px-4 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_280px] xl:px-9">
                      <div className="min-w-0 space-y-7">
                         <section aria-labelledby="milestone-title-heading">
                            <div className="flex items-start gap-3">
-                              <MilestoneGlyph className="mt-1 size-10 rounded-xl" />
+                              <MilestoneGlyph className="mt-1 size-9" />
                               <div className="min-w-0 flex-1">
                                  {readOnly ? (
                                     <h1 className="break-words text-2xl font-semibold leading-9" id="milestone-title-heading">{milestone.name}</h1>
@@ -557,6 +557,10 @@ export function MilestoneDetail({
                                     />
                                  )}
                                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" title={fa.milestone.owner}>
+                                       {milestone.owner ? <LinearAvatar className="size-5" name={milestone.owner.name} src={milestone.owner.avatarUrl} /> : <UserRound className="size-4" />}
+                                       <span className="max-w-48 truncate">{milestone.owner?.name || fa.milestone.noOwner}</span>
+                                    </span>
                                     <MilestoneBadge {...kindMeta} />
                                     <MilestoneBadge {...statusMeta} />
                                     {healthMeta ? <MilestoneBadge {...healthMeta} /> : null}
@@ -571,10 +575,17 @@ export function MilestoneDetail({
                            </div>
                         </section>
 
+                        {tab === 'work' ? (
+                           <>
+                              <MilestoneProgress milestone={milestone} />
+                              <MilestoneTasksPanel milestone={milestone} workspaceSlug={workspaceSlug} onMilestoneRefresh={() => void load(true, true)} />
+                           </>
+                        ) : (
+                        <>
                         <section aria-labelledby="milestone-description-heading">
                            <h2 className="mb-2 text-sm font-semibold" id="milestone-description-heading">{fa.milestone.description}</h2>
                            {readOnly ? (
-                              <p className="min-h-20 whitespace-pre-wrap rounded-xl border border-border/60 bg-card/30 p-4 text-sm leading-7 text-muted-foreground">
+                              <p className="min-h-20 whitespace-pre-wrap rounded-lg border border-border/60 bg-card/30 p-4 text-sm leading-7 text-muted-foreground">
                                  {descriptionToPlainText(milestone.description) || fa.milestone.descriptionPlaceholder}
                               </p>
                            ) : (
@@ -599,10 +610,12 @@ export function MilestoneDetail({
                         <ProgressOverview milestone={milestone} />
                         <AttentionOverview milestone={milestone} />
                         <LatestActivity activity={milestone.activity || []} />
+                        </>
+                        )}
                      </div>
 
-                     <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های گام">
-                        <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/35">
+                     <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های هدف">
+                        <div className="border-y border-border/70">
                            <PropertyRow icon={ProjectGlyphProxy} label={fa.milestone.project}>
                               <Link className="truncate text-xs hover:text-indigo-600 dark:hover:text-indigo-300" to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}>
                                  {milestone.project.name}
@@ -674,7 +687,7 @@ export function MilestoneDetail({
                            </PropertyRow>
                         </div>
 
-                        <div className="rounded-2xl border border-border/70 bg-card/35 p-4">
+                        <div className="border-b border-border/70 px-3 pb-4">
                            <h2 className="mb-3 text-xs font-semibold">زمان‌بندی</h2>
                            {readOnly ? (
                               <div className="space-y-3 text-xs">
@@ -696,14 +709,6 @@ export function MilestoneDetail({
                            )}
                         </div>
                      </aside>
-                  </div>
-               </div>
-               ) : null}
-
-               {tab === 'work' ? (
-               <div role="tabpanel">
-                  <div className="mx-auto w-full max-w-[1020px] px-4 py-6 sm:px-7">
-                     <MilestoneTasksPanel milestone={milestone} workspaceSlug={workspaceSlug} onMilestoneRefresh={() => void load(true)} />
                   </div>
                </div>
                ) : null}
@@ -750,7 +755,7 @@ function LifecycleMenu({
       <DropdownMenu>
          <DropdownMenuTrigger asChild>
             <button
-               aria-label="اقدام‌های گام"
+               aria-label="اقدام‌های هدف"
                className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                disabled={disabled}
                title={disabled ? 'ابتدا تغییرات را ذخیره کنید' : undefined}
@@ -823,7 +828,7 @@ function DetailTabTrigger({
 function ProgressOverview({ milestone }: { milestone: TaskaraMilestone }) {
    const progress = milestone.progress;
    return (
-      <section className="rounded-2xl border border-border/70 bg-card/35 p-5" aria-labelledby="milestone-progress-heading">
+      <section className="border-y border-border/70 py-5" aria-labelledby="milestone-progress-heading">
          <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold" id="milestone-progress-heading">{fa.milestone.progress}</h2>
             {milestone.readyToComplete || progress.percentage === 100 && milestone.status !== 'COMPLETED' && milestone.status !== 'CANCELED' ? (
@@ -862,14 +867,14 @@ function AttentionOverview({ milestone }: { milestone: TaskaraMilestone }) {
          {reasons.length ? (
             <div className="grid gap-2 sm:grid-cols-2">
                {reasons.map((reason) => (
-                  <div className={cn('flex min-h-12 items-start gap-2 rounded-xl border px-3 py-2 text-xs leading-5', reason.className)} key={reason.key}>
+                  <div className={cn('flex min-h-12 items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-5', reason.className)} key={reason.key}>
                      <reason.icon className="mt-0.5 size-4 shrink-0" />
                      {reason.label}
                   </div>
                ))}
             </div>
          ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card/25 px-3 py-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/25 px-3 py-3 text-xs text-muted-foreground">
                <Check className="size-4" />
                {fa.milestone.noAttention}
             </div>
@@ -883,7 +888,7 @@ function LatestActivity({ activity }: { activity: TaskaraActivity[] }) {
    return (
       <section aria-labelledby="milestone-latest-activity-heading">
          <h2 className="mb-2 text-sm font-semibold" id="milestone-latest-activity-heading">آخرین فعالیت</h2>
-         {latest.length ? <ActivityItems activity={latest} /> : <p className="rounded-xl border border-border/60 bg-card/25 p-4 text-xs text-muted-foreground">{fa.milestone.noActivity}</p>}
+         {latest.length ? <ActivityItems activity={latest} /> : <p className="rounded-lg border border-border/60 bg-card/25 p-4 text-xs text-muted-foreground">{fa.milestone.noActivity}</p>}
       </section>
    );
 }
@@ -903,7 +908,7 @@ function ActivityItems({ activity }: { activity: TaskaraActivity[] }) {
    return (
       <ol className="relative space-y-1 before:absolute before:bottom-5 before:right-[17px] before:top-5 before:w-px before:bg-border">
          {activity.map((item) => (
-            <li className="relative flex gap-3 rounded-xl px-1 py-3 hover:bg-card/35" key={item.id}>
+            <li className="relative flex gap-3 rounded-lg px-1 py-3 hover:bg-card/35" key={item.id}>
                {item.actor ? (
                   <LinearAvatar className="relative z-10 size-8 shrink-0 ring-4 ring-background" name={item.actor.name} src={item.actor.avatarUrl} />
                ) : (
@@ -961,7 +966,7 @@ function DateReadOnly({ label, value }: { label: string; value?: string | null }
 
 function ProgressStat({ label, tone, value }: { label: string; tone?: string; value: number }) {
    return (
-      <div className="rounded-xl bg-muted/45 px-3 py-3">
+      <div className="border-s border-border px-3 py-2">
          <strong className={cn('block text-lg font-semibold tabular-nums', tone)}>{value.toLocaleString('fa-IR')}</strong>
          <span className="mt-1 block text-[10px] text-muted-foreground">{label}</span>
       </div>
@@ -1019,28 +1024,28 @@ function milestoneAttentionReasons(milestone: TaskaraMilestone) {
 
 function activityLabel(activity: TaskaraActivity) {
    const labels: Record<string, string> = {
-      CREATE: 'گام را ساخت.',
-      CREATED: 'گام را ساخت.',
-      UPDATE: `گام را به‌روز کرد${changedFieldSummary(activity)}.`,
-      UPDATED: `گام را به‌روز کرد${changedFieldSummary(activity)}.`,
-      ACTIVATE: 'گام را فعال کرد.',
-      ACTIVATED: 'گام را فعال کرد.',
-      COMPLETE: 'گام را تکمیل کرد.',
-      COMPLETED: 'گام را تکمیل کرد.',
-      REOPEN: 'گام را بازگشایی کرد.',
-      REOPENED: 'گام را بازگشایی کرد.',
-      CANCEL: 'گام را لغو کرد.',
-      CANCELED: 'گام را لغو کرد.',
-      ARCHIVE: 'گام را آرشیو کرد.',
-      ARCHIVED: 'گام را آرشیو کرد.',
-      RESTORE: 'گام را بازگرداند.',
-      RESTORED: 'گام را بازگرداند.',
-      REORDER: 'ترتیب گام را تغییر داد.',
-      REORDERED: 'ترتیب گام را تغییر داد.',
-      TASKS_UPDATED: 'دامنه کارهای گام را تغییر داد.',
+      CREATE: 'هدف را ساخت.',
+      CREATED: 'هدف را ساخت.',
+      UPDATE: `هدف را به‌روز کرد${changedFieldSummary(activity)}.`,
+      UPDATED: `هدف را به‌روز کرد${changedFieldSummary(activity)}.`,
+      ACTIVATE: 'هدف را فعال کرد.',
+      ACTIVATED: 'هدف را فعال کرد.',
+      COMPLETE: 'هدف را تکمیل کرد.',
+      COMPLETED: 'هدف را تکمیل کرد.',
+      REOPEN: 'هدف را بازگشایی کرد.',
+      REOPENED: 'هدف را بازگشایی کرد.',
+      CANCEL: 'هدف را لغو کرد.',
+      CANCELED: 'هدف را لغو کرد.',
+      ARCHIVE: 'هدف را آرشیو کرد.',
+      ARCHIVED: 'هدف را آرشیو کرد.',
+      RESTORE: 'هدف را بازگرداند.',
+      RESTORED: 'هدف را بازگرداند.',
+      REORDER: 'ترتیب هدف را تغییر داد.',
+      REORDERED: 'ترتیب هدف را تغییر داد.',
+      TASKS_UPDATED: 'دامنه کارهای هدف را تغییر داد.',
    };
    const normalized = activity.action.toUpperCase().replace(/^MILESTONE[._]/, '').replace(/[.]/g, '_');
-   return labels[normalized] || 'گام را تغییر داد.';
+   return labels[normalized] || 'هدف را تغییر داد.';
 }
 
 function changedFieldSummary(activity: TaskaraActivity) {
@@ -1050,9 +1055,9 @@ function changedFieldSummary(activity: TaskaraActivity) {
       health: 'سلامت',
       kind: 'نوع',
       name: 'نام',
-      ownerId: 'مالک',
+      ownerId: 'مسئول پیگیری',
       startsOn: 'تاریخ شروع',
-      targetOn: 'تاریخ هدف',
+      targetOn: 'پایان مورد انتظار',
    };
    const fields = Object.keys(activity.after).filter((key) => activity.before?.[key] !== activity.after?.[key] && labels[key]).map((key) => labels[key]);
    return fields.length ? ` (${fields.join('، ')})` : '';

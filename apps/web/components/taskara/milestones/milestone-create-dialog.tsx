@@ -204,7 +204,7 @@ export function MilestoneCreateDialog({
             targetOn: form.targetOn || null,
          });
          rememberLastProjectId(form.projectId);
-         if (created.syncState === 'pending') toast.info('گام ساخته شد و پس از اتصال همگام می‌شود.');
+         if (created.syncState === 'pending') toast.info('هدف ساخته شد و پس از اتصال همگام می‌شود.');
          else toast.success(fa.milestone.created);
          onCreated(created);
          onOpenChange(false);
@@ -225,7 +225,7 @@ export function MilestoneCreateDialog({
                   <MilestoneGlyph className="size-6 rounded-md" />
                   {fa.milestone.newMilestone}
                </DialogTitle>
-               <DialogDescription className="mt-1 text-xs leading-5 text-muted-foreground">
+               <DialogDescription className="sr-only">
                   {fa.milestone.createDescription}
                </DialogDescription>
             </DialogHeader>
@@ -236,6 +236,8 @@ export function MilestoneCreateDialog({
                      <div className="min-w-0 flex-1">
                         <Input
                            autoFocus
+                           aria-label={fa.milestone.name}
+                           maxLength={160}
                            className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
                            placeholder={fa.milestone.namePlaceholder}
                            value={form.name}
@@ -250,13 +252,22 @@ export function MilestoneCreateDialog({
                      </div>
                   </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-4">
+                     <Textarea
+                        aria-label="نتیجه مورد انتظار"
+                        className="min-h-20 resize-y border-0 bg-transparent px-0 text-sm leading-6 shadow-none"
+                        placeholder="نتیجه مورد انتظار…"
+                        value={form.description}
+                        onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                     />
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
                      <FieldLabel label={fa.milestone.project}>
                         <Select value={form.projectId} onValueChange={handleProjectChange}>
                            <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
                               <SelectValue placeholder={fa.milestone.selectProject} />
                            </SelectTrigger>
-                           <SelectContent className="rounded-xl border-border bg-popover text-popover-foreground [direction:rtl]">
+                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
                               {projects.map((project) => (
                                  <SelectItem className="rounded-lg" key={project.id} value={project.id}>
                                     <span className="flex min-w-0 items-center gap-2">
@@ -277,7 +288,7 @@ export function MilestoneCreateDialog({
                            <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
                               <SelectValue />
                            </SelectTrigger>
-                           <SelectContent className="rounded-xl border-border bg-popover text-popover-foreground [direction:rtl]">
+                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
                               {(Object.entries(milestoneKindMeta) as Array<[TaskaraMilestoneKind, (typeof milestoneKindMeta)[TaskaraMilestoneKind]]>).map(([value, meta]) => {
                                  const Icon = meta.icon;
                                  return (
@@ -301,7 +312,7 @@ export function MilestoneCreateDialog({
                            <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
                               <SelectValue placeholder={ownersLoading ? fa.app.loading : fa.milestone.noOwner} />
                            </SelectTrigger>
-                           <SelectContent className="rounded-xl border-border bg-popover text-popover-foreground [direction:rtl]">
+                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
                               <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>{fa.milestone.noOwner}</SelectItem>
                               {ownerCandidates.map((candidate) => (
                                  <SelectItem className="rounded-lg" key={candidate.id} value={candidate.id}>
@@ -324,6 +335,13 @@ export function MilestoneCreateDialog({
                               setInlineError('');
                            }}
                         />
+                     </FieldLabel>
+                     <FieldLabel label={fa.milestone.startDate}>
+                        <MilestoneDatePicker ariaLabel={fa.milestone.startDate} value={form.startsOn}
+                           onChange={(startsOn) => {
+                              setForm((current) => ({ ...current, startsOn: startsOn || '' }));
+                              setInlineError('');
+                           }} />
                      </FieldLabel>
                   </div>
 
@@ -360,26 +378,8 @@ export function MilestoneCreateDialog({
                   </button>
 
                   {showMore ? (
-                     <div className="mt-3 space-y-4 rounded-xl border border-border/70 bg-card/50 p-4">
-                        <FieldLabel label={fa.milestone.description}>
-                           <Textarea
-                              className="min-h-28 resize-y border-border/70 bg-background/50 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60"
-                              placeholder={fa.milestone.descriptionPlaceholder}
-                              value={form.description}
-                              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                           />
-                        </FieldLabel>
+                     <div className="mt-3 border-t border-border/70 pt-4">
                         <div className="grid gap-3 sm:grid-cols-2">
-                           <FieldLabel label={fa.milestone.startDate}>
-                              <MilestoneDatePicker
-                                 ariaLabel={fa.milestone.startDate}
-                                 value={form.startsOn}
-                                 onChange={(startsOn) => {
-                                    setForm((current) => ({ ...current, startsOn: startsOn || '' }));
-                                    setInlineError('');
-                                 }}
-                              />
-                           </FieldLabel>
                            <FieldLabel label={fa.milestone.health}>
                               <Select
                                  value={toSelectValue(form.health)}
@@ -393,7 +393,7 @@ export function MilestoneCreateDialog({
                                  <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
                                     <SelectValue />
                                  </SelectTrigger>
-                                 <SelectContent className="rounded-xl border-border bg-popover text-popover-foreground [direction:rtl]">
+                                 <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
                                     <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>{fa.milestone.noHealth}</SelectItem>
                                     {(Object.entries(milestoneHealthMeta) as Array<[TaskaraMilestoneHealth, (typeof milestoneHealthMeta)[TaskaraMilestoneHealth]]>).map(([value, meta]) => {
                                        const Icon = meta.icon;
@@ -425,7 +425,7 @@ export function MilestoneCreateDialog({
                   ) : null}
                   {!online ? (
                      <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200" role="status">
-                        آفلاین هستید. گام اکنون در دستگاه ساخته و پس از اتصال به‌طور خودکار همگام می‌شود.
+                        آفلاین هستید. هدف اکنون در دستگاه ساخته و پس از اتصال به‌طور خودکار همگام می‌شود.
                      </p>
                   ) : null}
                   {selectedProject ? (

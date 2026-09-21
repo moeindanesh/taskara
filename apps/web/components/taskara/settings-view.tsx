@@ -303,7 +303,7 @@ function ProjectsSettingsPage() {
             body: JSON.stringify({ destinationProjectId, sourceProjectIds }),
          });
          setNotice(
-            `${result.mergedProjectIds.length.toLocaleString('fa-IR')} پروژه در «${result.project.name}» ادغام شد؛ ${result.moved.tasks.toLocaleString('fa-IR')} تسک و ${result.moved.milestones.toLocaleString('fa-IR')} گام منتقل شد.`
+            `${result.mergedProjectIds.length.toLocaleString('fa-IR')} پروژه در «${result.project.name}» ادغام شد؛ ${result.moved.tasks.toLocaleString('fa-IR')} تسک و ${result.moved.milestones.toLocaleString('fa-IR')} هدف منتقل شد.`
          );
          setDestinationProjectId('');
          setSourceProjectIds([]);

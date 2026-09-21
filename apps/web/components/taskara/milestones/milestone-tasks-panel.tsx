@@ -20,8 +20,10 @@ import {
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { LinearAvatar, linearStatusMeta, StatusIcon } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
+import { formatJalaliDate } from '@/lib/jalali';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type { PaginatedResponse, TaskaraMilestone, TaskaraTask } from '@/lib/taskara-types';
@@ -52,10 +54,15 @@ export function MilestoneTasksPanel({
    const [debouncedQuery, setDebouncedQuery] = useState('');
    const [loading, setLoading] = useState(!(milestone.tasks?.length));
    const [loadingMore, setLoadingMore] = useState(false);
+   const [loadedServerCount, setLoadedServerCount] = useState(0);
    const [error, setError] = useState('');
    const [addOpen, setAddOpen] = useState(false);
+   const [quickTitle, setQuickTitle] = useState('');
+   const [creating, setCreating] = useState(false);
    const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(new Set());
    const requestRef = useRef(0);
+   const resourcesRef = useRef(taskSync.tasks);
+   resourcesRef.current = taskSync.tasks;
    const canManage = milestone.canManage !== false;
    const canAssign = canManage && !milestone.archivedAt && (milestone.status === 'PLANNED' || milestone.status === 'ACTIVE');
 
@@ -79,8 +86,14 @@ export function MilestoneTasksPanel({
       try {
          const result = await taskaraRequest<PaginatedResponse<TaskaraTask>>(`/tasks?${params.toString()}`);
          if (requestId !== requestRef.current) return;
-         setTasks((current) => offset ? dedupeTasks([...current, ...result.items]) : result.items);
+         setTasks((current) => mergeGoalTasks(
+            offset ? dedupeTasks([...current, ...result.items]) : result.items,
+            resourcesRef.current.filter((task) => task.syncState === 'pending'),
+            milestone.id,
+            debouncedQuery
+         ));
          setTotal(result.total);
+         setLoadedServerCount(offset + result.items.length);
       } catch (loadError) {
          if (requestId !== requestRef.current) return;
          setError(loadError instanceof Error ? loadError.message : fa.milestone.detailLoadingFailed);
@@ -98,6 +111,10 @@ export function MilestoneTasksPanel({
          requestRef.current += 1;
       };
    }, [load]);
+
+   useEffect(() => {
+      setTasks((current) => mergeGoalTasks(current, taskSync.tasks, milestone.id, debouncedQuery));
+   }, [taskSync.tasks, milestone.id, debouncedQuery]);
 
    const groups = useMemo(() => {
       const grouped = new Map<string, TaskaraTask[]>();
@@ -143,6 +160,50 @@ export function MilestoneTasksPanel({
       }));
    }
 
+   async function quickCreate(event: React.FormEvent) {
+      event.preventDefault();
+      if (!quickTitle.trim() || creating || !canAssign) return;
+      setCreating(true);
+      try {
+         const task = await taskSync.createTask({
+            projectId: milestone.projectId,
+            milestoneId: milestone.id,
+            title: quickTitle.trim(),
+            status: 'TODO',
+            priority: 'NO_PRIORITY',
+            labels: [],
+            source: 'WEB',
+         });
+         setTasks((current) => dedupeTasks([...current, task]));
+         setTotal((count) => count + 1);
+         setQuery('');
+         setQuickTitle('');
+         onMilestoneRefresh();
+      } catch (createError) {
+         toast.error(createError instanceof Error ? createError.message : fa.issue.createFailed);
+      } finally {
+         setCreating(false);
+      }
+   }
+
+   async function changeStatus(task: TaskaraTask, status: string) {
+      if (!canManage || milestone.archivedAt || updatingTaskIds.has(task.id)) return;
+      setUpdatingTaskIds((current) => new Set(current).add(task.id));
+      try {
+         const updated = await taskSync.updateTask(task, { status });
+         setTasks((current) => current.map((item) => item.id === task.id ? updated : item));
+         onMilestoneRefresh();
+      } catch (updateError) {
+         toast.error(updateError instanceof Error ? updateError.message : fa.milestone.updateFailed);
+      } finally {
+         setUpdatingTaskIds((current) => {
+            const next = new Set(current);
+            next.delete(task.id);
+            return next;
+         });
+      }
+   }
+
    return (
       <div className="space-y-4">
          <div className="flex flex-wrap items-center justify-between gap-2">
@@ -154,11 +215,11 @@ export function MilestoneTasksPanel({
             </div>
             {canAssign ? (
                <div className="flex items-center gap-2">
-                  <Button className="h-9 rounded-full" disabled={!online} size="sm" title={!online ? 'افزودن کار موجود در حالت آفلاین در دسترس نیست.' : undefined} variant="secondary" onClick={() => setAddOpen(true)}>
+                  <Button aria-label={fa.milestone.addExistingTasks} className="h-9 rounded-md" disabled={!online} size="sm" title={!online ? 'افزودن کار موجود در حالت آفلاین در دسترس نیست.' : fa.milestone.addExistingTasks} variant="secondary" onClick={() => setAddOpen(true)}>
                      <ListPlus className="size-4" />
                      <span className="hidden sm:inline">{fa.milestone.addExistingTasks}</span>
                   </Button>
-                  <Button className="h-9 rounded-full bg-indigo-500 text-white hover:bg-indigo-400" size="sm" onClick={createTask}>
+                  <Button className="h-9 rounded-md" size="sm" onClick={createTask}>
                      <Plus className="size-4" />
                      {fa.milestone.createTask}
                   </Button>
@@ -188,13 +249,13 @@ export function MilestoneTasksPanel({
          </div>
 
          {error ? (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
                <span>{error}</span>
                <button className="underline" type="button" onClick={() => void load(0)}>{fa.milestone.retry}</button>
             </div>
          ) : null}
          {!online ? (
-            <p className="rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200" role="status">
+            <p className="rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200" role="status">
                محتوای ذخیره‌شده نمایش داده می‌شود. ساخت کار و تغییر پیوند کارهای نمایش‌داده‌شده در صف همگام‌سازی قرار می‌گیرد؛ افزودن از فهرست پروژه پس از اتصال فعال می‌شود.
             </p>
          ) : null}
@@ -208,13 +269,13 @@ export function MilestoneTasksPanel({
                {groups.map(([status, groupTasks]) => {
                   const meta = linearStatusMeta[status] || linearStatusMeta.TODO;
                   return (
-                     <section key={status} aria-labelledby={`milestone-status-${status}`}>
+                     <section key={status} aria-labelledby={`milestone-${milestone.id}-status-${status}`}>
                         <div className="mb-1 flex h-8 items-center gap-2 px-2 text-xs text-muted-foreground">
                            <StatusIcon status={status} />
-                           <h3 id={`milestone-status-${status}`}>{meta.label}</h3>
+                           <h3 id={`milestone-${milestone.id}-status-${status}`}>{meta.label}</h3>
                            <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums">{groupTasks.length.toLocaleString('fa-IR')}</span>
                         </div>
-                        <div className="overflow-hidden rounded-xl border border-border/70 bg-card/35">
+                        <div className="border-y border-border/70">
                            {groupTasks.map((task) => (
                               <MilestoneTaskRow
                                  key={task.id}
@@ -224,15 +285,16 @@ export function MilestoneTasksPanel({
                                  task={task}
                                  workspaceSlug={workspaceSlug}
                                  onMilestoneChange={(milestoneId) => void updateTaskMilestone(task, milestoneId)}
+                                 onStatusChange={(status) => void changeStatus(task, status)}
                               />
                            ))}
                         </div>
                      </section>
                   );
                })}
-               {tasks.length < total ? (
+               {loadedServerCount < total ? (
                   <div className="flex justify-center">
-                     <Button disabled={loadingMore} size="sm" variant="secondary" onClick={() => void load(tasks.length)}>
+                     <Button disabled={loadingMore} size="sm" variant="secondary" onClick={() => void load(loadedServerCount)}>
                         {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
                         نمایش کارهای بیشتر
                      </Button>
@@ -243,7 +305,7 @@ export function MilestoneTasksPanel({
             <MilestoneEmptyState
                action={canAssign && !query ? (
                   <>
-                     <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>{fa.milestone.addExistingTasks}</Button>
+                     <Button disabled={!online} size="sm" variant="secondary" onClick={() => setAddOpen(true)}>{fa.milestone.addExistingTasks}</Button>
                      <Button className="bg-indigo-500 text-white hover:bg-indigo-400" size="sm" onClick={createTask}>{fa.milestone.createTask}</Button>
                   </>
                ) : undefined}
@@ -252,6 +314,18 @@ export function MilestoneTasksPanel({
                {query ? fa.milestone.noFilteredResults : fa.milestone.noTasks}
             </MilestoneEmptyState>
          )}
+
+         {canAssign ? (
+            <form onSubmit={quickCreate} className="flex items-center gap-2 border-t border-border pt-3">
+               <Plus className="size-4 shrink-0 text-muted-foreground" />
+               <Input aria-label="عنوان زیرکار" placeholder="عنوان زیرکار…" value={quickTitle} maxLength={240} disabled={creating}
+                  className="h-9 min-w-0 flex-1 border-0 bg-transparent shadow-none"
+                  onChange={(event) => setQuickTitle(event.target.value)} />
+               <Button type="submit" size="sm" className="h-8 shrink-0 rounded-md" disabled={creating || !quickTitle.trim()}>
+                  {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />} افزودن
+               </Button>
+            </form>
+         ) : null}
 
          <AddExistingTasksDialog
             milestone={milestone}
@@ -274,6 +348,7 @@ function MilestoneTaskRow({
    task,
    workspaceSlug,
    onMilestoneChange,
+   onStatusChange,
 }: {
    disabled: boolean;
    milestone: TaskaraMilestone;
@@ -281,11 +356,21 @@ function MilestoneTaskRow({
    task: TaskaraTask;
    workspaceSlug: string;
    onMilestoneChange: (milestoneId: string | null) => void;
+   onStatusChange: (status: string) => void;
 }) {
    const canManage = milestone.canManage !== false && !milestone.archivedAt;
    return (
       <div className="group flex min-h-12 items-center gap-2 border-b border-border/50 px-3 py-1.5 last:border-b-0 hover:bg-muted/35">
-         <StatusIcon className="shrink-0" status={task.status} />
+         {canManage ? (
+            <Select value={task.status} disabled={disabled} onValueChange={onStatusChange}>
+               <SelectTrigger aria-label={`وضعیت ${task.title}`} className="size-8 shrink-0 justify-center border-0 p-0 shadow-none [&>svg:last-child]:hidden">
+                  <span><StatusIcon status={task.status} /></span>
+               </SelectTrigger>
+               <SelectContent className="[direction:rtl]">
+                  {statusOrder.map((status) => <SelectItem key={status} value={status}><span className="flex items-center gap-2"><StatusIcon status={status} />{linearStatusMeta[status]?.label || status}</span></SelectItem>)}
+               </SelectContent>
+            </Select>
+         ) : <StatusIcon className="shrink-0" status={task.status} />}
          <Link
             className="min-w-0 flex-1 rounded-sm text-sm text-foreground outline-none hover:text-indigo-600 focus-visible:ring-2 focus-visible:ring-indigo-400/60 dark:hover:text-indigo-300"
             to={`/${workspaceSlug}/issue/${encodeURIComponent(task.key)}`}
@@ -293,12 +378,13 @@ function MilestoneTaskRow({
             <span className="block truncate">{task.title}</span>
             <span className="mt-0.5 block text-[10px] text-muted-foreground">{task.key}</span>
          </Link>
+         {task.dueAt ? <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">{formatJalaliDate(task.dueAt)}</span> : null}
          {task.assignee ? (
             <LinearAvatar className="size-6 shrink-0" name={task.assignee.name} src={task.assignee.avatarUrl} />
          ) : null}
          {canManage ? (
             <MilestoneSelector
-               className="hidden h-8 max-w-44 md:flex"
+               className="hidden h-8 max-w-28 xl:flex"
                currentMilestone={{
                   archivedAt: milestone.archivedAt,
                   id: milestone.id,
@@ -440,7 +526,7 @@ function AddExistingTasksDialog({
                ) : error && !tasks.length ? (
                   <p className="rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-xs text-destructive-foreground" role="alert">{error}</p>
                ) : tasks.length ? (
-                  <div className="overflow-hidden rounded-xl border border-border/70">
+                  <div className="overflow-hidden rounded-lg border border-border/70">
                      {tasks.map((task) => {
                         const linkedMilestone = task.milestone?.name;
                         return (
@@ -496,4 +582,15 @@ function statusRank(status: string) {
 
 function dedupeTasks(tasks: TaskaraTask[]) {
    return [...new Map(tasks.map((task) => [task.id, task])).values()];
+}
+
+export function mergeGoalTasks(current: TaskaraTask[], resources: TaskaraTask[], goalId: string, query = '') {
+   const resourceIds = new Set(resources.map((task) => task.id));
+   const merged = new Map(current.filter((task) => task.syncState !== 'pending' || resourceIds.has(task.id)).map((task) => [task.id, task]));
+   for (const task of resources) {
+      if ((task.milestoneId || task.milestone?.id) === goalId && task.kind !== 'EFFORT') merged.set(task.id, task);
+      else merged.delete(task.id);
+   }
+   const search = query.toLocaleLowerCase('fa');
+   return [...merged.values()].filter((task) => !search || `${task.key} ${task.title}`.toLocaleLowerCase('fa').includes(search));
 }

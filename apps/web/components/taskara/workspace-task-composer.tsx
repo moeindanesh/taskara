@@ -283,7 +283,7 @@ export function WorkspaceTaskComposer() {
          },
          {
             command: () => startSetupFlow(),
-            description: 'انتخاب اولویت، مسئول، پروژه، گام، وزن و سررسید',
+            description: 'انتخاب اولویت، مسئول، پروژه، هدف، وزن و سررسید',
             icon: <Check className="size-4" />,
             key: 'taskara-setup',
             keywords: ['setup', 'configure', 'تنظیم', 'پیکربندی'],

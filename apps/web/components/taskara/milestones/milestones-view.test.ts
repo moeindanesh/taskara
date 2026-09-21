@@ -10,7 +10,7 @@ function milestone(overrides: Partial<TaskaraMilestone> = {}): TaskaraMilestone 
       workspaceId: crypto.randomUUID(),
       projectId: overrides.projectId || crypto.randomUUID(),
       ownerId: null,
-      name: 'گام',
+      name: 'هدف',
       description: null,
       kind: 'FEATURE',
       status: 'PLANNED',

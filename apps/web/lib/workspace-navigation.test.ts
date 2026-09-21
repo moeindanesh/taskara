@@ -22,6 +22,7 @@ describe('workspace navigation registry', () => {
          'team-overview',
          'my-tasks',
          'all-tasks',
+         'milestones',
       ]);
       expect(workspaceCommandRoutes(runtime).some((route) => route.id.startsWith('support-'))).toBeFalse();
       expect(workspaceCreateAction(runtime)?.eventName).toBe('taskara:create-issue');

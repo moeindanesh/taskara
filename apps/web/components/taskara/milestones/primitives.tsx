@@ -3,24 +3,19 @@
 import type { ComponentType, ReactNode } from 'react';
 import {
    AlertTriangle,
-   Archive,
    CalendarDays,
    Check,
    CheckCircle2,
-   ChevronLeft,
    CircleDot,
-   CloudUpload,
-   Diamond,
+   Target,
    Flag,
    Layers3,
-   Minus,
    PauseCircle,
    ShieldAlert,
    Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { LinearAvatar, ProjectGlyph } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import type {
    TaskaraMilestone,
@@ -105,11 +100,11 @@ export function MilestoneGlyph({ className }: { className?: string }) {
       <span
          aria-hidden="true"
          className={cn(
-            'inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-indigo-400/25 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
+            'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-emerald-700 dark:text-emerald-400',
             className
          )}
       >
-         <Diamond className="size-4 fill-current/20" />
+         <Target className="size-5" />
       </span>
    );
 }
@@ -173,91 +168,6 @@ export function MilestoneProgress({
    );
 }
 
-/**
- * The hub deliberately keeps a milestone's signal-rich information in one card.
- * Opening a card is the only route into the full editing experience, so the
- * collection view can stay easy to scan even when a workspace has many milestones.
- */
-export function MilestoneOverviewCard({
-   milestone,
-   onSelect,
-}: {
-   milestone: TaskaraMilestone;
-   onSelect: () => void;
-}) {
-   const kind = milestoneKindMeta[milestone.kind];
-   const status = milestoneStatusMeta[milestone.status];
-   const health = milestone.health ? milestoneHealthMeta[milestone.health] : null;
-   const attention = primaryMilestoneAttention(milestone);
-
-   return (
-      <button
-         className="group relative flex min-h-[248px] w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/60 p-4 text-start transition duration-200 hover:-translate-y-0.5 hover:border-indigo-400/40 hover:bg-card focus-visible:border-indigo-400/70 focus-visible:bg-card"
-         type="button"
-         onClick={onSelect}
-      >
-         <span aria-hidden="true" className="pointer-events-none absolute -left-12 -top-12 size-28 rounded-full bg-indigo-400/10 blur-2xl transition group-hover:bg-indigo-400/15" />
-         <div className="relative flex min-w-0 items-start gap-3">
-            <MilestoneGlyph className="mt-0.5 size-10 rounded-xl" />
-            <div className="min-w-0 flex-1">
-               <div className="flex min-w-0 items-start gap-2">
-                  <span className="line-clamp-2 text-sm leading-6 text-foreground">{milestone.name}</span>
-                  {milestone.syncState === 'pending' ? (
-                     <CloudUpload
-                        aria-label={fa.sync.mutationQueued}
-                        className="mt-1 size-3.5 shrink-0 text-indigo-600 dark:text-indigo-300"
-                     />
-                  ) : null}
-                  {milestone.archivedAt ? <Archive className="mt-1 size-3.5 shrink-0 text-muted-foreground" aria-label={fa.milestone.archived} /> : null}
-               </div>
-               <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <ProjectGlyph name={milestone.project.name} className="size-4 rounded" iconClassName="size-3" />
-                  <span className="truncate">{milestone.project.name}</span>
-                  {milestone.project.team?.name ? (
-                     <>
-                        <span className="size-1 shrink-0 rounded-full bg-muted-foreground/70" />
-                        <span className="truncate">{milestone.project.team.name}</span>
-                     </>
-                  ) : null}
-               </div>
-            </div>
-            {milestone.owner ? (
-               <LinearAvatar className="size-7 shrink-0 ring-2 ring-background" name={milestone.owner.name} src={milestone.owner.avatarUrl} />
-            ) : (
-               <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground" title={fa.milestone.noOwner}>
-                  <Minus className="size-3" />
-               </span>
-            )}
-         </div>
-
-         <div className="relative mt-4 flex min-w-0 items-center gap-1.5 overflow-hidden">
-            <MilestoneBadge {...kind} />
-            <MilestoneBadge {...status} />
-            {health ? <MilestoneBadge {...health} /> : null}
-         </div>
-
-         <div className="relative mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
-            <MilestoneProgress compact milestone={milestone} />
-         </div>
-
-         <div className="relative mt-auto flex min-w-0 items-center justify-between gap-3 border-t border-border/60 pt-3 text-[11px]">
-            <span className={cn('flex min-w-0 items-center gap-1.5 truncate', attention.tone)}>
-               <attention.icon className="size-3.5 shrink-0" />
-               <span className="truncate">{attention.label}</span>
-            </span>
-            <span className={cn('flex shrink-0 items-center gap-1 text-muted-foreground', attention.isOverdue && 'text-rose-500 dark:text-rose-300')}>
-               <CalendarDays className="size-3.5" />
-               {milestone.targetOn ? formatMilestoneDateOnly(milestone.targetOn) : fa.milestone.noTarget}
-            </span>
-         </div>
-         <span className="relative mt-3 flex items-center gap-1 text-[11px] text-muted-foreground transition group-hover:text-indigo-600 dark:group-hover:text-indigo-300">
-            جزئیات و ویرایش
-            <ChevronLeft className="size-3.5" />
-         </span>
-      </button>
-   );
-}
-
 export function MilestoneEmptyState({
    action,
    children,
@@ -268,8 +178,8 @@ export function MilestoneEmptyState({
    description?: ReactNode;
 }) {
    return (
-      <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/35 px-6 py-10 text-center">
-         <MilestoneGlyph className="mb-4 size-11 rounded-xl" />
+      <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
+         <MilestoneGlyph className="mb-4 size-11" />
          <h2 className="text-sm font-semibold text-foreground">{children}</h2>
          {description ? <p className="mt-2 max-w-sm text-xs leading-6 text-muted-foreground">{description}</p> : null}
          {action ? <div className="mt-5 flex flex-wrap items-center justify-center gap-2">{action}</div> : null}
@@ -279,26 +189,17 @@ export function MilestoneEmptyState({
 
 export function MilestoneListSkeleton() {
    return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="divide-y divide-border" aria-label={fa.app.loading}>
          {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="min-h-[248px] rounded-2xl border border-border/60 bg-card/45 p-4">
+            <div key={index} className="p-4">
                <div className="flex gap-3">
-                  <Skeleton className="size-10 rounded-xl bg-muted" />
+                  <Skeleton className="size-10 rounded-lg bg-muted" />
                   <div className="min-w-0 flex-1 space-y-2">
                      <Skeleton className="h-4 w-3/4 bg-muted" />
                      <Skeleton className="h-3 w-1/2 bg-muted/70" />
                   </div>
                   <Skeleton className="size-7 rounded-full bg-muted/70" />
                </div>
-               <div className="mt-3 flex gap-2">
-                  <Skeleton className="h-5 w-16 rounded-full bg-muted/70" />
-                  <Skeleton className="h-5 w-20 rounded-full bg-muted/70" />
-               </div>
-               <div className="mt-4 rounded-xl border border-border/50 p-3">
-                  <Skeleton className="h-3 w-2/3 bg-muted/70" />
-                  <Skeleton className="mt-3 h-1.5 w-full rounded-full bg-muted/70" />
-               </div>
-               <Skeleton className="mt-5 h-3 w-1/2 bg-muted/70" />
             </div>
          ))}
       </div>
@@ -318,7 +219,7 @@ export function MilestoneDetailSkeleton() {
             <Skeleton className="h-4 w-11/12 bg-muted/70" />
             <Skeleton className="h-4 w-2/3 bg-muted/70" />
          </div>
-         <div className="mt-8 rounded-xl border border-border/70 p-5">
+         <div className="mt-8 rounded-lg border border-border/70 p-5">
             <Skeleton className="h-5 w-40 bg-muted" />
             <Skeleton className="mt-4 h-2 w-full rounded-full bg-muted/80" />
             <div className="mt-5 grid grid-cols-3 gap-3">

@@ -20,6 +20,18 @@ either a team's projects and Tasks or a support operation's Departments and Supp
 common members/settings. Switching workspaces switches the whole tenant and product profile.
 _Avoid_: Org, organization
 
+**Team Goal** (هدف تیم):
+The user-facing name for a project-scoped Milestone, formerly called گام. A desired outcome or
+ongoing team initiative with one optional accountable owner (مسئول پیگیری), date-only start and
+expected finish, explicit lifecycle, and server-derived progress from its linked WORK Tasks.
+Unassigned or unscheduled goals remain valid planning drafts and surface missing metadata.
+The owner coordinates delivery; each linked Task has its own independent assignee and due date.
+The UI calls linked Tasks زیرکارها; this grouping uses `milestoneId`, not Task `parentId`, and does
+not change the existing Task/subtask hierarchy or include Efforts. Goals remain scoped to one
+project; the team-wide hub aggregates accessible projects. API names and `/milestones` deep links
+remain stable for integrations and existing records.
+_Avoid_: Effort, task parent, automatically completed goal
+
 **Workspace Mode**:
 Exactly one of `TEAM` or `SUPPORT`, selected when the Workspace is created. It chooses one coherent
 capability profile, navigation shell and primary record; it is not an authorization role or a bag
