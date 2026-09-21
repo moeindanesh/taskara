@@ -130,22 +130,22 @@ describe('milestone routes and invariants', () => {
       name: 'Client id',
       kind: 'FEATURE'
     };
-    const created = await injectAs(fixture, 'member', { method: 'POST', url: '/milestones', payload });
+    const created = await injectAs(fixture, 'owner', { method: 'POST', url: '/milestones', payload });
     expect(created.statusCode).toBe(201);
     expect(created.json().id).toBe(id);
-    const duplicate = await injectAs(fixture, 'member', { method: 'POST', url: '/milestones', payload });
+    const duplicate = await injectAs(fixture, 'owner', { method: 'POST', url: '/milestones', payload });
     expect(duplicate.statusCode).toBe(409);
     expect(duplicate.json().message).toBe('Milestone id already exists');
   });
 
   test('requires an explicit unfinished-work policy across completion, cancel, archive, restore, and reactivation', async () => {
     const fixture = await createFixture();
-    const source = await createMilestone(fixture, 'member', {
+    const source = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Source phase',
       kind: 'PHASE'
     });
-    const target = await createMilestone(fixture, 'member', {
+    const target = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Next phase',
       kind: 'PHASE'
@@ -293,18 +293,18 @@ describe('milestone routes and invariants', () => {
     expect(activeArchive.statusCode).toBe(409);
   });
 
-  test('enforces planning permission precedence and owner eligibility', async () => {
+  test('restricts goal creation to workspace admins while preserving owner eligibility', async () => {
     const fixture = await createFixture();
     const expected: Array<[Persona, number]> = [
       ['owner', 201],
       ['admin', 201],
-      ['lead', 201],
-      ['member', 201],
-      ['agentGranted', 201],
+      ['lead', 403],
+      ['member', 403],
+      ['agentGranted', 403],
       ['viewer', 403],
       ['guest', 403],
       ['agentDenied', 403],
-      ['outsider', 404]
+      ['outsider', 403]
     ];
 
     for (const [persona, statusCode] of expected) {
@@ -331,7 +331,7 @@ describe('milestone routes and invariants', () => {
       url: '/milestones',
       payload: { projectId: fixture.projects.noTeam.id, name: 'No team lead', kind: 'OTHER' }
     });
-    expect(leadNoTeam.statusCode).toBe(201);
+    expect(leadNoTeam.statusCode).toBe(403);
 
     const candidates = await injectAs(fixture, 'member', {
       method: 'GET',
@@ -345,7 +345,7 @@ describe('milestone routes and invariants', () => {
     expect(candidateIds).not.toContain(fixture.users.outsider.id);
     expect(candidates.json().total).toBe(candidateIds.length);
 
-    const invalidOwner = await injectAs(fixture, 'member', {
+    const invalidOwner = await injectAs(fixture, 'owner', {
       method: 'POST',
       url: '/milestones',
       payload: {
@@ -357,7 +357,7 @@ describe('milestone routes and invariants', () => {
     });
     expect(invalidOwner.statusCode).toBe(400);
 
-    const viewerOwner = await injectAs(fixture, 'member', {
+    const viewerOwner = await injectAs(fixture, 'owner', {
       method: 'POST',
       url: '/milestones',
       payload: {
@@ -372,12 +372,12 @@ describe('milestone routes and invariants', () => {
 
   test('keeps task and milestone scope valid across assignment and project moves', async () => {
     const fixture = await createFixture();
-    const primary = await createMilestone(fixture, 'member', {
+    const primary = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Primary scope',
       kind: 'FEATURE'
     });
-    const secondary = await createMilestone(fixture, 'member', {
+    const secondary = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.secondary.id,
       name: 'Secondary scope',
       kind: 'FEATURE'
@@ -460,9 +460,9 @@ describe('milestone routes and invariants', () => {
 
   test('reorders by intuitive predecessor/successor semantics and rebalances each version once', async () => {
     const fixture = await createFixture();
-    const first = await createMilestone(fixture, 'member', { projectId: fixture.projects.primary.id, name: 'First', kind: 'PHASE' });
-    const second = await createMilestone(fixture, 'member', { projectId: fixture.projects.primary.id, name: 'Second', kind: 'PHASE' });
-    const third = await createMilestone(fixture, 'member', { projectId: fixture.projects.primary.id, name: 'Third', kind: 'PHASE' });
+    const first = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'First', kind: 'PHASE' });
+    const second = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Second', kind: 'PHASE' });
+    const third = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Third', kind: 'PHASE' });
 
     const between = await injectAs(fixture, 'member', {
       method: 'POST',
@@ -505,7 +505,7 @@ describe('milestone routes and invariants', () => {
   test('allocates stable unique positions for concurrent milestone creation', async () => {
     const fixture = await createFixture();
     const responses = await Promise.all(
-      Array.from({ length: 8 }, (_, index) => injectAs(fixture, 'member', {
+      Array.from({ length: 8 }, (_, index) => injectAs(fixture, 'owner', {
         method: 'POST',
         url: '/milestones',
         payload: {
@@ -529,7 +529,7 @@ describe('milestone routes and invariants', () => {
 
   test('does not append a stale milestone summary after a concurrent task progress event', async () => {
     const fixture = await createFixture();
-    const milestone = await createMilestone(fixture, 'member', {
+    const milestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Concurrent summary',
       kind: 'FEATURE'
@@ -610,7 +610,7 @@ describe('milestone routes and invariants', () => {
 
   test('serializes concurrent task assignment with completion disposition', async () => {
     const fixture = await createFixture();
-    const milestone = await createMilestone(fixture, 'member', {
+    const milestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Assignment barrier',
       kind: 'FEATURE'
@@ -676,7 +676,7 @@ describe('milestone routes and invariants', () => {
 
   test('clears ownership transactionally on membership removal and does not leak restricted sync state', async () => {
     const fixture = await createFixture();
-    const milestone = await createMilestone(fixture, 'member', {
+    const milestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Owned milestone',
       kind: 'FEATURE',
@@ -734,7 +734,7 @@ describe('milestone routes and invariants', () => {
 
   test('acknowledges a multi-event lifecycle mutation exactly once and deduplicates retries', async () => {
     const fixture = await createFixture();
-    const milestone = await createMilestone(fixture, 'member', {
+    const milestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Sync completion',
       kind: 'PHASE'
@@ -818,7 +818,7 @@ describe('milestone routes and invariants', () => {
       ]
     };
 
-    const applied = await injectAs(fixture, 'member', { method: 'POST', url: '/sync/push', payload });
+    const applied = await injectAs(fixture, 'owner', { method: 'POST', url: '/sync/push', payload });
     expect(applied.statusCode).toBe(200);
     expect(applied.json().results.map((result: { status: string }) => result.status)).toEqual(['applied', 'applied']);
     expect(applied.json().results[0].entity.id).toBe(milestoneId);
@@ -826,7 +826,7 @@ describe('milestone routes and invariants', () => {
     expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).milestoneId).toBe(milestoneId);
     expect((await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId } })).name).toBe('Offline-created feature');
 
-    const duplicate = await injectAs(fixture, 'member', { method: 'POST', url: '/sync/push', payload });
+    const duplicate = await injectAs(fixture, 'owner', { method: 'POST', url: '/sync/push', payload });
     expect(duplicate.statusCode).toBe(200);
     expect(duplicate.json().results.map((result: { status: string }) => result.status)).toEqual(['duplicate', 'duplicate']);
     expect(await prisma.syncEvent.count({
@@ -834,9 +834,36 @@ describe('milestone routes and invariants', () => {
     })).toBe(2);
   });
 
+  test('rejects non-admin goal creation through offline sync without creating a goal or event', async () => {
+    const fixture = await createFixture();
+    for (const persona of ['member', 'lead', 'guest', 'agentGranted'] as Persona[]) {
+      const id = crypto.randomUUID();
+      const mutationId = crypto.randomUUID();
+      const response = await injectAs(fixture, persona, {
+        method: 'POST',
+        url: '/sync/push',
+        payload: {
+          clientId: `restricted-${crypto.randomUUID()}`,
+          mutations: [{
+            mutationId,
+            name: 'milestone.create',
+            args: { id, projectId: fixture.projects.primary.id, name: 'Restricted goal', kind: 'FEATURE' }
+          }]
+        }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().results[0]).toMatchObject({
+        status: 'rejected',
+        error: { message: 'Only workspace admins can create goals', retryable: false }
+      });
+      expect(await prisma.milestone.findUnique({ where: { id } })).toBeNull();
+      expect(await prisma.syncEvent.count({ where: { workspaceId: fixture.workspace.id, mutationId } })).toBe(0);
+    }
+  });
+
   test('refreshes progress for review decisions and preserves open milestone scope when splitting backlog work', async () => {
     const fixture = await createFixture();
-    const reviewMilestone = await createMilestone(fixture, 'member', {
+    const reviewMilestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Review flow',
       kind: 'FEATURE'
@@ -881,7 +908,7 @@ describe('milestone routes and invariants', () => {
     });
     expect(((reviewProgressEvent.payload as { after: { progress: { percentage: number } } }).after.progress.percentage)).toBe(100);
 
-    const splitMilestone = await createMilestone(fixture, 'member', {
+    const splitMilestone = await createMilestone(fixture, 'owner', {
       projectId: fixture.projects.primary.id,
       name: 'Split flow',
       kind: 'PHASE'

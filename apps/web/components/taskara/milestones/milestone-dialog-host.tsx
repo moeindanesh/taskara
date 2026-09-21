@@ -8,6 +8,8 @@ import { taskaraRequest } from '@/lib/taskara-client';
 import type { TaskaraTask } from '@/lib/taskara-types';
 import type { TaskaraMilestone, TaskaraMilestoneKind } from '@/lib/taskara-types';
 import { useAuthSession } from '@/store/auth-store';
+import { isWorkspaceAdminRole } from '@/lib/workspace-mode';
+import { useWorkspaceRuntime } from '@/lib/workspace-runtime';
 import { MilestoneCreateDialog } from './milestone-create-dialog';
 
 export const createMilestoneEvent = 'taskara:create-milestone';
@@ -27,11 +29,17 @@ export function openMilestoneCreate(detail: CreateMilestoneEventDetail = {}) {
 export function MilestoneDialogHost() {
    const navigate = useNavigate();
    const { session } = useAuthSession();
+   const { role } = useWorkspaceRuntime();
+   const canCreate = isWorkspaceAdminRole(role);
    const taskSync = useWorkspaceTaskSync();
    const [open, setOpen] = useState(false);
    const [request, setRequest] = useState<CreateMilestoneEventDetail>({});
 
    useEffect(() => {
+      if (!canCreate) {
+         setOpen(false);
+         return;
+      }
       const handleOpen = (event: Event) => {
          const detail = event instanceof CustomEvent && event.detail && typeof event.detail === 'object'
             ? event.detail as CreateMilestoneEventDetail
@@ -48,7 +56,7 @@ export function MilestoneDialogHost() {
 
       window.addEventListener(createMilestoneEvent, handleOpen);
       return () => window.removeEventListener(createMilestoneEvent, handleOpen);
-   }, []);
+   }, [canCreate]);
 
    const handleCreated = useCallback(async (milestone: TaskaraMilestone) => {
       const task = taskSync.tasks.find(
@@ -81,6 +89,8 @@ export function MilestoneDialogHost() {
          navigate(`/${workspaceSlug}/milestones/${encodeURIComponent(milestone.id)}`);
       }
    }, [navigate, request.assignTaskId, request.assignTaskKey, request.navigateOnCreate, session?.workspace?.slug, taskSync]);
+
+   if (!canCreate) return null;
 
    return (
       <MilestoneCreateDialog

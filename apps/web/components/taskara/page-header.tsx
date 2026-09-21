@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 interface PageHeaderProps {
    title: string;
+   titleContent?: React.ReactNode;
    description?: string;
    count?: number;
    action?: React.ReactNode;
@@ -23,6 +24,7 @@ interface PageHeaderProps {
 
 export function PageHeader({
    title,
+   titleContent,
    description,
    count,
    action,
@@ -81,8 +83,8 @@ export function PageHeader({
             compact ? 'py-2.5' : 'py-3'
          )}
       >
-         <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
+         <div className="flex items-center justify-between gap-2 sm:gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
                {isKnowledgeRoute ? (
                   <Tooltip>
                      <TooltipTrigger asChild>
@@ -109,16 +111,16 @@ export function PageHeader({
                      <TooltipContent>منوی کناری</TooltipContent>
                   </Tooltip>
                )}
-               <div className="flex items-center gap-2">
+               {titleContent || <div className="flex min-w-0 items-center gap-2">
                   <h1 className="text-sm font-semibold text-zinc-200 lg:text-base">{title}</h1>
                   {typeof count === 'number' ? (
                      <Badge variant="secondary" className="bg-white/6 text-zinc-400">
                         {count.toLocaleString('fa-IR')}
                      </Badge>
                   ) : null}
-               </div>
+               </div>}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
                {action}
                {showViewControls ? (
                   <>

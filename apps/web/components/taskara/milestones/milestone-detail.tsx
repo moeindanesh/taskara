@@ -19,7 +19,7 @@ import {
    RotateCcw,
    Save,
    ShieldAlert,
-   Sparkles,
+   Info,
    Unlink,
    UserRound,
 } from 'lucide-react';
@@ -36,6 +36,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
+import { PageHeader } from '@/components/taskara/page-header';
 import { LinearAvatar, ProjectGlyph } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { formatJalaliDateTime } from '@/lib/jalali';
@@ -55,7 +56,7 @@ import {
    type MilestoneLifecycleAction,
    MilestoneLifecycleDialog,
 } from './milestone-lifecycle-dialog';
-import { MilestoneTasksPanel } from './milestone-tasks-panel';
+import { TasksView } from '../tasks-view';
 import {
    formatMilestoneDateOnly,
    isMilestoneOverdue,
@@ -70,7 +71,7 @@ import {
 } from './primitives';
 import { useOnlineStatus } from './use-online-status';
 
-type DetailTab = 'overview' | 'work' | 'activity';
+type DetailTab = 'overview' | 'work';
 type OwnerCandidate = { avatarUrl?: string | null; email: string; id: string; name: string };
 type MilestoneMetadataPatch = Partial<
    Pick<TaskaraMilestone, 'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'>
@@ -434,7 +435,8 @@ export function MilestoneDetail({
 
    return (
       <div className="flex h-full min-h-0 flex-col bg-background [direction:rtl]">
-         <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-3 sm:px-5">
+         <header className="shrink-0" data-testid="goal-detail-header">
+            <PageHeader title={milestone.name} compact titleContent={
             <div className="flex min-w-0 items-center gap-2">
                <button
                   aria-label={fa.app.back}
@@ -445,9 +447,9 @@ export function MilestoneDetail({
                   <ArrowRight className="size-4" />
                   <span className="hidden sm:inline">{fa.milestone.title}</span>
                </button>
-               <MilestoneGlyph className="size-8" />
+               <MilestoneGlyph className="hidden size-8 shrink-0 sm:inline-flex" />
                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{milestone.name}</p>
+                  <h1 className="truncate text-sm font-medium">{milestone.name}</h1>
                   <Link
                      className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                      to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}
@@ -459,6 +461,7 @@ export function MilestoneDetail({
                </div>
                {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
             </div>
+            } action={
             <div className="flex shrink-0 items-center gap-2">
                {!readOnly && hasUnsavedChanges ? (
                   <Button
@@ -493,6 +496,7 @@ export function MilestoneDetail({
                   onReorder={(direction) => void reorder(direction)}
                />
             </div>
+            } />
          </header>
 
          {error ? (
@@ -527,13 +531,17 @@ export function MilestoneDetail({
             <div className="shrink-0 border-b border-border/60 px-3 sm:px-5">
                <div aria-label={fa.milestone.title} className="flex h-10 items-center" role="tablist">
                   <DetailTabTrigger active={tab === 'work'} icon={ListTodo} label={fa.milestone.work} value="work" count={milestone.progress.totalTasks} onSelect={setTab} />
-                  <DetailTabTrigger active={tab === 'overview'} icon={Sparkles} label={fa.milestone.overview} value="overview" onSelect={setTab} />
-                  <DetailTabTrigger active={tab === 'activity'} icon={Activity} label={fa.milestone.activity} value="activity" onSelect={setTab} />
+                  <DetailTabTrigger active={tab === 'overview'} icon={Info} label="اطلاعات" value="overview" onSelect={setTab} />
                </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-               {tab === 'overview' || tab === 'work' ? (
+            <div className={cn('min-h-0 flex-1 overscroll-contain', tab === 'work' ? 'overflow-hidden' : 'overflow-y-auto')}>
+               {tab === 'work' ? (
+                  <div role="tabpanel" aria-label={fa.milestone.work} className="h-full min-h-0">
+                     <TasksView key={milestone.id} defaultSystemView="all" personalOnly={false} goal={milestone} />
+                  </div>
+               ) : null}
+               {tab === 'overview' ? (
                <div role="tabpanel">
                   <div className="mx-auto grid w-full max-w-[1120px] gap-8 px-4 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_280px] xl:px-9">
                      <div className="min-w-0 space-y-7">
@@ -575,13 +583,6 @@ export function MilestoneDetail({
                            </div>
                         </section>
 
-                        {tab === 'work' ? (
-                           <>
-                              <MilestoneProgress milestone={milestone} />
-                              <MilestoneTasksPanel milestone={milestone} workspaceSlug={workspaceSlug} onMilestoneRefresh={() => void load(true, true)} />
-                           </>
-                        ) : (
-                        <>
                         <section aria-labelledby="milestone-description-heading">
                            <h2 className="mb-2 text-sm font-semibold" id="milestone-description-heading">{fa.milestone.description}</h2>
                            {readOnly ? (
@@ -610,8 +611,6 @@ export function MilestoneDetail({
                         <ProgressOverview milestone={milestone} />
                         <AttentionOverview milestone={milestone} />
                         <LatestActivity activity={milestone.activity || []} />
-                        </>
-                        )}
                      </div>
 
                      <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های هدف">
@@ -713,13 +712,6 @@ export function MilestoneDetail({
                </div>
                ) : null}
 
-               {tab === 'activity' ? (
-               <div role="tabpanel">
-                  <div className="mx-auto w-full max-w-[760px] px-4 py-6 sm:px-7">
-                     <ActivityTimeline activity={milestone.activity || []} />
-                  </div>
-               </div>
-               ) : null}
             </div>
          </div>
 
@@ -889,17 +881,6 @@ function LatestActivity({ activity }: { activity: TaskaraActivity[] }) {
       <section aria-labelledby="milestone-latest-activity-heading">
          <h2 className="mb-2 text-sm font-semibold" id="milestone-latest-activity-heading">آخرین فعالیت</h2>
          {latest.length ? <ActivityItems activity={latest} /> : <p className="rounded-lg border border-border/60 bg-card/25 p-4 text-xs text-muted-foreground">{fa.milestone.noActivity}</p>}
-      </section>
-   );
-}
-
-function ActivityTimeline({ activity }: { activity: TaskaraActivity[] }) {
-   return (
-      <section aria-labelledby="milestone-activity-heading">
-         <h2 className="mb-4 text-sm font-semibold" id="milestone-activity-heading">{fa.milestone.activity}</h2>
-         {activity.length ? <ActivityItems activity={activity} /> : (
-            <MilestoneEmptyState description="تغییرات ویژگی‌ها، وضعیت و دامنه کارها در اینجا ثبت می‌شود.">{fa.milestone.noActivity}</MilestoneEmptyState>
-         )}
       </section>
    );
 }

@@ -17,6 +17,7 @@ import {
    CalendarClock,
    Check,
    ChevronDown,
+   Diamond,
    Loader2,
    Paperclip,
    UploadCloud,
@@ -40,6 +41,7 @@ import { DescriptionEditor, type DescriptionSlashCommand } from '@/components/ta
 import { ComposerAttachmentPreviewList as PendingComposerAttachmentList } from './composer-attachment-preview';
 import { LinearAvatar, PriorityIcon, ProjectGlyph, StatusIcon, linearPriorityMeta, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
@@ -65,7 +67,7 @@ const initialTaskForm = {
 
 type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'milestone' | 'weight' | 'dueAt';
 
-const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'weight', 'dueAt'];
+const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'milestone', 'weight', 'dueAt'];
 
 type TaskComposerOpenDetail = {
    assigneeId?: string;
@@ -252,6 +254,14 @@ export function WorkspaceTaskComposer() {
             key: 'taskara-project',
             keywords: ['project', 'پروژه'],
             title: 'پروژه',
+         },
+         {
+            command: () => openComposerField('milestone'),
+            description: 'انتخاب هدف کار',
+            icon: <Diamond className="size-4" />,
+            key: 'taskara-milestone',
+            keywords: ['goal', 'milestone', 'هدف'],
+            title: 'هدف',
          },
          {
             command: () => openComposerField('priority'),
@@ -683,7 +693,7 @@ export function WorkspaceTaskComposer() {
                      onRemove={removePendingFile}
                   />
 
-                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4 lg:flex-nowrap">
+                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
                      <input
                         ref={attachmentInputRef}
                         className="hidden"
@@ -742,6 +752,20 @@ export function WorkspaceTaskComposer() {
                         }
                         onAfterChange={() => handleComposerFieldPicked('project')}
                         onOpenChange={(nextOpen) => handleComposerFieldOpenChange('project', nextOpen)}
+                     />
+                     <MilestoneSelector
+                        className="h-6 w-44 min-w-0 max-w-full shrink-0 gap-1 rounded-full border-white/8 bg-[#2a2a2d] px-2 py-0 text-[12px] text-zinc-300 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:overflow-hidden"
+                        disabled={submitting}
+                        milestones={milestones}
+                        open={activeComposerField === 'milestone'}
+                        projectId={form.projectId}
+                        value={form.milestoneId}
+                        variant="pill"
+                        onChange={(milestoneId) => {
+                           setForm((current) => ({ ...current, milestoneId: milestoneId || '' }));
+                           handleComposerFieldPicked('milestone');
+                        }}
+                        onOpenChange={(nextOpen) => handleComposerFieldOpenChange('milestone', nextOpen)}
                      />
                      <ComposerWeightPill
                         open={activeComposerField === 'weight'}

@@ -13,6 +13,10 @@ import { DecisionQueuesView } from '@/components/taskara/decision-queues-view';
 import { ManagerCockpitView } from '@/components/taskara/manager-cockpit-view';
 import { MembersView } from '@/components/taskara/members-view';
 import { MilestonesView } from '@/components/taskara/milestones/milestones-view';
+import { openMilestoneCreate } from '@/components/taskara/milestones/milestone-dialog-host';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
+import { fa } from '@/lib/fa-copy';
 import { PageHeader } from '@/components/taskara/page-header';
 import { PeopleWorkloadView } from '@/components/taskara/people-workload-view';
 import { ProjectsView } from '@/components/taskara/projects-view';
@@ -48,7 +52,7 @@ import {
   useWorkspaceRuntime,
 } from '@/lib/workspace-runtime';
 import { useAuthSession } from '@/store/auth-store';
-import { workspaceProviderPolicy } from '@/lib/workspace-mode';
+import { isWorkspaceAdminRole, workspaceProviderPolicy } from '@/lib/workspace-mode';
 
 function WorkspaceShell() {
   const location = useLocation();
@@ -62,13 +66,28 @@ function WorkspaceShell() {
   const isSettingsRoute = route.id === 'settings';
   const isKnowledgeRoute = route.id === 'knowledge';
   const isTaskRoute = route.id === 'all-tasks' || route.id === 'my-tasks';
+  const isGoalDetailRoute = route.id === 'milestones' && location.pathname.split('/').filter(Boolean).length === 3;
   const header =
-    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute ? null : (
+    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute || isGoalDetailRoute ? null : (
       <PageHeader
         title={route.label}
         description={route.id === 'milestones' ? undefined : route.description}
         compact
         showViewControls={isTaskRoute}
+        action={route.id === 'milestones' && isWorkspaceAdminRole(runtime.role) ? (
+          <Button
+            aria-label={fa.milestone.newMilestone}
+            className="h-8 shrink-0 rounded-md px-3"
+            size="sm"
+            onClick={() => openMilestoneCreate({
+              navigateOnCreate: true,
+              projectId: new URLSearchParams(location.search).get('projectId') || undefined,
+            })}
+          >
+            <Plus className="size-4" />
+            {fa.milestone.newMilestone}
+          </Button>
+        ) : undefined}
       />
     );
 

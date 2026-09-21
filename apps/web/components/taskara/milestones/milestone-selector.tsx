@@ -8,6 +8,8 @@ import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select
 import { taskaraRequest } from '@/lib/taskara-client';
 import type { TaskaraMilestone, TaskaraMilestoneListResponse } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
+import { isWorkspaceAdminRole } from '@/lib/workspace-mode';
+import { useWorkspaceRuntime } from '@/lib/workspace-runtime';
 import { milestoneKindMeta, milestoneStatusMeta } from './primitives';
 
 const CREATE_VALUE = '__create_milestone__';
@@ -44,6 +46,8 @@ export function MilestoneSelector({
    onCreate?: (projectId: string) => void;
    onOpenChange?: (open: boolean) => void;
 }) {
+   const { role } = useWorkspaceRuntime();
+   const canCreate = isWorkspaceAdminRole(role);
    const [loadedMilestones, setLoadedMilestones] = useState<TaskaraMilestone[]>([]);
    const [loading, setLoading] = useState(false);
 
@@ -89,9 +93,12 @@ export function MilestoneSelector({
       return pool;
    }, [currentMilestone, loadedMilestones, projectId, providedMilestones]);
 
+   const selectedMilestone = options.find((milestone) => milestone.id === value);
+   const SelectedIcon = selectedMilestone ? milestoneKindMeta[selectedMilestone.kind].icon : Diamond;
+
    function handleValueChange(nextValue: string) {
       if (nextValue === CREATE_VALUE) {
-         if (!projectId) return;
+         if (!projectId || !canCreate) return;
          if (onCreate) onCreate(projectId);
          else {
             window.dispatchEvent(
@@ -115,6 +122,7 @@ export function MilestoneSelector({
       >
          <SelectTrigger
             aria-label={fa.milestone.title}
+            title={selectedMilestone?.name || fa.milestone.noMilestone}
             className={cn(
                variant === 'pill'
                   ? 'h-7 w-auto min-w-28 rounded-full border-border/70 bg-muted/55 px-2.5 text-xs text-foreground'
@@ -122,7 +130,14 @@ export function MilestoneSelector({
                className
             )}
          >
-            <SelectValue placeholder={loading ? fa.app.loading : placeholder} />
+            <SelectValue placeholder={loading ? fa.app.loading : placeholder}>
+               {variant === 'pill' ? (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                     <SelectedIcon className="size-3.5 shrink-0 text-indigo-400" />
+                     <span className="truncate">{selectedMilestone?.name || fa.milestone.noMilestone}</span>
+                  </span>
+               ) : undefined}
+            </SelectValue>
          </SelectTrigger>
          <SelectContent className="max-h-80 rounded-lg border-border bg-popover p-1.5 text-popover-foreground [direction:rtl]">
             <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>
@@ -147,12 +162,12 @@ export function MilestoneSelector({
                   </SelectItem>
                );
             })}
-            <SelectItem className="mt-1 rounded-lg border-t border-border/60 pt-2 text-indigo-500 dark:text-indigo-200" value={CREATE_VALUE}>
+            {canCreate ? <SelectItem className="mt-1 rounded-lg border-t border-border/60 pt-2 text-indigo-500 dark:text-indigo-200" value={CREATE_VALUE}>
                <span className="flex items-center gap-2">
                   <Plus className="size-3.5" />
                   {fa.milestone.create}
                </span>
-            </SelectItem>
+            </SelectItem> : null}
          </SelectContent>
       </Select>
    );

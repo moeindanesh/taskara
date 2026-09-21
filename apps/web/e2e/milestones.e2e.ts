@@ -38,13 +38,52 @@ const project = {
 };
 
 test.describe('milestones premium workflow', () => {
+  test('lets a member assign an existing goal from the task composer', async ({ page, isMobile }) => {
+    const fixture = await setupMilestonesPage(page, 'MEMBER');
+    fixture.milestones.push(
+      makeMilestone({ id: 'closed-goal', name: 'هدف تکمیل‌شده', status: 'COMPLETED' }),
+      makeMilestone({ id: 'foreign-goal', name: 'هدف پروژه دیگر', projectId: 'other-project' })
+    );
+    await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('milestones-screen')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'هدف جدید', exact: true })).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')));
+    const composer = page.getByRole('dialog', { name: /کار جدید/ });
+    const goal = composer.getByRole('combobox', { name: 'اهداف تیم', exact: true });
+    await expect(goal).toBeVisible();
+    await goal.click();
+    await expect(page.getByRole('option', { name: /آماده‌سازی نسخه ممتاز/ })).toBeVisible();
+    await expect(page.getByRole('option', { name: /فاز مهاجرت داده/ })).toBeVisible();
+    await expect(page.getByRole('option', { name: /هدف تکمیل‌شده|هدف پروژه دیگر|ایجاد هدف/ })).toHaveCount(0);
+    await page.getByRole('option', { name: /آماده‌سازی نسخه ممتاز/ }).click();
+    await expect(goal).toContainText('آماده‌سازی نسخه ممتاز');
+    await goal.click();
+    await page.getByRole('option', { name: 'بدون هدف', exact: true }).click();
+    await expect(goal).toContainText('بدون هدف');
+    await goal.click();
+    await page.getByRole('option', { name: /فاز مهاجرت داده/ }).click();
+    await composer.getByPlaceholder('عنوان کار', { exact: true }).fill('کار متصل به هدف');
+    await expectNoPageOverflow(page);
+    expect(await composer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: `../../output/playwright/composer-goal-${isMobile ? 'mobile' : 'desktop'}.png` });
+    await composer.getByRole('button', { name: 'ایجاد کار', exact: true }).click();
+    await expect.poll(() => fixture.mutations().find((mutation) => mutation.name === 'task.create')?.args).toMatchObject({
+      projectId: project.id,
+      milestoneId: fixture.milestones[1].id,
+      title: 'کار متصل به هدف',
+    });
+  });
+
   test('keeps the primary hub, RTL deep links, keyboard controls, and responsive layout usable', async ({ page, isMobile }) => {
     const fixture = await setupMilestonesPage(page);
     await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
 
     const screen = page.getByTestId('milestones-screen');
     await expect(screen).toBeVisible();
-    await expect(screen.getByRole('heading', { name: 'اهداف تیم' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'اهداف', exact: true })).toBeVisible();
+    await expect(screen.getByRole('heading', { name: 'اهداف تیم' })).toHaveCount(0);
+    await expect(screen.getByRole('button', { name: 'هدف جدید', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'هدف جدید', exact: true })).toHaveCount(1);
     await expect(page.getByRole('button', { name: /آماده‌سازی نسخه ممتاز/ }).last()).toBeVisible();
     expect(await screen.evaluate((element) => getComputedStyle(element).direction)).toBe('rtl');
     await expect(screen.getByRole('button', { name: /^$/ })).toHaveCount(0);
@@ -53,19 +92,13 @@ test.describe('milestones premium workflow', () => {
       await expect(page.getByRole('link', { name: /اهداف/ })).toHaveAttribute('href', `/${workspaceSlug}/milestones`);
     }
 
-    await page.getByRole('button', { name: 'زیرکارهای آماده‌سازی نسخه ممتاز', exact: true }).click();
-    await expect(page.getByRole('link', { name: /پیاده‌سازی تجربه/ })).toBeVisible();
-    await page.getByRole('combobox', { name: 'وضعیت پیاده‌سازی تجربه' }).click();
-    await page.getByRole('option', { name: 'انجام‌شده' }).click();
-    await expect.poll(() => fixture.mutations().find((mutation) => mutation.name === 'task.update')?.args).toMatchObject({
-      patch: { status: 'DONE' },
-    });
-    await page.getByRole('textbox', { name: 'عنوان زیرکار' }).fill('زیرکار سریع هدف');
-    await page.getByRole('button', { name: 'افزودن', exact: true }).click();
-    await expect(page.getByRole('link', { name: /زیرکار سریع هدف/ })).toHaveCount(1);
-    await expect.poll(() => fixture.mutations().find((mutation) => mutation.name === 'task.create')?.args).toMatchObject({
-      title: 'زیرکار سریع هدف', projectId: project.id, milestoneId: fixture.milestones[0].id,
-    });
+    const goalRow = page.getByRole('button', { name: 'آماده‌سازی نسخه ممتاز', exact: true });
+    await expect(goalRow).not.toHaveAttribute('aria-expanded');
+    await expect(page.getByRole('button', { name: 'زیرکارهای آماده‌سازی نسخه ممتاز', exact: true })).toHaveCount(0);
+    await goalRow.getByText(admin.name, { exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones/${fixture.milestones[0].id}`));
+    await page.getByTestId('goal-detail-header').getByRole('button', { name: 'بازگشت', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones(?:\\?|$)`));
     await page.getByRole('button', { name: 'زمان‌بندی', exact: true }).click();
     await expect(page).toHaveURL(/layout=timeline/);
     await expect(page.getByRole('button', { name: 'شش هفته بعد' })).toBeVisible();
@@ -77,11 +110,23 @@ test.describe('milestones premium workflow', () => {
     await page.getByRole('button', { name: /آماده‌سازی نسخه ممتاز/ }).last().focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones/${fixture.milestones[0].id}`));
-    await expect(page.getByText('نمای کلی')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'اطلاعات' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'فعالیت' })).toHaveCount(0);
+    await expect(page.getByRole('complementary', { name: 'ویژگی‌های هدف' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'نام' })).toHaveCount(0);
+    await expect(page.getByTestId('issues-screen')).toBeVisible();
+    const header = page.getByTestId('goal-detail-header');
+    await expect(header.getByRole('heading', { name: fixture.milestones[0].name, exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'اهداف', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'باز و بسته کردن منوی کناری', exact: true })).toHaveCount(1);
+    await expect(header.getByRole('button', { name: 'صندوق ورودی', exact: true })).toBeVisible();
     await expect(page.getByRole('tab', { name: /زیرکارها/ })).toBeVisible();
-    await expect(page.locator('main').getByText('در حال انجام').first()).toBeVisible();
     await expect(page.locator('main').getByRole('button', { name: /^$/ })).toHaveCount(0);
     await expectNoPageOverflow(page);
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
+    await expect(page.getByRole('complementary', { name: 'ویژگی‌های هدف' })).toBeVisible();
+    await expect(page.getByTestId('issues-screen')).toHaveCount(0);
+    await page.getByRole('tab', { name: /زیرکارها/ }).click();
 
     if (!isMobile) {
       await page.getByRole('button', { name: 'اقدام‌های هدف' }).click();
@@ -90,7 +135,7 @@ test.describe('milestones premium workflow', () => {
     }
   });
 
-  test('keeps the hub and detail legible in light theme', async ({ page }) => {
+  test('keeps the hub and detail legible in light theme', async ({ page, isMobile }) => {
     const fixture = await setupMilestonesPage(page);
     await page.addInitScript(() => window.localStorage.setItem('theme', 'light'));
     await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
@@ -105,6 +150,34 @@ test.describe('milestones premium workflow', () => {
     await page.getByRole('button', { name: /آماده‌سازی نسخه ممتاز/ }).last().click();
     await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones/${fixture.milestones[0].id}`));
     await expect(page.locator('main').getByText('آماده‌سازی نسخه ممتاز').first()).toBeVisible();
+    await expect(page.locator('[data-taskara-task-id]')).toHaveCount(4);
+    await page.screenshot({ path: `../../output/playwright/goal-tasks-${isMobile ? 'mobile' : 'desktop'}.png` });
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
+    await page.screenshot({ path: `../../output/playwright/goal-info-${isMobile ? 'mobile' : 'desktop'}.png` });
+    await expectNoPageOverflow(page);
+  });
+
+  test('reuses task views while keeping search, archive, and status changes inside the goal', async ({ page }) => {
+    const fixture = await setupMilestonesPage(page);
+    await page.goto(`/${workspaceSlug}/milestones/${fixture.milestones[0].id}`);
+    const screen = page.getByTestId('issues-screen');
+    await expect(screen.locator('[data-taskara-task-id]')).toHaveCount(4);
+    await expect(screen.getByText('کار هدف دیگر', { exact: true })).toHaveCount(0);
+    await expect(screen.getByText('کار قدیمی هدف', { exact: true })).toBeVisible();
+    await screen.getByRole('textbox', { name: 'جستجو در زیرکارها' }).fill('پیاده‌سازی');
+    await expect(screen.locator('[data-taskara-task-id]')).toHaveCount(1);
+    const row = screen.locator('[data-taskara-task-id="task-2"]');
+    await row.getByRole('button', { name: 'وضعیت', exact: true }).click();
+    await page.getByRole('button', { name: 'انجام‌شده', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect.poll(() => fixture.mutations().find((mutation) => mutation.name === 'task.update')?.args).toMatchObject({
+      patch: { status: 'DONE' },
+    });
+    await screen.getByRole('textbox', { name: 'جستجو در زیرکارها' }).fill('');
+    await expect(screen.getByText('کار هدف دیگر', { exact: true })).toHaveCount(0);
+    await screen.getByRole('button', { name: 'نمایش', exact: true }).click();
+    await expect(page.getByText('گروه‌بندی', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expectNoPageOverflow(page);
   });
 
@@ -131,6 +204,7 @@ test.describe('milestones premium workflow', () => {
 
     await expect(page).toHaveURL(new RegExp(`/${workspaceSlug}/milestones/[0-9a-f-]{36}$`));
     await expect(page.locator('main').getByText('فاز استقرار تدریجی').first()).toBeVisible();
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
     await expect(page.locator('main').getByText('فاز اجرا').first()).toBeVisible();
     const createMutation = fixture.mutations().find((mutation) => mutation.name === 'milestone.create');
     expect(createMutation).toBeTruthy();
@@ -158,6 +232,7 @@ test.describe('milestones premium workflow', () => {
     await completion.getByPlaceholder(/نتیجه، آموخته‌ها/).fill('خروجی فاز با موفقیت تحویل شد.');
     await completion.getByRole('button', { name: 'تکمیل' }).click();
 
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
     await expect(page.locator('main').getByText('تکمیل‌شده').first()).toBeVisible();
     await expect.poll(() => fixture.mutationNames()).toContain('milestone.complete');
     const completeMutation = fixture.mutations().find((mutation) => mutation.name === 'milestone.complete');
@@ -202,9 +277,10 @@ test.describe('milestones premium workflow', () => {
     await expect(page.getByText(/یک تغییر همگام‌نشده دارد/)).toBeVisible();
     expect(fixture.mutationNames()).toHaveLength(pushesBeforeOffline);
     await expect.poll(() => pendingMutationCount(page)).toBe(1);
-    await page.getByRole('textbox', { name: 'عنوان زیرکار' }).fill('زیرکار آفلاین هدف');
-    await page.getByRole('button', { name: 'افزودن', exact: true }).click();
-    await expect(page.getByRole('link', { name: /زیرکار آفلاین هدف/ })).toHaveCount(1);
+    await page.getByRole('button', { name: 'زیرکار جدید', exact: true }).click();
+    await page.getByPlaceholder('عنوان کار', { exact: true }).fill('زیرکار آفلاین هدف');
+    await page.getByRole('button', { name: 'ایجاد کار', exact: true }).click();
+    await expect(page.locator('[data-taskara-task-id]').filter({ hasText: 'زیرکار آفلاین هدف' })).toHaveCount(1);
     await expect.poll(() => pendingMutationCount(page)).toBe(2);
 
     await page.context().setOffline(false);
@@ -213,7 +289,7 @@ test.describe('milestones premium workflow', () => {
     await expect(page.getByText(/یک تغییر همگام‌نشده دارد/)).toBeHidden({ timeout: 10_000 });
     await expect.poll(() => pendingMutationCount(page), { timeout: 10_000 }).toBe(0);
     await expect(page.locator('main').getByText('ویژگی ساخته‌شده آفلاین').first()).toBeVisible();
-    await expect(page.getByRole('link', { name: /زیرکار آفلاین هدف/ })).toHaveCount(1);
+    await expect(page.locator('[data-taskara-task-id]').filter({ hasText: 'زیرکار آفلاین هدف' })).toHaveCount(1);
   });
 
   test('retains a metadata draft across a version conflict and retries against the latest version', async ({ page }) => {
@@ -222,6 +298,7 @@ test.describe('milestones premium workflow', () => {
     await page.goto(`/${workspaceSlug}/milestones/${milestone.id}`, { waitUntil: 'domcontentloaded' });
 
     fixture.conflictNextMetadataUpdate();
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
     const name = page.getByRole('textbox', { name: 'نام' });
     const save = page.getByRole('button', { name: 'ذخیره تغییرات' });
     await expect(save).toHaveCount(0);
@@ -235,6 +312,10 @@ test.describe('milestones premium workflow', () => {
     await expect(page.getByText(/پیش‌نویس شما حفظ شده است/)).toBeVisible();
     await expect(name).toHaveValue('پیش‌نویس حفظ‌شده');
     await expect(properties.getByRole('combobox').first()).toContainText('فاز اجرا');
+    await page.getByRole('tab', { name: /زیرکارها/ }).click();
+    await expect(properties).toHaveCount(0);
+    await page.getByRole('tab', { name: 'اطلاعات' }).click();
+    await expect(name).toHaveValue('پیش‌نویس حفظ‌شده');
     await page.getByRole('button', { name: 'تلاش دوباره' }).click();
     await expect.poll(() => fixture.mutationNames().filter((item) => item === 'milestone.update').length).toBe(2);
     await expect(name).toHaveValue('پیش‌نویس حفظ‌شده');
@@ -248,7 +329,7 @@ test.describe('milestones premium workflow', () => {
 
 type MockMutation = { mutationId: string; name: string; args: Record<string, unknown> };
 
-async function setupMilestonesPage(page: Page) {
+async function setupMilestonesPage(page: Page, role = 'ADMIN') {
   const milestones = [
     makeMilestone({
       id: '11111111-1111-4111-8111-111111111111',
@@ -274,8 +355,10 @@ async function setupMilestonesPage(page: Page) {
     makeTask({ id: 'task-1', key: 'PREM-1', title: 'طراحی مسیر اصلی', status: 'DONE', milestone: milestones[0] }),
     makeTask({ id: 'task-2', key: 'PREM-2', title: 'پیاده‌سازی تجربه', status: 'TODO', milestone: milestones[0] }),
     makeTask({ id: 'task-3', key: 'PREM-3', title: 'رفع مانع انتشار', status: 'BLOCKED', milestone: milestones[0] }),
+    makeTask({ id: 'task-other', key: 'PREM-99', title: 'کار هدف دیگر', status: 'TODO', milestone: milestones[1] }),
   ];
   const mutationLog: MockMutation[] = [];
+  const archivedTask = makeTask({ id: 'task-old', key: 'PREM-4', title: 'کار قدیمی هدف', status: 'DONE', milestone: milestones[0] });
   const pendingEvents: Array<Record<string, unknown>> = [];
   let cursor = 10;
   let conflictNextMetadataUpdate = false;
@@ -286,7 +369,7 @@ async function setupMilestonesPage(page: Page) {
       session: {
         token: 'e2e-token',
         expiresAt: '2027-01-01T00:00:00.000Z',
-        role: 'ADMIN',
+        role,
         workspace,
         user: admin,
       },
@@ -357,8 +440,8 @@ async function setupMilestonesPage(page: Page) {
       return json(route, { cursor: String(cursor), results });
     }
 
-    if (path === '/me') return json(route, { workspace, user: admin, role: 'ADMIN', unreadNotifications: 0 });
-    if (path === '/workspaces') return json(route, { items: [{ membershipId: admin.membershipId, role: 'ADMIN', joinedAt: now, workspace }], total: 1 });
+    if (path === '/me') return json(route, { workspace, user: admin, role, unreadNotifications: 0 });
+    if (path === '/workspaces') return json(route, { items: [{ membershipId: admin.membershipId, role, joinedAt: now, workspace }], total: 1 });
     if (path === '/teams') return json(route, [team]);
     if (path === '/users') return json(route, pageResult([admin, teammate], query));
     if (path === '/projects') return json(route, [project]);
@@ -394,6 +477,10 @@ async function setupMilestonesPage(page: Page) {
       if (query.get('milestoneId')) items = items.filter((task) => task.milestoneId === query.get('milestoneId'));
       if (query.get('projectId')) items = items.filter((task) => task.project?.id === query.get('projectId'));
       return json(route, pageResult(items, query));
+    }
+    if (path === '/tasks/archive') {
+      const items = !query.get('milestoneId') || query.get('milestoneId') === archivedTask.milestoneId ? [archivedTask] : [];
+      return json(route, { items, nextCursor: null });
     }
 
     return json(route, {});

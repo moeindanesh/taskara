@@ -14,7 +14,7 @@ import type {
   reorderMilestoneSchema,
   updateMilestoneSchema
 } from '@taskara/shared';
-import { type RequestActor } from './actor';
+import { isWorkspaceAdminRole, type RequestActor } from './actor';
 import { logActivity } from './audit';
 import { openBlockerCountSelect } from './blockers';
 import { HttpError } from './http';
@@ -429,6 +429,9 @@ export async function createMilestone(
   input: CreateMilestoneInput,
   syncMutation?: SyncMutationMeta
 ) {
+  if (!isWorkspaceAdminRole(actor.role)) {
+    throw new HttpError(403, 'Only workspace admins can create goals');
+  }
   await assertCanManageProjectPlanning(actor, input.projectId);
   let event: SyncEvent | null = null;
   const row = await prisma.$transaction(async (tx) => {
