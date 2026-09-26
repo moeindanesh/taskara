@@ -74,6 +74,39 @@ test.describe('milestones premium workflow', () => {
     });
   });
 
+  test('scrolls the assignee list in the task composer', async ({ page }) => {
+    const fixture = await setupMilestonesPage(page);
+    fixture.users.push(
+      ...Array.from({ length: 14 }, (_, index) => ({
+        ...teammate,
+        id: `user-extra-${index}`,
+        membershipId: `membership-extra-${index}`,
+        name: `همکار آزمایشی ${index}`,
+      }))
+    );
+    await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('milestones-screen')).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('taskara:create-issue')));
+
+    const composer = page.getByRole('dialog', { name: /کار جدید/ });
+    await composer.getByRole('button', { name: 'مسئول', exact: true }).click();
+    const menu = page.locator('[data-composer-menu-content]');
+    await expect(menu).toBeVisible();
+    const scrollArea = () => menu.evaluate((element) => {
+      const list = Array.from(element.querySelectorAll<HTMLElement>('*')).find(
+        (item) => item.scrollHeight > item.clientHeight && /auto|scroll/.test(getComputedStyle(item).overflowY)
+      );
+      if (!list) return null;
+      const { x, y, width, height } = list.getBoundingClientRect();
+      return { x, y, width, height, scrollTop: list.scrollTop };
+    });
+    const box = await scrollArea();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.wheel(0, 480);
+    await expect.poll(async () => (await scrollArea())?.scrollTop).toBeGreaterThan(0);
+  });
+
   test('keeps the primary hub, RTL deep links, keyboard controls, and responsive layout usable', async ({ page, isMobile }) => {
     const fixture = await setupMilestonesPage(page);
     await page.goto(`/${workspaceSlug}/milestones`, { waitUntil: 'domcontentloaded' });
@@ -330,6 +363,7 @@ test.describe('milestones premium workflow', () => {
 type MockMutation = { mutationId: string; name: string; args: Record<string, unknown> };
 
 async function setupMilestonesPage(page: Page, role = 'ADMIN') {
+  const users = [admin, teammate];
   const milestones = [
     makeMilestone({
       id: '11111111-1111-4111-8111-111111111111',
@@ -394,7 +428,7 @@ async function setupMilestonesPage(page: Page, role = 'ADMIN') {
         totalHotTasks: tasks.length,
         projects: [project],
         teams: [team],
-        users: [admin, teammate],
+        users,
         views: [],
       });
     }
@@ -443,7 +477,7 @@ async function setupMilestonesPage(page: Page, role = 'ADMIN') {
     if (path === '/me') return json(route, { workspace, user: admin, role, unreadNotifications: 0 });
     if (path === '/workspaces') return json(route, { items: [{ membershipId: admin.membershipId, role, joinedAt: now, workspace }], total: 1 });
     if (path === '/teams') return json(route, [team]);
-    if (path === '/users') return json(route, pageResult([admin, teammate], query));
+    if (path === '/users') return json(route, pageResult(users, query));
     if (path === '/projects') return json(route, [project]);
     if (path === '/notifications') return json(route, { ...pageResult([], query), unreadCount: 0 });
     if (path === '/notifications/sync') return json(route, { items: [], unreadCount: 0, nextCursor: null });
@@ -487,6 +521,7 @@ async function setupMilestonesPage(page: Page, role = 'ADMIN') {
   });
 
   return {
+    users,
     milestones,
     conflictNextMetadataUpdate: () => {
       conflictNextMetadataUpdate = true;

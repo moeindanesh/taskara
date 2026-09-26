@@ -851,11 +851,13 @@ function ComposerMenuPill({
    onOpenChange: (open: boolean) => void;
 }) {
    const contentRef = useRef<HTMLDivElement | null>(null);
+   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
    return (
       <Popover open={open} onOpenChange={onOpenChange}>
          <PopoverTrigger asChild>
             <button
+               ref={triggerRef}
                aria-label={ariaLabel}
                className={cn(
                   'inline-flex shrink-0 items-center rounded-full border border-white/8 bg-[#2a2a2d] text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35 disabled:cursor-wait disabled:opacity-55',
@@ -879,6 +881,7 @@ function ComposerMenuPill({
             ref={contentRef}
             align="start"
             className={cn('rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl', contentClassName)}
+            container={triggerRef.current?.closest<HTMLElement>('[data-slot="dialog-content"]')}
             sideOffset={8}
             data-composer-menu-content
             onCloseAutoFocus={(event) => event.preventDefault()}
