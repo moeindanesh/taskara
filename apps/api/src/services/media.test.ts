@@ -7,6 +7,8 @@ process.env.TASKARA_CDN_MEDIA_BASE_URL = 'https://cdn.example.test/v1/media/';
 process.env.MATTERMOST_SYNTHETIC_EMAIL_DOMAIN = 'mattermost.example.invalid';
 
 const { buildMediaUrl, buildMediaUrlFromBase, normalizeUploadedMediaInput, uploadedMediaInputSchema } = await import('./media');
+const { uploadMultipartMedia } = await import('./media-upload');
+const { config } = await import('../config');
 
 describe('media URL handling', () => {
   test('builds CDN URLs whether the base is the CDN root or media endpoint', () => {
@@ -58,6 +60,54 @@ describe('media URL handling', () => {
       url: 'https://cdn.example.test/v1/media/doc-only',
       name: 'Document only'
     });
+  });
+
+  test('preserves the CDN playback URL when it differs from the storage object', () => {
+    expect(normalizeUploadedMediaInput({
+      object: 'objects/voice.webm',
+      url: 'https://assets.example.test/play/voice.webm',
+      name: 'voice.webm',
+      mimeType: 'audio/webm'
+    })).toMatchObject({
+      object: 'objects/voice.webm',
+      url: 'https://assets.example.test/play/voice.webm'
+    });
+  });
+});
+
+describe('media upload playback URL', () => {
+  test('returns the CDN-provided URL with the uploaded object', async () => {
+    const previousUrl = config.TASKARA_CDN_UPLOAD_URL;
+    const previousFetch = globalThis.fetch;
+    config.TASKARA_CDN_UPLOAD_URL = 'https://upload.example.test';
+    try {
+      const boundary = 'taskara-voice-test';
+      const body = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="voice.webm"\r\n` +
+        `Content-Type: audio/webm\r\n\r\nvoice bytes\r\n--${boundary}--\r\n`
+      );
+      globalThis.fetch = Object.assign(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect((init?.body as FormData).get('file')).toBeInstanceOf(File);
+        expect(((init?.body as FormData).get('file') as File).type).toBe('audio/webm');
+        return Response.json({
+          object: 'objects/voice.webm',
+          url: 'https://assets.example.test/play/voice.webm'
+        });
+      }, { preconnect: previousFetch.preconnect });
+      const result = await uploadMultipartMedia(body, `multipart/form-data; boundary=${boundary}`, {
+        allowedMimeType: (mime) => mime.startsWith('audio/'),
+        normalizeMimeType: (mime, filename) =>
+          mime === 'video/webm' && filename.endsWith('.webm') ? 'audio/webm' : mime
+      });
+      expect(result).toMatchObject({
+        object: 'objects/voice.webm',
+        url: 'https://assets.example.test/play/voice.webm',
+        mimeType: 'audio/webm'
+      });
+    } finally {
+      config.TASKARA_CDN_UPLOAD_URL = previousUrl;
+      globalThis.fetch = previousFetch;
+    }
   });
 });
 

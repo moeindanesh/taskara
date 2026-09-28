@@ -135,6 +135,7 @@ describe('workspace navigation registry', () => {
             id: 'work',
             routes: [
                'support-triage',
+               'support-tickets',
                'support-my-cases',
                'support-department-inbox',
                'support-attention',
