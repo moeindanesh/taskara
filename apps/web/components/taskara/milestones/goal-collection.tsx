@@ -7,7 +7,6 @@ import { LinearAvatar } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import type { TaskaraMilestone, TaskaraMilestoneStatus } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
-import { MilestoneTasksPanel } from './milestone-tasks-panel';
 import {
    formatMilestoneDateOnly,
    isMilestoneOverdue,
@@ -20,15 +19,12 @@ const statuses: TaskaraMilestoneStatus[] = ['ACTIVE', 'PLANNED', 'COMPLETED', 'C
 const dayMs = 86_400_000;
 
 export function GoalCollection({
-   items, layout, workspaceSlug, onSelect, onRefresh,
+   items, layout, onSelect,
 }: {
    items: TaskaraMilestone[];
    layout: 'list' | 'timeline';
-   workspaceSlug: string;
    onSelect: (id: string) => void;
-   onRefresh: () => void;
 }) {
-   const [expanded, setExpanded] = useState<Set<string>>(new Set());
    const [weekOffset, setWeekOffset] = useState(0);
    const windowStart = useMemo(() => {
       const today = new Date();
@@ -82,28 +78,19 @@ export function GoalCollection({
                            const bar = goalTimelinePlacement(goal, windowStart, windowEnd);
                            return (
                               <div key={goal.id} className="border-b border-border/60">
-                                 <div className={cn(
-                                    'grid items-center gap-x-4 gap-y-3 px-3 py-4 transition-colors hover:bg-muted/25',
+                                 <div role="button" tabIndex={0} aria-label={goal.name}
+                                    onClick={() => onSelect(goal.id)}
+                                    onKeyDown={(event) => {
+                                       if (event.key !== 'Enter' && event.key !== ' ') return;
+                                       event.preventDefault();
+                                       onSelect(goal.id);
+                                    }}
+                                    className={cn(
+                                    'grid cursor-pointer items-center gap-x-4 gap-y-3 px-3 py-4 transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                                     layout === 'list' ? 'grid-cols-2 lg:grid-cols-[minmax(200px,1fr)_150px_170px_160px]' : 'grid-cols-[240px_minmax(0,1fr)]'
                                  )}>
                                     <div className={cn('flex min-w-0 items-start gap-2', layout === 'list' && 'col-span-2 lg:col-span-1')}>
-                                       {layout === 'list' ? (
-                                          <button
-                                             type="button"
-                                             aria-label={`زیرکارهای ${goal.name}`}
-                                             aria-expanded={expanded.has(goal.id)}
-                                             title="زیرکارها"
-                                             className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                                             onClick={() => setExpanded((current) => {
-                                                const next = new Set(current);
-                                                if (next.has(goal.id)) next.delete(goal.id); else next.add(goal.id);
-                                                return next;
-                                             })}
-                                          >
-                                             <ChevronLeft className={cn('size-4 transition-transform', expanded.has(goal.id) && '-rotate-90')} />
-                                          </button>
-                                       ) : null}
-                                       <button type="button" onClick={() => onSelect(goal.id)} className="min-w-0 flex-1 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
+                                       <div className="min-w-0 flex-1 text-start">
                                           <span className="flex items-center gap-2 text-sm font-medium">
                                              <span className="break-words">{goal.name}</span>
                                              {goal.syncState === 'pending' ? <CloudUpload aria-label={fa.sync.mutationQueued} className="size-3.5 shrink-0" /> : null}
@@ -112,7 +99,7 @@ export function GoalCollection({
                                           <span className="mt-1 block truncate text-[11px] text-muted-foreground">
                                              {goal.project.name}{goal.project.team?.name ? ` · ${goal.project.team.name}` : ''}
                                           </span>
-                                       </button>
+                                       </div>
                                     </div>
                                     {layout === 'list' ? (
                                        <>
@@ -131,29 +118,22 @@ export function GoalCollection({
                                           {ticks.map((tick, index) => <span key={tick} aria-hidden="true" className="absolute inset-y-0 border-l border-border/60" style={{ left: `${index / 6 * 100}%` }} />)}
                                           {todayPosition >= 0 && todayPosition <= 100 ? <span aria-label="امروز" className="absolute inset-y-0 border-l border-rose-400" style={{ left: `${todayPosition}%` }} /> : null}
                                           {bar ? (
-                                             <button
-                                                type="button"
+                                             <div
                                                 aria-label={`زمان‌بندی ${goal.name}`}
                                                 title={`${goal.name}: ${goal.startsOn ? formatMilestoneDateOnly(goal.startsOn) : 'شروع تعیین نشده'} تا ${formatMilestoneDateOnly(goal.targetOn)}`}
-                                                onClick={() => onSelect(goal.id)}
                                                 className={cn('absolute top-2 h-8 overflow-hidden rounded border px-2 text-[11px] text-start focus-visible:ring-2 focus-visible:ring-ring', meta.className)}
                                                 style={{ left: `${bar.left}%`, width: `${bar.width}%` }}
                                                 dir="rtl"
-                                             ><span className="block truncate">{goal.name}</span></button>
+                                             ><span className="block truncate">{goal.name}</span></div>
                                           ) : (
-                                             <button type="button" onClick={() => onSelect(goal.id)} className="absolute inset-y-0 right-2 text-[11px] text-muted-foreground hover:text-foreground" dir="rtl">
+                                             <div className="absolute inset-y-0 right-2 flex items-center text-[11px] text-muted-foreground" dir="rtl">
                                                 {goal.targetOn ? formatMilestoneDateOnly(goal.targetOn) : fa.milestone.noTarget}
                                                 {goal.targetOn ? ' · خارج از بازه' : ''}
-                                             </button>
+                                             </div>
                                           )}
                                        </div>
                                     )}
                                  </div>
-                                 {layout === 'list' && expanded.has(goal.id) ? (
-                                    <div className="border-t border-border/50 bg-muted/10 p-4 sm:ps-12">
-                                       <MilestoneTasksPanel milestone={goal} workspaceSlug={workspaceSlug} onMilestoneRefresh={onRefresh} />
-                                    </div>
-                                 ) : null}
                               </div>
                            );
                         })}

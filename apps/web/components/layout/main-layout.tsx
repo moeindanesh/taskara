@@ -36,6 +36,7 @@ import {
    workspaceCreateAction,
 } from '@/lib/workspace-navigation';
 import { useWorkspaceNavigationRuntime } from '@/lib/workspace-runtime';
+import { isWorkspaceAdminRole } from '@/lib/workspace-mode';
 import { Diamond, FileText, FolderKanban, LayoutTemplate, Plus, Search, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -235,7 +236,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             order: 20,
             run: openCreateIssue,
          }] : []),
-         {
+         ...(isWorkspaceAdminRole(navigationRuntime.role) ? [{
             id: 'create-milestone',
             label: fa.command.createMilestone,
             description: fa.command.createMilestoneDescription,
@@ -243,7 +244,7 @@ export default function MainLayout({ children, header, headersNumber = 2, showSi
             icon: Diamond,
             order: 90,
             run: () => openMilestoneCreate({ navigateOnCreate: true }),
-         },
+         }] : []),
          {
             id: 'create-project',
             label: fa.command.createProject,

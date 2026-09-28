@@ -7,7 +7,6 @@ import {
    GanttChart,
    List,
    Loader2,
-   Plus,
    Search,
    X,
 } from 'lucide-react';
@@ -28,13 +27,11 @@ import type {
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
-import { openMilestoneCreate } from './milestone-dialog-host';
 import { MilestoneDetail } from './milestone-detail';
 import { GoalCollection } from './goal-collection';
 import {
    isMilestoneOverdue,
    MilestoneEmptyState,
-   MilestoneGlyph,
    MilestoneListSkeleton,
 } from './primitives';
 
@@ -247,36 +244,7 @@ export function MilestonesView() {
 
    return (
       <section className="h-full min-h-0 overflow-y-auto overscroll-contain bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
-         <div className="mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8">
-            <header className="border-b border-border pb-5">
-               <div className="flex flex-wrap gap-4 sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
-                     <MilestoneGlyph className="mt-0.5 size-9" />
-                     <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                           <h1 className="text-lg font-semibold leading-8">{fa.milestone.title}</h1>
-                           <span className="text-xs tabular-nums text-muted-foreground">
-                              {displayedTotal.toLocaleString('fa-IR')}
-                           </span>
-                           {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
-                        </div>
-                     </div>
-                  </div>
-                  <Button
-                     aria-label={fa.milestone.newMilestone}
-                     className="h-9 shrink-0 rounded-md px-3"
-                     size="sm"
-                     onClick={() => openMilestoneCreate({
-                        navigateOnCreate: true,
-                        projectId: searchParams.get('projectId') || undefined,
-                     })}
-                  >
-                     <Plus className="size-4" />
-                     {fa.milestone.newMilestone}
-                  </Button>
-               </div>
-            </header>
-
+         <div className="mx-auto w-full max-w-[1480px] px-4 pb-5 sm:px-6 lg:px-8">
             <section className="py-4" aria-label={fa.milestone.filters}>
                <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
                   <div className="relative min-w-0 lg:w-60">
@@ -386,7 +354,7 @@ export function MilestonesView() {
                {loading && !items.length ? (
                   <MilestoneListSkeleton />
                ) : visibleItems.length ? (
-                  <GoalCollection items={visibleItems} layout={layout} workspaceSlug={workspaceSlug} onSelect={selectMilestone} onRefresh={() => void load(true)} />
+                  <GoalCollection items={visibleItems} layout={layout} onSelect={selectMilestone} />
                ) : (
                   <MilestoneEmptyState
                      action={hasFilters ? (

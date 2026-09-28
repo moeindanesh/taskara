@@ -459,15 +459,17 @@ describe('a blocker that is finished does not block', () => {
     await addDependency(fixture, blocked.key, blocker.key);
     await injectAs(fixture, 'member', { method: 'PATCH', url: `/tasks/${blocker.key}`, payload: { status: 'DONE' } });
 
-    // Milestone planning is a project-lead capability; the fixture's member is an ordinary one.
+    // The member manages disposition as project lead; seed the goal independently of creation permissions.
     await prisma.project.update({ where: { id: fixture.project.id }, data: { leadId: fixture.member.id } });
-    const milestone = await injectAs(fixture, 'member', {
-      method: 'POST',
-      url: '/milestones',
-      payload: { projectId: fixture.project.id, name: 'Dependency milestone', kind: 'FEATURE' }
+    const milestone = await prisma.milestone.create({
+      data: {
+        workspaceId: fixture.workspace.id,
+        projectId: fixture.project.id,
+        name: 'Dependency milestone',
+        kind: 'FEATURE'
+      }
     });
-    expect(milestone.statusCode).toBe(201);
-    const milestoneId = milestone.json().id as string;
+    const milestoneId = milestone.id;
     await injectAs(fixture, 'member', {
       method: 'PATCH',
       url: `/tasks/${blocked.key}`,

@@ -17,6 +17,7 @@ import {
    CalendarClock,
    Check,
    ChevronDown,
+   Diamond,
    Loader2,
    Paperclip,
    UploadCloud,
@@ -40,6 +41,7 @@ import { DescriptionEditor, type DescriptionSlashCommand } from '@/components/ta
 import { ComposerAttachmentPreviewList as PendingComposerAttachmentList } from './composer-attachment-preview';
 import { LinearAvatar, PriorityIcon, ProjectGlyph, StatusIcon, linearPriorityMeta, linearStatusMeta } from '@/components/taskara/linear-ui';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { taskaraRequest, uploadTaskAttachment } from '@/lib/taskara-client';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
@@ -65,7 +67,7 @@ const initialTaskForm = {
 
 type ComposerField = 'status' | 'priority' | 'assignee' | 'project' | 'milestone' | 'weight' | 'dueAt';
 
-const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'weight', 'dueAt'];
+const composerSetupFieldOrder: ComposerField[] = ['priority', 'assignee', 'project', 'milestone', 'weight', 'dueAt'];
 
 type TaskComposerOpenDetail = {
    assigneeId?: string;
@@ -252,6 +254,14 @@ export function WorkspaceTaskComposer() {
             key: 'taskara-project',
             keywords: ['project', 'پروژه'],
             title: 'پروژه',
+         },
+         {
+            command: () => openComposerField('milestone'),
+            description: 'انتخاب هدف کار',
+            icon: <Diamond className="size-4" />,
+            key: 'taskara-milestone',
+            keywords: ['goal', 'milestone', 'هدف'],
+            title: 'هدف',
          },
          {
             command: () => openComposerField('priority'),
@@ -683,7 +693,7 @@ export function WorkspaceTaskComposer() {
                      onRemove={removePendingFile}
                   />
 
-                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4 lg:flex-nowrap">
+                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pb-4">
                      <input
                         ref={attachmentInputRef}
                         className="hidden"
@@ -742,6 +752,20 @@ export function WorkspaceTaskComposer() {
                         }
                         onAfterChange={() => handleComposerFieldPicked('project')}
                         onOpenChange={(nextOpen) => handleComposerFieldOpenChange('project', nextOpen)}
+                     />
+                     <MilestoneSelector
+                        className="h-6 w-44 min-w-0 max-w-full shrink-0 gap-1 rounded-full border-white/8 bg-[#2a2a2d] px-2 py-0 text-[12px] text-zinc-300 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:overflow-hidden"
+                        disabled={submitting}
+                        milestones={milestones}
+                        open={activeComposerField === 'milestone'}
+                        projectId={form.projectId}
+                        value={form.milestoneId}
+                        variant="pill"
+                        onChange={(milestoneId) => {
+                           setForm((current) => ({ ...current, milestoneId: milestoneId || '' }));
+                           handleComposerFieldPicked('milestone');
+                        }}
+                        onOpenChange={(nextOpen) => handleComposerFieldOpenChange('milestone', nextOpen)}
                      />
                      <ComposerWeightPill
                         open={activeComposerField === 'weight'}
@@ -827,11 +851,13 @@ function ComposerMenuPill({
    onOpenChange: (open: boolean) => void;
 }) {
    const contentRef = useRef<HTMLDivElement | null>(null);
+   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
    return (
       <Popover open={open} onOpenChange={onOpenChange}>
          <PopoverTrigger asChild>
             <button
+               ref={triggerRef}
                aria-label={ariaLabel}
                className={cn(
                   'inline-flex shrink-0 items-center rounded-full border border-white/8 bg-[#2a2a2d] text-[12px] font-normal text-zinc-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:bg-[#303033] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/35 disabled:cursor-wait disabled:opacity-55',
@@ -855,6 +881,7 @@ function ComposerMenuPill({
             ref={contentRef}
             align="start"
             className={cn('rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100 shadow-2xl', contentClassName)}
+            container={triggerRef.current?.closest<HTMLElement>('[data-slot="dialog-content"]')}
             sideOffset={8}
             data-composer-menu-content
             onCloseAutoFocus={(event) => event.preventDefault()}

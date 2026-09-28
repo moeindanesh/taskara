@@ -40,6 +40,8 @@ import type {
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
 import { openMilestoneCreate } from '@/components/taskara/milestones/milestone-dialog-host';
+import { isWorkspaceAdminRole } from '@/lib/workspace-mode';
+import { useWorkspaceRuntime } from '@/lib/workspace-runtime';
 
 const initialProjectForm = {
    name: '',
@@ -545,6 +547,7 @@ function ProjectRow({
    onTeamChange: (teamId: string) => void;
    publishingHealth: boolean;
 }) {
+   const { role } = useWorkspaceRuntime();
    const statusMeta = linearProjectStatusMeta[project.status] || linearProjectStatusMeta.ACTIVE;
    const currentTeamId = project.team?.id || '';
    const latestUpdate = project.healthUpdates?.[0] || null;
@@ -588,7 +591,7 @@ function ProjectRow({
                   <Diamond className="size-3.5 text-indigo-400" />
                   <span className="hidden xl:inline">{(project._count?.milestones || 0).toLocaleString('fa-IR')}</span>
                </Link>
-               <button
+               {isWorkspaceAdminRole(role) ? <button
                   aria-label={`${fa.milestone.newMilestone}: ${project.name}`}
                   className="inline-flex size-8 items-center justify-center border-r border-white/8 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-100"
                   title={fa.milestone.newMilestone}
@@ -596,7 +599,7 @@ function ProjectRow({
                   onClick={() => openMilestoneCreate({ projectId: project.id, navigateOnCreate: true })}
                >
                   <Plus className="size-3.5" />
-               </button>
+               </button> : null}
             </div>
             <button
                className="hidden h-8 items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2 text-xs text-zinc-300 transition hover:bg-white/[0.07] hover:text-zinc-100 sm:inline-flex"

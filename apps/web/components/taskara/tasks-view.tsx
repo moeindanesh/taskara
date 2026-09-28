@@ -25,6 +25,8 @@ import {
    CircleDashed,
    Copy,
    Diamond,
+   Filter,
+   ListPlus,
    Link as LinkIcon,
    LayoutGrid,
    LayoutList,
@@ -39,6 +41,7 @@ import {
    Repeat2,
    Rows3,
    Save,
+   Settings2,
    Search,
    Sparkles,
    Star,
@@ -89,6 +92,8 @@ import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { IssueTitleTooltip } from '@/components/taskara/issue-title-tooltip';
 import { TaskBlockedBadge } from '@/components/taskara/task-dependencies';
 import { IssuePage } from './issue-page';
+import { AddExistingTasksDialog } from './milestones/milestone-tasks-panel';
+import { useOnlineStatus } from './milestones/use-online-status';
 import { ComposerAttachmentPreviewList } from './composer-attachment-preview';
 import {
    TaskDueDateControl,
@@ -1070,18 +1075,22 @@ function matchesCompletedIssueSetting(task: TaskaraTask, setting: TaskViewComple
 interface TasksViewProps {
    defaultSystemView?: SystemViewKey;
    personalOnly?: boolean;
+   goal?: TaskaraMilestone;
 }
 
-export function TasksView({ defaultSystemView = 'active', personalOnly = true }: TasksViewProps) {
+export function TasksView({ defaultSystemView = 'active', personalOnly = true, goal }: TasksViewProps) {
    const location = useLocation();
    const navigate = useNavigate();
    const { orgId, teamId } = useParams();
    const { session } = useAuthSession();
    const workspaceKey = orgId || 'taskara';
-   const activeTeamSlug = teamId && teamId !== currentTeamFallback ? teamId : null;
+   const activeTeamSlug = !goal && teamId && teamId !== currentTeamFallback ? teamId : null;
    const currentTeamKey = activeTeamSlug || currentTeamFallback;
-   const isMyIssuesView = personalOnly && currentTeamKey === currentTeamFallback;
-   const viewScopeKey = isMyIssuesView ? 'mine' : currentTeamKey;
+   const isMyIssuesView = !goal && personalOnly && currentTeamKey === currentTeamFallback;
+   const viewScopeKey = goal ? `goal:${goal.id}` : isMyIssuesView ? 'mine' : currentTeamKey;
+   const online = useOnlineStatus();
+   const [addExistingOpen, setAddExistingOpen] = useState(false);
+   const canAddToGoal = !goal || (goal.canManage !== false && !goal.archivedAt && ['PLANNED', 'ACTIVE'].includes(goal.status));
    const currentUserId = session?.user.id || null;
    const taskSync = useWorkspaceTaskSync();
    const {
@@ -1267,8 +1276,8 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    }, [displayOpen, filterOpen]);
 
    const scopedSyncedViews = useMemo(
-      () => syncedViews.filter((view) => viewBelongsToTaskPage(view, currentTeamKey)),
-      [currentTeamKey, syncedViews]
+      () => goal ? [] : syncedViews.filter((view) => viewBelongsToTaskPage(view, currentTeamKey)),
+      [currentTeamKey, syncedViews, goal?.id]
    );
 
    const visibleViews = useMemo(
@@ -1450,6 +1459,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          omittedCompletedBefore,
          priority: [...draftView.priority].sort(),
          projectIds: [...draftView.projectIds].sort(),
+         goalId: goal?.id,
          milestoneIds: [...draftView.milestoneIds].sort(),
          query: draftView.query.trim(),
          status: [...draftView.status].sort(),
@@ -1470,6 +1480,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
       omittedCompletedBefore,
       shouldLoadCompletedArchive,
       workspaceKey,
+      goal?.id,
    ]);
 
    const loadArchivePage = useCallback(
@@ -1502,6 +1513,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          if (draftView.milestoneIds.length === 1 && draftView.milestoneIds[0] !== 'no-milestone') {
             query.set('milestoneId', draftView.milestoneIds[0]);
          }
+         if (goal) query.set('milestoneId', goal.id);
          if (draftView.assigneeIds.length === 1 && draftView.assigneeIds[0] !== 'unassigned') {
             query.set('assigneeId', draftView.assigneeIds[0]);
          }
@@ -1550,6 +1562,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          taskArchive.loading,
          taskArchive.nextCursor,
          taskArchive.requestKey,
+         goal?.id,
       ]
    );
 
@@ -1575,13 +1588,15 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    const tasksWithArchive = useMemo(() => mergeTasksById(tasks, archivedTasks), [archivedTasks, tasks]);
 
    const scopedTasks = useMemo(() => {
-      const teamTasks = activeTeamSlug
+      const teamTasks = goal
+         ? tasksWithArchive.filter((task) => (task.milestoneId || task.milestone?.id) === goal.id)
+         : activeTeamSlug
          ? tasksWithArchive.filter((task) => task.project?.team?.slug === activeTeamSlug)
          : tasksWithArchive;
       return isMyIssuesView && currentUserId
          ? teamTasks.filter((task) => task.assignee?.id === currentUserId)
          : teamTasks;
-   }, [activeTeamSlug, currentUserId, isMyIssuesView, tasksWithArchive]);
+   }, [activeTeamSlug, currentUserId, isMyIssuesView, tasksWithArchive, goal?.id]);
 
    useEffect(() => {
       setSelectedTaskId((current) =>
@@ -1984,12 +1999,18 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    ]);
 
    const openComposer = useCallback((fullscreen = false, preserveAssignee = false) => {
+      if (goal) {
+         if (canAddToGoal) window.dispatchEvent(new CustomEvent('taskara:create-issue', {
+            detail: { projectId: goal.projectId, milestoneId: goal.id },
+         }));
+         return;
+      }
       setComposerFullscreen(fullscreen);
       if (!preserveAssignee) {
          setForm((current) => ({ ...current, assigneeId: '' }));
       }
       setComposerOpen(true);
-   }, []);
+   }, [goal, canAddToGoal]);
 
    const openIssuePage = useCallback(
       (task: TaskaraTask) => {
@@ -2550,6 +2571,17 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
    }
 
    function openComposerForGroup(group: GroupDescriptor) {
+      if (goal) {
+         if (!canAddToGoal) return;
+         const defaults = draftView.groupBy === 'status' ? { status: group.key }
+            : draftView.groupBy === 'priority' ? { priority: group.key }
+            : draftView.groupBy === 'assignee' ? { assigneeId: group.key === 'unassigned' ? '' : group.key }
+            : {};
+         window.dispatchEvent(new CustomEvent('taskara:create-issue', {
+            detail: { ...defaults, projectId: goal.projectId, milestoneId: goal.id },
+         }));
+         return;
+      }
       setForm((current) => {
          if (draftView.groupBy === 'status') return { ...current, status: group.key };
          if (draftView.groupBy === 'priority') return { ...current, priority: group.key };
@@ -2776,7 +2808,26 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
          ) : null}
 
          <div className="grid h-full lg:grid-cols-1">
-            <main className="min-w-0 overflow-hidden">
+            <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+               {goal ? (
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+                     <div className="flex min-w-0 flex-1 items-center gap-1">
+                        <Search className="size-4 shrink-0 text-muted-foreground" />
+                        <Input aria-label="جستجو در زیرکارها" placeholder="جستجو در زیرکارها..."
+                           className="h-8 min-w-0 max-w-72 border-0 bg-transparent shadow-none"
+                           value={draftView.query} onChange={(event) => setDraftView((current) => ({ ...current, query: event.target.value }))} />
+                        <Button aria-label="فیلتر" title="فیلتر" size="icon" variant="ghost" className="size-8 shrink-0"
+                           onClick={(event) => openFilterMenu(event.currentTarget.getBoundingClientRect())}><Filter className="size-4" /></Button>
+                        <Button aria-label={fa.issue.display} title={fa.issue.display} size="icon" variant="ghost" className="size-8 shrink-0"
+                           onClick={(event) => openDisplayMenu(event.currentTarget.getBoundingClientRect())}><Settings2 className="size-4" /></Button>
+                     </div>
+                     {canAddToGoal ? <div className="flex items-center gap-1">
+                        <Button aria-label={fa.milestone.addExistingTasks} title={fa.milestone.addExistingTasks} size="icon" variant="ghost"
+                           className="size-8" disabled={!online} onClick={() => setAddExistingOpen(true)}><ListPlus className="size-4" /></Button>
+                        <Button size="sm" className="h-8" onClick={() => openComposer()}><Plus className="size-4" />{fa.milestone.createTask}</Button>
+                     </div> : null}
+                  </div>
+               ) : null}
                <div className="border-b border-white/6 px-3 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                      <div className="flex flex-wrap items-center gap-2">
@@ -2804,7 +2855,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         ))}
                      </div>
 
-                     <div className="flex items-center gap-1.5">
+                     {!goal ? <div className="flex items-center gap-1.5">
                         <Button
                            aria-label={fa.issue.saveAsNewView}
                            size="icon"
@@ -2877,11 +2928,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                               </PopoverContent>
                            </Popover>
                         ) : null}
-                     </div>
+                     </div> : null}
                   </div>
                </div>
 
-               <div ref={scrollContainerRef} className="h-[calc(100%-61px)] overflow-auto">
+               <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
                   {showInitialLoading ? (
                      <div className="p-4 text-sm text-zinc-500">{fa.app.loading}</div>
                   ) : activeTeam && scopedProjects.length === 0 && unassignedProjects.length > 0 ? (
@@ -2899,6 +2950,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         {groupedTasks.map((group) => (
                            <BoardGroup
                               key={group.key}
+                              canAdd={canAddToGoal}
                               collapsed={Boolean(collapsedGroups[group.key])}
                               displayProperties={draftView.displayProperties}
                               group={group}
@@ -2947,6 +2999,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
                         {groupedTasks.map((group) => (
                            <ListGroup
                               key={group.key}
+                              canAdd={canAddToGoal}
                               collapsed={Boolean(collapsedGroups[group.key])}
                               displayProperties={draftView.displayProperties}
                               group={group}
@@ -3020,6 +3073,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true }:
             </main>
          </div>
 
+         {goal ? <AddExistingTasksDialog milestone={goal} open={addExistingOpen} onOpenChange={setAddExistingOpen} onAdded={() => void load()} /> : null}
          <Dialog open={Boolean(issueTaskKey)} onOpenChange={(open) => !open && setIssueTaskKey(null)}>
             <DialogContent className="h-[calc(100svh-2rem)] max-h-[920px] max-w-[1280px] gap-0 overflow-hidden rounded-2xl border-white/10 bg-[#101011] p-0 text-zinc-100 [direction:rtl]" showCloseButton={false}>
                <DialogTitle className="sr-only">جزئیات کار {issueTaskKey}</DialogTitle>
@@ -4735,6 +4789,7 @@ function TaskSubgroupHeader({ subgroup }: { subgroup: TaskSubgroupDescriptor }) 
 }
 
 function ListGroup({
+   canAdd = true,
    group,
    collapsed,
    displayProperties,
@@ -4765,6 +4820,7 @@ function ListGroup({
    onToggleCollapse,
    users,
 }: {
+   canAdd?: boolean;
    group: GroupDescriptor;
    collapsed: boolean;
    displayProperties: TaskViewDisplayProperty[];
@@ -4862,14 +4918,14 @@ function ListGroup({
                         {group.tasks.length.toLocaleString('fa-IR')}
                      </span>
                   </button>
-                  <button
+                  {canAdd ? <button
                      aria-label={fa.issue.newIssue}
                      className="rounded-md p-1 text-zinc-500 transition hover:bg-white/6 hover:text-zinc-200"
                      type="button"
                      onClick={onAdd}
                   >
                      <Plus className="size-4" />
-                  </button>
+                  </button> : null}
                </div>
             </div>
          </div>
@@ -4899,6 +4955,7 @@ function ListGroup({
 }
 
 function BoardGroup({
+   canAdd = true,
    group,
    collapsed,
    displayProperties,
@@ -4929,6 +4986,7 @@ function BoardGroup({
    onToggleCollapse,
    users,
 }: {
+   canAdd?: boolean;
    group: GroupDescriptor;
    collapsed: boolean;
    displayProperties: TaskViewDisplayProperty[];
@@ -5029,7 +5087,7 @@ function BoardGroup({
                      </>
                   ) : null}
                </button>
-               {!collapsed ? (
+               {!collapsed && canAdd ? (
                   <button
                      aria-label={fa.issue.newIssue}
                      className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"

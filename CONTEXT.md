@@ -26,6 +26,9 @@ ongoing team initiative with one optional accountable owner (مسئول پیگی
 expected finish, explicit lifecycle, and server-derived progress from its linked WORK Tasks.
 Unassigned or unscheduled goals remain valid planning drafts and surface missing metadata.
 The owner coordinates delivery; each linked Task has its own independent assignee and due date.
+Only workspace ADMIN and OWNER roles may create goals, including through offline sync.
+Goal ownership or project leadership alone does not grant creation access; existing planning
+permissions still govern updates and lifecycle actions.
 The UI calls linked Tasks زیرکارها; this grouping uses `milestoneId`, not Task `parentId`, and does
 not change the existing Task/subtask hierarchy or include Efforts. Goals remain scoped to one
 project; the team-wide hub aggregates accessible projects. API names and `/milestones` deep links

@@ -427,7 +427,7 @@ function MilestoneTaskRow({
    );
 }
 
-function AddExistingTasksDialog({
+export function AddExistingTasksDialog({
    milestone,
    open,
    onAdded,
