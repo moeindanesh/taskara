@@ -22,7 +22,6 @@ import {
    Search,
    Send,
    Sparkles,
-   Tag,
    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -45,6 +44,8 @@ import {
    TaskTakeabilityProperty,
 } from '@/components/taskara/task-dependencies';
 import { TaskDueDateControl } from '@/components/taskara/task-due-date-control';
+import { openMilestoneCreate } from '@/components/taskara/milestones/milestone-dialog-host';
+import { MilestoneSelector } from '@/components/taskara/milestones/milestone-selector';
 import { TeamTaskSupportLinks } from '@/components/taskara/team-task-support-links';
 import {
    LinearAvatar,
@@ -791,9 +792,13 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    }
 
    async function copyIssueUrl() {
-      if (typeof window === 'undefined' || !navigator.clipboard) return;
+      if (!task || typeof window === 'undefined' || !navigator.clipboard) return;
       try {
-         await navigator.clipboard.writeText(window.location.href);
+         const issueUrl = new URL(
+            `/${orgId || 'taskara'}/issue/${encodeURIComponent(task.key)}`,
+            window.location.origin
+         ).href;
+         await navigator.clipboard.writeText(issueUrl);
          toast.success('پیوند کار کپی شد.');
       } catch {
          toast.error('کپی پیوند ناموفق بود.');
@@ -865,7 +870,6 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
 
    const comments = task.comments || [];
    const attachments = task.attachments || [];
-   const labels = task.labels || [];
    const bodyReadOnly = isBodyReadOnly(task);
    return (
       <div className="grid h-full min-h-0 bg-[#101011] lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="issue-page">
@@ -1246,29 +1250,6 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                onRunAction={(action) => void runTriageAction(action)}
             />
 
-            <SidebarSection title={fa.issue.labels} className="mt-3">
-               <div className="min-h-9 p-2">
-                  {labels.length ? (
-                     <div className="flex flex-wrap gap-2">
-                        {labels.map(({ label }) => (
-                           <span
-                              key={label.id}
-                              className="inline-flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm text-zinc-300 transition hover:bg-white/5"
-                           >
-                              <span
-                                 className="size-2.5 shrink-0 rounded-full"
-                                 style={{ backgroundColor: label.color || '#71717a' }}
-                              />
-                              <span className="truncate">{label.name}</span>
-                           </span>
-                        ))}
-                     </div>
-                  ) : (
-                     <SidebarEmptyRow icon={<Tag className="size-5" />} label={fa.issue.labels} />
-                  )}
-               </div>
-            </SidebarSection>
-
             <SidebarSection title={fa.issue.project} className="mt-3">
                <div className="grid gap-1 p-2 text-sm">
                   <IssueSidebarProjectPicker
@@ -1279,9 +1260,33 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                         requestIssueProjectChange(projectId);
                      }}
                   />
-
                </div>
             </SidebarSection>
+
+            {task.kind !== 'EFFORT' ? (
+               <SidebarSection title={fa.nav.milestones} className="mt-3">
+                  <div className="grid gap-1 p-2 text-sm">
+                     <MilestoneSelector
+                        className="h-auto min-h-9 w-full min-w-0 justify-start rounded-lg border-0 bg-transparent px-2 py-2 text-sm shadow-none hover:bg-muted [&>span]:min-w-0 [&>span]:flex-1"
+                        currentMilestone={task.milestone ? {
+                           ...task.milestone,
+                           archivedAt: task.milestone.archivedAt ?? null,
+                           projectId: task.milestone.projectId || task.project?.id || '',
+                        } : null}
+                        milestones={taskSync.milestones}
+                        projectId={task.project?.id}
+                        value={task.milestoneId || task.milestone?.id || null}
+                        variant="pill"
+                        onChange={(milestoneId) => void updateTask({ milestoneId })}
+                        onCreate={(projectId) => openMilestoneCreate({
+                           projectId,
+                           assignTaskId: task.id,
+                           assignTaskKey: task.key,
+                        })}
+                     />
+                  </div>
+               </SidebarSection>
+            ) : null}
 
             <TeamTaskSupportLinks taskKey={task.key} />
          </aside>
@@ -1364,11 +1369,11 @@ function EffortBody({
    return (
       <div className="space-y-3">
          {converted ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-100">
                <MessageSquareWarning className="size-4 shrink-0" />
                <span className="min-w-0 flex-1">{fa.issue.effortBodyConverted}</span>
                <button
-                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 text-amber-50 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 text-amber-800 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-50"
                   disabled={restoring}
                   type="button"
                   onClick={onRestore}
@@ -1421,7 +1426,7 @@ function TriageSidebarPanel({
    return (
       <SidebarSection title={fa.issue.triage} className="mt-3">
          <div className="grid gap-2 p-2 text-sm">
-            <div className="rounded-lg border border-amber-400/15 bg-amber-400/8 px-2.5 py-2 text-xs leading-5 text-amber-100">
+            <div className="rounded-lg border border-amber-400/15 bg-amber-400/8 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:text-amber-100">
                {task.priority === 'NO_PRIORITY'
                   ? fa.issue.triageNeedsPriority
                   : noteRequired
@@ -1436,7 +1441,7 @@ function TriageSidebarPanel({
             />
             <div className="grid grid-cols-3 gap-1.5">
                <button
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 text-xs font-medium text-emerald-100 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 text-xs font-medium text-emerald-800 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-100"
                   disabled={acceptDisabled}
                   type="button"
                   onClick={() => onRunAction('accept')}
@@ -1445,7 +1450,7 @@ function TriageSidebarPanel({
                   {fa.issue.triageAccept}
                </button>
                <button
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-sky-400/20 bg-sky-400/10 px-2 text-xs font-medium text-sky-100 hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-sky-400/20 bg-sky-400/10 px-2 text-xs font-medium text-sky-800 hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sky-100"
                   disabled={noteActionDisabled}
                   type="button"
                   onClick={() => onRunAction('request-info')}
@@ -1454,7 +1459,7 @@ function TriageSidebarPanel({
                   {fa.issue.triageRequestInfo}
                </button>
                <button
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-rose-400/20 bg-rose-400/10 px-2 text-xs font-medium text-rose-100 hover:bg-rose-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-rose-400/20 bg-rose-400/10 px-2 text-xs font-medium text-rose-800 hover:bg-rose-400/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-100"
                   disabled={noteActionDisabled}
                   type="button"
                   onClick={() => onRunAction('decline')}
@@ -2378,15 +2383,6 @@ function SidebarSelectRow({
             {label}
          </span>
          {children}
-      </div>
-   );
-}
-
-function SidebarEmptyRow({ icon, label }: { icon: React.ReactNode; label: string }) {
-   return (
-      <div className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-base text-zinc-500 transition hover:bg-white/5">
-         <span className="flex size-5 shrink-0 items-center justify-center text-zinc-500">{icon}</span>
-         <span className="truncate">{label}</span>
       </div>
    );
 }

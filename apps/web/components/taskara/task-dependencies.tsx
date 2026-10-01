@@ -119,7 +119,7 @@ export function TaskBlockedBadge({ task, className }: { task: TaskaraTask; class
    return (
       <span
          className={cn(
-            'inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-amber-400/25 bg-amber-400/10 px-1.5 text-[10px] font-medium text-amber-300',
+            'inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-amber-400/25 bg-amber-400/10 px-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-300',
             className
          )}
          data-testid="task-blocked-badge"
@@ -142,8 +142,8 @@ function TakeabilityChip({ state, className }: { state: Takeability; className?:
          className={cn(
             'inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium',
             state.takeable
-               ? 'bg-emerald-500/10 text-emerald-300'
-               : 'bg-amber-500/10 text-amber-300',
+               ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+               : 'bg-amber-500/10 text-amber-800 dark:text-amber-300',
             className
          )}
          data-takeable={state.takeable ? 'true' : 'false'}
