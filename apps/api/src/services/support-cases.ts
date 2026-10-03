@@ -150,6 +150,7 @@ export function serializeSupportCase(
     sequence: supportCase.sequence,
     title: supportCase.title,
     description: supportCase.description,
+    metadata: supportCase.metadata ?? null,
     sourceChannel: supportCase.sourceChannel,
     typeKey: supportCase.typeKey,
     priority: supportCase.priority,
@@ -452,6 +453,8 @@ export async function createSupportCase(actor: RequestActor, input: CreateSuppor
         sequence,
         title: input.title,
         description: input.description,
+        metadata: input.metadata ? input.metadata as Prisma.InputJsonValue : undefined,
+        publicClientRequestId: input.clientRequestId,
         sourceChannel: input.sourceChannel,
         typeKey: input.typeKey,
         priority: input.priority,
@@ -468,7 +471,7 @@ export async function createSupportCase(actor: RequestActor, input: CreateSuppor
     await appendSupportCaseEvent(tx, actor, created, {
       action: 'case.created',
       after: caseEventSnapshot(created),
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: input.idempotencyKey ?? input.clientRequestId,
       correlationId: requestHash,
       source: input.sourceChannel === 'CALL' ? 'CALL_CENTER' : undefined
     });
@@ -813,7 +816,6 @@ export async function addSupportInteraction(
   const encryptedContent = input.content ? encryptInteractionContent(input.content) : null;
   return prisma.$transaction(async (tx) => {
     const { supportCase: current, access } = await lockSupportCaseForAccess(tx, actor, idOrKey);
-    assertCurrentVersion(current, input.baseVersion, access);
     assertCanWorkCase(access, current);
     const isCustomerActivity = input.direction === 'INBOUND' && input.visibility === 'PUBLIC';
     if (current.status === 'CLOSED' || (current.status === 'RESOLVED' && !isCustomerActivity)) {
@@ -829,6 +831,35 @@ export async function addSupportInteraction(
       );
     }
 
+    if (input.clientRequestId) {
+      const replay = await tx.supportInteraction.findUnique({
+        where: {
+          workspaceId_publicClientRequestId: {
+            workspaceId: actor.workspace.id,
+            publicClientRequestId: input.clientRequestId
+          }
+        },
+        include: { call: true }
+      });
+      if (replay) {
+        if (replay.caseId !== current.id) throw new HttpError(409, 'Client request ID was already used');
+        const metadataMatches = stableJson(replay.metadata ?? null) === stableJson(input.metadata ?? null);
+        const contentMatches = replay.contentHash === (encryptedContent?.bodyHash ?? null);
+        if (!metadataMatches || !contentMatches) {
+          throw new HttpError(409, 'Client request ID was already used with a different payload', {
+            code: 'SUPPORT_IDEMPOTENCY_PAYLOAD_MISMATCH'
+          });
+        }
+        return {
+          interaction: replay,
+          supportCase: current,
+          access,
+          replayed: true
+        };
+      }
+    }
+    assertCurrentVersion(current, input.baseVersion, access);
+
     const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
     const interaction = await tx.supportInteraction.create({
       data: {
@@ -841,6 +872,8 @@ export async function addSupportInteraction(
         authorId: isCustomerActivity ? null : actor.user.id,
         contactId: input.contactId ?? (isCustomerActivity ? current.contactId : undefined),
         externalId: input.externalId,
+        metadata: input.metadata ? input.metadata as Prisma.InputJsonValue : undefined,
+        publicClientRequestId: input.clientRequestId,
         occurredAt,
         contentHash: encryptedContent?.bodyHash,
         content: encryptedContent
@@ -940,8 +973,20 @@ export async function addSupportInteraction(
       actorId: actor.user.id,
       mutation
     });
-    return { interaction, supportCase: updated, access };
+    return { interaction, supportCase: updated, access, replayed: false };
   });
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 export async function listSupportCaseInteractions(actor: RequestActor, idOrKey: string) {
@@ -968,6 +1013,7 @@ export async function listSupportCaseInteractions(actor: RequestActor, idOrKey: 
   return {
     items: interactions.map((interaction) => ({
       ...interaction,
+      metadata: interaction.metadata ?? null,
       occurredAt: interaction.occurredAt.toISOString(),
       receivedAt: interaction.receivedAt.toISOString(),
       createdAt: interaction.createdAt.toISOString(),
@@ -1458,7 +1504,9 @@ function supportCaseCreateRequestFacts(input: CreateSupportCaseInput) {
     urgency: input.urgency ?? null,
     departmentId: input.departmentId ?? null,
     contactId: input.contactId ?? null,
-    contact: supportContactRequestFacts(input.contact)
+    contact: supportContactRequestFacts(input.contact),
+    clientRequestId: input.clientRequestId ?? null,
+    metadata: input.metadata ?? null
   };
 }
 

@@ -20,6 +20,8 @@ import { registerProjectRoutes } from './routes/projects';
 import { registerRaycastRoutes } from './routes/raycast';
 import { registerSystemRoutes } from './routes/system';
 import { registerSupportRoutes } from './routes/support';
+import { registerSupportTicketRoutes } from './routes/support-tickets';
+import { registerPublicSupportRoutes } from './routes/public-support';
 import { registerSupportHandoffRoutes } from './routes/support-handoff';
 import { registerSupportIntakeAdminRoutes } from './routes/support-intake-admin';
 import { registerSupportIntakeRoutes } from './routes/support-intake';
@@ -75,6 +77,8 @@ export async function registerApp(app: FastifyInstance): Promise<void> {
 
   await app.register(registerAuthRoutes);
   await app.register(registerSystemRoutes);
+  await app.register(registerPublicSupportRoutes);
+  await app.register(registerSupportTicketRoutes);
   await app.register(registerSupportRoutes);
   await app.register(registerSupportHandoffRoutes);
   await app.register(registerSupportIntakeRoutes);

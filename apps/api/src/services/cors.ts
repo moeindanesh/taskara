@@ -10,6 +10,10 @@ export function resolveCorsOrigin(origin: unknown): string | null {
 
   const normalizedOrigin = origin.trim();
   if (!normalizedOrigin) return null;
+  // The standalone public-support-tester.html is intentionally usable from a Desktop `file://`
+  // page. Opaque origins are accepted only when the explicitly unauthenticated public Support
+  // integration is enabled; CORS remains a browser boundary, not authorization.
+  if (normalizedOrigin === 'null' && config.TASKARA_PUBLIC_SUPPORT_ENABLED) return normalizedOrigin;
   if (configuredCorsOrigins.has(normalizedOrigin)) return normalizedOrigin;
   if (isDevelopmentLoopbackOrigin(normalizedOrigin)) return normalizedOrigin;
 

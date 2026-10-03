@@ -55,6 +55,16 @@ export const envSchema = z.object({
   TASKARA_CDN_UPLOAD_URL: optionalUrl,
   TASKARA_CDN_APP: z.string().default('taskara'),
   TASKARA_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
+  TASKARA_PUBLIC_SUPPORT_ENABLED: envFlag(false),
+  TASKARA_PUBLIC_SUPPORT_WORKSPACE_SLUG: optionalString,
+  TASKARA_PUBLIC_SUPPORT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  TASKARA_OPENROUTER_API_KEY: optionalString,
+  TASKARA_AI_MODEL: optionalString,
+  TASKARA_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  TASKARA_AI_MAX_AUDIO_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  TASKARA_AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().max(4_000).default(256),
+  TASKARA_AI_TRANSCRIPTION_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().max(16_000).default(2_048),
+  TASKARA_AI_CASE_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().max(4_000).default(1_024),
   TASKARA_SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   // Legacy `x-user-email` authentication. Defaults on so shipped consumers keep working; set it to
   // `false` once they have moved, which turns the path off for the whole deployment.

@@ -46,6 +46,59 @@ The web UI runs on Vite and talks directly to the API using:
 VITE_TASKARA_API_URL=<api-url>
 ```
 
+The optional unauthenticated browser Support integration is disabled by default. To expose it for
+one Support workspace, set `TASKARA_PUBLIC_SUPPORT_ENABLED=true` and
+`TASKARA_PUBLIC_SUPPORT_WORKSPACE_SLUG=<support-workspace-slug>` on the API. It is available at
+`/public-support` in the web app and stores all Case/message/media metadata in Taskara; the
+consumer does not persist ticket data.
+
+Public submissions now enter a separate Ticket inbox first. The existing public endpoint paths
+remain `/public/support/cases`, but they create and return `TKT-*` Tickets rather than operational
+Support Cases. A supporter can review the Ticket conversation under `/{workspace}/support/tickets`
+and explicitly create a Case, optionally using AI to draft its title, description and priority.
+Ticket messages remain in `SupportTicketMessage`; they are not copied into `SupportInteraction`.
+The public client cannot choose Ticket priority. At creation, the API assesses the initial message
+with its configured AI model; if AI is unavailable or returns an invalid assessment, priority
+defaults to `NORMAL`.
+The API first transcribes each voice recording using its configured AI model, then sends those
+transcripts alongside submitted text and supported images to assess the initial Ticket title and
+priority. Both new Tickets and follow-up messages transcribe their voice recordings; follow-ups
+do not overwrite the Ticket's title or priority. A failed media read or unsupported format leaves
+the Ticket intact with a fallback title; the original attachments remain available.
+The staff Ticket page and customer portal show an AI text block immediately below each voice player.
+Each message's `metadata.processing.transcripts` contains ordered `{ status, transcript }` entries
+matching `metadata.audio`, where status is `COMPLETED` or `UNAVAILABLE`. The compatible
+`metadata.processing.transcript` field contains their combined text, or `null`. Transcripts are
+preserved even when the separate title assessment fails. Case AI drafts also include saved voice text.
+`TASKARA_AI_TRANSCRIPTION_MAX_OUTPUT_TOKENS` controls the transcription budget (default `2048`),
+independently of the shorter Ticket-title budget. No public route or request format changes.
+Supporters can close and reopen a Ticket using the existing `PATCH /support/tickets/:idOrKey` route
+with `{ "status": "CLOSED" | "OPEN", "baseVersion": <current version> }`.
+Staff can also change Ticket priority with the same route using
+`{ "priority": "LOW" | "NORMAL" | "HIGH" | "URGENT", "baseVersion": <current version> }`;
+the Case priority remains independently editable.
+They can upload an image
+using `POST /support/tickets/:idOrKey/media` (multipart field `file`) and attach its returned media
+reference to `POST /support/tickets/:idOrKey/messages` in `images` alongside optional `text`.
+In the staff Ticket view, `POST /support/tickets/:idOrKey/ai-draft` generates an editable Case
+draft from the conversation and saves its generated title on the Ticket. It returns `{ draft, ticket }`,
+including the updated Ticket version. Concurrent Ticket edits return `409` without overwriting them.
+Review the draft before creating the Case. AI draft generation requires
+`TASKARA_OPENROUTER_API_KEY` and `TASKARA_AI_MODEL`; missing configuration returns
+`SUPPORT_AI_NOT_CONFIGURED`, while an unavailable or invalid model response returns
+`SUPPORT_AI_DRAFT_UNAVAILABLE` instead of silently claiming an AI-filled Case.
+`TASKARA_AI_CASE_MAX_OUTPUT_TOKENS` controls the Case draft budget (default `1024`), independently
+of the shorter Ticket-title budget.
+
+Every public Ticket creation must include a customer phone number. Iranian local and international
+mobile formats are normalized to the same identity, so `09399569034` and `+989399569034` select the
+same Ticket list:
+
+```txt
+GET /public/support/cases?phone=%2B989399569034
+POST /public/support/cases  { "phone": "+989399569034", ... }
+```
+
 Create the first account and workspace through `/signup` and `/onboarding`. Workspace routing in the browser is slug-based, e.g. `/<workspace-slug>/projects`.
 
 Choose `TEAM` for the existing project/Task workflow or `SUPPORT` for Cases, Departments, Triage,

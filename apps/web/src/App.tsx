@@ -37,9 +37,12 @@ import { SupportReportsView } from '@/components/taskara/support-reports-view';
 import { SupportRoutingView } from '@/components/taskara/support-routing-view';
 import { SupportSavedQueuesView } from '@/components/taskara/support-saved-queues-view';
 import { SupportMaturityView } from '@/components/taskara/support-maturity-view';
+import { SupportTicketListView } from '@/components/taskara/support-ticket-list-view';
+import { SupportTicketDetailView } from '@/components/taskara/support-ticket-detail-view';
 import { WorkspaceInboxSyncProvider } from '@/lib/inbox-sync';
 import { WorkspaceKnowledgeSyncProvider } from '@/lib/knowledge-sync';
 import { SupportWorkspaceProvider } from '@/lib/support-workspace-provider';
+import { PublicSupportPortal } from '@/components/taskara/public-support-portal';
 import { WorkspaceTaskSyncProvider } from '@/lib/task-sync-provider';
 import {
   defaultWorkspacePath,
@@ -68,7 +71,7 @@ function WorkspaceShell() {
   const isTaskRoute = route.id === 'all-tasks' || route.id === 'my-tasks';
   const isGoalDetailRoute = route.id === 'milestones' && location.pathname.split('/').filter(Boolean).length === 3;
   const header =
-    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute || isGoalDetailRoute ? null : (
+    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'support-ticket-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute || isGoalDetailRoute ? null : (
       <PageHeader
         title={route.label}
         description={route.id === 'milestones' ? undefined : route.description}
@@ -189,6 +192,7 @@ export function App() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
+      <Route path="/public-support" element={<PublicSupportPortal />} />
       <Route path="/" element={<RootRedirect />} />
       <Route path="/:orgId" element={<AuthenticatedWorkspaceShell />}>
         <Route index element={<WorkspaceRedirect />} />
@@ -231,6 +235,8 @@ export function App() {
         <Route path="support/my-cases" element={<WorkspacePage><SupportCaseQueueView queue="MY_CASES" /></WorkspacePage>} />
         <Route path="support/department-inbox" element={<WorkspacePage><SupportCaseQueueView queue="DEPARTMENT_INBOX" /></WorkspacePage>} />
         <Route path="support/attention" element={<WorkspacePage><SupportCaseQueueView queue="NEEDS_ATTENTION" /></WorkspacePage>} />
+        <Route path="support/tickets" element={<WorkspacePage><SupportTicketListView /></WorkspacePage>} />
+        <Route path="support/tickets/:ticketKey" element={<WorkspacePage><SupportTicketDetailView /></WorkspacePage>} />
         <Route path="support/departments" element={<WorkspacePage><SupportDepartmentsView /></WorkspacePage>} />
         <Route path="support/routing" element={<WorkspacePage><SupportRoutingView /></WorkspacePage>} />
         <Route path="support/saved-queues" element={<WorkspacePage><SupportSavedQueuesView /></WorkspacePage>} />

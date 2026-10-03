@@ -186,6 +186,18 @@ enum SupportInteractionDirection {
   INTERNAL
 }
 
+enum SupportTicketStatus {
+  NEW
+  OPEN
+  CLOSED
+}
+
+enum SupportTicketMessageAuthorType {
+  CUSTOMER
+  SUPPORTER
+  SYSTEM
+}
+
 enum SupportCallDisposition {
   ANSWERED
   MISSED
@@ -535,6 +547,8 @@ model Workspace {
   supportState            SupportWorkspaceState?
   departments             Department[]
   supportCases            SupportCase[]
+  supportTickets          SupportTicket[]
+  supportTicketMessages   SupportTicketMessage[]
   supportContacts         SupportContact[]
   supportConnectors       SupportIntakeConnector[]
   supportCalendars        SupportBusinessCalendar[]
@@ -654,6 +668,7 @@ model User {
   createdSupportCaseKnowledgeUses SupportCaseKnowledgeUse[] @relation("SupportCaseKnowledgeUseCreator")
   createdSupportKnowledgeGaps SupportKnowledgeGap[] @relation("SupportKnowledgeGapCreator")
   reviewedSupportKnowledgeGaps SupportKnowledgeGap[] @relation("SupportKnowledgeGapReviewer")
+  authoredSupportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
 
   // Lets AgentCredential carry a composite foreign key to (id, kind), which is what makes
   // "a credential can only ever belong to an AGENT" a database fact rather than a convention.
@@ -1974,6 +1989,7 @@ model SupportContact {
 
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   cases        SupportCase[]
+  tickets      SupportTicket[]
   externalRefs SupportExternalRef[]
   interactions SupportInteraction[]
 
@@ -1989,6 +2005,8 @@ model SupportCase {
   sequence                 Int
   title                    String
   description              String?
+  metadata                 Json?
+  publicClientRequestId    String?
   sourceChannel            SupportCaseSourceChannel
   typeKey                  String
   priority                 SupportCasePriority        @default(NORMAL)
@@ -2019,6 +2037,7 @@ model SupportCase {
   updatedAt                DateTime                   @updatedAt
 
   workspace             Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ticket               SupportTicket?                @relation("SupportTicketCase")
   department            Department?                   @relation(fields: [workspaceId, departmentId], references: [workspaceId, id], onDelete: Restrict)
   assigneeMembership    DepartmentMember?             @relation("SupportCaseAssignee", fields: [workspaceId, departmentId, assigneeMembershipId], references: [workspaceId, departmentId, id], onDelete: Restrict)
   contact               SupportContact?               @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict)
@@ -2043,12 +2062,65 @@ model SupportCase {
   @@unique([workspaceId, id])
   @@unique([workspaceId, key])
   @@unique([workspaceId, sequence])
+  @@unique([workspaceId, publicClientRequestId])
   @@index([workspaceId, departmentId, assigneeMembershipId, status])
   @@index([workspaceId, assigneeMembershipId, status])
   @@index([workspaceId, status, nextActionAt])
   @@index([workspaceId, status, nextSlaDueAt])
   @@index([workspaceId, status, lastMeaningfulActivityAt])
   @@index([workspaceId, contactId, receivedAt])
+}
+
+model SupportTicket {
+  id                    String                @id @default(uuid()) @db.Uuid
+  workspaceId           String                @db.Uuid
+  key                   String
+  sequence              Int
+  title                 String
+  status                SupportTicketStatus   @default(NEW)
+  priority              SupportCasePriority  @default(NORMAL)
+  contactId             String?               @db.Uuid
+  metadata              Json?
+  publicClientRequestId String?
+  caseId                String?               @db.Uuid
+  version               Int                   @default(1)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact      SupportContact?        @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict)
+  case         SupportCase?           @relation("SupportTicketCase", fields: [workspaceId, caseId], references: [workspaceId, id], onDelete: NoAction)
+  messages     SupportTicketMessage[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, sequence])
+  @@unique([workspaceId, publicClientRequestId])
+  @@unique([workspaceId, caseId])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, contactId, updatedAt])
+}
+
+model SupportTicketMessage {
+  id            String                         @id @default(uuid()) @db.Uuid
+  workspaceId   String                         @db.Uuid
+  ticketId      String                         @db.Uuid
+  authorType    SupportTicketMessageAuthorType
+  authorId      String?                        @db.Uuid
+  bodyCiphertext Bytes?
+  bodyHash      String?
+  format        String                         @default("text/plain")
+  metadata      Json?
+  publicClientRequestId String?
+  createdAt     DateTime                       @default(now())
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ticket    SupportTicket @relation(fields: [workspaceId, ticketId], references: [workspaceId, id], onDelete: Cascade)
+  author    User?         @relation("SupportTicketMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, publicClientRequestId])
+  @@index([workspaceId, ticketId, createdAt, id])
 }
 
 /// A connector-owned identity for the source thread. Email and phone are lookup hints, never
@@ -2090,6 +2162,8 @@ model SupportInteraction {
   authorId    String?                      @db.Uuid
   contactId   String?                      @db.Uuid
   externalId  String?
+  metadata    Json?
+  publicClientRequestId String?
   occurredAt  DateTime
   receivedAt  DateTime                     @default(now())
   contentHash String?
@@ -2104,6 +2178,7 @@ model SupportInteraction {
 
   @@unique([workspaceId, id])
   @@unique([connectorId, externalId])
+  @@unique([workspaceId, publicClientRequestId])
   @@index([workspaceId, caseId, occurredAt, id])
   @@index([workspaceId, contactId, occurredAt])
 }

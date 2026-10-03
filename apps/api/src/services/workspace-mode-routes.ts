@@ -12,7 +12,7 @@ export type WorkspaceRouteMode =
   | 'SUPPORT_INTAKE'
   | 'UNCLASSIFIED';
 
-const publicRoutePrefixes = ['/auth'];
+const publicRoutePrefixes = ['/auth', '/public/support'];
 const commonRoutePrefixes = ['/users', '/notifications', '/knowledge', '/media', '/workspace-connections'];
 const teamRoutePrefixes = [
   '/agent',
@@ -65,6 +65,7 @@ export function workspaceRouteMode(routeUrl: string): WorkspaceRouteMode {
 }
 
 export async function enforceWorkspaceRouteMode(request: FastifyRequest): Promise<void> {
+  if (request.method === 'OPTIONS') return;
   const routeUrl = request.routeOptions.url ?? request.url.split('?')[0] ?? '';
   const classification = workspaceRouteMode(routeUrl);
   if (

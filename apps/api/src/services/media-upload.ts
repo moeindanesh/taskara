@@ -3,7 +3,14 @@ import { HttpError } from './http';
 import { normalizeUploadedMediaInput, type UploadedMediaObject } from './media';
 
 /** Called only after the route has resolved the authenticated actor and readable task. */
-export async function uploadMultipartMedia(body: Buffer, contentType: string): Promise<UploadedMediaObject> {
+export async function uploadMultipartMedia(
+  body: Buffer,
+  contentType: string,
+  options: {
+    allowedMimeType?: (mimeType: string) => boolean;
+    normalizeMimeType?: (mimeType: string, filename: string) => string;
+  } = {}
+): Promise<UploadedMediaObject> {
   let input: FormData;
   try {
     input = await new Response(new Uint8Array(body), { headers: { 'content-type': contentType } }).formData();
@@ -17,13 +24,17 @@ export async function uploadMultipartMedia(body: Buffer, contentType: string): P
   }
   if (file.size === 0) throw new HttpError(400, 'File must not be empty');
   if (file.size > config.TASKARA_UPLOAD_MAX_BYTES) throw new HttpError(413, 'File exceeds upload limit');
+  const mimeType = options.normalizeMimeType?.(file.type, file.name) ?? file.type;
+  if (options.allowedMimeType && !options.allowedMimeType(mimeType)) {
+    throw new HttpError(415, 'Unsupported media type');
+  }
   if (name !== null && (typeof name !== 'string' || !name.trim() || name.length > 300)) {
     throw new HttpError(400, 'Attachment name must contain 1–300 characters');
   }
   if (!config.TASKARA_CDN_UPLOAD_URL) throw new HttpError(503, 'TASKARA_CDN_UPLOAD_URL is required for uploads');
   const displayName = typeof name === 'string' ? name.trim() : file.name;
   const form = new FormData();
-  form.set('file', file, file.name);
+  form.set('file', mimeType === file.type ? file : new File([file], file.name, { type: mimeType }), file.name);
   form.set('name', displayName);
   form.set('app', config.TASKARA_CDN_APP);
   let response: Response;
@@ -44,5 +55,12 @@ export async function uploadMultipartMedia(body: Buffer, contentType: string): P
   const documentId = value('documentId') || value('id');
   const object = value('object') || documentId || value('url');
   if (!object) throw new HttpError(502, 'Media upload response is missing an object');
-  return normalizeUploadedMediaInput({ documentId, object, name: displayName, mimeType: file.type, sizeBytes: file.size });
+  return normalizeUploadedMediaInput({
+    documentId,
+    object,
+    url: value('url'),
+    name: displayName,
+    mimeType,
+    sizeBytes: file.size
+  });
 }

@@ -350,7 +350,7 @@ export type SupportWorkspaceController = {
 };
 
 const SupportWorkspaceContext = createContext<SupportWorkspaceController | null>(null);
-type SupportScopeGuard = 'ready' | 'validating' | 'blocked';
+type SupportScopeGuard = 'ready' | 'validating' | 'resetting' | 'blocked';
 
 export function SupportWorkspaceProvider({ children }: { children: ReactNode }) {
    const runtime = useWorkspaceRuntime();
@@ -405,7 +405,7 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
    const clearSensitiveProjection = useCallback(() => {
       cursorRef.current = null;
       authoritativeQueuePages.current.clear();
-      setScopeGuard('validating');
+      setScopeGuard('resetting');
       setScopeGuardError('');
       dispatch({ type: 'clear-sensitive' });
    }, []);
@@ -421,7 +421,7 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
             if (!mounted.current) return;
             // A changed epoch remounts this provider through App's privacy partition key. Until
             // that render commits, the old provider stays behind the scope guard with no data.
-            if (!applyBootstrap(fresh, false) && mounted.current) setScopeGuard('validating');
+            if (!applyBootstrap(fresh, false) && mounted.current) setScopeGuard('resetting');
          } catch (caught) {
             if (!mounted.current) return;
             setScopeGuard('blocked');
@@ -464,7 +464,7 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
    const pull = useCallback(async (protectVisibleState = false) => {
       if (protectVisibleState && mounted.current) {
          protectedPull.current = true;
-         setScopeGuard('validating');
+         setScopeGuard((current) => current === 'ready' ? 'validating' : current);
          setScopeGuardError('');
       }
       if (pulling.current) return;
@@ -833,15 +833,42 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
       updateDepartment, updateDepartmentMember, waitCase,
    ]);
 
-   if (scopeGuard !== 'ready') {
-      return (
-         <SupportScopeGuardScreen
-            error={scopeGuard === 'blocked' ? scopeGuardError : ''}
+   return (
+      <SupportWorkspaceContext.Provider value={controller}>
+         <SupportScopeBoundary
+            state={scopeGuard}
+            error={scopeGuardError}
             onRetry={() => void forceScopeRefresh()}
-         />
-      );
-   }
-   return <SupportWorkspaceContext.Provider value={controller}>{children}</SupportWorkspaceContext.Provider>;
+         >
+            {children}
+         </SupportScopeBoundary>
+      </SupportWorkspaceContext.Provider>
+   );
+}
+
+export function SupportScopeBoundary({
+   state,
+   error,
+   onRetry,
+   children,
+}: {
+   state: SupportScopeGuard;
+   error: string;
+   onRetry: () => void;
+   children: ReactNode;
+}) {
+   // File pickers trigger window focus. Hide during revalidation without destroying
+   // the input or draft; an actual scope reset or failed check still unmounts them.
+   return (
+      <>
+         <div style={{ display: state === 'ready' ? 'contents' : 'none' }} inert={state !== 'ready'}>
+            {state === 'ready' || state === 'validating' ? children : null}
+         </div>
+         {state !== 'ready' ? (
+            <SupportScopeGuardScreen error={state === 'blocked' ? error : ''} onRetry={onRetry} />
+         ) : null}
+      </>
+   );
 }
 
 function SupportScopeGuardScreen({ error, onRetry }: { error: string; onRetry: () => void }) {

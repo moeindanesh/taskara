@@ -214,7 +214,9 @@ export const createSupportCaseSchema = z.object({
   contactId: z.string().uuid().optional(),
   contact: supportContactInputSchema.optional(),
   departmentId: z.string().uuid().optional(),
-  idempotencyKey: z.string().trim().min(8).max(200).optional()
+  idempotencyKey: z.string().trim().min(8).max(200).optional(),
+  clientRequestId: z.string().trim().min(8).max(200).optional(),
+  metadata: z.record(z.unknown()).optional()
 }).refine((value) => !(value.contactId && value.contact), {
   message: 'Provide contactId or contact, not both',
   path: ['contact']
@@ -328,6 +330,8 @@ export const addSupportInteractionSchema = z.object({
   occurredAt: z.string().datetime().optional(),
   externalId: z.string().trim().min(1).max(240).optional(),
   content: supportInteractionContentInputSchema.optional(),
+  clientRequestId: z.string().trim().min(8).max(200).optional(),
+  metadata: z.record(z.unknown()).optional(),
   baseVersion: supportCaseVersionSchema
 }).superRefine((value, context) => {
   if (value.direction === 'INTERNAL' && value.visibility !== 'INTERNAL') {

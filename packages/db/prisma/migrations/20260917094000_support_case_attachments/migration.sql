@@ -1,0 +1,2 @@
+-- Reserved migration slot retained for compatibility with environments that already recorded
+-- this migration name. Support media references are stored in the public integration migration.

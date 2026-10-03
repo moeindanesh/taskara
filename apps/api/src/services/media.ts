@@ -73,7 +73,7 @@ export function normalizeUploadedMediaInput(input: UploadedMediaInput): Uploaded
   return {
     ...(input.documentId ? { documentId: input.documentId } : {}),
     object,
-    url: buildMediaUrl(object),
+    url: input.url || buildMediaUrl(object),
     name: input.name || 'upload',
     ...(input.mimeType ? { mimeType: input.mimeType } : {}),
     ...(input.sizeBytes === undefined ? {} : { sizeBytes: input.sizeBytes })
