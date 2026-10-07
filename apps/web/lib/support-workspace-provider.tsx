@@ -47,8 +47,8 @@ type StoreAction =
    | { type: 'clear-sensitive' }
    | { type: 'apply-sync-events'; events: SupportSyncEvent[] }
    | { type: 'upsert-cases'; cases: SupportCase[] }
-   | { type: 'set-queue'; queue: SupportQueueKind; cases: SupportCase[]; total?: number }
-   | { type: 'append-queue'; queue: SupportQueueKind; cases: SupportCase[]; total?: number }
+   | { type: 'set-queue'; queue: SupportQueueKind; cases: SupportCase[]; total?: number; filtered?: boolean }
+   | { type: 'append-queue'; queue: SupportQueueKind; cases: SupportCase[]; total?: number; filtered?: boolean }
    | { type: 'invalidate-queues' }
    | { type: 'remove-case'; caseId: string }
    | { type: 'set-departments'; departments: SupportDepartment[] }
@@ -116,7 +116,7 @@ export function supportWorkspaceReducer(state: SupportWorkspaceState, action: St
       return {
          ...next,
          queueCaseIds: { ...next.queueCaseIds, [action.queue]: action.cases.map((item) => item.id) },
-         queueCounts: { ...next.queueCounts, [action.queue]: action.total ?? action.cases.length },
+         queueCounts: action.filtered ? next.queueCounts : { ...next.queueCounts, [action.queue]: action.total ?? action.cases.length },
       };
    }
    if (action.type === 'append-queue') {
@@ -125,7 +125,7 @@ export function supportWorkspaceReducer(state: SupportWorkspaceState, action: St
       return {
          ...next,
          queueCaseIds: { ...next.queueCaseIds, [action.queue]: ids },
-         queueCounts: { ...next.queueCounts, [action.queue]: action.total ?? ids.length },
+         queueCounts: action.filtered ? next.queueCounts : { ...next.queueCounts, [action.queue]: action.total ?? ids.length },
       };
    }
    if (action.type === 'invalidate-queues') return { ...state, queueCaseIds: {} };
@@ -377,6 +377,7 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
    const resetPromiseRef = useRef<Promise<void> | null>(null);
    const streamClientId = useRef(crypto.randomUUID());
    const authoritativeQueuePages = useRef<Set<SupportQueueKind>>(new Set());
+   const latestQueueRequests = useRef(new Map<SupportQueueKind, symbol>());
 
    useEffect(() => {
       mounted.current = true;
@@ -405,6 +406,7 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
    const clearSensitiveProjection = useCallback(() => {
       cursorRef.current = null;
       authoritativeQueuePages.current.clear();
+      latestQueueRequests.current.clear();
       setScopeGuard('resetting');
       setScopeGuardError('');
       dispatch({ type: 'clear-sensitive' });
@@ -566,27 +568,34 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
       return () => controller.abort();
    }, [accessEpoch, forceScopeRefresh, partitionKey, pull, streamGeneration]);
 
-   const loadCases = useCallback((query: SupportCaseListQuery) => run(`cases:${JSON.stringify(query)}`, async () => {
-      const result = normalizePage(await supportClient.listCases(query));
-      if (mounted.current) {
-         if (!epochIsCurrent(result.accessEpoch)) {
-            await forceScopeRefresh();
-            return result;
+   const loadCases = useCallback((query: SupportCaseListQuery) => {
+      const request = Symbol();
+      if (query.queue) latestQueueRequests.current.set(query.queue, request);
+      return run(`cases:${JSON.stringify(query)}`, async () => {
+         const result = normalizePage(await supportClient.listCases(query));
+         if (mounted.current) {
+            // A slower search or pagination request must never replace a newer queue view.
+            if (query.queue && latestQueueRequests.current.get(query.queue) !== request) return result;
+            if (!epochIsCurrent(result.accessEpoch)) {
+               await forceScopeRefresh();
+               return result;
+            }
+            if (query.queue) {
+               authoritativeQueuePages.current.add(query.queue);
+               dispatch({
+                  type: query.cursor ? 'append-queue' : 'set-queue',
+                  queue: query.queue,
+                  cases: result.items,
+                  total: result.total,
+                  filtered: Object.entries(query).some(([key, value]) => !['queue', 'cursor', 'limit'].includes(key) && value != null && value !== ''),
+               });
+            }
+            else dispatch({ type: 'upsert-cases', cases: result.items });
+            if (result.counts) dispatch({ type: 'set-counts', counts: normalizeQueueCounts(result.counts) });
          }
-         if (query.queue) {
-            authoritativeQueuePages.current.add(query.queue);
-            dispatch({
-               type: query.cursor ? 'append-queue' : 'set-queue',
-               queue: query.queue,
-               cases: result.items,
-               total: result.total,
-            });
-         }
-         else dispatch({ type: 'upsert-cases', cases: result.items });
-         if (result.counts) dispatch({ type: 'set-counts', counts: normalizeQueueCounts(result.counts) });
-      }
-      return result;
-   }), [epochIsCurrent, forceScopeRefresh, run]);
+         return result;
+      });
+   }, [epochIsCurrent, forceScopeRefresh, run]);
 
    const search = useCallback((query: string, limit = 20) => run(`search:${query}:${limit}`, async () => {
       const result = await supportClient.search(query, limit);

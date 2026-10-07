@@ -69,9 +69,10 @@ function WorkspaceShell() {
   const isSettingsRoute = route.id === 'settings';
   const isKnowledgeRoute = route.id === 'knowledge';
   const isTaskRoute = route.id === 'all-tasks' || route.id === 'my-tasks';
+  const isSupportQueue = ['support-triage', 'support-my-cases', 'support-department-inbox', 'support-attention'].includes(route.id);
   const isGoalDetailRoute = route.id === 'milestones' && location.pathname.split('/').filter(Boolean).length === 3;
   const header =
-    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'support-ticket-detail' || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute || isGoalDetailRoute ? null : (
+    route.id === 'task-detail' || route.id === 'support-case-detail' || route.id === 'support-ticket-detail' || isSupportQueue || route.id === 'inbox' || route.id === 'communications' || isSettingsRoute || isGoalDetailRoute ? null : (
       <PageHeader
         title={route.label}
         description={route.id === 'milestones' ? undefined : route.description}

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
+import { Button as HeroButton } from '@heroui/react';
 import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
@@ -39,18 +40,36 @@ function Button({
    variant,
    size,
    asChild = false,
+   disabled,
+   value,
+   onFocus,
+   onBlur,
+   onClick,
    ...props
 }: React.ComponentProps<'button'> &
    VariantProps<typeof buttonVariants> & {
       asChild?: boolean;
    }) {
-   const Comp = asChild ? Slot : 'button';
-
-   return (
-      <Comp
+   if (asChild) return (
+      <Slot
          data-slot="button"
          className={cn(buttonVariants({ variant, size, className }))}
+         {...{ disabled, value, onFocus, onBlur, onClick, ...props }}
+      />
+   );
+   return (
+      <HeroButton
+         data-slot="button"
+         isDisabled={disabled}
+         value={value == null ? undefined : String(value)}
+         onFocus={onFocus as React.ComponentProps<typeof HeroButton>['onFocus']}
+         onBlur={onBlur as React.ComponentProps<typeof HeroButton>['onBlur']}
+         onClick={onClick as React.ComponentProps<typeof HeroButton>['onClick']}
+         isIconOnly={size === 'icon'}
+         variant={variant === 'destructive' ? 'danger' : variant === 'secondary' ? 'secondary' : variant === 'ghost' || variant === 'link' ? 'ghost' : variant === 'outline' ? 'tertiary' : 'primary'}
+         className={cn('support-ui', buttonVariants({ variant, size, className }))}
          {...props}
+         type={props.type ?? 'submit'}
       />
    );
 }

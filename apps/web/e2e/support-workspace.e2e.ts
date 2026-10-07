@@ -63,6 +63,7 @@ test.describe('@support Support workspace', () => {
     await expect(manage.getByRole('link', { name: 'سلامت ورودی‌ها' })).toBeVisible();
 
     const workspace = page.getByTestId('support-sidebar-group-workspace');
+    await workspace.getByRole('button', { name: 'فضای کاری' }).click();
     await expect(workspace.getByRole('link', { name: 'صندوق ورودی' })).toBeVisible();
     await expect(workspace.getByRole('link', { name: 'دانش' })).toBeVisible();
     await expect(workspace.getByRole('link', { name: 'اعضا' })).toBeVisible();
@@ -98,13 +99,15 @@ test.describe('@support Support workspace', () => {
 
     await gotoApp(page, `/${primarySlug}/support/triage`);
     await expect(page.getByText('قطع سرویس مشتری سازمانی پس از تمدید قرارداد')).toBeVisible();
-    await page.getByLabel('دپارتمان مقصد SUP-1').selectOption(department.id);
+    await page.getByRole('button', { name: /دپارتمان مقصد SUP-1/ }).click();
+    await page.getByRole('option', { name: department.name, exact: true }).click();
     await page.getByRole('button', { name: 'ارجاع SUP-1' }).click();
     await expect(page.getByText('پرونده‌ی بدون دپارتمان ندارید')).toBeVisible();
 
     await gotoApp(page, `/${primarySlug}/support/department-inbox`);
     await expect(page.getByText('قطع سرویس مشتری سازمانی پس از تمدید قرارداد')).toBeVisible();
-    await page.getByLabel('مسئول پرونده SUP-1').selectOption('membership-admin');
+    await page.getByRole('button', { name: /مسئول پرونده SUP-1/ }).click();
+    await page.getByRole('option', { name: users.admin.name, exact: true }).click();
     await page.getByRole('button', { name: 'واگذاری SUP-1' }).click();
     await expect(page.getByText('صف دپارتمان خالی است')).toBeVisible();
 
@@ -119,6 +122,8 @@ test.describe('@support Support workspace', () => {
     expect(callRequests[1]).toMatchObject({ caseId: 'case-1', baseVersion: expect.any(Number) });
     expect(asRecord(callRequests[1]?.call).direction).toBe('OUTBOUND');
 
+    await page.getByRole('tab', { name: 'گفتگو و پیگیری' }).click();
+    await page.getByRole('button', { name: 'حل و بستن پرونده' }).click();
     await page.getByLabel('خلاصه نتیجه').fill('تنظیم تمدید اصلاح شد و مشتری بازیابی سرویس را تأیید کرد.');
     await page.getByRole('button', { name: 'ثبت حل پرونده' }).click();
     await expect(page.getByText('تنظیم تمدید اصلاح شد و مشتری بازیابی سرویس را تأیید کرد.')).toBeVisible();
@@ -147,6 +152,7 @@ test.describe('@support Support workspace', () => {
     await setupSupportPage(page, { actor: 'ADMIN', cases: [item], handoff });
     await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
 
+    await page.getByRole('tab', { name: 'ابزارهای تکمیلی' }).click();
     const card = page.getByTestId('support-case-handoff-card');
     await expect(card).toContainText('کار تیمی حذف شده');
     await expect(card.locator('bdi[dir="ltr"]', { hasText: 'CORE-12' })).toBeVisible();
@@ -246,6 +252,7 @@ test.describe('@support Support workspace', () => {
         : `درخواست صف بزرگ شماره ${index + 1}`,
       contactName: index === 0 ? 'نام بسیار طولانی نماینده مشتری برای اطمینان از شکست‌نخوردن چیدمان راست‌به‌چپ' : `مشتری ${index + 1}`,
     }));
+    cases[0].priority = 'URGENT';
     await setupSupportPage(page, { actor: 'ADMIN', cases });
     await gotoApp(page, `/${primarySlug}/support/triage`);
 
@@ -257,6 +264,24 @@ test.describe('@support Support workspace', () => {
 
     await page.getByRole('button', { name: 'نمایش پرونده‌های بیشتر' }).click();
     await expect(page.locator('article[data-testid^="support-case-"]')).toHaveCount(75);
+    await expectNoPageOverflow(page);
+
+    const search = page.getByRole('searchbox', { name: 'جستجو در پرونده‌ها' });
+    await search.fill('SUP-75');
+    await expect(page.locator('article[data-testid^="support-case-"]')).toHaveCount(1);
+    await page.getByTestId('support-case-SUP-75').getByRole('link').click();
+    await expect(page.getByTestId('support-case-detail')).toBeVisible();
+    await page.getByRole('button', { name: 'بازگشت', exact: true }).click();
+    await expect(search).toHaveValue('SUP-75');
+    await search.fill('پرونده ناموجود');
+    await expect(page.getByText('پرونده‌ای با این مشخصات پیدا نشد')).toBeVisible();
+    await page.getByRole('button', { name: 'پاک کردن جستجو و فیلترها' }).click();
+    await expect(search).toBeEmpty();
+    await page.getByRole('button', { name: 'فیلتر', exact: true }).click();
+    await page.getByRole('button', { name: /فیلتر اولویت/ }).click();
+    await page.getByRole('option', { name: 'فوری', exact: true }).click();
+    await expect(page.getByTestId('support-case-SUP-1')).toBeVisible();
+    await expect(page.locator('article[data-testid^="support-case-"]')).toHaveCount(1);
     await expectNoPageOverflow(page);
   });
 
@@ -281,6 +306,8 @@ test.describe('@support Support workspace', () => {
     await row.getByRole('link', { name: /پیگیری اختلال API/ }).click();
 
     await expect(page.getByTestId('support-case-detail')).toBeVisible();
+    await expect(page.getByTestId('support-attention-snooze-card')).toBeHidden();
+    await expect(page.getByTestId('support-case-handoff-card')).toBeHidden();
     await expect(page.locator('bdi[dir="ltr"]', { hasText: 'billing_api' })).toBeVisible();
     await expect(page.getByText(item.contact!.phone!, { exact: true }).filter({ visible: true })).toHaveAttribute('dir', 'ltr');
     await expect(page.getByText(item.contact!.email!, { exact: true }).filter({ visible: true })).toHaveAttribute('dir', 'ltr');
@@ -289,7 +316,7 @@ test.describe('@support Support workspace', () => {
     if (isMobile) {
       await page.getByRole('button', { name: 'باز و بسته کردن منوی کناری' }).click();
     }
-    const createButton = page.getByRole('button', { name: 'ایجاد پرونده پشتیبانی' });
+    const createButton = page.getByRole('button', { name: 'پرونده جدید', exact: false });
     await createButton.focus();
     await page.keyboard.press('Tab');
     await page.keyboard.press('Shift+Tab');
@@ -316,7 +343,7 @@ test.describe('@support Support workspace', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(createButton).toBeFocused();
+    await expect(isMobile ? page.getByRole('button', { name: 'باز و بسته کردن منوی کناری' }) : createButton).toBeFocused();
   });
 
   test('ordinary member sees only their own Case and leaves no Case/contact content in browser persistence', async ({ page, isMobile }) => {
@@ -480,6 +507,7 @@ test.describe('@support Support workspace', () => {
     await setupSupportPage(page, { actor: 'ADMIN', cases: [item], attentionRequests, snoozeConflictOnce: true });
     await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
 
+    await page.getByRole('tab', { name: 'اطلاعات و ارجاع' }).click();
     const card = page.getByTestId('support-attention-snooze-card');
     await card.getByRole('button', { name: 'یک ساعت' }).click();
     await card.getByLabel('دلیل تعویق توجه').fill('انتظار برای پنجره نگه‌داری سرویس');
@@ -542,6 +570,7 @@ test.describe('@support Support workspace', () => {
 
     await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
     await expect(page.getByTestId('support-case-presence-warning')).toContainText(users.manager.name);
+    await page.getByRole('tab', { name: 'اطلاعات و ارجاع' }).click();
     const assistance = page.getByTestId('support-case-routing-assistance');
     await assistance.getByRole('button', { name: 'شبیه‌سازی' }).click();
     await expect(assistance.getByTestId('support-routing-explanation')).toContainText(department.name);
@@ -682,6 +711,7 @@ test.describe('@support Support workspace', () => {
     await setupSupportPage(page, { actor: 'ADMIN', cases: [item], phase8 });
     await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
 
+    await page.getByRole('tab', { name: 'ابزارهای تکمیلی' }).click();
     const assistance = page.getByTestId('support-case-assistance');
     await expect(assistance).toContainText('rules / case-type / v4');
     await expect(assistance).toContainText('تصمیم یا اجرا همیشه انسانی است');
@@ -733,8 +763,11 @@ test.describe('@support Support workspace', () => {
       kind: 'WRONG', pageId: phase8.knowledgePages[0].id,
     });
 
+    await page.getByRole('tab', { name: 'گفتگو و پیگیری' }).click();
+    await page.getByRole('button', { name: 'حل و بستن پرونده' }).click();
     await page.getByLabel('خلاصه نتیجه').fill('مشکل با راهنمای تأییدشده حل و نتیجه با مشتری بررسی شد.');
     await page.getByRole('button', { name: 'ثبت حل پرونده' }).click();
+    await page.getByRole('tab', { name: 'ابزارهای تکمیلی' }).click();
     const csat = page.getByTestId('support-case-csat');
     await expect(csat).toContainText('امتیاز ۵');
     await expect(csat).toContainText('پاسخ روشن و پیگیری مناسب بود.');
@@ -1534,6 +1567,8 @@ async function setupSupportPage(page: Page, options: {
       const q = url.searchParams.get('q')?.toLocaleLowerCase('fa') || '';
       let items = visibleCases(scope.cases, actorKind).filter((item) => inQueue(item, queue, actorKind));
       if (q) items = items.filter((item) => `${item.key} ${item.title} ${item.contact?.name || ''}`.toLocaleLowerCase('fa').includes(q));
+      if (url.searchParams.has('priority')) items = items.filter((item) => item.priority === url.searchParams.get('priority'));
+      if (url.searchParams.has('status')) items = items.filter((item) => item.status === url.searchParams.get('status'));
       const cursor = Number(url.searchParams.get('cursor') || 0);
       const limit = Number(url.searchParams.get('limit') || 50);
       return json(route, {

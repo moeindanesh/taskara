@@ -52,7 +52,11 @@ export function SupportMainLayout({
    const changeCreateOpen = useCallback((next: boolean) => {
       setCreateOpen(next);
       if (!next) {
-         window.requestAnimationFrame(() => createReturnFocusRef.current?.focus());
+         window.requestAnimationFrame(() => {
+            const previous = createReturnFocusRef.current;
+            const target = previous?.isConnected ? previous : document.querySelector<HTMLElement>('[data-sidebar="trigger"]');
+            target?.focus();
+         });
       }
    }, []);
 
@@ -118,10 +122,10 @@ export function SupportMainLayout({
    return (
       <SidebarProvider>
          {showSidebar ? <SupportSidebar /> : null}
-         <div className="h-dvh w-full overflow-hidden bg-[#050506] lg:p-2">
-            <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden bg-container lg:rounded-xl lg:border lg:border-white/8">
+         <div className="h-dvh min-w-0 flex-1 overflow-hidden bg-background">
+            <div className="flex h-full w-full flex-col overflow-hidden bg-background">
                {header}
-               <div className={cn('min-h-0 w-full', pageOwnsScroll ? 'overflow-hidden' : 'overflow-auto', header ? 'h-[calc(100dvh-40px)] lg:h-[calc(100dvh-48px)]' : 'h-full')}>
+               <div className={cn('min-h-0 w-full flex-1', pageOwnsScroll ? 'overflow-hidden' : 'overflow-auto')}>
                   {children}
                </div>
             </div>

@@ -12,6 +12,8 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@heroui/react": "^3.2.6",
+    "@heroui/styles": "^3.2.6",
     "@lexical/code-core": "^0.44.0",
     "@lexical/link": "^0.44.0",
     "@lexical/list": "^0.44.0",
@@ -38,6 +40,7 @@
     "moment-jalaali": "^0.10.4",
     "next-themes": "^0.4.4",
     "react": "^19.0.1",
+    "react-aria": "^3.52.1",
     "react-dom": "^19.0.1",
     "react-multi-date-picker": "^4.5.2",
     "react-resizable-panels": "^3.0.3",

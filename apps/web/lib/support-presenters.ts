@@ -84,16 +84,16 @@ export function supportDueLabel(value?: string | null, now = Date.now()): string
 }
 
 export function supportStatusTone(status: SupportCaseStatus): string {
-   if (status === 'NEW') return 'border-sky-400/20 bg-sky-400/10 text-sky-300';
-   if (status === 'OPEN') return 'border-indigo-400/20 bg-indigo-400/10 text-indigo-300';
-   if (status.startsWith('WAITING_')) return 'border-amber-400/20 bg-amber-400/10 text-amber-300';
-   if (status === 'RESOLVED') return 'border-lime-400/20 bg-lime-400/10 text-lime-300';
+   if (status === 'NEW') return 'border-sky-600/15 bg-sky-500/10 text-sky-700 dark:text-sky-300';
+   if (status === 'OPEN') return 'border-indigo-600/15 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300';
+   if (status.startsWith('WAITING_')) return 'border-amber-600/15 bg-amber-500/10 text-amber-800 dark:text-amber-300';
+   if (status === 'RESOLVED') return 'border-emerald-600/15 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
    return 'border-white/10 bg-white/5 text-zinc-400';
 }
 
 export function supportPriorityTone(priority: SupportCasePriority): string {
-   if (priority === 'URGENT') return 'text-red-300';
-   if (priority === 'HIGH') return 'text-orange-300';
+   if (priority === 'URGENT') return 'text-red-700 dark:text-red-400';
+   if (priority === 'HIGH') return 'text-orange-700 dark:text-orange-400';
    if (priority === 'LOW') return 'text-zinc-500';
    return 'text-zinc-400';
 }

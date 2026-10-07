@@ -29,6 +29,8 @@ import {
    SidebarMenuButton,
    SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { SupportButton } from '@/components/taskara/support-ui';
+import { useSidebar } from '@/components/ui/sidebar';
 import { TaskaraLogo } from '@/components/taskara/brand-logo';
 import { LinearAvatar } from '@/components/taskara/linear-ui';
 import { workspaceNavigationIcons } from '@/components/layout/workspace-navigation-icon';
@@ -49,10 +51,11 @@ import type { SupportQueueKind } from '@/lib/support-types';
 import { clearAuthSession } from '@/store/auth-store';
 
 const sidebarItemClassName =
-   'h-8 rounded-lg text-[13px] data-[active=true]:bg-zinc-200 data-[active=true]:text-zinc-950 data-[active=true]:hover:bg-zinc-200 data-[active=true]:hover:text-zinc-950 dark:data-[active=true]:bg-white/8 dark:data-[active=true]:text-zinc-100 dark:data-[active=true]:hover:bg-white/10 dark:data-[active=true]:hover:text-zinc-100';
+   'h-10 rounded-lg px-3 pe-10 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground data-[active=true]:bg-primary/10 data-[active=true]:font-semibold data-[active=true]:text-primary';
 
 export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
    const navigate = useNavigate();
+   const { setOpenMobile } = useSidebar();
    const location = useLocation();
    const { theme, setTheme } = useTheme();
    const runtime = useWorkspaceRuntime();
@@ -62,6 +65,8 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
    const sidebarGroups = workspaceSupportSidebarGroups(navigationRuntime);
    const activeRoute = workspaceRouteForPath(location.pathname, runtime.workspaceSlug);
    const createAction = workspaceCreateAction(navigationRuntime);
+
+   React.useEffect(() => { setOpenMobile(false); }, [location.pathname, setOpenMobile]);
 
    React.useEffect(() => {
       let cancelled = false;
@@ -100,14 +105,14 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
    ];
 
    return (
-      <Sidebar side="right" collapsible="offcanvas" className="border-l border-white/6 bg-[#070708]" {...props}>
-         <SidebarHeader className="gap-3 px-3 py-3">
+      <Sidebar side="right" collapsible="offcanvas" className="support-sidebar border-e border-border bg-sidebar" {...props}>
+         <SidebarHeader className="gap-4 px-4 pb-4 pt-5">
             <div className="flex items-center justify-between gap-2">
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                     <button className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-start text-sm font-semibold text-zinc-200 hover:bg-white/5" type="button">
+                     <button className="flex w-full min-w-0 items-center gap-2.5 rounded-lg py-1 text-start text-sm font-semibold text-foreground" type="button">
                         <TaskaraLogo className="size-7 rounded-lg border border-white/10" />
-                        <span className="truncate">{runtime.me.workspace.name}</span>
+                        <span className="min-w-0 flex-1"><span className="block truncate">{runtime.me.workspace.name}</span><span className="mt-1 block text-xs font-normal text-muted-foreground">فضای پشتیبانی</span></span>
                         <ChevronDown className="size-4 text-zinc-500" />
                      </button>
                   </DropdownMenuTrigger>
@@ -166,19 +171,13 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
                      <DropdownMenuItem className="h-8 rounded-md px-3 text-sm" onSelect={logout}>خروج</DropdownMenuItem>
                   </DropdownMenuContent>
                </DropdownMenu>
-               <div className="flex items-center gap-1">
-                  <button aria-label={fa.app.search} className="inline-flex size-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/6 hover:text-zinc-200" type="button" onClick={() => window.dispatchEvent(new CustomEvent('taskara:command-menu'))}>
-                     <Search className="size-4" />
-                  </button>
-                  {createAction ? (
-                     <button aria-label={createAction.label} className="inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-zinc-200 hover:bg-white/15" type="button" onClick={() => window.dispatchEvent(new CustomEvent(createAction.eventName))}>
-                        <Plus className="size-4" />
-                     </button>
-                  ) : null}
-               </div>
             </div>
+            <SupportButton variant="tertiary" className="h-9 w-full justify-start border border-border bg-background text-muted-foreground shadow-none" onPress={() => window.dispatchEvent(new CustomEvent('taskara:command-menu'))}>
+               <Search className="size-4" /><span className="flex-1 text-start">جستجو</span><kbd dir="ltr" className="font-mono text-[10px] opacity-60">⌘ K</kbd>
+            </SupportButton>
+            {createAction ? <SupportButton className="h-10 w-full justify-start" onPress={() => { setOpenMobile(false); window.dispatchEvent(new CustomEvent(createAction.eventName)); }}><Plus className="size-4" /><span className="flex-1 text-start">پرونده جدید</span><kbd className="font-mono text-[10px] opacity-70">C</kbd></SupportButton> : null}
          </SidebarHeader>
-         <SidebarContent className="gap-4 px-2">
+         <SidebarContent className="gap-5 px-3">
             {sidebarGroups.map((group) => (
                <SupportNavigationGroup
                   key={group.id}
@@ -189,11 +188,11 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   runtime={navigationRuntime}
                   workspaceSlug={runtime.workspaceSlug}
                   counts={group.id === 'work' ? support.queueCounts : undefined}
-                  collapsible={group.id === 'manage'}
+                  collapsible={group.id === 'manage' || group.id === 'workspace'}
                />
             ))}
          </SidebarContent>
-         <SidebarFooter className="p-3">
+         <SidebarFooter className="border-t border-border p-3">
             <Link to={`/${runtime.workspaceSlug}/settings/profile`} className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2 text-start transition hover:bg-white/[0.04]">
                <LinearAvatar name={runtime.me.user.name} src={runtime.me.user.avatarUrl} className="size-8 shrink-0" />
                <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">{runtime.me.user.name}</span>
@@ -259,13 +258,13 @@ function SupportNavigationGroup({
                return (
                   <SidebarMenuItem key={route.id}>
                      <SidebarMenuButton asChild isActive={activeRouteId === route.id} className={sidebarItemClassName}>
-                        <Link to={route.path(workspaceSlug, runtime)}>
+                        <Link to={route.path(workspaceSlug, runtime)} aria-current={activeRouteId === route.id ? 'page' : undefined}>
                            <Icon className="size-4" />
                            <span>{route.label}</span>
                         </Link>
                      </SidebarMenuButton>
                      {typeof count === 'number' && count > 0 ? (
-                        <SidebarMenuBadge className="font-mono text-[10px] text-zinc-500">
+                        <SidebarMenuBadge className="left-3 right-auto top-2.5 rounded-md bg-secondary px-1.5 font-mono text-[10px] text-muted-foreground">
                            {count > 999 ? '۹۹۹+' : count.toLocaleString('fa-IR')}
                         </SidebarMenuBadge>
                      ) : null}

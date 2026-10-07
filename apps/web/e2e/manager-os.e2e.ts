@@ -669,6 +669,7 @@ async function mockTaskaraApi(page: Page, options: MockTaskaraOptions = {}) {
     if (path === '/notifications/sync') return json(route, { cursor: query.get('cursor') || '0', notifications: [], unreadCount: 3 });
     if (path === '/announcements') return json(route, { ...pageResult([], Number(query.get('limit') || 1)), unreadCount: 0 });
     if (path === '/meetings') return json(route, pageResult([], Number(query.get('limit') || 1)));
+    if (path === '/tasks/archive') return json(route, { items: [], nextCursor: null, hasMore: false, total: 0 });
     if (path === '/tasks') {
       const mine = query.get('mine') === 'true';
       const filtered = mine ? fixture.tasks.filter((task) => task.assignee?.id === fixture.sessionUser.id) : fixture.tasks;

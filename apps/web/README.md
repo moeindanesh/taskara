@@ -1,6 +1,6 @@
 # Taskara Web
 
-Circle-derived frontend for Taskara, rewritten to run on Vite and React Router.
+RTL-first frontend for Taskara, built with Vite and React Router.
 
 ## Stack
 
@@ -8,7 +8,8 @@ Circle-derived frontend for Taskara, rewritten to run on Vite and React Router.
 - React
 - Tailwind CSS 4
 - next-themes
-- Radix UI primitives
+- HeroUI v3 and React Aria for shared controls and the Support workflow
+- Radix UI for the existing navigation and overlay primitives
 
 ## Development
 

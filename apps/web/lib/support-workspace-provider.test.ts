@@ -51,6 +51,18 @@ describe('memory-only Support workspace state', () => {
       expect(counts).toEqual({ MY_CASES: 3 });
    });
 
+   test('search results and their later pages preserve the full sidebar queue count', () => {
+      const initial = createSupportWorkspaceState('help:alice:1', { TRIAGE: 75 });
+      const filtered = supportWorkspaceReducer(initial, {
+         type: 'set-queue', queue: 'TRIAGE', cases: [caseRecord('a', 'HELP-1')], total: 2, filtered: true,
+      });
+      const nextPage = supportWorkspaceReducer(filtered, {
+         type: 'append-queue', queue: 'TRIAGE', cases: [caseRecord('b', 'HELP-2')], total: 2, filtered: true,
+      });
+      expect(nextPage.queueCounts.TRIAGE).toBe(75);
+      expect(nextPage.queueCaseIds.TRIAGE).toEqual(['a', 'b']);
+   });
+
    test('normalizes API count names into the internal queue vocabulary', () => {
       expect(normalizeQueueCounts({ triage: 2, departmentInbox: 3, myCases: 4, needsAttention: 5 })).toEqual({
          TRIAGE: 2,

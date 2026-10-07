@@ -18,6 +18,8 @@ import {
    Send,
    UserRound,
 } from 'lucide-react';
+import { Tabs } from '@heroui/react';
+import { SupportButton, SupportDisclosure, SupportSelect } from './support-ui';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -138,7 +140,7 @@ export function SupportCaseDetailView() {
    return (
       <main
          dir="rtl"
-         className="h-full min-h-0 overflow-auto bg-[#101011] text-zinc-200"
+         className="support-detail h-full min-h-0 overflow-auto bg-background text-foreground"
          data-testid="support-case-detail"
          onFocusCapture={(event) => {
             if (supportPresenceIntentForTarget(event.target)) setPresenceIntent('EDITING');
@@ -156,57 +158,55 @@ export function SupportCaseDetailView() {
             </div>
          </header>
 
-         <div className="mx-auto grid max-w-7xl gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="min-w-0 space-y-4">
-               <SupportCasePresenceNotice
-                  caseKey={item.key}
-                  caseVersion={item.version}
-                  intent={presenceIntent}
-                  onRefreshRequested={load}
-               />
-               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm text-red-200">{error}</p> : null}
-               <CaseContextCard item={item} />
-               <div className="xl:hidden"><CaseFactsCard item={item} assignee={assignee} /></div>
-               <TimelineCard events={events} interactions={interactions} />
-               {item.status !== 'CLOSED' ? (
-                  <InteractionComposer
-                     item={item}
-                     onChanged={async (updated) => {
+         <Tabs key={item.key} className="support-ui mx-auto max-w-7xl px-4 py-5 sm:px-6" defaultSelectedKey="conversation" variant="secondary">
+            <Tabs.ListContainer className="mb-5 max-w-full overflow-x-auto">
+               <Tabs.List aria-label="بخش‌های پرونده" className="w-max">
+                  <Tabs.Tab id="conversation">گفتگو و پیگیری<Tabs.Indicator /></Tabs.Tab>
+                  <Tabs.Tab id="routing">اطلاعات و ارجاع<Tabs.Indicator /></Tabs.Tab>
+                  <Tabs.Tab id="tools">ابزارهای تکمیلی<Tabs.Indicator /></Tabs.Tab>
+               </Tabs.List>
+            </Tabs.ListContainer>
+            <SupportCasePresenceNotice caseKey={item.key} caseVersion={item.version} intent={presenceIntent} onRefreshRequested={load} />
+            {error ? <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</p> : null}
+            <Tabs.Panel id="conversation" shouldForceMount>
+               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="min-w-0 space-y-5">
+                     <CaseContextCard item={item} />
+                     <TimelineCard events={events} interactions={interactions} />
+                     {item.status !== 'CLOSED' ? <InteractionComposer item={item} onChanged={async (updated) => {
                         setItem(updated);
                         const [nextInteractions, nextEvents] = await Promise.all([support.loadInteractions(item.key), support.loadEvents(item.key)]);
-                        setInteractions(nextInteractions);
-                        setEvents(nextEvents);
-                     }}
-                  />
-               ) : null}
-               <SupportCaseKnowledgeCard item={item} />
-            </div>
-            <aside className="min-w-0 space-y-4" aria-label="ویژگی‌ها و اقدام‌های پرونده">
-               <div className="hidden xl:block"><CaseFactsCard item={item} assignee={assignee} /></div>
-               <SupportCaseRoutingAssistance item={item} onChanged={setItem} />
-               <SupportCaseAssistanceCard item={item} onCaseChanged={load} />
-               <SupportCaseEnablementCard
-                  item={item}
-                  onCaseChanged={(updated) => {
-                     setItem(updated);
-                     void support.loadEvents(updated.key).then(setEvents).catch(() => undefined);
-                  }}
-               />
-               <RoutingCard item={item} onChanged={setItem} />
-               <NextActionCard item={item} onChanged={setItem} />
-               <AttentionSnoozeCard item={item} onChanged={setItem} />
-               <ResolutionCard item={item} onChanged={setItem} />
-               <SupportCaseCsatCard item={item} />
-               <SupportCaseHandoffCard
-                  canMutate={supportCaseActionAccess(item, support.access).canWork}
-                  item={item}
-                  onCaseChanged={async () => {
-                     const updated = await support.loadCase(item.key);
-                     setItem(updated);
-                  }}
-               />
-            </aside>
-         </div>
+                        setInteractions(nextInteractions); setEvents(nextEvents);
+                     }} /> : null}
+                  </div>
+                  <aside className="min-w-0 space-y-4" aria-label="ویژگی‌ها و اقدام‌های پرونده">
+                     <CaseFactsCard item={item} assignee={assignee} />
+                     <SupportDisclosure title="تنظیم اقدام بعدی"><NextActionCard item={item} onChanged={setItem} /></SupportDisclosure>
+                     <SupportDisclosure title="حل و بستن پرونده" defaultExpanded={item.status === 'RESOLVED' || item.status === 'CLOSED'}><ResolutionCard item={item} onChanged={setItem} /></SupportDisclosure>
+                  </aside>
+               </div>
+            </Tabs.Panel>
+            <Tabs.Panel id="routing" shouldForceMount>
+               <div className="grid items-start gap-5 lg:grid-cols-2">
+                  <RoutingCard item={item} onChanged={setItem} />
+                  <div className="min-w-0 space-y-5"><SupportCaseRoutingAssistance item={item} onChanged={setItem} /><AttentionSnoozeCard item={item} onChanged={setItem} /></div>
+               </div>
+            </Tabs.Panel>
+            <Tabs.Panel id="tools" shouldForceMount>
+               <p className="mb-5 text-sm text-muted-foreground">در صورت نیاز، از همکاران کمک بگیرید یا پرونده را به کار تیمی و دانش مرتبط کنید.</p>
+               <div className="grid items-start gap-5 xl:grid-cols-2">
+                  <div className="min-w-0 space-y-5">
+                     <SupportCaseAssistanceCard item={item} onCaseChanged={load} />
+                     <SupportCaseKnowledgeCard item={item} />
+                     <SupportCaseCsatCard item={item} />
+                  </div>
+                  <div className="min-w-0 space-y-5">
+                     <SupportCaseEnablementCard item={item} onCaseChanged={(updated) => { setItem(updated); void support.loadEvents(updated.key).then(setEvents).catch(() => undefined); }} />
+                     <SupportCaseHandoffCard canMutate={supportCaseActionAccess(item, support.access).canWork} item={item} onCaseChanged={async () => { setItem(await support.loadCase(item.key)); }} />
+                  </div>
+               </div>
+            </Tabs.Panel>
+         </Tabs>
       </main>
    );
 }
@@ -214,10 +214,10 @@ export function SupportCaseDetailView() {
 function CaseContextCard({ item }: { item: SupportCase }) {
    return (
       <Card className="border-white/8 bg-[#171719] text-zinc-100">
-         <CardHeader><CardTitle className="text-sm">زمینه درخواست</CardTitle><CardDescription className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-600"><span>{supportSourceLabels[item.sourceChannel]}</span><bdi dir="ltr" className="font-mono">{item.typeKey}</bdi><span>{formatJalaliDateTime(item.receivedAt)}</span></CardDescription></CardHeader>
+         <CardHeader><CardTitle className="text-sm">زمینه درخواست</CardTitle><CardDescription className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-600"><span>{supportSourceLabels[item.sourceChannel]}</span>{item.typeKey !== 'general' ? <bdi dir="ltr" className="font-mono">{item.typeKey}</bdi> : null}<span>{formatJalaliDateTime(item.receivedAt)}</span></CardDescription></CardHeader>
          <CardContent className="space-y-4">
             <p className="whitespace-pre-wrap break-words text-sm leading-8 text-zinc-300">{item.description || 'شرح تکمیلی ثبت نشده است.'}</p>
-            {item.attentionReasons?.length ? <div className="flex flex-wrap gap-2 border-t border-white/6 pt-4">{item.attentionReasons.map((reason) => <Badge key={reason} variant="outline" className="border-amber-300/15 bg-amber-300/5 text-amber-200/80">{supportAttentionLabels[reason]}</Badge>)}</div> : null}
+            {item.attentionReasons?.length ? <div className="flex flex-wrap gap-2 border-t border-white/6 pt-4">{item.attentionReasons.map((reason) => <Badge key={reason} variant="outline" className="border-amber-600/15 bg-amber-500/5 text-amber-800 dark:text-amber-300">{supportAttentionLabels[reason]}</Badge>)}</div> : null}
          </CardContent>
       </Card>
    );
@@ -236,7 +236,7 @@ function CaseFactsCard({ assignee, item }: { assignee?: SupportDepartmentMember 
             <Fact icon={Clock3} label="اقدام بعدی" value={item.nextActionAt ? `${formatJalaliDateTime(item.nextActionAt)} — ${supportDueLabel(item.nextActionAt)}` : 'تعیین نشده'} />
             {item.nextSlaDueAt ? <Fact icon={Clock3} label="موعد SLA" value={`${formatJalaliDateTime(item.nextSlaDueAt)} — ${supportDueLabel(item.nextSlaDueAt)}`} /> : null}
             {item.snoozedUntil && new Date(item.snoozedUntil).getTime() > Date.now() ? <Fact icon={BellOff} label="توجه به پرونده تعویق شده تا" value={formatJalaliDateTime(item.snoozedUntil)} /> : null}
-            <div className="rounded-lg border border-white/7 bg-black/10 px-3 py-2 text-xs leading-6 text-zinc-600"><LockKeyhole className="me-1 inline size-3.5" />این اطلاعات فقط تا زمانی در حافظه مرورگر می‌ماند که دسترسی فعلی معتبر است.</div>
+
          </CardContent>
       </Card>
    );
@@ -560,7 +560,23 @@ function InteractionComposer({ item, onChanged }: { item: SupportCase; onChanged
    return (
       <Card className="border-white/8 bg-[#171719] text-zinc-100">
          <CardHeader><CardTitle className="text-sm">ثبت تعامل</CardTitle><CardDescription className="leading-6 text-zinc-600">این فرم پیام ارسال نمی‌کند؛ فقط تعامل انجام‌شده از کانال دستی یا تلفنی را ثبت می‌کند.</CardDescription></CardHeader>
-         <CardContent><form className="grid gap-3" onSubmit={submit}>{error ? <InlineError message={error} /> : null}<div className={cn('grid grid-cols-2 gap-1 rounded-lg bg-black/15 p-1', support.manualCallAvailable ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>{([['NOTE', 'یادداشت داخلی'], ['PUBLIC', 'پاسخ ثبت‌شده'], ['CUSTOMER', 'پیام مشتری'], ...(support.manualCallAvailable ? [['CALL', 'تماس'] as const] : [])] as const).map(([value, label]) => <button key={value} className={cn('rounded-md px-2 py-2 text-xs transition', mode === value ? 'bg-white/8 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')} type="button" onClick={() => setMode(value)}>{label}</button>)}</div>{mode === 'CALL' ? <Field label="نتیجه تماس"><select className={selectClass} value={disposition} onChange={(event) => setDisposition(event.target.value as typeof disposition)}><option value="ANSWERED">پاسخ داده شد</option><option value="MISSED">بی‌پاسخ</option><option value="ABANDONED">قطع‌شده</option><option value="VOICEMAIL">پیام صوتی</option></select></Field> : null}<Textarea aria-label="متن تعامل" className={cn(inputClass, 'min-h-28')} maxLength={100000} placeholder={mode === 'NOTE' ? 'یادداشت فقط برای تیم پشتیبانی…' : 'خلاصه دقیق تعامل انجام‌شده…'} value={body} onChange={(event) => setBody(event.target.value)} /><div className="flex justify-end"><Button className="bg-zinc-100 text-zinc-950 hover:bg-white" disabled={!body.trim() || submitting || (mode === 'CALL' && !support.manualCallAvailable)} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : mode === 'CALL' ? <PhoneCall className="size-4" /> : <Send className="size-4" />} ثبت تعامل</Button></div></form></CardContent>
+         <CardContent>
+            <form className="grid gap-4" onSubmit={submit}>
+               {error ? <InlineError message={error} /> : null}
+               <div role="group" aria-label="نوع تعامل" className={cn('grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1', support.manualCallAvailable ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>
+                  {([['NOTE', 'یادداشت داخلی'], ['PUBLIC', 'پاسخ ثبت‌شده'], ['CUSTOMER', 'پیام مشتری'], ...(support.manualCallAvailable ? [['CALL', 'تماس'] as const] : [])] as const).map(([value, label]) => (
+                     <SupportButton key={value} aria-pressed={mode === value} className={cn('w-full px-2 text-xs', mode === value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')} size="sm" variant="ghost" onPress={() => setMode(value)}>{label}</SupportButton>
+                  ))}
+               </div>
+               {mode === 'CALL' ? <SupportSelect showLabel label="نتیجه تماس" value={disposition} onChange={(value) => setDisposition(value as typeof disposition)} options={[{ value: 'ANSWERED', label: 'پاسخ داده شد' }, { value: 'MISSED', label: 'بی‌پاسخ' }, { value: 'ABANDONED', label: 'قطع‌شده' }, { value: 'VOICEMAIL', label: 'پیام صوتی' }]} /> : null}
+               <Textarea aria-label="متن تعامل" className={cn(inputClass, 'min-h-28')} maxLength={100000} placeholder={mode === 'NOTE' ? 'یادداشت فقط برای تیم پشتیبانی…' : 'خلاصه دقیق تعامل انجام‌شده…'} value={body} onChange={(event) => setBody(event.target.value)} />
+               <div className="flex justify-start">
+                  <SupportButton isDisabled={!body.trim() || submitting || (mode === 'CALL' && !support.manualCallAvailable)} type="submit">
+                     {submitting ? <Loader2 className="size-4 animate-spin" /> : mode === 'CALL' ? <PhoneCall className="size-4" /> : <Send className="size-4" />} ثبت تعامل
+                  </SupportButton>
+               </div>
+            </form>
+         </CardContent>
       </Card>
    );
 }
@@ -572,9 +588,9 @@ function TimelineCard({ events, interactions }: { events: SupportCaseEvent[]; in
    ].sort((left, right) => left.at.localeCompare(right.at)), [events, interactions]);
    return (
       <Card className="border-white/8 bg-[#171719] text-zinc-100">
-         <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><History className="size-4 text-zinc-500" /> خط زمانی و تاریخچه تغییرات</CardTitle><CardDescription className="text-zinc-600">تعامل‌ها و رویدادهای عملیاتی به ترتیب وقوع</CardDescription></CardHeader>
+         <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><History className="size-4 text-zinc-500" /> گفتگو و فعالیت‌ها</CardTitle><CardDescription className="text-zinc-600">تعامل‌ها و رویدادهای عملیاتی به ترتیب وقوع</CardDescription></CardHeader>
          <CardContent>
-            {!timeline.length ? <p className="rounded-lg border border-dashed border-white/10 py-10 text-center text-sm text-zinc-600">هنوز رویدادی ثبت نشده است.</p> : <ol className="space-y-0">{timeline.map((entry, index) => <li key={entry.id} className="relative flex gap-3 pb-5 last:pb-0">{index < timeline.length - 1 ? <span className="absolute end-[13px] top-7 h-[calc(100%-1rem)] w-px bg-white/7" /> : null}<span className={cn('relative z-[1] mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border', entry.kind === 'interaction' ? 'border-indigo-400/20 bg-indigo-400/8 text-indigo-300' : 'border-white/10 bg-[#111113] text-zinc-500')}>{entry.kind === 'interaction' ? entry.item.kind === 'CALL' ? <PhoneCall className="size-3.5" /> : <MessageSquareText className="size-3.5" /> : <History className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-lg border border-white/6 bg-black/10 px-3 py-2.5">{entry.kind === 'interaction' ? <InteractionTimelineItem item={entry.item} /> : <EventTimelineItem item={entry.item} />}<time className="mt-2 block text-[11px] text-zinc-600">{formatJalaliDateTime(entry.at)}</time></div></li>)}</ol>}
+            {!timeline.length ? <p className="rounded-lg border border-dashed border-white/10 py-10 text-center text-sm text-zinc-600">هنوز رویدادی ثبت نشده است.</p> : <ol className="space-y-0">{timeline.map((entry, index) => <li key={entry.id} className="relative flex gap-3 pb-5 last:pb-0">{index < timeline.length - 1 ? <span className="absolute end-[13px] top-7 h-[calc(100%-1rem)] w-px bg-white/7" /> : null}<span className={cn('relative z-[1] mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border', entry.kind === 'interaction' ? 'border-indigo-400/20 bg-indigo-400/8 text-indigo-300' : 'border-white/10 bg-[#111113] text-zinc-500')}>{entry.kind === 'interaction' ? entry.item.kind === 'CALL' ? <PhoneCall className="size-3.5" /> : <MessageSquareText className="size-3.5" /> : <History className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-lg border border-border bg-secondary/35 px-3 py-2.5">{entry.kind === 'interaction' ? <InteractionTimelineItem item={entry.item} /> : <EventTimelineItem item={entry.item} />}<time className="mt-2 block text-[11px] text-zinc-600">{formatJalaliDateTime(entry.at)}</time></div></li>)}</ol>}
          </CardContent>
       </Card>
    );

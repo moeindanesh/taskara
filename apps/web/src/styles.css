@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '@heroui/styles';
 
 @plugin "tailwindcss-animate";
 
@@ -7,10 +8,10 @@
 @theme {
    --font-sans: var(--font-vazirmatn);
    --font-mono: var(--font-geist-mono);
-   --text-xs: 0.6875rem;
-   --text-xs--line-height: 0.95rem;
-   --text-sm: 0.8125rem;
-   --text-sm--line-height: 1.15rem;
+   --text-xs: 0.75rem;
+   --text-xs--line-height: 1.125rem;
+   --text-sm: 0.875rem;
+   --text-sm--line-height: 1.375rem;
    --text-base: 0.875rem;
    --text-base--line-height: 1.3rem;
    --text-lg: 1rem;
@@ -51,7 +52,7 @@
    --secondary: color-mix(in srgb, var(--theme-ink) 6%, var(--theme-surface));
    --secondary-foreground: var(--theme-ink);
    --muted: color-mix(in srgb, var(--theme-ink) 5%, var(--theme-surface));
-   --muted-foreground: color-mix(in srgb, var(--theme-ink) 58%, var(--theme-surface));
+   --muted-foreground: color-mix(in srgb, var(--theme-ink) 64%, var(--theme-surface));
    --accent: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
    --accent-foreground: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-ink));
    --destructive: var(--theme-diff-removed);
@@ -101,7 +102,7 @@
    --secondary: color-mix(in srgb, var(--theme-ink) 9%, var(--theme-surface));
    --secondary-foreground: var(--theme-ink);
    --muted: color-mix(in srgb, var(--theme-ink) 8%, var(--theme-surface));
-   --muted-foreground: color-mix(in srgb, var(--theme-ink) 55%, var(--theme-surface));
+   --muted-foreground: color-mix(in srgb, var(--theme-ink) 65%, var(--theme-surface));
    --accent: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface));
    --accent-foreground: var(--theme-ink);
    --destructive: var(--theme-diff-removed);
@@ -176,13 +177,11 @@
 @layer base {
    * {
       @apply border-border outline-ring/50;
-      font-weight: 400 !important;
       font-synthesis: none;
    }
 
    *::before,
    *::after {
-      font-weight: 400 !important;
       font-synthesis: none;
    }
 
@@ -915,4 +914,52 @@ input[type='search'] {
 input:focus-visible, textarea:focus-visible, [contenteditable='true']:focus-visible {
    outline: none !important;
    --tw-ring-shadow: 0 0 #0000 !important;
+}
+
+/* HeroUI tokens share Taskara's light/dark surfaces. Keep the existing legacy
+   accent/muted tokens intact; HeroUI controls receive their own semantic bridge. */
+:root, .dark {
+   --surface: var(--card);
+   --surface-foreground: var(--foreground);
+   --overlay: var(--popover);
+   --overlay-foreground: var(--foreground);
+   --field-background: var(--background);
+   --field-foreground: var(--foreground);
+   --field-placeholder: var(--muted-foreground);
+   --field-border: var(--border);
+   --field-border-width: 1px;
+   --field-radius: 0.5rem;
+   --default: var(--secondary);
+   --default-foreground: var(--foreground);
+   --focus: var(--primary);
+   --separator: var(--border);
+   --segment: var(--background);
+   --segment-foreground: var(--foreground);
+}
+
+.support-ui {
+   --accent: var(--primary);
+   --accent-foreground: var(--primary-foreground);
+   --accent-hover: color-mix(in srgb, var(--primary) 88%, var(--foreground));
+   --muted: var(--muted-foreground);
+   --color-muted: var(--muted-foreground);
+   font-family: var(--app-font-family);
+}
+
+.support-ui input[type='search']::-webkit-search-cancel-button { display: none; }
+.support-sidebar [data-sidebar='sidebar'] { background: var(--sidebar); }
+
+/* Keep drafts mounted when changing tabs without displaying inactive panels. */
+.support-detail [data-slot='tabs-panel'][data-inert='true'] { display: none; }
+.support-detail [data-slot='card'] { box-shadow: none; }
+
+@media (min-width: 1024px) {
+   .support-queue-grid {
+      grid-template-columns: minmax(0, 1fr) 100px 140px 170px;
+      gap: 1.25rem;
+   }
+}
+
+@media (min-width: 1440px) {
+   .support-queue-grid { grid-template-columns: minmax(0, 1fr) 112px 160px 185px; }
 }
