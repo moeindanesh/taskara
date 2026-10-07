@@ -133,7 +133,7 @@ export function MilestoneSelector({
             <SelectValue placeholder={loading ? fa.app.loading : placeholder}>
                {variant === 'pill' ? (
                   <span className="flex min-w-0 items-center gap-1.5">
-                     <SelectedIcon className="size-3.5 shrink-0 text-indigo-400" />
+                     <SelectedIcon className="size-3.5 shrink-0 text-indigo-700 dark:text-indigo-400" />
                      <span className="truncate">{selectedMilestone?.name || fa.milestone.noMilestone}</span>
                   </span>
                ) : undefined}
@@ -162,7 +162,7 @@ export function MilestoneSelector({
                   </SelectItem>
                );
             })}
-            {canCreate ? <SelectItem className="mt-1 rounded-lg border-t border-border/60 pt-2 text-indigo-500 dark:text-indigo-200" value={CREATE_VALUE}>
+            {canCreate ? <SelectItem className="mt-1 rounded-lg border-t border-border/60 pt-2 text-indigo-700 dark:text-indigo-200" value={CREATE_VALUE}>
                <span className="flex items-center gap-2">
                   <Plus className="size-3.5" />
                   {fa.milestone.create}

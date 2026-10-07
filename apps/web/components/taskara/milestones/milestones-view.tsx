@@ -280,7 +280,7 @@ export function MilestonesView() {
                      <Filter className="size-4" />
                      <span>{fa.milestone.filters}</span>
                      {activeFilterCount > 0 ? (
-                        <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[9px] leading-4 text-white">
+                        <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-indigo-700 dark:bg-indigo-500 px-1 text-[9px] leading-4 text-white">
                            {activeFilterCount.toLocaleString('fa-IR')}
                         </span>
                      ) : null}

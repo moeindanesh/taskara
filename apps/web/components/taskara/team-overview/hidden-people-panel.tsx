@@ -71,14 +71,14 @@ export function HiddenPeoplePanel({ hidden, onShowAll, onShowPerson }: HiddenPeo
                            {fa.teamOverview.hiddenPersonLoad(person.taskCount)}
                         </span>
                      </span>
-                     <Eye className="size-3.5 shrink-0 text-zinc-600 transition-colors group-hover:text-indigo-300" />
+                     <Eye className="size-3.5 shrink-0 text-zinc-600 transition-colors group-hover:text-indigo-700 dark:group-hover:text-indigo-300" />
                   </button>
                ))}
             </div>
 
             {hidden.length > 1 ? (
                <button
-                  className="mt-1 w-full rounded-lg border-t border-white/6 px-2 py-2 text-[12px] text-zinc-500 transition-colors hover:text-indigo-300"
+                  className="mt-1 w-full rounded-lg border-t border-white/6 px-2 py-2 text-[12px] text-zinc-500 transition-colors hover:text-indigo-700 dark:hover:text-indigo-300"
                   data-testid="show-all-people"
                   onClick={onShowAll}
                   type="button"

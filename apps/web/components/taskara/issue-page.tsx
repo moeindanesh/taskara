@@ -861,7 +861,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
    if (error || !task) {
       return (
          <div className="p-4">
-            <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-700 dark:text-red-200">
                {error || fa.issue.noIssueSelected}
             </p>
          </div>
@@ -1003,7 +1003,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                {aiSuggestion ? (
                   <div className="mt-3 rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-sm">
                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 text-indigo-100">
+                        <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-100">
                            <Sparkles className="size-4" />
                            <span className="font-medium">پیشنهاد هوشمند AI</span>
                         </div>
@@ -1309,7 +1309,7 @@ export function IssuePage({ onClose, taskKey: taskKeyOverride }: IssuePageProps 
                      انصراف
                   </Button>
                   <Button
-                     className="bg-indigo-500 text-white hover:bg-indigo-400"
+                     className="bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
                      onClick={() => {
                         const nextProjectId = pendingProjectId;
                         setPendingProjectId(null);

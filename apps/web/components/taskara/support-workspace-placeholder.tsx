@@ -32,7 +32,7 @@ function SupportPlaceholder({
    return (
       <div dir="rtl" className="flex min-h-full items-center justify-center bg-[#101011] p-6 text-zinc-200">
          <div className="w-full max-w-xl rounded-2xl border border-white/8 bg-white/[0.025] p-8 text-center shadow-2xl shadow-black/20">
-            <span className="mx-auto flex size-12 items-center justify-center rounded-xl bg-indigo-400/10 text-indigo-300">
+            <span className="mx-auto flex size-12 items-center justify-center rounded-xl bg-indigo-400/10 text-indigo-700 dark:text-indigo-300">
                <Icon className="size-6" />
             </span>
             <h2 className="mt-5 text-lg font-semibold">{title}</h2>

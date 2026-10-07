@@ -462,7 +462,7 @@ function MetricTile({
 function EmptyState({ title }: { title: string }) {
    return (
       <div className="rounded-md border border-dashed border-zinc-200 px-4 py-10 text-center dark:border-white/10">
-         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-500" />
+         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-700 dark:text-emerald-500" />
          <div className="text-sm font-medium">{title}</div>
       </div>
    );

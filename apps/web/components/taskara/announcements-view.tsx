@@ -355,13 +355,13 @@ export function AnnouncementsView() {
                <div className="flex min-w-0 items-center gap-2">
                   <Megaphone className="size-4 shrink-0 text-zinc-500" />
                   <h1 className="truncate text-sm font-semibold text-zinc-100">{fa.announcement.title}</h1>
-                  {unreadCount > 0 ? <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-200">{unreadCount.toLocaleString('fa-IR')}</span> : null}
+                  {unreadCount > 0 ? <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-700 dark:text-indigo-200">{unreadCount.toLocaleString('fa-IR')}</span> : null}
                </div>
                <Button size="icon" variant="ghost" className="size-8 rounded-full text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100" onClick={() => setCreateOpen(true)}>
                   <Plus className="size-4" />
                </Button>
             </div>
-            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">{error}</div> : null}
+            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-700 dark:text-red-200">{error}</div> : null}
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
                {loading ? (
                   <EmptyState>{fa.app.loading}</EmptyState>
@@ -409,7 +409,7 @@ export function AnnouncementsView() {
                         {selected.status === 'DRAFT' ? (
                            <Button
                               size="sm"
-                              className="h-8 gap-2 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                              className="h-8 gap-2 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                               disabled={publishSubmitting || draftRecipientIds.length === 0}
                               onClick={() => void publishDraft()}
                            >
@@ -478,14 +478,14 @@ export function AnnouncementsView() {
                                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/8">
                                        <div className="h-full rounded-full bg-indigo-400/70 transition-all" style={{ width: `${votePercent}%` }} />
                                     </div>
-                                    {isSavedVote ? <p className="mt-1 text-[11px] text-indigo-200">{fa.announcement.pollYourVote}</p> : null}
+                                    {isSavedVote ? <p className="mt-1 text-[11px] text-indigo-700 dark:text-indigo-200">{fa.announcement.pollYourVote}</p> : null}
                                  </button>
                               );
                            })}
                         </div>
                         {selectedCanVotePoll ? (
                            <Button
-                              className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                              className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                               disabled={pollVoting || pollSelection.length === 0}
                               onClick={() => void submitPollVote()}
                            >
@@ -531,7 +531,7 @@ export function AnnouncementsView() {
                               <LinearAvatar name={recipient.user.name} src={recipient.user.avatarUrl} className="size-6" />
                               <span className="truncate text-sm text-zinc-300">{recipient.user.name}</span>
                            </span>
-                           <span className={cn('shrink-0 text-[11px]', recipient.readAt ? 'text-zinc-500' : 'text-indigo-300')}>
+                           <span className={cn('shrink-0 text-[11px]', recipient.readAt ? 'text-zinc-500' : 'text-indigo-700 dark:text-indigo-300')}>
                               {recipient.readAt ? formatJalaliDateTime(recipient.readAt) : fa.announcement.unread}
                            </span>
                         </div>
@@ -702,7 +702,7 @@ export function AnnouncementsView() {
                         </Button>
                         <Button
                            type="button"
-                           className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                           className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                            disabled={Boolean(submittingAction) || !form.title.trim() || !form.recipientIds.length}
                            onClick={() => void createNewAnnouncement(true)}
                         >
@@ -756,9 +756,9 @@ function DraftPublishControls({
             selectedIds={draftRecipientIds}
             users={users}
          />
-         {draftRecipientIds.length === 0 ? <p className="text-xs leading-5 text-amber-200/80">{fa.announcement.publishDraftNoRecipients}</p> : null}
+         {draftRecipientIds.length === 0 ? <p className="text-xs leading-5 text-amber-800 dark:text-amber-200/80">{fa.announcement.publishDraftNoRecipients}</p> : null}
          <Button
-            className="h-8 w-full rounded-full bg-indigo-500 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+            className="h-8 w-full rounded-full bg-indigo-700 dark:bg-indigo-500 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
             disabled={publishSubmitting || draftRecipientIds.length === 0}
             onClick={() => void onPublish()}
          >

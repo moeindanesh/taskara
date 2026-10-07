@@ -393,7 +393,7 @@ function ProjectsSettingsPage() {
                </SettingsField>
 
                {!isWorkspaceAdmin && !loading ? (
-                  <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-300">
+                  <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
                      فقط مالک یا مدیر فضای کاری می‌تواند پروژه‌ها را ادغام کند.
                   </div>
                ) : null}
@@ -401,7 +401,7 @@ function ProjectsSettingsPage() {
                <div className="flex items-center justify-between gap-3 border-t border-white/7 px-4 py-3">
                   <div className="text-xs text-zinc-500">کلید تسک‌های موجود حفظ می‌شود؛ تسک‌های جدید از شماره بعدی پروژه مقصد ادامه پیدا می‌کنند.</div>
                   <Button
-                     className="shrink-0 border border-red-400/20 bg-red-500/15 text-red-200 hover:bg-red-500/25"
+                     className="shrink-0 border border-red-400/20 bg-red-500/15 text-red-700 dark:text-red-200 hover:bg-red-500/25"
                      disabled={loading || merging || !destinationProjectId || sourceProjectIds.length === 0 || !isWorkspaceAdmin}
                      type="button"
                      onClick={() => void handleMergeProjects()}
@@ -988,7 +988,7 @@ function WorkspaceAccessSettingsPage() {
                                           size="icon"
                                           disabled={!isWorkspaceAdmin || ownerLocked}
                                           aria-label={`حذف ${user.name}`}
-                                          className="size-8 text-zinc-500 hover:bg-red-500/10 hover:text-red-300"
+                                          className="size-8 text-zinc-500 hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300"
                                           onClick={() => void handleRemoveMembership(user)}
                                        >
                                           <Trash2 className="size-4" />
@@ -1325,7 +1325,7 @@ function AiSettingsPage() {
             </SettingsField>
 
             {!isWorkspaceAdmin ? (
-               <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-300">
+               <div className="border-t border-white/7 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
                   فقط مالک یا مدیر فضای کاری می‌تواند تنظیمات AI را تغییر دهد.
                </div>
             ) : null}
@@ -1409,8 +1409,8 @@ function SettingsMessage({ children, tone }: { children: ReactNode; tone: 'error
          className={cn(
             'mb-5 rounded-lg border px-4 py-3 text-sm',
             tone === 'error'
-               ? 'border-red-400/20 bg-red-400/10 text-red-200'
-               : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+               ? 'border-red-400/20 bg-red-400/10 text-red-700 dark:text-red-200'
+               : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-700 dark:text-emerald-200'
          )}
       >
          {children}

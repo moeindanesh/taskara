@@ -90,7 +90,7 @@ export function SupportTicketListView() {
                </Button>
             </div>
          </div>
-         {error ? <div role="alert" className="m-4 flex items-center gap-2 rounded-lg border border-red-400/20 bg-red-400/8 p-3 text-red-200"><AlertTriangle className="size-4" />{error}</div> : null}
+         {error ? <div role="alert" className="m-4 flex items-center gap-2 rounded-lg border border-red-400/20 bg-red-400/8 p-3 text-red-700 dark:text-red-200"><AlertTriangle className="size-4" />{error}</div> : null}
          <div className="min-h-0 flex-1 overflow-auto">
             {loading && !items.length ? (
                <div className="flex h-56 items-center justify-center gap-2 text-zinc-500"><Loader2 className="size-4 animate-spin" />در حال بارگذاری…</div>
@@ -106,7 +106,7 @@ export function SupportTicketListView() {
                            <div className="flex items-center gap-2">
                               <bdi dir="ltr" className="font-mono text-xs text-zinc-500">{ticket.key}</bdi>
                               <h2 className="truncate text-sm text-zinc-100">{ticket.title}</h2>
-                              {ticket.caseKey ? <Badge variant="outline" className="border-lime-300/20 text-lime-200">پرونده {ticket.caseKey}</Badge> : null}
+                              {ticket.caseKey ? <Badge variant="outline" className="border-lime-300/20 text-lime-800 dark:text-lime-200">پرونده {ticket.caseKey}</Badge> : null}
                            </div>
                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-600">
                               <bdi dir="ltr">{ticket.contact?.phone || 'بدون تلفن'}</bdi>

@@ -601,7 +601,7 @@ export function KnowledgeView() {
                )}
             </div>
 
-            {visibleError ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">{visibleError}</div> : null}
+            {visibleError ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-700 dark:text-red-200">{visibleError}</div> : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
                {loading ? (
@@ -609,7 +609,7 @@ export function KnowledgeView() {
                ) : spaces.length === 0 ? (
                   <KnowledgeEmptyState>
                      <span>{fa.knowledge.noSpaces}</span>
-                     <Button className="mt-3 h-8 rounded-full bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-400" onClick={() => openSpaceDialog(true)}>
+                     <Button className="mt-3 h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-800 dark:hover:bg-indigo-400" onClick={() => openSpaceDialog(true)}>
                         {fa.knowledge.createSpace}
                      </Button>
                   </KnowledgeEmptyState>
@@ -658,7 +658,7 @@ export function KnowledgeView() {
                <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col px-5 py-5 lg:px-8">
                   <div className="space-y-4">
                      <Input
-                        className="h-auto border-0 bg-transparent px-0 text-3xl font-semibold leading-tight text-foreground shadow-none outline-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                        className="h-auto border-0 bg-transparent px-0 text-3xl font-semibold leading-tight text-foreground shadow-none outline-none placeholder:text-muted-foreground dark:placeholder:text-muted-foreground/60 focus-visible:ring-0"
                         value={titleDraft}
                         onChange={(event) => setTitleDraft(event.target.value)}
                         placeholder={fa.knowledge.pageTitle}
@@ -684,11 +684,11 @@ export function KnowledgeView() {
                   <KnowledgeEmptyState>
                      <span>{fa.knowledge.noPageSelected}</span>
                      {selectedSpace ? (
-                        <Button className="mt-3 h-8 rounded-full bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-400" onClick={() => openPageDialog()}>
+                        <Button className="mt-3 h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-800 dark:hover:bg-indigo-400" onClick={() => openPageDialog()}>
                            {fa.knowledge.createPage}
                         </Button>
                      ) : spaceKey ? (
-                        <Button className="mt-3 h-8 rounded-full bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-400" onClick={() => openSpaceDialog(true)}>
+                        <Button className="mt-3 h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-xs text-white hover:bg-indigo-800 dark:hover:bg-indigo-400" onClick={() => openSpaceDialog(true)}>
                            {fa.knowledge.createSpace}
                         </Button>
                      ) : null}
@@ -709,7 +709,7 @@ export function KnowledgeView() {
                         </div>
                         <Button
                            size="sm"
-                           className="h-7 rounded-md bg-indigo-500 px-3 text-xs font-normal text-white hover:bg-indigo-400 disabled:bg-white/[0.055] disabled:text-zinc-500"
+                           className="h-7 rounded-md bg-indigo-700 dark:bg-indigo-500 px-3 text-xs font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-white/[0.055] disabled:text-zinc-500"
                            disabled={savingPage || !titleDraft.trim() || !hasUnsavedPageChanges}
                            onClick={() => void savePage()}
                         >
@@ -756,7 +756,7 @@ export function KnowledgeView() {
                         <MetadataRow icon={<Tags className="size-4" />} label={fa.knowledge.labels}>
                            <div className="min-w-0 space-y-2">
                               <Input
-                                 className="h-8 rounded-md border-border bg-muted/60 px-2 text-xs text-foreground shadow-none placeholder:text-muted-foreground/70 hover:bg-muted focus-visible:border-ring focus-visible:ring-0"
+                                 className="h-8 rounded-md border-border bg-muted/60 px-2 text-xs text-foreground shadow-none placeholder:text-muted-foreground dark:placeholder:text-muted-foreground/70 hover:bg-muted focus-visible:border-ring focus-visible:ring-0"
                                  value={labelsDraft}
                                  onChange={(event) => setLabelsDraft(event.target.value)}
                                  placeholder={fa.knowledge.labelsPlaceholder}
@@ -825,14 +825,14 @@ export function KnowledgeView() {
                      </div>
                      <form className="border-t border-border p-3" onSubmit={(event) => void submitComment(event)}>
                         <Textarea
-                           className="min-h-20 resize-none rounded-lg border-border bg-muted/40 text-sm text-foreground placeholder:text-muted-foreground/70"
+                           className="min-h-20 resize-none rounded-lg border-border bg-muted/40 text-sm text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground/70"
                            value={commentBody}
                            onChange={(event) => setCommentBody(event.target.value)}
                            placeholder={fa.knowledge.leaveComment}
                         />
                         <div className="mt-2 flex justify-end">
                            <Button
-                              className="h-8 gap-2 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                              className="h-8 gap-2 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                               disabled={!commentBody.trim() || commentSubmitting}
                               type="submit"
                            >
@@ -1121,7 +1121,7 @@ function PageTreeRows({
                      >
                         <FileText className="size-4 shrink-0 text-sidebar-foreground/70" />
                         <span className="min-w-0 flex-1 truncate">{page.title}</span>
-                        {page.verified ? <BadgeCheck className="size-3.5 shrink-0 text-emerald-400" /> : null}
+                        {page.verified ? <BadgeCheck className="size-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" /> : null}
                      </Link>
                      {onCreateChild ? (
                         <button

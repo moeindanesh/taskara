@@ -273,8 +273,8 @@ export function SupportTicketDetailView() {
          </header>
          <div className="mx-auto grid max-w-7xl gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_380px]">
             <section className="min-w-0 space-y-3">
-               {error ? <div role="alert" className="flex items-center gap-2 rounded-lg border border-red-400/20 bg-red-400/8 p-3 text-red-200"><AlertTriangle className="size-4" />{error}</div> : null}
-               {notice ? <p role="status" className="rounded-md border border-lime-300/20 bg-lime-300/5 px-3 py-2 text-sm text-lime-200">{notice}</p> : null}
+               {error ? <div role="alert" className="flex items-center gap-2 rounded-lg border border-red-400/20 bg-red-400/8 p-3 text-red-700 dark:text-red-200"><AlertTriangle className="size-4" />{error}</div> : null}
+               {notice ? <p role="status" className="rounded-md border border-lime-300/20 bg-lime-300/5 px-3 py-2 text-sm text-lime-800 dark:text-lime-200">{notice}</p> : null}
                {detail.messages.map((message) => (
                   <article key={message.id} className={`rounded-lg border p-4 ${message.authorType === 'SUPPORTER' ? 'border-sky-300/15 bg-sky-300/[0.035]' : 'border-white/8 bg-[#171719]'}`}>
                      <div className="flex items-center gap-2 text-xs text-zinc-500"><MessageSquareText className="size-3.5" />{message.authorType === 'CUSTOMER' ? 'مشتری' : message.author?.name || 'پشتیبان'}<span>{formatJalaliDateTime(message.createdAt)}</span></div>
@@ -309,7 +309,7 @@ export function SupportTicketDetailView() {
             <aside>
                <form className="space-y-4 rounded-lg border border-white/8 bg-[#171719] p-4" onSubmit={detail.case ? saveCase : createCase}>
                   <div className="flex items-center gap-2">
-                     <BriefcaseBusiness className="size-4 text-lime-300" />
+                     <BriefcaseBusiness className="size-4 text-lime-800 dark:text-lime-300" />
                      <h2 className="text-sm text-zinc-100">{detail.case ? `پرونده ${detail.case.key}` : 'ساخت پرونده'}</h2>
                      {draftReady && !detail.case ? <Badge variant="outline" aria-live="polite">پیش‌نویس هوش مصنوعی</Badge> : null}
                   </div>

@@ -159,7 +159,7 @@ export function SupportSavedQueuesView() {
             <Card className="min-w-0 border-white/8 bg-[#171719] text-zinc-100">
                <CardHeader className="border-b border-white/7">
                   <div className="flex items-start justify-between gap-3">
-                     <div><CardTitle className="flex items-center gap-2 text-base"><Bookmark className="size-4 text-indigo-300" /> صف‌های ذخیره‌شده</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">فیلترهای امن و محدوده‌دار؛ بدون ذخیره محتوای پرونده در مرورگر</CardDescription></div>
+                     <div><CardTitle className="flex items-center gap-2 text-base"><Bookmark className="size-4 text-indigo-700 dark:text-indigo-300" /> صف‌های ذخیره‌شده</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">فیلترهای امن و محدوده‌دار؛ بدون ذخیره محتوای پرونده در مرورگر</CardDescription></div>
                      <div className="flex gap-1"><Button aria-label="تازه‌سازی صف‌های ذخیره‌شده" className="text-zinc-500" size="icon" type="button" variant="ghost" onClick={() => void load()}><RefreshCw className={cn('size-4', loading && 'animate-spin')} /></Button><Button aria-label="ساخت صف ذخیره‌شده" className="bg-zinc-100 text-zinc-950 hover:bg-white" size="icon" type="button" onClick={() => { setEditing(undefined); setDialogOpen(true); }}><Plus className="size-4" /></Button></div>
                   </div>
                </CardHeader>
@@ -174,7 +174,7 @@ export function SupportSavedQueuesView() {
                               <div className="flex items-center gap-2"><h2 className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">{queue.name}</h2><VisibilityBadge visibility={queue.visibility} /></div>
                               <p className="mt-2 line-clamp-2 text-xs leading-6 text-zinc-600">{savedQueueSummary(queue, support.departments)}</p>
                            </button>
-                           {owner ? <div className="mt-2 flex justify-end gap-1 border-t border-white/6 pt-2"><Button aria-label={`ویرایش ${queue.name}`} className="h-7 text-xs text-zinc-500" type="button" variant="ghost" onClick={() => { setEditing(queue); setDialogOpen(true); }}><PencilLine className="size-3.5" /> ویرایش</Button><Button aria-label={`حذف ${queue.name}`} className="h-7 text-xs text-zinc-600 hover:text-red-300" disabled={deletingId === queue.id} type="button" variant="ghost" onClick={() => void remove(queue)}>{deletingId === queue.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} حذف</Button></div> : null}
+                           {owner ? <div className="mt-2 flex justify-end gap-1 border-t border-white/6 pt-2"><Button aria-label={`ویرایش ${queue.name}`} className="h-7 text-xs text-zinc-500" type="button" variant="ghost" onClick={() => { setEditing(queue); setDialogOpen(true); }}><PencilLine className="size-3.5" /> ویرایش</Button><Button aria-label={`حذف ${queue.name}`} className="h-7 text-xs text-zinc-600 hover:text-red-700 dark:hover:text-red-300" disabled={deletingId === queue.id} type="button" variant="ghost" onClick={() => void remove(queue)}>{deletingId === queue.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} حذف</Button></div> : null}
                         </article>
                      );
                   })}
@@ -214,7 +214,7 @@ function SavedQueueCase({ item, workspaceSlug }: { item: SupportCase; workspaceS
    return (
       <article className="rounded-lg border border-white/7 bg-black/10 p-3" data-testid={`support-saved-queue-case-${item.key}`}>
          <Link className="group flex min-w-0 items-start gap-3" to={`/${workspaceSlug}/support/cases/${encodeURIComponent(item.key)}`}>
-            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><bdi dir="ltr" className="font-mono text-xs text-zinc-600">{item.key}</bdi><Badge variant="outline" className={cn('border text-[10px]', supportStatusTone(item.status))}>{supportStatusLabels[item.status]}</Badge><span className={cn('text-xs', supportPriorityTone(item.priority))}>{supportPriorityLabels[item.priority]}</span></div><h3 className="mt-1.5 break-words text-sm font-medium leading-6 text-zinc-200 group-hover:text-white">{item.title}</h3><p className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-600"><span>{item.department?.name || 'بدون دپارتمان'}</span><span>{supportSourceLabels[item.sourceChannel]}</span><span>{formatJalaliDateTime(item.receivedAt)}</span></p></div><ChevronLeft className="mt-2 size-4 shrink-0 text-zinc-700 group-hover:text-zinc-300" />
+            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><bdi dir="ltr" className="font-mono text-xs text-zinc-600">{item.key}</bdi><Badge variant="outline" className={cn('border text-[10px]', supportStatusTone(item.status))}>{supportStatusLabels[item.status]}</Badge><span className={cn('text-xs', supportPriorityTone(item.priority))}>{supportPriorityLabels[item.priority]}</span></div><h3 className="mt-1.5 break-words text-sm font-medium leading-6 text-zinc-200 group-hover:text-foreground">{item.title}</h3><p className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-600"><span>{item.department?.name || 'بدون دپارتمان'}</span><span>{supportSourceLabels[item.sourceChannel]}</span><span>{formatJalaliDateTime(item.receivedAt)}</span></p></div><ChevronLeft className="mt-2 size-4 shrink-0 text-zinc-700 group-hover:text-zinc-300" />
          </Link>
       </article>
    );
@@ -301,7 +301,7 @@ function SavedQueueDialog({ departments, onOpenChange, onSaved, open, source }: 
                      <Field label="دریافت‌شده در چند ساعت اخیر"><Input className={inputClass} inputMode="numeric" min={1} max={8784} placeholder="مثلاً ۲۴" type="number" value={filters.receivedWithinHours || ''} onChange={(event) => setFilters({ ...filters, receivedWithinHours: event.target.value ? Number(event.target.value) : undefined })} /></Field>
                   </div>
                </div>
-               <p className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-100/70"><LockKeyhole className="me-1 inline size-3.5" />صف نمی‌تواند دسترسی تازه‌ای بسازد یا فیلتر همکار خارج از محدوده را ذخیره کند.</p>
+               <p className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-700 dark:text-sky-100/70"><LockKeyhole className="me-1 inline size-3.5" />صف نمی‌تواند دسترسی تازه‌ای بسازد یا فیلتر همکار خارج از محدوده را ذخیره کند.</p>
                <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-zinc-100 text-zinc-950 hover:bg-white" disabled={!name.trim() || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} ذخیره صف</Button><Button disabled={submitting} type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
             </form>
          </DialogContent>
@@ -348,7 +348,7 @@ function normalizeFilters(filters: SupportSavedQueueFilters): SupportSavedQueueF
 }
 
 function ChipChecks({ onChange, options, values }: { onChange: (values: string[]) => void; options: Array<{ label: string; value: string }>; values: readonly string[] }) {
-   return <div className="flex min-h-9 flex-wrap gap-1.5 rounded-md border border-white/10 bg-[#0c0c0e] p-1.5">{options.map((option) => { const checked = values.includes(option.value); return <label key={option.value} className={cn('cursor-pointer rounded px-2 py-1 text-[11px]', checked ? 'bg-indigo-400/15 text-indigo-100' : 'text-zinc-600 hover:bg-white/5')}><input className="sr-only" checked={checked} type="checkbox" onChange={() => onChange(checked ? values.filter((value) => value !== option.value) : [...values, option.value])} />{option.label}</label>; })}</div>;
+   return <div className="flex min-h-9 flex-wrap gap-1.5 rounded-md border border-white/10 bg-[#0c0c0e] p-1.5">{options.map((option) => { const checked = values.includes(option.value); return <label key={option.value} className={cn('cursor-pointer rounded px-2 py-1 text-[11px]', checked ? 'bg-indigo-400/15 text-indigo-700 dark:text-indigo-100' : 'text-zinc-600 hover:bg-white/5')}><input className="sr-only" checked={checked} type="checkbox" onChange={() => onChange(checked ? values.filter((value) => value !== option.value) : [...values, option.value])} />{option.label}</label>; })}</div>;
 }
 
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
@@ -356,7 +356,7 @@ function Field({ children, label }: { children: React.ReactNode; label: string }
 }
 
 function InlineError({ text }: { text: string }) {
-   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{text}</p>;
+   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{text}</p>;
 }
 
 function Loading({ text }: { text: string }) {

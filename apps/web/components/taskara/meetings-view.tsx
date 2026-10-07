@@ -230,7 +230,7 @@ export function MeetingsView() {
                   <Plus className="size-4" />
                </Button>
             </div>
-            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">{error}</div> : null}
+            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-700 dark:text-red-200">{error}</div> : null}
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
                {loading ? (
                   <EmptyState>{fa.app.loading}</EmptyState>
@@ -462,7 +462,7 @@ export function MeetingsView() {
                   <DialogFooter className="flex-row items-center justify-between border-t border-white/7 px-5 py-3 sm:justify-between">
                      <span className="text-xs text-zinc-600">{fa.meeting.participants}</span>
                      <Button
-                        className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                        className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                         disabled={submitting || !form.title.trim()}
                      >
                         {submitting ? <Loader2 className="size-4 animate-spin" /> : null}

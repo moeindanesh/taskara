@@ -47,12 +47,13 @@
    --card-foreground: var(--theme-ink);
    --popover: var(--theme-surface);
    --popover-foreground: var(--theme-ink);
-   --primary: var(--theme-accent);
+   /* Derive a readable control/link color from the supplied accent in light mode. */
+   --primary: color-mix(in srgb, var(--theme-accent) 75%, var(--theme-ink));
    --primary-foreground: #ffffff;
    --secondary: color-mix(in srgb, var(--theme-ink) 6%, var(--theme-surface));
    --secondary-foreground: var(--theme-ink);
    --muted: color-mix(in srgb, var(--theme-ink) 5%, var(--theme-surface));
-   --muted-foreground: color-mix(in srgb, var(--theme-ink) 64%, var(--theme-surface));
+   --muted-foreground: color-mix(in srgb, var(--theme-ink) 72%, var(--theme-surface));
    --accent: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
    --accent-foreground: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-ink));
    --destructive: var(--theme-diff-removed);
@@ -467,7 +468,7 @@ input[type='search'] {
 :root:not(.dark) [class~="placeholder:text-zinc-500"]::placeholder,
 :root:not(.dark) [class~="placeholder:text-zinc-600"]::placeholder,
 :root:not(.dark) [class~="placeholder:text-zinc-700"]::placeholder {
-   color: color-mix(in srgb, var(--foreground) 45%, var(--background)) !important;
+   color: var(--muted-foreground) !important;
 }
 
 :root:not(.dark) [class~="text-[#5e6ad2]"] {

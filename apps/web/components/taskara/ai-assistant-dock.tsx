@@ -300,7 +300,7 @@ export function AiAssistantDock() {
             <section className="flex h-[min(620px,calc(100dvh-6rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#18181b] shadow-2xl">
                <header className="flex items-center justify-between border-b border-white/8 px-3 py-2.5">
                   <div className="flex min-w-0 items-center gap-2">
-                     <span className="inline-flex size-8 items-center justify-center rounded-md bg-indigo-400/10 text-indigo-200">
+                     <span className="inline-flex size-8 items-center justify-center rounded-md bg-indigo-400/10 text-indigo-700 dark:text-indigo-200">
                         <Sparkles className="size-4" />
                      </span>
                      <div className="min-w-0">
@@ -354,7 +354,7 @@ export function AiAssistantDock() {
                            aria-label={recording ? 'توقف ضبط صدا و ارسال' : 'شروع ضبط پیام صوتی'}
                            className={cn(
                               'size-8 rounded-full border border-white/10 bg-transparent text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
-                              recording && 'border-rose-400/30 bg-rose-500/10 text-rose-200'
+                              recording && 'border-rose-400/30 bg-rose-500/10 text-rose-700 dark:text-rose-200'
                            )}
                            disabled={submitting || !voiceSupported}
                            size="icon"
@@ -392,7 +392,7 @@ export function AiAssistantDock() {
 
          <Button
             aria-label="باز کردن دستیار AI"
-            className="size-12 rounded-full border border-indigo-300/20 bg-[#1c1c20] text-indigo-200 shadow-2xl shadow-black/40 hover:bg-[#24242a] hover:text-white"
+            className="size-12 rounded-full border border-indigo-300/20 bg-[#1c1c20] text-indigo-700 dark:text-indigo-200 shadow-2xl shadow-black/40 hover:bg-accent hover:text-foreground"
             size="icon"
             type="button"
             onClick={() => setOpen((current) => !current)}
@@ -419,7 +419,7 @@ function AssistantBubble({ message }: { message: AssistantMessage }) {
             className={cn(
                'flex max-w-[86%] gap-2 rounded-lg px-3 py-2 text-sm leading-6',
                isUser
-                  ? 'bg-indigo-400/15 text-indigo-50'
+                  ? 'bg-indigo-400/15 text-indigo-700 dark:text-indigo-50'
                   : 'border border-white/8 bg-white/[0.03] text-zinc-200'
             )}
          >
@@ -427,9 +427,9 @@ function AssistantBubble({ message }: { message: AssistantMessage }) {
                className={cn(
                   'mt-1 size-3.5 shrink-0',
                   message.status === 'completed'
-                     ? 'text-emerald-300'
+                     ? 'text-emerald-700 dark:text-emerald-300'
                      : message.status === 'blocked' || message.status === 'unsupported'
-                       ? 'text-amber-300'
+                       ? 'text-amber-800 dark:text-amber-300'
                        : 'text-zinc-500'
                )}
             />

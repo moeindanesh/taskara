@@ -143,7 +143,7 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
                                     <span className="truncate text-sm">{item.workspace.name}</span>
                                     <span className="truncate text-xs text-zinc-500">{item.workspace.slug}</span>
                                  </div>
-                                 {item.workspace.slug === runtime.workspaceSlug ? <span className="text-xs text-lime-400">فعال</span> : null}
+                                 {item.workspace.slug === runtime.workspaceSlug ? <span className="text-xs text-lime-800 dark:text-lime-400">فعال</span> : null}
                               </DropdownMenuItem>
                            ))}
                         </DropdownMenuSubContent>
@@ -161,7 +161,7 @@ export function SupportSidebar(props: React.ComponentProps<typeof Sidebar>) {
                                  <DropdownMenuItem key={item.value} className="h-8 rounded-md px-3 text-sm" onSelect={() => setTheme(item.value)}>
                                     <Icon className="size-4 text-zinc-500" />
                                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                    {currentTheme === item.value ? <span className="text-xs text-lime-400">فعال</span> : null}
+                                    {currentTheme === item.value ? <span className="text-xs text-lime-800 dark:text-lime-400">فعال</span> : null}
                                  </DropdownMenuItem>
                               );
                            })}

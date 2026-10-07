@@ -53,7 +53,7 @@ export function SmsConfirmDialog({
                </Button>
                <Button
                   type="button"
-                  className="h-8 rounded-full bg-indigo-500 px-4 text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                  className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                   disabled={pending}
                   onClick={onConfirm}
                >

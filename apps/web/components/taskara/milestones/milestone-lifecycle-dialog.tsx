@@ -292,7 +292,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
    const isReactivate = action === 'activate' && milestone.status === 'CANCELED';
    const entries = {
       activate: {
-         buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
+         buttonTone: 'bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400',
          confirmLabel: isReactivate ? fa.milestone.reactivate : fa.milestone.activate,
          description: isReactivate
             ? 'هدف به وضعیت فعال برمی‌گردد و تاریخ لغو پاک می‌شود.'
@@ -302,7 +302,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
       },
       complete: {
-         buttonTone: 'bg-emerald-500 text-white hover:bg-emerald-400',
+         buttonTone: 'bg-emerald-700 dark:bg-emerald-500 text-white hover:bg-emerald-800 dark:hover:bg-emerald-400',
          confirmLabel: fa.milestone.complete,
          description: fa.milestone.finishDescription,
          icon: Check,
@@ -310,7 +310,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          tone: 'bg-emerald-400/10 text-emerald-700 dark:text-emerald-300',
       },
       reopen: {
-         buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
+         buttonTone: 'bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400',
          confirmLabel: fa.milestone.reopen,
          description: 'هدف تکمیل‌شده دوباره فعال می‌شود؛ پیوند کارها حفظ می‌شود.',
          icon: RotateCcw,
@@ -318,7 +318,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          tone: 'bg-indigo-400/10 text-indigo-600 dark:text-indigo-300',
       },
       cancel: {
-         buttonTone: 'bg-rose-500 text-white hover:bg-rose-400',
+         buttonTone: 'bg-rose-700 dark:bg-rose-500 text-white hover:bg-rose-800 dark:hover:bg-rose-400',
          confirmLabel: fa.milestone.cancelMilestone,
          description: fa.milestone.finishDescription,
          icon: Unlink,
@@ -334,7 +334,7 @@ function lifecycleActionMeta(action: MilestoneLifecycleAction, milestone: Taskar
          tone: 'bg-amber-400/10 text-amber-700 dark:text-amber-300',
       },
       restore: {
-         buttonTone: 'bg-indigo-500 text-white hover:bg-indigo-400',
+         buttonTone: 'bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400',
          confirmLabel: fa.milestone.restore,
          description: 'هدف به فهرست بازمی‌گردد و وضعیت قبلی آن حفظ می‌شود.',
          icon: RotateCcw,

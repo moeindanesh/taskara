@@ -158,7 +158,7 @@ function WorkspaceRuntimeError({ message }: { message: string }) {
    return (
       <div dir="rtl" className="flex h-dvh items-center justify-center bg-[#050506] p-6 text-zinc-200">
          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#101011] p-6 text-center">
-            <ShieldAlert className="mx-auto mb-3 size-8 text-amber-400" />
+            <ShieldAlert className="mx-auto mb-3 size-8 text-amber-800 dark:text-amber-400" />
             <h1 className="text-base font-semibold">فضای کاری باز نشد</h1>
             <p className="mt-2 text-sm leading-6 text-zinc-500">{message}</p>
             <Link className="mt-5 inline-flex rounded-lg bg-white/8 px-3 py-2 text-sm hover:bg-white/12" to="/onboarding">

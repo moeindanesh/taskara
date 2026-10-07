@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTheme } from 'next-themes';
 import { Download, Loader2, Pause, Play, Volume2 } from 'lucide-react';
 import type { SupportTicketMedia } from '@/lib/support-ticket-media';
 import { formatAudioTime, ticketMediaUrl } from '@/lib/support-ticket-media';
@@ -6,7 +7,8 @@ import { formatAudioTime, ticketMediaUrl } from '@/lib/support-ticket-media';
 let activeAudio: HTMLAudioElement | null = null;
 const waveform = [8, 13, 19, 11, 22, 29, 17, 12, 24, 32, 20, 14, 27, 34, 23, 11, 19, 30, 25, 15, 33, 21, 12, 26, 18, 10, 16, 8];
 
-export function SupportVoicePlayer({ media, tone = 'dark' }: { media: SupportTicketMedia; tone?: 'dark' | 'light' }) {
+export function SupportVoicePlayer({ media, tone = 'auto' }: { media: SupportTicketMedia; tone?: 'auto' | 'dark' | 'light' }) {
+   const { resolvedTheme } = useTheme();
    const audioRef = useRef<HTMLAudioElement>(null);
    const [playing, setPlaying] = useState(false);
    const [loading, setLoading] = useState(false);
@@ -17,7 +19,7 @@ export function SupportVoicePlayer({ media, tone = 'dark' }: { media: SupportTic
    const [error, setError] = useState(false);
    const source = ticketMediaUrl(media);
    const name = typeof media.name === 'string' && media.name.trim() ? media.name.trim() : 'پیام صوتی';
-   const dark = tone === 'dark';
+   const dark = tone === 'dark' || (tone === 'auto' && resolvedTheme === 'dark');
    const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
    useEffect(() => {

@@ -61,7 +61,7 @@ export default function IssueLine({
                      <span
                         className={cn(
                            'text-sm font-medium text-muted-foreground shrink-0',
-                           notification.read && 'opacity-50'
+                           notification.read && 'dark:opacity-50'
                         )}
                      >
                         {notification.identifier}
@@ -71,7 +71,7 @@ export default function IssueLine({
                   <h4
                      className={cn(
                         'text-sm font-medium text-foreground line-clamp-1 flex-grow',
-                        notification.read && 'opacity-50'
+                        notification.read && 'dark:opacity-50'
                      )}
                   >
                      {notification.title}
@@ -85,7 +85,7 @@ export default function IssueLine({
                <div
                   className={cn(
                      'flex items-center justify-between gap-1.5 transition-opacity duration-200',
-                     notification.read && 'opacity-50'
+                     notification.read && 'dark:opacity-50'
                   )}
                >
                   <p className="text-sm text-muted-foreground line-clamp-1">

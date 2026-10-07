@@ -466,7 +466,7 @@ export function MilestoneDetail({
                {!readOnly && hasUnsavedChanges ? (
                   <Button
                      aria-label="ذخیره تغییرات"
-                     className="h-9 rounded-full bg-indigo-500 px-3 text-white hover:bg-indigo-400"
+                     className="h-9 rounded-full bg-indigo-700 dark:bg-indigo-500 px-3 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
                      disabled={saveDisabled}
                      size="sm"
                      onClick={handleSaveAll}

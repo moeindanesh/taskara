@@ -674,7 +674,7 @@ function ManagerTaskQuickEdit({
             aria-hidden={!hasChanges && !saving}
             aria-label="ذخیره تغییرات"
             className={cn(
-               'inline-flex w-28 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-2 text-[11px] text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60',
+               'inline-flex w-28 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-700 dark:bg-indigo-500 px-2 text-[11px] text-white transition hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60',
                compact ? 'h-7' : 'h-8',
                !hasChanges && !saving && 'invisible pointer-events-none'
             )}
@@ -1066,7 +1066,7 @@ function OneOnOneAgendaDialog({
             </DialogHeader>
             {loading ? <LinearEmptyState>{fa.app.loading}</LinearEmptyState> : null}
             {error ? (
-               <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-200">{error}</p>
+               <p className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-700 dark:text-red-200">{error}</p>
             ) : null}
             {agenda && !loading ? (
                <div className="mt-3 grid max-h-[60vh] gap-4 overflow-y-auto pe-1">

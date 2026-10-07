@@ -54,7 +54,7 @@ export function TeamTaskSupportLinks({ taskKey }: { taskKey: string }) {
 
    return (
       <section className="mt-3 overflow-hidden rounded-lg border border-white/7 bg-black/10" data-testid="team-task-support-links">
-         <div className="flex items-center gap-2 border-b border-white/6 px-3 py-2.5 text-xs font-medium text-zinc-400"><Headset className="size-4 text-indigo-300" /> ارجاع‌های پشتیبانی</div>
+         <div className="flex items-center gap-2 border-b border-white/6 px-3 py-2.5 text-xs font-medium text-zinc-400"><Headset className="size-4 text-indigo-700 dark:text-indigo-300" /> ارجاع‌های پشتیبانی</div>
          <TeamTaskSupportLinkListView links={links} />
       </section>
    );
@@ -69,12 +69,12 @@ export function TeamTaskSupportLinkListView({ links }: { links: TeamTaskSupportL
             return (
                <article key={link.linkId} className={cn('px-3 py-3', (frozen || unlinked) && 'bg-amber-400/[0.025]')}>
                   <div className="flex items-start gap-2.5">
-                     {unlinked ? <CircleOff className="mt-0.5 size-4 shrink-0 text-zinc-500" /> : frozen ? <Unplug className="mt-0.5 size-4 shrink-0 text-amber-300" /> : <Link2 className="mt-0.5 size-4 shrink-0 text-indigo-300" />}
+                     {unlinked ? <CircleOff className="mt-0.5 size-4 shrink-0 text-zinc-500" /> : frozen ? <Unplug className="mt-0.5 size-4 shrink-0 text-amber-800 dark:text-amber-300" /> : <Link2 className="mt-0.5 size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />}
                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5"><bdi dir="ltr" className="font-mono text-[11px] text-indigo-300">{link.caseKey}</bdi><Badge variant="outline" className="border-white/10 text-[10px] text-zinc-500">{caseSignalLabel(link.status)}</Badge></div>
+                        <div className="flex flex-wrap items-center gap-1.5"><bdi dir="ltr" className="font-mono text-[11px] text-indigo-700 dark:text-indigo-300">{link.caseKey}</bdi><Badge variant="outline" className="border-white/10 text-[10px] text-zinc-500">{caseSignalLabel(link.status)}</Badge></div>
                         <h4 className="mt-1.5 break-words text-xs leading-6 text-zinc-300">{link.title}</h4>
                         <p className="mt-1 text-[11px] leading-5 text-zinc-600">{link.supportWorkspaceName} · آخرین سیگنال: {formatJalaliDateTime(link.lastSignalAt)}</p>
-                        {unlinked ? <p className="mt-1 text-[11px] text-amber-200/75">پیوند برداشته شده؛ این نمای تاریخی باقی مانده است.</p> : frozen ? <p className="mt-1 text-[11px] text-amber-200/75">اتصال لغو و این نما در آخرین وضعیت تأییدشده منجمد شده است.</p> : null}
+                        {unlinked ? <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-200/75">پیوند برداشته شده؛ این نمای تاریخی باقی مانده است.</p> : frozen ? <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-200/75">اتصال لغو و این نما در آخرین وضعیت تأییدشده منجمد شده است.</p> : null}
                      </div>
                   </div>
                </article>

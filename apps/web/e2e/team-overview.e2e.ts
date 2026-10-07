@@ -106,7 +106,7 @@ test.describe('@team-overview workspace graph', () => {
       const badge = person.getByTestId('hide-person');
       await expect(badge).toBeVisible();
       await expect(badge.locator('circle')).toHaveCSS('fill', 'rgb(255, 255, 255)');
-      await expect(badge.locator('svg')).toHaveCSS('color', 'color(srgb 0.425255 0.430275 0.437804)');
+      await expect(badge.locator('svg')).toHaveCSS('color', 'color(srgb 0.353412 0.359059 0.367529)');
    });
 
    test('previews composer images and file metadata without input outlines', async ({ page }) => {

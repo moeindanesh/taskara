@@ -57,7 +57,7 @@ export function SupportAssistanceSuggestionItem({
          <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
                <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                  <Sparkles aria-hidden="true" className="size-4 shrink-0 text-indigo-300" />
+                  <Sparkles aria-hidden="true" className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
                   {assistanceKindLabels[item.kind]}
                </h3>
                <p className="mt-1.5 text-[11px] leading-5 text-zinc-600">
@@ -113,7 +113,7 @@ export function SupportAssistanceSuggestionItem({
                </p>
                <div className="grid gap-2 sm:grid-cols-2">
                   <Button
-                     className="bg-lime-300/15 text-lime-100 hover:bg-lime-300/25"
+                     className="bg-lime-300/15 text-lime-800 dark:text-lime-100 hover:bg-lime-300/25"
                      disabled={busy || !reasonIsValid}
                      type="button"
                      onClick={() => void onDecide('ACCEPTED')}
@@ -126,7 +126,7 @@ export function SupportAssistanceSuggestionItem({
                      پذیرش انسانی
                   </Button>
                   <Button
-                     className="border border-red-400/15 bg-red-400/[0.035] text-red-100 hover:bg-red-400/10"
+                     className="border border-red-400/15 bg-red-400/[0.035] text-red-700 dark:text-red-100 hover:bg-red-400/10"
                      disabled={busy || !reasonIsValid}
                      type="button"
                      variant="secondary"
@@ -176,7 +176,7 @@ export function SupportEnablementPreviewPanel({
          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
                <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                  <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-indigo-300" />
+                  <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
                   پیش‌نمایش دقیق تغییرات
                </h3>
                <p className="mt-1.5 text-xs leading-6 text-zinc-500">
@@ -223,12 +223,12 @@ export function SupportEnablementPreviewPanel({
          )}
 
          {!preview.conditionMatched ? (
-            <p className="mt-3 rounded-lg border border-amber-400/15 bg-amber-400/[0.035] px-3 py-2.5 text-xs leading-6 text-amber-100/75">
+            <p className="mt-3 rounded-lg border border-amber-400/15 bg-amber-400/[0.035] px-3 py-2.5 text-xs leading-6 text-amber-800 dark:text-amber-100/75">
                شرط‌های تعریف با نسخه فعلی پرونده منطبق نیستند؛ اعمال غیرفعال است.
             </p>
          ) : null}
 
-         <div className="mt-4 rounded-lg border border-lime-400/15 bg-lime-400/[0.035] px-3 py-2.5 text-xs leading-6 text-lime-100/75">
+         <div className="mt-4 rounded-lg border border-lime-400/15 bg-lime-400/[0.035] px-3 py-2.5 text-xs leading-6 text-lime-800 dark:text-lime-100/75">
             <p className="flex items-start gap-2">
                <CheckCircle2 aria-hidden="true" className="mt-1 size-4 shrink-0" />
                <span>فقط با تأیید انسان اعمال می‌شود؛ هیچ اقدام خودکاری از این پیش‌نمایش اجرا نشده است.</span>
@@ -241,7 +241,7 @@ export function SupportEnablementPreviewPanel({
 
          <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
             <Button
-               className="bg-indigo-400/15 text-indigo-100 hover:bg-indigo-400/25"
+               className="bg-indigo-400/15 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-400/25"
                disabled={busy || !canApply || !preview.canApply || !preview.conditionMatched || !preview.changes.length}
                type="button"
                onClick={() => void onApply()}
@@ -271,7 +271,7 @@ export function SupportKnowledgeUseHistory({ items }: { items: SupportKnowledgeU
    return (
       <section className="rounded-xl border border-white/8 bg-[#171719] p-4 text-zinc-100" dir="rtl">
          <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-            <BookOpenCheck aria-hidden="true" className="size-4 text-indigo-300" />
+            <BookOpenCheck aria-hidden="true" className="size-4 text-indigo-700 dark:text-indigo-300" />
             سابقه استفاده از دانش
          </h3>
          <p className="mt-1.5 text-[11px] leading-5 text-zinc-600">
@@ -296,10 +296,10 @@ export function SupportKnowledgeUseHistory({ items }: { items: SupportKnowledgeU
                         </Badge>
                      </div>
                      <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                        <span className="rounded-md bg-indigo-400/8 px-2 py-1 text-indigo-200">
+                        <span className="rounded-md bg-indigo-400/8 px-2 py-1 text-indigo-700 dark:text-indigo-200">
                            {knowledgeUsefulnessLabels[item.usefulness]}
                         </span>
-                        <span className="rounded-md bg-lime-400/[0.055] px-2 py-1 text-lime-100/80">
+                        <span className="rounded-md bg-lime-400/[0.055] px-2 py-1 text-lime-800 dark:text-lime-100/80">
                            {knowledgeOutcomeLabels[item.outcome]}
                         </span>
                         <time className="px-1 py-1 text-zinc-600" dateTime={item.createdAt}>
@@ -369,7 +369,7 @@ function PreviewValue({
 }) {
    return (
       <div className={emphasized
-         ? 'rounded-md border border-lime-400/10 bg-lime-400/[0.035] px-2.5 py-2 text-xs text-lime-100/80'
+         ? 'rounded-md border border-lime-400/10 bg-lime-400/[0.035] px-2.5 py-2 text-xs text-lime-800 dark:text-lime-100/80'
          : 'rounded-md border border-white/6 bg-white/[0.02] px-2.5 py-2 text-xs text-zinc-500'}>
          <span className="mb-1 block text-[10px] text-zinc-600 sm:hidden">
             {emphasized ? 'پس از اعمال' : 'پیش از اعمال'}
@@ -428,10 +428,10 @@ function shortDigest(digest: string): string {
 }
 
 function decisionTone(decision: SupportAssistanceDecision): string {
-   if (decision === 'ACCEPTED') return 'border-lime-400/20 bg-lime-400/[0.055] text-lime-200';
-   if (decision === 'REJECTED') return 'border-red-400/20 bg-red-400/[0.055] text-red-200';
+   if (decision === 'ACCEPTED') return 'border-lime-400/20 bg-lime-400/[0.055] text-lime-800 dark:text-lime-200';
+   if (decision === 'REJECTED') return 'border-red-400/20 bg-red-400/[0.055] text-red-700 dark:text-red-200';
    if (decision === 'EXPIRED') return 'border-white/10 bg-white/[0.025] text-zinc-500';
-   return 'border-indigo-400/20 bg-indigo-400/[0.055] text-indigo-200';
+   return 'border-indigo-400/20 bg-indigo-400/[0.055] text-indigo-700 dark:text-indigo-200';
 }
 
 function knowledgePageStatusLabel(status: string): string {

@@ -101,7 +101,7 @@ export function SupportDepartmentsView({ setup = false }: { setup?: boolean }) {
                            type="button"
                            onClick={() => setSelectedId(department.id)}
                         >
-                           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-300"><Building2 className="size-4" /></span>
+                           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-700 dark:text-indigo-300"><Building2 className="size-4" /></span>
                            <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium">{department.name}</span>
                               <span dir="ltr" className="mt-0.5 block truncate text-left text-xs text-zinc-600">{department.slug}</span>
@@ -114,7 +114,7 @@ export function SupportDepartmentsView({ setup = false }: { setup?: boolean }) {
             </Card>
 
             <div className="min-w-0 space-y-4">
-               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm text-red-200">{error}</p> : null}
+               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
                {selected ? <DepartmentDetail canConfigure={canConfigureWorkspace} department={selected} users={users} /> : (
                   <Card className="border-white/8 bg-[#171719] text-zinc-100">
                      <CardContent className="flex min-h-64 items-center justify-center p-6 text-center text-sm text-zinc-600">برای مدیریت اعضا یک دپارتمان را انتخاب کنید.</CardContent>
@@ -222,7 +222,7 @@ function DepartmentDetail({
                   <CardDescription className="mt-2 max-w-2xl leading-6 text-zinc-500">{department.description || 'برای این دپارتمان توضیحی ثبت نشده است.'}</CardDescription>
                </div>
                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className={department.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-300' : 'border-white/10 text-zinc-500'}>{department.active ? 'فعال' : 'غیرفعال'}</Badge>
+                  <Badge variant="outline" className={department.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300' : 'border-white/10 text-zinc-500'}>{department.active ? 'فعال' : 'غیرفعال'}</Badge>
                   {canConfigure ? (
                      <Button className="border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10" size="sm" type="button" variant="secondary" onClick={() => setEditOpen(true)}>
                         <PencilLine className="size-3.5" /> ویرایش
@@ -232,10 +232,10 @@ function DepartmentDetail({
             </div>
          </CardHeader>
          <CardContent className="space-y-4 p-4">
-            <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-100/70">
+            <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-700 dark:text-sky-100/70">
                عضو عادی فقط پرونده‌های واگذارشده به خودش را می‌بیند. مدیر دپارتمان می‌تواند صف و پرونده‌های همین دپارتمان را مدیریت کند.
             </div>
-            {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
+            {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
             {canConfigure ? (
                <form className="grid gap-2 rounded-lg border border-white/7 bg-black/10 p-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]" onSubmit={addMember}>
                   <select aria-label="عضو فضای کاری" className={selectClass} value={userId} onChange={(event) => setUserId(event.target.value)}>
@@ -272,7 +272,7 @@ function DepartmentDetail({
                         </select>
                      ) : <Badge variant="outline" className="w-fit border-white/10 text-zinc-500">{member.active ? memberRoleLabel(member.role) : 'غیرفعال'}</Badge>}
                      {canConfigure && member.active ? (
-                        <Button aria-label={`حذف ${member.user?.name || member.userId}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => void deactivate(member)}><Trash2 className="size-4" /></Button>
+                        <Button aria-label={`حذف ${member.user?.name || member.userId}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => void deactivate(member)}><Trash2 className="size-4" /></Button>
                      ) : null}
                   </div>
                ))}
@@ -334,7 +334,7 @@ function EditDepartmentDialog({
                <DialogDescription className="leading-6 text-zinc-500">نام، توضیح و وضعیت عملیاتی دپارتمان را مدیریت کنید. شناسه کوتاه دپارتمان پس از ساخت تغییر نمی‌کند.</DialogDescription>
             </DialogHeader>
             <form className="grid gap-4" onSubmit={submit}>
-               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
+               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
                <label className="grid gap-1.5 text-sm text-zinc-300">نام<Input className={inputClass} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>
                <label className="grid gap-1.5 text-sm text-zinc-300">توضیح<Textarea className={inputClass} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
                <label className="grid gap-1.5 text-sm text-zinc-300">وضعیت
@@ -343,7 +343,7 @@ function EditDepartmentDialog({
                      <option value="INACTIVE">غیرفعال</option>
                   </select>
                </label>
-               {!active && department.active ? <p className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-100/80">غیرفعال‌سازی فقط زمانی انجام می‌شود که دپارتمان هیچ پرونده بسته‌نشده‌ای نداشته باشد.</p> : null}
+               {!active && department.active ? <p className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-800 dark:text-amber-100/80">غیرفعال‌سازی فقط زمانی انجام می‌شود که دپارتمان هیچ پرونده بسته‌نشده‌ای نداشته باشد.</p> : null}
                <DialogFooter className="sm:flex-row-reverse sm:justify-start">
                   <Button className="bg-zinc-100 text-zinc-950 hover:bg-white" disabled={!name.trim() || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : null} ذخیره تغییرات</Button>
                   <Button disabled={submitting} type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button>
@@ -374,13 +374,13 @@ function PermissionGrantsCard({ grants, onAdd, users }: { grants: SupportPermiss
       <Card className="border-white/8 bg-[#171719] text-zinc-100">
          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-white/7">
             <div>
-               <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="size-4 text-indigo-300" /> مجوزهای سراسری پشتیبانی</CardTitle>
+               <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="size-4 text-indigo-700 dark:text-indigo-300" /> مجوزهای سراسری پشتیبانی</CardTitle>
                <CardDescription className="mt-1.5 leading-6 text-zinc-500">تریاژ برای پرونده‌های بدون دپارتمان؛ سرپرست برای دید سراسری</CardDescription>
             </div>
             <Button className="border border-white/10 bg-white/6 text-zinc-300 hover:bg-white/10" type="button" variant="secondary" onClick={onAdd}><Plus className="size-4" /> افزودن مجوز</Button>
          </CardHeader>
          <CardContent className="p-0">
-            {error ? <p role="alert" className="m-4 rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
+            {error ? <p role="alert" className="m-4 rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
             {!grants.length ? <div className="px-4 py-10 text-center"><Users className="mx-auto size-6 text-zinc-600" /><p className="mt-3 text-sm text-zinc-600">مجوز سراسری ثبت نشده است.</p></div> : null}
             <div className="divide-y divide-white/6">
                {grants.map((grant) => {
@@ -389,8 +389,8 @@ function PermissionGrantsCard({ grants, onAdd, users }: { grants: SupportPermiss
                      <div key={`${grant.userId}:${grant.role}`} className="flex items-center gap-3 px-4 py-3">
                         <LinearAvatar name={user?.name || grant.userId} src={user?.avatarUrl} className="size-8" />
                         <div className="min-w-0 flex-1"><div className="truncate text-sm text-zinc-200">{user?.name || grant.userId}</div><div dir="ltr" className="truncate text-left text-xs text-zinc-600">{user?.email || ''}</div></div>
-                        <Badge variant="outline" className="border-indigo-400/20 bg-indigo-400/8 text-indigo-200">{grantRoleLabel(grant.role)}</Badge>
-                        <Button aria-label={`حذف مجوز ${user?.name || grant.userId}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => void remove(grant)}><Trash2 className="size-4" /></Button>
+                        <Badge variant="outline" className="border-indigo-400/20 bg-indigo-400/8 text-indigo-700 dark:text-indigo-200">{grantRoleLabel(grant.role)}</Badge>
+                        <Button aria-label={`حذف مجوز ${user?.name || grant.userId}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => void remove(grant)}><Trash2 className="size-4" /></Button>
                      </div>
                   );
                })}
@@ -432,7 +432,7 @@ function CreateDepartmentDialog({ open, onCreated, onOpenChange }: { open: boole
          <DialogContent dir="rtl" className="border-white/10 bg-[#171719] text-zinc-100">
             <DialogHeader><DialogTitle>ساخت دپارتمان</DialogTitle><DialogDescription className="leading-6 text-zinc-500">هر دپارتمان یک مرز مستقل برای صف و دسترسی پرونده‌هاست.</DialogDescription></DialogHeader>
             <form className="space-y-4" onSubmit={submit}>
-               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
+               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
                <Field label="نام دپارتمان"><Input autoFocus className={inputClass} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
                <Field label="شناسه انگلیسی"><Input dir="ltr" className={cn(inputClass, 'text-left')} pattern="[a-z0-9-]{2,48}" placeholder="customer-success" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value.toLowerCase() })} /></Field>
                <Field label="توضیح"><Textarea className={cn(inputClass, 'min-h-20')} maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
@@ -472,7 +472,7 @@ function GrantDialog({ open, onOpenChange, users }: { open: boolean; onOpenChang
          <DialogContent dir="rtl" className="border-white/10 bg-[#171719] text-zinc-100">
             <DialogHeader><DialogTitle>افزودن مجوز پشتیبانی</DialogTitle><DialogDescription className="leading-6 text-zinc-500">این مجوز مستقل از عضویت دپارتمان است.</DialogDescription></DialogHeader>
             <form className="space-y-4" onSubmit={submit}>
-               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
+               {error ? <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{error}</p> : null}
                <Field label="کاربر"><select className={selectClass} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">انتخاب کاربر</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name} — {user.email}</option>)}</select></Field>
                <Field label="مجوز"><select className={selectClass} value={role} onChange={(event) => setRole(event.target.value as typeof role)}><option value="TRIAGER">تریاژ</option><option value="SUPERVISOR">سرپرست پشتیبانی</option></select></Field>
                <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-zinc-100 text-zinc-950 hover:bg-white" disabled={!userId || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : null} ثبت مجوز</Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>

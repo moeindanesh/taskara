@@ -450,7 +450,7 @@ const editorTheme: EditorThemeClasses = {
    hrSelected: 'outline-none ring-1 ring-indigo-400/50',
    image: 'mx-1 inline-flex max-w-full align-middle',
    indent: 'lexical-indent',
-   link: 'text-indigo-300 underline decoration-indigo-300/35 underline-offset-2 transition hover:text-indigo-200 hover:decoration-indigo-200/70',
+   link: 'text-indigo-700 dark:text-indigo-300 underline decoration-indigo-300/35 underline-offset-2 transition hover:text-indigo-700 dark:hover:text-indigo-200 hover:decoration-indigo-200/70',
    list: {
       checklist: 'my-3 p-0 first:mt-0 last:mb-0',
       listitem: 'mx-5 my-1.5 ps-1 leading-7 marker:text-zinc-500',
@@ -2792,7 +2792,7 @@ function FloatingToolbarButton({
          aria-label={label}
          className={cn(
             'flex size-7 items-center justify-center rounded-md transition hover:bg-white/10 hover:text-zinc-100',
-            active ? 'bg-indigo-500/20 text-indigo-200' : 'text-zinc-400'
+            active ? 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-200' : 'text-zinc-400'
          )}
          type="button"
          onClick={(event) => {

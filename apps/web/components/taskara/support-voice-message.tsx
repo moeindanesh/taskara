@@ -1,17 +1,19 @@
 import { Bot } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { SupportVoicePlayer } from './support-voice-player';
 import type { SupportTicketMedia, SupportVoiceTranscript } from '@/lib/support-ticket-media';
 
 export function SupportVoiceMessage({
    media,
    transcription,
-   tone = 'dark',
+   tone = 'auto',
 }: {
    media: SupportTicketMedia;
    transcription: SupportVoiceTranscript;
-   tone?: 'dark' | 'light';
+   tone?: 'auto' | 'dark' | 'light';
 }) {
-   const dark = tone === 'dark';
+   const { resolvedTheme } = useTheme();
+   const dark = tone === 'dark' || (tone === 'auto' && resolvedTheme === 'dark');
    return (
       <div dir="rtl" className="w-full max-w-[440px]">
          <SupportVoicePlayer media={media} tone={tone} />

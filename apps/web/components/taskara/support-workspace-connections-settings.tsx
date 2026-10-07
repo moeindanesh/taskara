@@ -177,7 +177,7 @@ export function SupportWorkspaceConnectionsSettings({
          {embedded ? (
             <Card className="border-white/8 bg-[#171719] text-zinc-100">
                <CardHeader className="border-b border-white/7">
-                  <CardTitle className="flex items-center gap-2 text-base"><ArrowLeftRight className="size-4 text-indigo-300" /> تحویل کار به فضای تیمی</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base"><ArrowLeftRight className="size-4 text-indigo-700 dark:text-indigo-300" /> تحویل کار به فضای تیمی</CardTitle>
                   <CardDescription className="mt-1.5 max-w-3xl leading-6 text-zinc-500">اتصال دوطرفه و مقصد مجاز هر دپارتمان را تنظیم کنید؛ پیوند پرونده و کار، دسترسی دو فضا را با هم ادغام نمی‌کند.</CardDescription>
                </CardHeader>
                <CardContent className="p-4">{body}</CardContent>
@@ -224,7 +224,7 @@ export function WorkspaceConnectionList({
             return (
                <section key={connection.id} className="overflow-hidden rounded-lg border border-white/8 bg-[#111113]">
                   <div className="flex flex-col gap-3 border-b border-white/6 px-4 py-3 sm:flex-row sm:items-center">
-                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-300"><ArrowLeftRight className="size-4" /></span>
+                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-700 dark:text-indigo-300"><ArrowLeftRight className="size-4" /></span>
                      <div className="min-w-0 flex-1">
                         <h3 className="truncate text-sm font-medium text-zinc-200">{connection.otherWorkspace.name}</h3>
                         <p className="mt-1 text-xs text-zinc-600">
@@ -234,12 +234,12 @@ export function WorkspaceConnectionList({
                      </div>
                      <Badge variant="outline" className={connectionStatusTone(connection.status)}>{supportConnectionStatusLabels[connection.status]}</Badge>
                      {!connection.currentApproved && connection.status === 'PENDING' ? (
-                        <Button className="border border-lime-400/20 bg-lime-400/10 text-lime-200 hover:bg-lime-400/15" disabled={Boolean(busy) || !canApprove} size="sm" type="button" variant="secondary" onClick={() => onApprove(connection)}>
+                        <Button className="border border-lime-400/20 bg-lime-400/10 text-lime-800 dark:text-lime-200 hover:bg-lime-400/15" disabled={Boolean(busy) || !canApprove} size="sm" type="button" variant="secondary" onClick={() => onApprove(connection)}>
                            {busy === `approve:${connection.id}` ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} تأیید این فضا
                         </Button>
                      ) : null}
                      {connection.status !== 'REVOKED' ? (
-                        <Button className="text-zinc-500 hover:bg-red-400/10 hover:text-red-200" disabled={Boolean(busy)} size="sm" type="button" variant="ghost" onClick={() => onRevoke(connection)}><Unplug className="size-4" /> لغو</Button>
+                        <Button className="text-zinc-500 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-200" disabled={Boolean(busy)} size="sm" type="button" variant="ghost" onClick={() => onRevoke(connection)}><Unplug className="size-4" /> لغو</Button>
                      ) : null}
                   </div>
                   {side === 'SUPPORT' && connection.status === 'PENDING' && !connection.currentApproved && !connection.otherApproved ? (
@@ -336,8 +336,8 @@ function ConnectionTargets({
                   <span className="font-medium text-zinc-300">{target.project.name}</span>
                   <span dir="ltr" className="font-mono text-zinc-600">{target.project.keyPrefix}</span>
                   <span className="ms-auto flex gap-1.5">
-                     {target.allowCreateTasks ? <Badge variant="outline" className="border-indigo-400/15 text-[10px] text-indigo-200">ساخت کار</Badge> : null}
-                     {target.allowLinkTasks ? <Badge variant="outline" className="border-sky-400/15 text-[10px] text-sky-200">پیوند موجود</Badge> : null}
+                     {target.allowCreateTasks ? <Badge variant="outline" className="border-indigo-400/15 text-[10px] text-indigo-700 dark:text-indigo-200">ساخت کار</Badge> : null}
+                     {target.allowLinkTasks ? <Badge variant="outline" className="border-sky-400/15 text-[10px] text-sky-700 dark:text-sky-200">پیوند موجود</Badge> : null}
                   </span>
                </div>
             ))}
@@ -354,11 +354,11 @@ function ConnectionTargets({
                      <option value="">انتخاب پروژه مجاز</option>
                      {projects.map((project) => <option key={project.actionRef} value={project.actionRef}>{project.name} ({project.keyPrefix})</option>)}
                   </select>
-               {!loadingProjects && !projects.length ? <span className="text-[11px] leading-5 text-amber-200/75">پروژه‌ای که در آن اختیار نوشتن دارید یافت نشد.</span> : null}
+               {!loadingProjects && !projects.length ? <span className="text-[11px] leading-5 text-amber-800 dark:text-amber-200/75">پروژه‌ای که در آن اختیار نوشتن دارید یافت نشد.</span> : null}
             </label>
             <CapabilitySwitch checked={allowCreateTasks} label="اجازه ساخت کار تازه" onCheckedChange={setAllowCreateTasks} />
             <CapabilitySwitch checked={allowLinkTasks} label="اجازه پیوند کار موجود" onCheckedChange={setAllowLinkTasks} />
-            {!allowCreateTasks && !allowLinkTasks ? <p role="alert" className="text-xs text-amber-300 lg:col-span-2">حداقل یکی از دو قابلیت باید فعال باشد.</p> : null}
+            {!allowCreateTasks && !allowLinkTasks ? <p role="alert" className="text-xs text-amber-800 dark:text-amber-300 lg:col-span-2">حداقل یکی از دو قابلیت باید فعال باشد.</p> : null}
             <div className="lg:col-span-2"><Button className="border border-white/10 bg-white/6 text-zinc-200 hover:bg-white/10" disabled={!departmentId || !projectId || (!allowCreateTasks && !allowLinkTasks) || Boolean(busy)} size="sm" type="submit" variant="secondary">{busy === `target:${connection.id}` ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} افزودن مقصد مجاز</Button></div>
          </form>
       </div>
@@ -411,10 +411,10 @@ function RevokeConnectionDialog({
             <DialogHeader><DialogTitle>لغو اتصال دو فضای کاری</DialogTitle><DialogDescription className="leading-6 text-zinc-500">تحویل تازه متوقف می‌شود؛ پرونده و کارهای قبلی حذف نمی‌شوند.</DialogDescription></DialogHeader>
             <form className="space-y-4" onSubmit={submit}>
                {error ? <Message tone="error">{error}</Message> : null}
-               <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-100/80"><AlertTriangle className="me-1 inline size-4" />{supportHandoffIrreversibilityWarning}</div>
+               <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-800 dark:text-amber-100/80"><AlertTriangle className="me-1 inline size-4" />{supportHandoffIrreversibilityWarning}</div>
                <label className="grid gap-1.5 text-sm text-zinc-300">دلیل لغو<Textarea className={inputClass} maxLength={1000} required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
                <label className="flex items-start gap-2 text-xs leading-6 text-zinc-400"><input checked={confirmed} className="mt-1 size-4 accent-red-400" type="checkbox" onChange={(event) => setConfirmed(event.target.checked)} /><span>می‌دانم نمای پیوندهای قبلی منجمد می‌شود و متن کپی‌شده قابل بازپس‌گیری نیست.</span></label>
-               <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-red-500/20 text-red-100 hover:bg-red-500/30" disabled={!reason.trim() || !confirmed || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : <Unplug className="size-4" />} لغو اتصال</Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
+               <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-red-500/20 text-red-700 dark:text-red-100 hover:bg-red-500/30" disabled={!reason.trim() || !confirmed || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : <Unplug className="size-4" />} لغو اتصال</Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
             </form>
          </DialogContent>
       </Dialog>
@@ -422,13 +422,13 @@ function RevokeConnectionDialog({
 }
 
 function connectionStatusTone(status: SupportWorkspaceConnection['status']): string {
-   if (status === 'ACTIVE') return 'border-lime-400/20 bg-lime-400/8 text-lime-300';
-   if (status === 'PENDING') return 'border-amber-400/20 bg-amber-400/8 text-amber-300';
+   if (status === 'ACTIVE') return 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300';
+   if (status === 'PENDING') return 'border-amber-400/20 bg-amber-400/8 text-amber-800 dark:text-amber-300';
    return 'border-white/10 bg-white/5 text-zinc-500';
 }
 
 function Message({ children, tone }: { children: React.ReactNode; tone: 'error' | 'success' }) {
-   return <p role={tone === 'error' ? 'alert' : 'status'} className={cn('rounded-lg border px-3 py-2.5 text-sm', tone === 'error' ? 'border-red-400/20 bg-red-400/8 text-red-200' : 'border-lime-400/15 bg-lime-400/[0.045] text-lime-200')}><ShieldCheck className="me-1 inline size-4" />{children}</p>;
+   return <p role={tone === 'error' ? 'alert' : 'status'} className={cn('rounded-lg border px-3 py-2.5 text-sm', tone === 'error' ? 'border-red-400/20 bg-red-400/8 text-red-700 dark:text-red-200' : 'border-lime-400/15 bg-lime-400/[0.045] text-lime-800 dark:text-lime-200')}><ShieldCheck className="me-1 inline size-4" />{children}</p>;
 }
 
 const inputClass = 'border-white/10 bg-[#0c0c0e] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/20';

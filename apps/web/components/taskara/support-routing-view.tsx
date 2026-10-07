@@ -194,7 +194,7 @@ export function SupportRoutingView() {
                   <CardHeader className="border-b border-white/7">
                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                           <CardTitle className="flex items-center gap-2 text-base"><GitBranch className="size-4 text-indigo-300" /> سیاست مسیریابی</CardTitle>
+                           <CardTitle className="flex items-center gap-2 text-base"><GitBranch className="size-4 text-indigo-700 dark:text-indigo-300" /> سیاست مسیریابی</CardTitle>
                            <CardDescription className="mt-1.5 max-w-3xl leading-6 text-zinc-500">هر تغییر یک نسخه تغییرناپذیر تازه می‌سازد. فقط یک نسخه فعال است و ترتیب قواعد نتیجه را تعیین می‌کند.</CardDescription>
                         </div>
                         <div className="flex gap-2">
@@ -216,7 +216,7 @@ export function SupportRoutingView() {
 
             <Card className="border-white/8 bg-[#171719] text-zinc-100">
                <CardHeader className="border-b border-white/7">
-                  <CardTitle className="flex items-center gap-2 text-base"><Gauge className="size-4 text-sky-300" /> آمادگی و ظرفیت اعضا</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base"><Gauge className="size-4 text-sky-700 dark:text-sky-300" /> آمادگی و ظرفیت اعضا</CardTitle>
                   <CardDescription className="mt-1.5 max-w-3xl leading-6 text-zinc-500">مسیریابی ظرفیتی فقط اعضای فعال و «آماده» را در نظر می‌گیرد. بار جاری یک شمارش تجمیعی است؛ جزئیات پرونده‌های همکاران نمایش داده نمی‌شود.</CardDescription>
                </CardHeader>
                <CardContent className="space-y-4 p-4">
@@ -274,7 +274,7 @@ function PolicyRow({ activating, onActivate, onCopy, policy }: {
                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-zinc-500">v{policy.version.toLocaleString('fa-IR')}</span>
                   <h3 className="text-sm font-semibold text-zinc-200">{policy.label || `نسخه ${policy.version.toLocaleString('fa-IR')}`}</h3>
-                  <Badge variant="outline" className={policy.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-300' : 'border-white/10 text-zinc-500'}>{policy.active ? 'فعال' : 'غیرفعال'}</Badge>
+                  <Badge variant="outline" className={policy.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300' : 'border-white/10 text-zinc-500'}>{policy.active ? 'فعال' : 'غیرفعال'}</Badge>
                </div>
                <p className="mt-1.5 text-xs text-zinc-600">{policy.rules.length.toLocaleString('fa-IR')} قاعده · ساخته‌شده {formatJalaliDateTime(policy.createdAt)}</p>
                <div className="mt-3 flex flex-wrap gap-2">
@@ -283,7 +283,7 @@ function PolicyRow({ activating, onActivate, onCopy, policy }: {
             </div>
             <div className="flex gap-2">
                <Button className="border border-white/10 bg-white/5 text-zinc-300" size="sm" type="button" variant="secondary" onClick={onCopy}>نسخه جدید از این</Button>
-               {!policy.active ? <Button className="bg-lime-400/10 text-lime-200 hover:bg-lime-400/20" disabled={activating} size="sm" type="button" onClick={onActivate}>{activating ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} فعال‌سازی</Button> : null}
+               {!policy.active ? <Button className="bg-lime-400/10 text-lime-800 dark:text-lime-200 hover:bg-lime-400/20" disabled={activating} size="sm" type="button" onClick={onActivate}>{activating ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} فعال‌سازی</Button> : null}
             </div>
          </div>
       </article>
@@ -315,7 +315,7 @@ function MemberCapacityRow({ draft, member, onDraft, onSave, saving }: {
          <Field label="مهارت‌ها">
             <Input aria-label={`مهارت‌های ${member.user.name}`} dir="ltr" className={cn(inputClass, 'text-left')} disabled={!member.active} placeholder="billing, api:enterprise" value={draft.skills} onChange={(event) => onDraft({ ...draft, skills: event.target.value })} />
          </Field>
-         <Button aria-label={`ذخیره ظرفیت ${member.user.name}`} className="bg-indigo-400/15 text-indigo-100 hover:bg-indigo-400/25" disabled={!member.active || saving} type="button" onClick={onSave}>{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} ذخیره</Button>
+         <Button aria-label={`ذخیره ظرفیت ${member.user.name}`} className="bg-indigo-400/15 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-400/25" disabled={!member.active || saving} type="button" onClick={onSave}>{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} ذخیره</Button>
       </article>
    );
 }
@@ -426,7 +426,7 @@ function RuleEditor({ departments, index, onChange, onRemove, removable, rule }:
 }) {
    return (
       <section className="space-y-4 rounded-xl border border-white/8 bg-black/10 p-4" data-testid="support-routing-rule-editor">
-         <div className="flex items-center gap-3"><span className="flex size-7 items-center justify-center rounded-full bg-indigo-400/10 font-mono text-xs text-indigo-200">{(index + 1).toLocaleString('fa-IR')}</span><Input aria-label={`نام قاعده ${index + 1}`} className={cn(inputClass, 'flex-1')} maxLength={160} placeholder="نام قاعده" value={rule.name} onChange={(event) => onChange({ ...rule, name: event.target.value })} /><label className="flex items-center gap-2 text-xs text-zinc-500"><input checked={rule.enabled} type="checkbox" onChange={(event) => onChange({ ...rule, enabled: event.target.checked })} /> فعال</label>{removable ? <Button aria-label={`حذف قاعده ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={onRemove}><X className="size-4" /></Button> : null}</div>
+         <div className="flex items-center gap-3"><span className="flex size-7 items-center justify-center rounded-full bg-indigo-400/10 font-mono text-xs text-indigo-700 dark:text-indigo-200">{(index + 1).toLocaleString('fa-IR')}</span><Input aria-label={`نام قاعده ${index + 1}`} className={cn(inputClass, 'flex-1')} maxLength={160} placeholder="نام قاعده" value={rule.name} onChange={(event) => onChange({ ...rule, name: event.target.value })} /><label className="flex items-center gap-2 text-xs text-zinc-500"><input checked={rule.enabled} type="checkbox" onChange={(event) => onChange({ ...rule, enabled: event.target.checked })} /> فعال</label>{removable ? <Button aria-label={`حذف قاعده ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={onRemove}><X className="size-4" /></Button> : null}</div>
          <div className="grid gap-3 md:grid-cols-2">
             <Field label="نوع پرونده‌ها (خالی یعنی همه)"><Input aria-label={`نوع پرونده‌های قاعده ${index + 1}`} dir="ltr" className={cn(inputClass, 'text-left')} placeholder="general, billing" value={rule.caseTypeKeys} onChange={(event) => onChange({ ...rule, caseTypeKeys: event.target.value })} /></Field>
             <Field label="کانال ورودی"><ChipChecks options={supportCaseSources.map((value) => ({ value, label: sourceLabel(value) }))} values={rule.sourceChannels} onChange={(values) => onChange({ ...rule, sourceChannels: values as SupportCaseSource[] })} /></Field>
@@ -444,7 +444,7 @@ function RuleEditor({ departments, index, onChange, onRemove, removable, rule }:
 }
 
 function ChipChecks({ onChange, options, values }: { onChange: (values: string[]) => void; options: Array<{ label: string; value: string }>; values: readonly string[] }) {
-   return <div className="flex min-h-9 flex-wrap gap-1.5 rounded-md border border-white/10 bg-[#0c0c0e] p-1.5">{options.map((option) => { const checked = values.includes(option.value); return <label key={option.value} className={cn('cursor-pointer rounded px-2 py-1 text-[11px]', checked ? 'bg-indigo-400/15 text-indigo-100' : 'text-zinc-600 hover:bg-white/5')}><input className="sr-only" checked={checked} type="checkbox" onChange={() => onChange(checked ? values.filter((value) => value !== option.value) : [...values, option.value])} />{option.label}</label>; })}</div>;
+   return <div className="flex min-h-9 flex-wrap gap-1.5 rounded-md border border-white/10 bg-[#0c0c0e] p-1.5">{options.map((option) => { const checked = values.includes(option.value); return <label key={option.value} className={cn('cursor-pointer rounded px-2 py-1 text-[11px]', checked ? 'bg-indigo-400/15 text-indigo-700 dark:text-indigo-100' : 'text-zinc-600 hover:bg-white/5')}><input className="sr-only" checked={checked} type="checkbox" onChange={() => onChange(checked ? values.filter((value) => value !== option.value) : [...values, option.value])} />{option.label}</label>; })}</div>;
 }
 
 function Metric({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: number | string }) {
@@ -456,7 +456,7 @@ function Field({ children, label }: { children: React.ReactNode; label: string }
 }
 
 function InlineError({ text }: { text: string }) {
-   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-200">{text}</p>;
+   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-700 dark:text-red-200">{text}</p>;
 }
 
 function Loading({ text }: { text: string }) {

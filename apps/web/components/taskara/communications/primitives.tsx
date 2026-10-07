@@ -64,8 +64,8 @@ export function CommunicationListRow({
                   className={cn(
                      'shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]',
                      item.kind === 'announcement'
-                        ? 'border-indigo-400/20 bg-indigo-400/10 text-indigo-200'
-                        : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+                        ? 'border-indigo-400/20 bg-indigo-400/10 text-indigo-700 dark:text-indigo-200'
+                        : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-700 dark:text-emerald-200'
                   )}
                >
                   {typeLabel}
@@ -107,7 +107,7 @@ export function CommunicationEmptyState({
          <p className="text-sm leading-6 text-zinc-500">{children}</p>
          {actionLabel && onAction ? (
             <Button
-               className="mt-4 h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400"
+               className="mt-4 h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
                type="button"
                onClick={onAction}
             >

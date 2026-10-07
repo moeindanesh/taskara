@@ -326,7 +326,7 @@ function ReviewRow({
             ) : null}
             {review.status === 'REQUESTED' ? (
                <>
-                  <Button size="xs" className="h-7 bg-emerald-600 hover:bg-emerald-500" disabled={deciding} onClick={() => onApprove(review)}>
+                  <Button size="xs" className="h-7 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500" disabled={deciding} onClick={() => onApprove(review)}>
                      <CheckCircle2 className="size-3.5" />
                      {fa.reviews.approve}
                   </Button>
@@ -381,7 +381,7 @@ function MetricTile({
 function EmptyReviews() {
    return (
       <div className="rounded-md border border-dashed border-zinc-200 px-4 py-10 text-center dark:border-white/10">
-         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-500" />
+         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-700 dark:text-emerald-500" />
          <div className="text-sm font-medium">{fa.reviews.emptyTitle}</div>
          <div className="mx-auto mt-1 max-w-md text-xs leading-5 text-zinc-500">{fa.reviews.emptyDescription}</div>
       </div>

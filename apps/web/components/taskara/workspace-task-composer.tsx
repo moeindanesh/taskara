@@ -801,7 +801,7 @@ export function WorkspaceTaskComposer() {
                      <Button
                         type="submit"
                         disabled={submitting || !projects.length}
-                        className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                        className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                      >
                         {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
                         {fa.issue.createIssue}
@@ -812,7 +812,7 @@ export function WorkspaceTaskComposer() {
             {draggingFiles ? (
                <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[1px]">
                   <div className="flex min-h-32 w-full max-w-sm flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-indigo-300/55 bg-[#202023]/95 text-center shadow-2xl">
-                     <UploadCloud className="size-8 text-indigo-200" />
+                     <UploadCloud className="size-8 text-indigo-700 dark:text-indigo-200" />
                      <span className="text-sm font-medium text-zinc-100">{fa.issue.dropAttachments}</span>
                   </div>
                </div>

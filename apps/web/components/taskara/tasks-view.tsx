@@ -1798,7 +1798,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
             pushGroup({
                key: milestone.id,
                label: milestone.name,
-               icon: <Diamond className="size-4 text-violet-300" />,
+               icon: <Diamond className="size-4 text-violet-700 dark:text-violet-300" />,
                toneClassName: 'bg-violet-400/[0.06]',
                tasks: filteredTasks.filter(
                   (task) => (task.milestone?.id || task.milestoneId) === milestone.id
@@ -1881,7 +1881,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                pushSubgroup({
                   key: milestone.id,
                   label: milestone.name,
-                  icon: <Diamond className="size-4 text-violet-300" />,
+                  icon: <Diamond className="size-4 text-violet-700 dark:text-violet-300" />,
                   tasks: tasks.filter((task) => (task.milestone?.id || task.milestoneId) === milestone.id),
                });
             }
@@ -2802,7 +2802,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
    return (
       <div className="h-full bg-[#101011]" data-testid="issues-screen">
          {error ? (
-            <p className="mx-4 mt-4 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <p className="mx-4 mt-4 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-700 dark:text-red-200">
                {error}
             </p>
          ) : null}
@@ -2916,11 +2916,11 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                                     </button>
                                     {canDeleteActiveSavedView ? (
                                        <button
-                                          className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-sm text-red-300 transition hover:bg-red-500/10 hover:text-red-200"
+                                          className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-sm text-red-700 dark:text-red-300 transition hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-200"
                                           type="button"
                                           onClick={() => void deleteActiveView()}
                                        >
-                                          <Trash2 className="size-4 text-red-400" />
+                                          <Trash2 className="size-4 text-red-700 dark:text-red-400" />
                                           <span>{fa.issue.deleteView}</span>
                                        </button>
                                     ) : null}
@@ -3148,7 +3148,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                      انصراف
                   </Button>
                   <Button
-                     className="bg-indigo-500 text-white hover:bg-indigo-400"
+                     className="bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
                      onClick={() => {
                         const pending = pendingProjectChange;
                         setPendingProjectChange(null);
@@ -3220,7 +3220,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                <div
                   aria-hidden="true"
                   className={cn(
-                     'pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[18px] border border-indigo-400/70 bg-indigo-500/12 text-sm font-medium text-indigo-100 opacity-0 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08)] backdrop-blur-[1px] transition-opacity',
+                     'pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[18px] border border-indigo-400/70 bg-indigo-500/12 text-sm font-medium text-indigo-700 dark:text-indigo-100 opacity-0 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08)] backdrop-blur-[1px] transition-opacity',
                      composerDraggingFiles && 'opacity-100'
                   )}
                >
@@ -3339,7 +3339,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                      {composerAiSuggestion ? (
                         <div className="mt-3 rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-sm">
                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 text-indigo-100">
+                              <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-100">
                                  <Sparkles className="size-4" />
                                  <span className="font-medium">پیشنهاد هوشمند AI</span>
                               </div>
@@ -3521,7 +3521,7 @@ export function TasksView({ defaultSystemView = 'active', personalOnly = true, g
                         </label>
                         <Button
                            disabled={composerSubmitting || isPending || !scopedProjects.length}
-                           className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                           className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                         >
                            {fa.issue.createIssue}
                         </Button>
@@ -4392,7 +4392,7 @@ function FilterSubmenu({
                          count: tasks.filter(
                             (task) => (task.milestone?.id || task.milestoneId) === milestone.id
                          ).length,
-                         icon: <Diamond className="size-4 text-violet-300" />,
+                         icon: <Diamond className="size-4 text-violet-700 dark:text-violet-300" />,
                          onClick: () => onToggle('milestone', milestone.id),
                       })),
                    ]
@@ -4416,7 +4416,7 @@ function FilterSubmenu({
                            .length,
                         icon:
                            option.value === 'any' ? (
-                              <Lock className="size-4 text-amber-300/80" />
+                              <Lock className="size-4 text-amber-800 dark:text-amber-300/80" />
                            ) : (
                               <Unlock className="size-4 text-zinc-400" />
                            ),
@@ -5201,7 +5201,7 @@ function IssueRow({
                   onDoubleClick={stopRowPropagation}
                >
                   {selected ? (
-                     <Check className="size-4 text-indigo-300" />
+                     <Check className="size-4 text-indigo-700 dark:text-indigo-300" />
                   ) : shows('priority') ? (
                      <TaskPriorityControl
                         priority={task.priority}
@@ -5216,7 +5216,7 @@ function IssueRow({
                         <span className="truncate">{task.key}</span>
                         {task.syncState === 'pending' ? (
                            <Repeat2
-                              className="size-3 shrink-0 text-amber-300/80"
+                              className="size-3 shrink-0 text-amber-800 dark:text-amber-300/80"
                               aria-label={fa.issue.pendingSync}
                            />
                         ) : null}
@@ -5383,7 +5383,7 @@ function IssueCard({
                               <span className="truncate">{task.key}</span>
                               {task.syncState === 'pending' ? (
                                  <Repeat2
-                                    className="size-3 shrink-0 text-amber-300/80"
+                                    className="size-3 shrink-0 text-amber-800 dark:text-amber-300/80"
                                     aria-label={fa.issue.pendingSync}
                                  />
                               ) : null}
@@ -5636,7 +5636,7 @@ function TaskLabelSummary({ labels }: { labels: NonNullable<TaskaraTask['labels'
 function TaskMilestoneBadge({ milestone }: { milestone: NonNullable<TaskaraTask['milestone']> }) {
    return (
       <span
-         className="inline-flex min-w-0 max-w-40 shrink items-center gap-1.5 truncate rounded-full border border-violet-300/15 bg-violet-400/[0.07] px-2 py-1 text-[11px] text-violet-200"
+         className="inline-flex min-w-0 max-w-40 shrink items-center gap-1.5 truncate rounded-full border border-violet-300/15 bg-violet-400/[0.07] px-2 py-1 text-[11px] text-violet-700 dark:text-violet-200"
          title={milestone.name}
       >
          <Diamond className="size-3 shrink-0" />
@@ -5990,7 +5990,7 @@ function TaskIssueContextMenu({
                className="w-56 rounded-xl border-white/10 bg-[#202023] p-1 text-zinc-100"
             >
                <LinearContextItem
-                  icon={<Check className="size-4 text-indigo-300" />}
+                  icon={<Check className="size-4 text-indigo-700 dark:text-indigo-300" />}
                   label={fa.status.DONE}
                   onSelect={() => onStatusChange('DONE')}
                />
@@ -6169,7 +6169,7 @@ function LinearContextItem({
          variant={destructive ? 'destructive' : 'default'}
          className={cn(
             'h-9 rounded-lg px-3 text-zinc-300 focus:bg-white/[0.07]',
-            destructive && 'text-red-300 focus:text-red-200',
+            destructive && 'text-red-700 dark:text-red-300 focus:text-red-700 dark:focus:text-red-200',
             className
          )}
          onSelect={onSelect}

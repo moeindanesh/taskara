@@ -307,7 +307,7 @@ export function ProjectsView() {
    return (
       <div className="h-full bg-[#101011]" data-testid="projects-screen">
          {error ? (
-            <p className="mx-4 mt-4 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+            <p className="mx-4 mt-4 rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-700 dark:text-red-200">
                {error}
             </p>
          ) : null}
@@ -588,7 +588,7 @@ function ProjectRow({
                   title={`${fa.project.milestones}: ${(project._count?.milestones || 0).toLocaleString('fa-IR')}`}
                   to={`/${orgId}/milestones?projectId=${encodeURIComponent(project.id)}`}
                >
-                  <Diamond className="size-3.5 text-indigo-400" />
+                  <Diamond className="size-3.5 text-indigo-700 dark:text-indigo-400" />
                   <span className="hidden xl:inline">{(project._count?.milestones || 0).toLocaleString('fa-IR')}</span>
                </Link>
                {isWorkspaceAdminRole(role) ? <button
@@ -702,17 +702,17 @@ const projectHealthMeta: Record<
 > = {
    ON_TRACK: {
       label: fa.project.healthOnTrack,
-      className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
+      className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-700 dark:text-emerald-200',
       icon: Activity,
    },
    AT_RISK: {
       label: fa.project.healthAtRisk,
-      className: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
+      className: 'border-amber-400/20 bg-amber-400/10 text-amber-800 dark:text-amber-200',
       icon: AlertTriangle,
    },
    OFF_TRACK: {
       label: fa.project.healthOffTrack,
-      className: 'border-rose-400/20 bg-rose-400/10 text-rose-200',
+      className: 'border-rose-400/20 bg-rose-400/10 text-rose-700 dark:text-rose-200',
       icon: AlertTriangle,
    },
 };

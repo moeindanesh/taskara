@@ -167,7 +167,7 @@ export function SupportCaseHandoffCard({
             <CardHeader className="border-b border-white/7">
                <div className="flex items-start justify-between gap-3">
                   <div>
-                     <CardTitle className="flex items-center gap-2 text-sm"><Link2 className="size-4 text-indigo-300" /> کار تیمی مرتبط</CardTitle>
+                     <CardTitle className="flex items-center gap-2 text-sm"><Link2 className="size-4 text-indigo-700 dark:text-indigo-300" /> کار تیمی مرتبط</CardTitle>
                      <CardDescription className="mt-1.5 leading-6 text-zinc-600">فقط نمای تأییدشده کار تیمی نمایش داده می‌شود؛ این پیوند دسترسی تازه‌ای ایجاد نمی‌کند.</CardDescription>
                   </div>
                   <Button aria-label="تازه‌سازی کارهای مرتبط" className="size-8 shrink-0 text-zinc-500 hover:bg-white/6" size="icon" type="button" variant="ghost" onClick={() => void load()}><RefreshCw className={cn('size-4', loading && 'animate-spin')} /></Button>
@@ -187,10 +187,10 @@ export function SupportCaseHandoffCard({
                {canMutate && item.status !== 'CLOSED' ? (
                   <div className="grid gap-2 border-t border-white/6 pt-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                      <Button className="border border-white/10 bg-white/6 text-zinc-200 hover:bg-white/10" disabled={!canLink || loading} size="sm" type="button" variant="secondary" onClick={() => setDialogMode('LINK')}><Link2 className="size-4" /> پیوند کار موجود</Button>
-                     <Button className="bg-indigo-400/15 text-indigo-100 hover:bg-indigo-400/25" disabled={!canCreate || loading} size="sm" type="button" onClick={() => setDialogMode('CREATE')}><Plus className="size-4" /> ساخت کار تیمی</Button>
+                     <Button className="bg-indigo-400/15 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-400/25" disabled={!canCreate || loading} size="sm" type="button" onClick={() => setDialogMode('CREATE')}><Plus className="size-4" /> ساخت کار تیمی</Button>
                   </div>
                ) : null}
-               {optionsError ? <p className="text-xs leading-6 text-amber-200/80"><AlertTriangle className="me-1 inline size-3.5" />{optionsError}</p> : null}
+               {optionsError ? <p className="text-xs leading-6 text-amber-800 dark:text-amber-200/80"><AlertTriangle className="me-1 inline size-3.5" />{optionsError}</p> : null}
                {!optionsError && !loading && !options.items.length ? <p className="text-xs leading-6 text-zinc-600">برای دپارتمان مالک، اتصال فعال و مقصد پروژه‌ای مجاز تعریف نشده است.</p> : null}
             </CardContent>
          </Card>
@@ -256,14 +256,14 @@ export function SupportCaseTaskLinkListView({
                      <TaskLinkStateIcon state={state} />
                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                           <bdi dir="ltr" className="font-mono text-[11px] text-indigo-300">{link.taskKey}</bdi>
+                           <bdi dir="ltr" className="font-mono text-[11px] text-indigo-700 dark:text-indigo-300">{link.taskKey}</bdi>
                            <Badge variant="outline" className="border-white/10 text-[10px] text-zinc-500">{taskStatusLabel(link.status)}</Badge>
                         </div>
                         <h4 className="mt-1.5 break-words text-xs font-medium leading-6 text-zinc-300">{link.title}</h4>
                         <p className="mt-1 text-[11px] text-zinc-600">{link.teamWorkspaceName} · {supportTaskLinkSignalLabel(link)}</p>
-                        {state !== 'ACTIVE' ? <p className="mt-1.5 text-[11px] leading-5 text-amber-200/75">{supportTaskLinkStateLabel(link)}</p> : null}
+                        {state !== 'ACTIVE' ? <p className="mt-1.5 text-[11px] leading-5 text-amber-800 dark:text-amber-200/75">{supportTaskLinkStateLabel(link)}</p> : null}
                      </div>
-                     {unlinkAllowed && state !== 'UNLINKED' ? <Button aria-label={`برداشتن پیوند ${link.taskKey}`} className="size-7 shrink-0 text-zinc-600 hover:bg-red-400/10 hover:text-red-200" size="icon" type="button" variant="ghost" onClick={() => onUnlink(link)}><Trash2 className="size-3.5" /></Button> : null}
+                     {unlinkAllowed && state !== 'UNLINKED' ? <Button aria-label={`برداشتن پیوند ${link.taskKey}`} className="size-7 shrink-0 text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-200" size="icon" type="button" variant="ghost" onClick={() => onUnlink(link)}><Trash2 className="size-3.5" /></Button> : null}
                   </div>
                </article>
             );
@@ -443,8 +443,8 @@ function SupportHandoffDialog({
                      </div>
                   ) : null}
 
-                  <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-100/75"><ShieldAlert className="me-1 inline size-4" />اطلاعات تماس، یادداشت خصوصی، فایل، متن تماس و تاریخچه مکالمه را در این فرم وارد نکنید.</div>
-                  <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-indigo-400/15 text-indigo-100 hover:bg-indigo-400/25" disabled={!selectedTarget || !validDraft(mode, draft)} type="submit">بررسی پیش‌نمایش <ArrowLeft className="size-4" /></Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
+                  <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.035] px-3 py-2.5 text-xs leading-6 text-sky-700 dark:text-sky-100/75"><ShieldAlert className="me-1 inline size-4" />اطلاعات تماس، یادداشت خصوصی، فایل، متن تماس و تاریخچه مکالمه را در این فرم وارد نکنید.</div>
+                  <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-indigo-400/15 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-400/25" disabled={!selectedTarget || !validDraft(mode, draft)} type="submit">بررسی پیش‌نمایش <ArrowLeft className="size-4" /></Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
                </form>
             ) : selectedTarget ? (
                <SupportHandoffPreview
@@ -489,14 +489,14 @@ export function SupportHandoffPreview({
       <div className="space-y-4" data-testid="support-handoff-preview">
          {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
          <div className="rounded-lg border border-white/8 bg-black/15 p-4">
-            <div className="flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline" className="border-indigo-400/20 text-indigo-200">{target.teamWorkspaceName}</Badge><span className="text-zinc-600">پروژه</span><span className="text-zinc-300">{target.project.name}</span><span dir="ltr" className="font-mono text-zinc-600">{target.project.keyPrefix}</span></div>
+            <div className="flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline" className="border-indigo-400/20 text-indigo-700 dark:text-indigo-200">{target.teamWorkspaceName}</Badge><span className="text-zinc-600">پروژه</span><span className="text-zinc-300">{target.project.name}</span><span dir="ltr" className="font-mono text-zinc-600">{target.project.keyPrefix}</span></div>
             <h3 className="mt-4 text-sm font-semibold text-zinc-100">{draft.handoffTitle}</h3>
             <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-8 text-zinc-300">{draft.handoffSummary}</p>
             {mode === 'CREATE' ? <div className="mt-4 border-t border-white/7 pt-4"><div className="text-xs text-zinc-600">کار تازه</div><div className="mt-1 text-sm text-zinc-200">{draft.taskTitle}</div>{draft.taskDescription ? <p className="mt-2 whitespace-pre-wrap text-xs leading-7 text-zinc-400">{draft.taskDescription}</p> : null}</div> : null}
          </div>
-         <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-3 text-xs leading-6 text-amber-100/85"><FileWarning className="me-1 inline size-4" />{supportHandoffVisibilityWarning(target.teamWorkspaceName, target.project.name)}<p className="mt-2 border-t border-amber-400/10 pt-2">{supportHandoffIrreversibilityWarning}</p></div>
+         <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-3 text-xs leading-6 text-amber-800 dark:text-amber-100/85"><FileWarning className="me-1 inline size-4" />{supportHandoffVisibilityWarning(target.teamWorkspaceName, target.project.name)}<p className="mt-2 border-t border-amber-400/10 pt-2">{supportHandoffIrreversibilityWarning}</p></div>
          <label className="flex items-start gap-2 rounded-lg border border-white/8 px-3 py-3 text-xs leading-6 text-zinc-300"><input checked={confirmed} className="mt-1 size-4 accent-indigo-500" type="checkbox" onChange={(event) => onConfirmedChange(event.target.checked)} /><span>مقصد و متن بالا را بررسی کردم؛ این متن برای مخاطبان پروژه مقصد مناسب است و داده حساس مشتری ندارد.</span></label>
-         <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-indigo-400/15 text-indigo-100 hover:bg-indigo-400/25" disabled={!confirmed || submitting} type="button" onClick={onSubmit}>{submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} تأیید و ثبت تحویل</Button><Button disabled={submitting} type="button" variant="ghost" onClick={onEdit}>ویرایش متن</Button></DialogFooter>
+         <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-indigo-400/15 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-400/25" disabled={!confirmed || submitting} type="button" onClick={onSubmit}>{submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} تأیید و ثبت تحویل</Button><Button disabled={submitting} type="button" variant="ghost" onClick={onEdit}>ویرایش متن</Button></DialogFooter>
       </div>
    );
 }
@@ -579,9 +579,9 @@ function UnlinkTaskDialog({
             <DialogHeader><DialogTitle>برداشتن پیوند کار تیمی</DialogTitle><DialogDescription className="leading-6 text-zinc-500"><bdi dir="ltr" className="font-mono">{link?.taskKey}</bdi> · این کار پرونده یا کار تیمی را حذف نمی‌کند.</DialogDescription></DialogHeader>
             <form className="space-y-4" onSubmit={submit}>
                {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
-               <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-100/80">{supportHandoffIrreversibilityWarning}</div>
+               <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] px-3 py-2.5 text-xs leading-6 text-amber-800 dark:text-amber-100/80">{supportHandoffIrreversibilityWarning}</div>
                <Field label="دلیل برداشتن پیوند"><Textarea className={inputClass} maxLength={1000} required value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
-               <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-red-500/20 text-red-100 hover:bg-red-500/30" disabled={!reason.trim() || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />} برداشتن پیوند</Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
+               <DialogFooter className="sm:flex-row-reverse sm:justify-start"><Button className="bg-red-500/20 text-red-700 dark:text-red-100 hover:bg-red-500/30" disabled={!reason.trim() || submitting} type="submit">{submitting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />} برداشتن پیوند</Button><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>انصراف</Button></DialogFooter>
             </form>
          </DialogContent>
       </Dialog>
@@ -590,10 +590,10 @@ function UnlinkTaskDialog({
 
 function TaskLinkStateIcon({ state }: { state: ReturnType<typeof supportTaskLinkState> }) {
    const className = 'mt-0.5 size-4 shrink-0';
-   if (state === 'TASK_DELETED') return <CircleOff className={cn(className, 'text-red-300')} />;
-   if (state === 'CONNECTION_REVOKED') return <Unplug className={cn(className, 'text-amber-300')} />;
+   if (state === 'TASK_DELETED') return <CircleOff className={cn(className, 'text-red-700 dark:text-red-300')} />;
+   if (state === 'CONNECTION_REVOKED') return <Unplug className={cn(className, 'text-amber-800 dark:text-amber-300')} />;
    if (state === 'UNLINKED') return <CircleOff className={cn(className, 'text-zinc-600')} />;
-   return <Link2 className={cn(className, 'text-indigo-300')} />;
+   return <Link2 className={cn(className, 'text-indigo-700 dark:text-indigo-300')} />;
 }
 
 function validDraft(mode: HandoffMode | null, draft: HandoffDraft): boolean {
@@ -624,7 +624,7 @@ function Field({ children, className, label }: { children: React.ReactNode; clas
 }
 
 function InlineMessage({ children, tone }: { children: React.ReactNode; tone: 'error' | 'success' }) {
-   return <p role={tone === 'error' ? 'alert' : 'status'} className={cn('rounded-lg border px-3 py-2.5 text-xs leading-6', tone === 'error' ? 'border-red-400/20 bg-red-400/8 text-red-200' : 'border-lime-400/15 bg-lime-400/[0.045] text-lime-200')}>{tone === 'error' ? <AlertTriangle className="me-1 inline size-3.5" /> : <CheckCircle2 className="me-1 inline size-3.5" />}{children}</p>;
+   return <p role={tone === 'error' ? 'alert' : 'status'} className={cn('rounded-lg border px-3 py-2.5 text-xs leading-6', tone === 'error' ? 'border-red-400/20 bg-red-400/8 text-red-700 dark:text-red-200' : 'border-lime-400/15 bg-lime-400/[0.045] text-lime-800 dark:text-lime-200')}>{tone === 'error' ? <AlertTriangle className="me-1 inline size-3.5" /> : <CheckCircle2 className="me-1 inline size-3.5" />}{children}</p>;
 }
 
 const inputClass = 'border-white/10 bg-[#0c0c0e] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/20';

@@ -113,8 +113,8 @@ export function SupportOperationsView() {
    return (
       <main dir="rtl" className="min-h-full bg-[#101011] px-4 py-5 text-zinc-200 sm:px-5" data-testid="support-operations-screen">
          <div className="mx-auto max-w-7xl space-y-4">
-            <div className="rounded-xl border border-indigo-400/15 bg-indigo-400/[0.045] px-4 py-3.5 text-sm leading-7 text-indigo-100/75">
-               <ShieldCheck className="me-1 inline size-4 text-indigo-300" />
+            <div className="rounded-xl border border-indigo-400/15 bg-indigo-400/[0.045] px-4 py-3.5 text-sm leading-7 text-indigo-700 dark:text-indigo-100/75">
+               <ShieldCheck className="me-1 inline size-4 text-indigo-700 dark:text-indigo-300" />
                تقویم، زمان کاری هر دپارتمان را تعریف می‌کند. هر تغییر SLA با یک نسخه تازه اعمال می‌شود تا تعهد پرونده‌های قبلی قابل حسابرسی بماند.
             </div>
             {error ? <InlineError message={error} /> : null}
@@ -168,7 +168,7 @@ function CalendarSection({
       <Card className="h-fit border-white/8 bg-[#171719] text-zinc-100">
          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-white/7">
             <div>
-               <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4 text-indigo-300" />تقویم‌های کاری</CardTitle>
+               <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4 text-indigo-700 dark:text-indigo-300" />تقویم‌های کاری</CardTitle>
                <CardDescription className="mt-1.5 leading-6 text-zinc-500">ساعت کاری، منطقه زمانی و تعطیلات سازمان</CardDescription>
             </div>
             <Button className="shrink-0 bg-zinc-100 text-zinc-950 hover:bg-white" size="sm" type="button" onClick={onCreate}><Plus className="size-4" />تقویم</Button>
@@ -181,7 +181,7 @@ function CalendarSection({
                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                            <h3 className="font-medium text-zinc-200">{calendar.name}</h3>
-                           <Badge variant="outline" className={calendar.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-300' : 'border-white/10 text-zinc-500'}>{calendar.active ? 'فعال' : 'غیرفعال'}</Badge>
+                           <Badge variant="outline" className={calendar.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300' : 'border-white/10 text-zinc-500'}>{calendar.active ? 'فعال' : 'غیرفعال'}</Badge>
                         </div>
                         <p dir="ltr" className="mt-1 text-left text-xs text-zinc-600">{calendar.timezone}</p>
                      </div>
@@ -222,7 +222,7 @@ export function SupportSlaPolicySection({
       <Card className="h-fit border-white/8 bg-[#171719] text-zinc-100">
          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-white/7">
             <div>
-               <CardTitle className="flex items-center gap-2 text-base"><AlarmClock className="size-4 text-amber-300" />سیاست‌های SLA</CardTitle>
+               <CardTitle className="flex items-center gap-2 text-base"><AlarmClock className="size-4 text-amber-800 dark:text-amber-300" />سیاست‌های SLA</CardTitle>
                <CardDescription className="mt-1.5 leading-6 text-zinc-500">نسخه‌های تغییرناپذیر تعهد پاسخ و حل</CardDescription>
             </div>
             <Button className="shrink-0 bg-zinc-100 text-zinc-950 hover:bg-white" size="sm" type="button" onClick={onCreate}><Plus className="size-4" />سیاست</Button>
@@ -236,14 +236,14 @@ export function SupportSlaPolicySection({
                         <div className="flex flex-wrap items-center gap-2">
                            <h3 className="font-medium text-zinc-200">{policy.name}</h3>
                            <Badge variant="outline" className="border-white/10 font-mono text-[10px] text-zinc-500"><bdi dir="ltr">{policy.policyKey}</bdi></Badge>
-                           <Badge variant="outline" className="border-indigo-400/15 bg-indigo-400/5 text-indigo-200">نسخه {policy.version.toLocaleString('fa-IR')}</Badge>
-                           <Badge variant="outline" className={policy.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-300' : 'border-white/10 text-zinc-500'}>{policy.active ? 'فعال' : 'غیرفعال'}</Badge>
+                           <Badge variant="outline" className="border-indigo-400/15 bg-indigo-400/5 text-indigo-700 dark:text-indigo-200">نسخه {policy.version.toLocaleString('fa-IR')}</Badge>
+                           <Badge variant="outline" className={policy.active ? 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300' : 'border-white/10 text-zinc-500'}>{policy.active ? 'فعال' : 'غیرفعال'}</Badge>
                         </div>
                         <p className="mt-1.5 text-xs text-zinc-600">تقویم {policy.calendar.name} · اولویت اجرا {policy.priority.toLocaleString('fa-IR')}</p>
                      </div>
                      <div className="flex flex-wrap gap-2">
                         <Button className="border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10" size="sm" type="button" variant="secondary" onClick={() => onNewVersion(policy)}><CopyPlus className="size-3.5" />نسخه جدید</Button>
-                        {policy.active ? <Button aria-label={`غیرفعال‌سازی نسخه ${policy.version} ${policy.name}`} className="text-zinc-500 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => onDeactivate(policy)}><Power className="size-4" /></Button> : null}
+                        {policy.active ? <Button aria-label={`غیرفعال‌سازی نسخه ${policy.version} ${policy.name}`} className="text-zinc-500 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => onDeactivate(policy)}><Power className="size-4" /></Button> : null}
                      </div>
                   </div>
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -330,7 +330,7 @@ function CalendarDialog({
                            <select aria-label={`روز بازه ${index + 1}`} className={selectClass} value={period.dayOfWeek} onChange={(event) => setPeriods(replaceAt(periods, index, { ...period, dayOfWeek: Number(event.target.value) }))}>{Object.entries(dayLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
                            <Input aria-label={`شروع بازه ${index + 1}`} dir="ltr" type="time" className={cn(inputClass, 'text-left')} value={minuteInput(period.startMinute)} onChange={(event) => setPeriods(replaceAt(periods, index, { ...period, startMinute: inputMinute(event.target.value) }))} />
                            <Input aria-label={`پایان بازه ${index + 1}`} dir="ltr" type="time" className={cn(inputClass, 'text-left')} value={minuteInput(period.endMinute)} onChange={(event) => setPeriods(replaceAt(periods, index, { ...period, endMinute: inputEndMinute(event.target.value) }))} />
-                           <Button aria-label={`حذف بازه ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => setPeriods(periods.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4" /></Button>
+                           <Button aria-label={`حذف بازه ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => setPeriods(periods.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4" /></Button>
                         </div>
                      ))}
                   </div>
@@ -344,7 +344,7 @@ function CalendarDialog({
                            <LazyJalaliDatePicker ariaLabel={`تاریخ استثنا ${index + 1}`} value={holiday.date ? `${holiday.date}T12:00:00` : null} onChange={(value) => setHolidays(replaceAt(holidays, index, { ...holiday, date: value ? localDateKey(value) : '' }))} />
                            <Input aria-label={`نام استثنا ${index + 1}`} className={inputClass} maxLength={160} placeholder="نام تعطیلی یا روز کاری" value={holiday.name} onChange={(event) => setHolidays(replaceAt(holidays, index, { ...holiday, name: event.target.value }))} />
                            <label className="flex items-center gap-2 text-xs text-zinc-400"><input type="checkbox" checked={holiday.working} onChange={(event) => setHolidays(replaceAt(holidays, index, { ...holiday, working: event.target.checked }))} />روز کاری استثنایی</label>
-                           <Button aria-label={`حذف استثنا ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => setHolidays(holidays.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4" /></Button>
+                           <Button aria-label={`حذف استثنا ${index + 1}`} className="text-zinc-600 hover:bg-red-400/10 hover:text-red-700 dark:hover:text-red-300" size="icon" type="button" variant="ghost" onClick={() => setHolidays(holidays.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4" /></Button>
                         </div>
                      ))}
                   </div>
@@ -575,7 +575,7 @@ function LoadingPanel() {
 }
 
 function InlineError({ message }: { message: string }) {
-   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm leading-6 text-red-200">{message}</p>;
+   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm leading-6 text-red-700 dark:text-red-200">{message}</p>;
 }
 
 const inputClass = 'border-white/10 bg-[#0c0c0e] text-zinc-100 placeholder:text-zinc-600 shadow-none focus-visible:border-indigo-400/50 focus-visible:ring-indigo-400/20';

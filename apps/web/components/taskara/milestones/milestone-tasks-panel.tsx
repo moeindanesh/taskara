@@ -306,7 +306,7 @@ export function MilestoneTasksPanel({
                action={canAssign && !query ? (
                   <>
                      <Button disabled={!online} size="sm" variant="secondary" onClick={() => setAddOpen(true)}>{fa.milestone.addExistingTasks}</Button>
-                     <Button className="bg-indigo-500 text-white hover:bg-indigo-400" size="sm" onClick={createTask}>{fa.milestone.createTask}</Button>
+                     <Button className="bg-indigo-700 dark:bg-indigo-500 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400" size="sm" onClick={createTask}>{fa.milestone.createTask}</Button>
                   </>
                ) : undefined}
                description={query ? undefined : fa.milestone.noTasksDescription}

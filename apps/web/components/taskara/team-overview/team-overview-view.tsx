@@ -100,7 +100,7 @@ export function TeamOverviewView() {
       <div className="relative flex h-full min-h-0 w-full flex-col">
          {error ? (
             <div className="px-4 pt-3">
-               <LinearEmptyState className="border-red-500/30 text-red-300">{error}</LinearEmptyState>
+               <LinearEmptyState className="border-red-500/30 text-red-700 dark:text-red-300">{error}</LinearEmptyState>
             </div>
          ) : null}
 

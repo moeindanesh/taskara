@@ -532,21 +532,14 @@ export function SupportWorkspaceProvider({ children }: { children: ReactNode }) 
    }, [accessEpoch, applyBootstrap, epochIsCurrent, forceScopeRefresh]);
 
    useEffect(() => {
-      const refreshProjection = () => void pull(true);
-      const onVisibility = () => {
-         if (document.visibilityState === 'visible') refreshProjection();
-      };
+      const revalidateOnReconnect = () => void pull(true);
       const interval = window.setInterval(() => {
          if (document.visibilityState === 'visible') void pull(false);
       }, 30_000);
-      window.addEventListener('focus', refreshProjection);
-      window.addEventListener('online', refreshProjection);
-      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('online', revalidateOnReconnect);
       return () => {
          window.clearInterval(interval);
-         window.removeEventListener('focus', refreshProjection);
-         window.removeEventListener('online', refreshProjection);
-         document.removeEventListener('visibilitychange', onVisibility);
+         window.removeEventListener('online', revalidateOnReconnect);
       };
    }, [pull]);
 
@@ -866,8 +859,8 @@ export function SupportScopeBoundary({
    onRetry: () => void;
    children: ReactNode;
 }) {
-   // File pickers trigger window focus. Hide during revalidation without destroying
-   // the input or draft; an actual scope reset or failed check still unmounts them.
+   // Retain inputs and drafts during reconnect validation; an actual scope reset
+   // or failed check still unmounts them.
    return (
       <>
          <div style={{ display: state === 'ready' ? 'contents' : 'none' }} inert={state !== 'ready'}>
@@ -940,7 +933,7 @@ async function consumeSupportSyncStream(input: {
             input.onScopeReset();
             return;
          }
-         // Deployments may intentionally disable streaming; focus/online/interval pull remains the
+         // Deployments may intentionally disable streaming; online/interval pull remains the
          // safe fallback and avoids a hot reconnect loop for an explicit refusal.
          if (response.status === 204 || response.status === 403 || response.status === 404) return;
          if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {

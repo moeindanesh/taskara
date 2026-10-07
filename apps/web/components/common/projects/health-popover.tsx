@@ -16,11 +16,11 @@ export function HealthPopover({ project }: HealthPopoverProps) {
    const getHealthIcon = (healthId: string) => {
       switch (healthId) {
          case 'on-track':
-            return <CircleCheck className="size-4 text-green-500" />;
+            return <CircleCheck className="size-4 text-green-700 dark:text-green-500" />;
          case 'off-track':
-            return <CircleX className="size-4 text-red-500" />;
+            return <CircleX className="size-4 text-red-700 dark:text-red-500" />;
          case 'at-risk':
-            return <AlertCircle className="size-4 text-amber-500" />;
+            return <AlertCircle className="size-4 text-amber-800 dark:text-amber-500" />;
          case 'no-update':
          default:
             return <HelpCircle className="size-4 text-muted-foreground" />;

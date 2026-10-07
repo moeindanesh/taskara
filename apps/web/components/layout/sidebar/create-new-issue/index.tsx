@@ -92,7 +92,7 @@ export function CreateNewIssue() {
                <DialogTitle>
                   <div className="flex items-center px-4 pt-4 gap-2">
                      <Button size="sm" variant="outline" className="gap-1.5">
-                        <Heart className="size-4 text-orange-500 fill-orange-500" />
+                        <Heart className="size-4 text-orange-800 dark:text-orange-500 fill-orange-500" />
                         <span className="font-medium">CORE</span>
                      </Button>
                   </div>

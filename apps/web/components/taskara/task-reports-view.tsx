@@ -96,7 +96,7 @@ export function TaskReportsView() {
          <Card className="border-white/8 bg-[#19191b] text-zinc-100">
             <CardHeader className="border-b border-white/7">
                <CardTitle className="flex items-center gap-2 text-base">
-                  <Sparkles className="size-4 text-indigo-300" />
+                  <Sparkles className="size-4 text-indigo-700 dark:text-indigo-300" />
                   تحلیل داده تسک‌ها با AI
                </CardTitle>
                <CardDescription className="text-zinc-500">
@@ -115,7 +115,7 @@ export function TaskReportsView() {
                </label>
 
                {error ? (
-                  <div className="rounded-md border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+                  <div className="rounded-md border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-700 dark:text-red-200">
                      {error}
                   </div>
                ) : null}
@@ -186,9 +186,9 @@ function ResolvedQueryView({ reportResult }: { reportResult: ReportResponse }) {
    if (!applied && !resolved) return null;
 
    return (
-      <div className="rounded-md border border-indigo-300/25 bg-indigo-400/10 px-3 py-3 text-sm text-indigo-100">
+      <div className="rounded-md border border-indigo-300/25 bg-indigo-400/10 px-3 py-3 text-sm text-indigo-700 dark:text-indigo-100">
          <div className="font-medium">برداشت بک‌اند از پارام شما</div>
-         <div className="mt-2 space-y-1 text-indigo-100/90">
+         <div className="mt-2 space-y-1 text-indigo-700 dark:text-indigo-100/90">
             {resolved ? <div>{`بازه: ${formatJalaliDateTime(resolved.startsAt)} تا ${formatJalaliDateTime(resolved.endsAt)}`}</div> : null}
             <div>{`تیم: ${applied?.teamName ? `${applied.teamName}${applied.teamSlug ? ` (${applied.teamSlug})` : ''}` : 'همه تیم‌ها'}`}</div>
             {applied?.assigneeHint ? <div>{`مسئول: ${applied.assigneeHint}`}</div> : null}

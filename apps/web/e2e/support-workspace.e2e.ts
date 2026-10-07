@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { expectReadableText } from './text-contrast';
 
 const apiOrigin = 'http://127.0.0.1:4199';
 const now = '2026-08-23T10:00:00.000Z';
@@ -30,6 +31,44 @@ const departmentMembers = [
 ];
 
 test.describe('@support Support workspace', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`presence notices and support surfaces stay readable in ${theme} theme`, async ({ page }) => {
+      const item = makeCase({ id: 'case-contrast', key: 'SUP-901', title: 'بررسی خوانایی پیام‌های پشتیبانی' });
+      await setupSupportPage(page, { actor: 'ADMIN', cases: [item], presenceCollision: true });
+      await page.addInitScript((value) => localStorage.setItem('theme', value), theme);
+      await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
+      const notice = page.getByTestId('support-case-presence-warning');
+      await expect(notice).toContainText(users.manager.name);
+      await expectReadableText(notice);
+      if (theme === 'light') {
+        await expectReadableText(page.getByTestId('support-case-detail'));
+        for (const tab of ['اطلاعات و ارجاع', 'ابزارهای تکمیلی']) {
+          await page.getByRole('tab', { name: tab }).click();
+          await expectReadableText(page.getByRole('tabpanel', { name: tab }));
+        }
+        for (const [route, screen] of [['routing', 'routing'], ['operations', 'operations'], ['maturity', 'maturity'], ['intake-admin', 'intake-admin'], ['reports', 'reports']]) {
+          await gotoApp(page, `/${primarySlug}/support/${route}`);
+          const surface = page.getByTestId(`support-${screen}-screen`);
+          await expect(surface).toBeVisible();
+          await expectReadableText(surface);
+        }
+      }
+      await expectNoPageOverflow(page);
+      await page.route((url) => url.origin === apiOrigin && url.pathname.endsWith('/support/tickets/TKT-1'), (route) => json(route, {
+        ticket: { id: 'ticket-contrast', key: 'TKT-1', title: 'پیام صوتی مشتری', status: 'NEW', priority: 'NORMAL', createdAt: now, updatedAt: now, contact: null, caseId: null, caseKey: null, version: 1 },
+        case: null,
+        messages: [{
+          id: 'voice-message', authorType: 'CUSTOMER', body: 'شرح درخواست صوتی', format: 'text/plain', createdAt: now,
+          metadata: { audio: [{ name: 'پیام مشتری', durationSeconds: 23 }], processing: { transcripts: [{ status: 'COMPLETED', transcript: 'برای پیگیری سفارش تماس گرفتم.' }] } },
+        }],
+      }));
+      await gotoApp(page, `/${primarySlug}/support/tickets/TKT-1`);
+      const voiceMessage = page.locator('article').filter({ has: page.getByRole('heading', { name: 'متن پیام صوتی' }) });
+      await expect(voiceMessage).toContainText('برای پیگیری سفارش تماس گرفتم.');
+      await expectReadableText(voiceMessage);
+    });
+  }
+
   test('sidebar separates daily work, insights, management, and common workspace destinations', async ({ page, isMobile }) => {
     await setupSupportPage(page, { actor: 'ADMIN' });
     await gotoApp(page, `/${primarySlug}/support/triage`);
@@ -644,6 +683,38 @@ test.describe('@support Support workspace', () => {
     await expect(page).toHaveURL(new RegExp(`/${secondSlug}/support/no-access$`));
     await expect(page.getByText(betaCase.title)).toHaveCount(0);
     expect(await browserPersistenceSnapshot(page)).not.toContain(betaCase.title);
+  });
+
+  test('returning to the window or tab keeps the reply visible without rechecking access', async ({ page }) => {
+    const item = makeCase({ id: 'case-focus', key: 'SUP-450', title: 'پاسخ در حال نگارش' });
+    const syncPullRequests: string[] = [];
+    await setupSupportPage(page, { actor: 'ADMIN', cases: [item], syncPullRequests });
+    await gotoApp(page, `/${primarySlug}/support/cases/${item.key}`);
+    const reply = page.getByLabel('متن تعامل');
+    const draft = 'پیش‌نویس پاسخ مشتری برای ادامه پس از بازگشت';
+    await reply.fill(draft);
+    const pullCount = syncPullRequests.length;
+
+    for (const event of ['focus', 'visibilitychange']) {
+      const guardAppeared = await page.evaluate(async (event) => {
+        let appeared = false;
+        const observer = new MutationObserver(() => {
+          appeared ||= Boolean(document.querySelector('[data-testid="support-scope-guard"]'));
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        (event === 'focus' ? window : document).dispatchEvent(new Event(event));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        observer.disconnect();
+        return appeared;
+      }, event);
+
+      expect(guardAppeared).toBe(false);
+      await expect(page.getByTestId('support-scope-guard')).toHaveCount(0);
+      await expect(reply).toBeVisible();
+      await expect(reply).toBeFocused();
+      await expect(reply).toHaveValue(draft);
+      expect(syncPullRequests).toHaveLength(pullCount);
+    }
   });
 
   test('an SSE wakeup and reconnect pull opaque-cursor deltas while a 409 forces a privacy-safe rebootstrap', async ({ page }) => {

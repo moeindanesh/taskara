@@ -210,7 +210,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                        <span className="truncate text-sm">{item.workspace.name}</span>
                                        <span className="truncate text-xs text-zinc-500">{item.workspace.slug}</span>
                                     </div>
-                                    {isActive ? <span className="text-xs text-lime-400">فعال</span> : null}
+                                    {isActive ? <span className="text-xs text-lime-800 dark:text-lime-400">فعال</span> : null}
                                  </DropdownMenuItem>
                               );
                            })}
@@ -235,7 +235,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                  >
                                     <Icon className="size-4 text-zinc-500" />
                                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                    {isActive ? <span className="text-xs text-lime-400">فعال</span> : null}
+                                    {isActive ? <span className="text-xs text-lime-800 dark:text-lime-400">فعال</span> : null}
                                  </DropdownMenuItem>
                               );
                            })}
@@ -297,7 +297,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         type="button"
                         onClick={() => setShowTeams((current) => !current)}
                      >
-                        <SidebarTeamIcon className="size-4 text-pink-500" />
+                        <SidebarTeamIcon className="size-4 text-pink-700 dark:text-pink-500" />
                         <span className="min-w-0 flex-1 truncate text-right">{fa.nav.teams}</span>
                         {!loadingTeams && teams.length ? (
                            <span className="text-[11px] text-zinc-600">{teams.length.toLocaleString('fa-IR')}</span>

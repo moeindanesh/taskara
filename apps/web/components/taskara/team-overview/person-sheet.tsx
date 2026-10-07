@@ -130,7 +130,7 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                      <EyeOff className="size-3.5" />
                   </button>
                   <button
-                     className="inline-flex h-7 items-center gap-1 rounded-full bg-indigo-500 px-3 text-[12px] text-white transition-colors hover:bg-indigo-400"
+                     className="inline-flex h-7 items-center gap-1 rounded-full bg-indigo-700 dark:bg-indigo-500 px-3 text-[12px] text-white transition-colors hover:bg-indigo-800 dark:hover:bg-indigo-400"
                      onClick={composeForPerson}
                      type="button"
                   >
@@ -186,7 +186,7 @@ export function PersonSheet({ day, person, onHidePerson, onOpenTask, onOpenChang
                      <span
                         className={cn(
                            'truncate text-[11px] tabular-nums',
-                           isOverdue(task, day) ? 'text-red-400' : 'text-zinc-600'
+                           isOverdue(task, day) ? 'text-red-700 dark:text-red-400' : 'text-zinc-600'
                         )}
                      >
                         {task.dueAt ? formatJalaliDate(task.dueAt) : fa.teamOverview.noDueDate}
@@ -275,7 +275,7 @@ function FastAction({
          aria-label={label}
          className={cn(
             'inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-white/8 text-zinc-500 transition-all',
-            'hover:scale-110 hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-indigo-300',
+            'hover:scale-110 hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-indigo-700 dark:hover:text-indigo-300',
             'disabled:pointer-events-none disabled:opacity-40'
          )}
          data-testid={testId}

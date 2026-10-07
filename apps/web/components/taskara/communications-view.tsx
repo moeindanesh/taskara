@@ -645,12 +645,12 @@ export function CommunicationsView() {
                      <Megaphone className="size-4 shrink-0 text-zinc-500" />
                      <h1 className="truncate text-sm font-semibold text-zinc-100">{listTitle}</h1>
                      {unreadAnnouncementCount > 0 ? (
-                        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-200">
+                        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-700 dark:text-indigo-200">
                            {unreadAnnouncementCount.toLocaleString('fa-IR')}
                         </span>
                      ) : null}
                      {myMeetingCount > 0 ? (
-                        <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] text-emerald-200">
+                        <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-200">
                            {myMeetingCount.toLocaleString('fa-IR')}
                         </span>
                      ) : null}
@@ -690,7 +690,7 @@ export function CommunicationsView() {
                   ))}
                </div>
             </div>
-            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">{error}</div> : null}
+            {error ? <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-700 dark:text-red-200">{error}</div> : null}
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
                {loading ? (
                   <CommunicationListSkeleton />
@@ -738,7 +738,7 @@ export function CommunicationsView() {
                         {selectedAnnouncement?.status === 'DRAFT' ? (
                            <Button
                               size="sm"
-                              className="h-8 gap-2 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                              className="h-8 gap-2 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                               disabled={publishSubmitting || draftRecipientIds.length === 0}
                               onClick={() => void publishDraft()}
                            >
@@ -878,7 +878,7 @@ export function CommunicationsView() {
                               <LinearAvatar name={recipient.user.name} src={recipient.user.avatarUrl} className="size-6" />
                               <span className="truncate text-sm text-zinc-300">{recipient.user.name}</span>
                            </span>
-                           <span className={cn('shrink-0 text-[11px]', recipient.readAt ? 'text-zinc-500' : 'text-indigo-300')}>
+                           <span className={cn('shrink-0 text-[11px]', recipient.readAt ? 'text-zinc-500' : 'text-indigo-700 dark:text-indigo-300')}>
                               {recipient.readAt ? formatJalaliDateTime(recipient.readAt) : fa.announcement.unread}
                            </span>
                         </div>
@@ -1030,14 +1030,14 @@ function AnnouncementDetail({
                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/8">
                               <div className="h-full rounded-full bg-indigo-400/70 transition-all" style={{ width: `${votePercent}%` }} />
                            </div>
-                           {isSavedVote ? <p className="mt-1 text-[11px] text-indigo-200">{fa.announcement.pollYourVote}</p> : null}
+                           {isSavedVote ? <p className="mt-1 text-[11px] text-indigo-700 dark:text-indigo-200">{fa.announcement.pollYourVote}</p> : null}
                         </button>
                      );
                   })}
                </div>
                {selectedCanVotePoll ? (
                   <Button
-                     className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                     className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                      disabled={pollVoting || pollSelection.length === 0}
                      onClick={() => void onPollVote()}
                   >
@@ -1088,7 +1088,7 @@ function MeetingDetail({
                         <div className="flex min-w-0 items-start justify-between gap-3">
                            <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-2">
-                                 {item.task ? <CheckCircle2 className="size-4 shrink-0 text-emerald-300" /> : <Circle className="size-4 shrink-0 text-zinc-500" />}
+                                 {item.task ? <CheckCircle2 className="size-4 shrink-0 text-emerald-700 dark:text-emerald-300" /> : <Circle className="size-4 shrink-0 text-zinc-500" />}
                                  <p className="truncate text-sm font-medium text-zinc-200">{item.title}</p>
                               </div>
                               {item.notes ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">{item.notes}</p> : null}
@@ -1350,7 +1350,7 @@ function AnnouncementCreateDialog({
                      </Button>
                      <Button
                         type="button"
-                        className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                        className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                         disabled={Boolean(submittingAction) || !form.title.trim() || !form.recipientIds.length}
                         onClick={() => void onCreate(true)}
                      >
@@ -1520,7 +1520,7 @@ function MeetingCreateDialog({
                <DialogFooter className="flex-row items-center justify-between border-t border-white/7 px-5 py-3 sm:justify-between">
                   <span className="text-xs text-zinc-600">{fa.meeting.participants}</span>
                   <Button
-                     className="h-8 rounded-full bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+                     className="h-8 rounded-full bg-indigo-700 dark:bg-indigo-500 px-4 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
                      disabled={submitting || !form.title.trim()}
                   >
                      {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -1558,9 +1558,9 @@ function DraftPublishControls({
             selectedIds={draftRecipientIds}
             users={users}
          />
-         {draftRecipientIds.length === 0 ? <p className="text-xs leading-5 text-amber-200/80">{fa.announcement.publishDraftNoRecipients}</p> : null}
+         {draftRecipientIds.length === 0 ? <p className="text-xs leading-5 text-amber-800 dark:text-amber-200/80">{fa.announcement.publishDraftNoRecipients}</p> : null}
          <Button
-            className="h-8 w-full rounded-full bg-indigo-500 text-sm font-normal text-white hover:bg-indigo-400 disabled:bg-indigo-500/40"
+            className="h-8 w-full rounded-full bg-indigo-700 dark:bg-indigo-500 text-sm font-normal text-white hover:bg-indigo-800 dark:hover:bg-indigo-400 disabled:bg-indigo-500/40"
             disabled={publishSubmitting || draftRecipientIds.length === 0}
             onClick={() => void onPublish()}
          >

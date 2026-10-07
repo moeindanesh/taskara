@@ -226,7 +226,7 @@ export function InboxView() {
                   <Inbox className="size-4 shrink-0 text-zinc-500" />
                   <h1 className="truncate text-sm font-semibold text-zinc-100">{fa.inbox.notifications}</h1>
                   {unreadCount > 0 ? (
-                     <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-200">
+                     <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] text-indigo-700 dark:text-indigo-200">
                         {unreadCount.toLocaleString('fa-IR')}
                      </span>
                   ) : null}
@@ -244,7 +244,7 @@ export function InboxView() {
             </div>
 
             {visibleError ? (
-               <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-200">
+               <div className="m-3 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs leading-5 text-red-700 dark:text-red-200">
                   {visibleError}
                </div>
             ) : null}
@@ -372,8 +372,8 @@ function NotificationListItem({
             {isStatusChange ? (
                <span
                   className={cn(
-                     'inline-flex min-w-0 items-center gap-1.5 text-start text-[10px] leading-3.5 text-zinc-500 opacity-70',
-                     isRead && 'opacity-45'
+                     'inline-flex min-w-0 items-center gap-1.5 text-start text-[10px] leading-3.5 text-zinc-500 dark:opacity-70',
+                     isRead && 'dark:opacity-45'
                   )}
                >
                   <span className="truncate">وضعیت تغییر کرد</span>
@@ -382,7 +382,7 @@ function NotificationListItem({
                </span>
             ) : (
                <span
-                  className={cn('line-clamp-1 text-start text-[10px] leading-3.5 text-zinc-500 opacity-70', isRead && 'opacity-45')}
+                  className={cn('line-clamp-1 text-start text-[10px] leading-3.5 text-zinc-500 dark:opacity-70', isRead && 'dark:opacity-45')}
                   dir="auto"
                >
                   {body}

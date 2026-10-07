@@ -142,7 +142,7 @@ export function SupportIntakeAdminView() {
       <main dir="rtl" className="min-h-full bg-[#101011] px-4 py-5 text-zinc-200 sm:px-5" data-testid="support-intake-admin-screen">
          <div className="mx-auto max-w-7xl space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-400/15 bg-sky-400/[0.04] px-4 py-3.5">
-               <p className="max-w-4xl text-sm leading-7 text-sky-100/70"><ShieldCheck className="me-1 inline size-4 text-sky-300" />این صفحه فقط وضعیت عملیاتی پاک‌سازی‌شده را نشان می‌دهد؛ payload، کلید رویداد، کلید idempotency، خطای خام، پیکربندی و راز اتصال هرگز وارد مرورگر نمی‌شوند.</p>
+               <p className="max-w-4xl text-sm leading-7 text-sky-700 dark:text-sky-100/70"><ShieldCheck className="me-1 inline size-4 text-sky-700 dark:text-sky-300" />این صفحه فقط وضعیت عملیاتی پاک‌سازی‌شده را نشان می‌دهد؛ payload، کلید رویداد، کلید idempotency، خطای خام، پیکربندی و راز اتصال هرگز وارد مرورگر نمی‌شوند.</p>
                <Button aria-label="تازه‌سازی سلامت ورودی‌ها" className="border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10" size="sm" type="button" variant="secondary" onClick={() => void Promise.all([loadHealth(), loadDeadLetters(connectorId)])}><RefreshCw className={cn('size-4', (loadingHealth || loadingLetters) && 'animate-spin')} />تازه‌سازی</Button>
             </div>
             {error ? <InlineError message={error} /> : null}
@@ -151,7 +151,7 @@ export function SupportIntakeAdminView() {
 
             <Card className="border-white/8 bg-[#171719] text-zinc-100">
                <CardHeader className="flex flex-col gap-3 border-b border-white/7 sm:flex-row sm:items-start sm:justify-between">
-                  <div><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="size-4 text-amber-300" />ورودی‌های ناموفق نهایی</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">رکوردهایی که پس از تلاش‌های ایمن نیازمند بررسی مدیر هستند</CardDescription></div>
+                  <div><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="size-4 text-amber-800 dark:text-amber-300" />ورودی‌های ناموفق نهایی</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">رکوردهایی که پس از تلاش‌های ایمن نیازمند بررسی مدیر هستند</CardDescription></div>
                   <select aria-label="فیلتر اتصال ورودی" className={cn(selectClass, 'sm:w-64')} value={connectorId} onChange={(event) => { const next = event.target.value; setConnectorId(next); void loadDeadLetters(next); }}><option value="">همه اتصال‌ها</option>{connectors.map((connector) => <option key={connector.id} value={connector.id}>{connector.name}</option>)}</select>
                </CardHeader>
                <CardContent className="p-0">
@@ -193,10 +193,10 @@ export function SupportIntakeAdminView() {
 function HealthSummary({ health, loading }: { health?: SupportIntakeHealth; loading: boolean }) {
    if (loading && !health) return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-xl border border-white/7 bg-[#171719]" />)}</div>;
    const cards = [
-      { label: 'اتصال‌های فعال', value: health?.summary.activeConnectorCount || 0, suffix: `از ${(health?.summary.connectorCount || 0).toLocaleString('fa-IR')}`, icon: ServerCog, tone: 'text-indigo-300' },
-      { label: 'در انتظار پردازش', value: health?.summary.pendingCount || 0, suffix: health?.summary.oldestPendingAt ? `قدیمی‌ترین: ${formatJalaliDateTime(health.summary.oldestPendingAt)}` : 'صف جاری خالی است', icon: Clock3, tone: 'text-amber-300' },
-      { label: 'پردازش‌شده', value: health?.summary.receiptCounts.PROCESSED || 0, suffix: 'در همه اتصال‌ها', icon: CheckCircle2, tone: 'text-lime-300' },
-      { label: 'ناموفق نهایی', value: health?.summary.deadLetterCount || 0, suffix: 'نیازمند بررسی مدیر', icon: AlertTriangle, tone: 'text-red-300' },
+      { label: 'اتصال‌های فعال', value: health?.summary.activeConnectorCount || 0, suffix: `از ${(health?.summary.connectorCount || 0).toLocaleString('fa-IR')}`, icon: ServerCog, tone: 'text-indigo-700 dark:text-indigo-300' },
+      { label: 'در انتظار پردازش', value: health?.summary.pendingCount || 0, suffix: health?.summary.oldestPendingAt ? `قدیمی‌ترین: ${formatJalaliDateTime(health.summary.oldestPendingAt)}` : 'صف جاری خالی است', icon: Clock3, tone: 'text-amber-800 dark:text-amber-300' },
+      { label: 'پردازش‌شده', value: health?.summary.receiptCounts.PROCESSED || 0, suffix: 'در همه اتصال‌ها', icon: CheckCircle2, tone: 'text-lime-800 dark:text-lime-300' },
+      { label: 'ناموفق نهایی', value: health?.summary.deadLetterCount || 0, suffix: 'نیازمند بررسی مدیر', icon: AlertTriangle, tone: 'text-red-700 dark:text-red-300' },
    ];
    return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(({ icon: Icon, ...card }) => <Card key={card.label} className="border-white/8 bg-[#171719] text-zinc-100"><CardContent className="flex items-start gap-3 p-4"><span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.035]', card.tone)}><Icon className="size-4" /></span><div><p className="text-xs text-zinc-600">{card.label}</p><p className="mt-1 text-2xl font-semibold text-zinc-200">{card.value.toLocaleString('fa-IR')}</p><p className="mt-1 text-[11px] leading-5 text-zinc-600">{card.suffix}</p></div></CardContent></Card>)}</div>;
 }
@@ -204,11 +204,11 @@ function HealthSummary({ health, loading }: { health?: SupportIntakeHealth; load
 function ConnectorHealth({ health, loading }: { health?: SupportIntakeHealth; loading: boolean }) {
    return (
       <Card className="border-white/8 bg-[#171719] text-zinc-100">
-         <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Activity className="size-4 text-sky-300" />سلامت اتصال‌ها</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">آخرین دریافت، پردازش و خطای نهایی هر منبع</CardDescription></CardHeader>
+         <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Activity className="size-4 text-sky-700 dark:text-sky-300" />سلامت اتصال‌ها</CardTitle><CardDescription className="mt-1.5 leading-6 text-zinc-500">آخرین دریافت، پردازش و خطای نهایی هر منبع</CardDescription></CardHeader>
          <CardContent className="p-0">
             {loading && !health ? <LoadingLine label="در حال بارگذاری اتصال‌ها…" /> : null}
             {!loading && !health?.items.length ? <p className="px-4 py-10 text-center text-sm text-zinc-600">اتصال ورودی ثبت نشده است.</p> : null}
-            <div className="divide-y divide-white/6">{health?.items.map((item) => <div key={item.connector.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_120px_120px_minmax(180px,1fr)] sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-medium text-zinc-200">{item.connector.name}</span><Badge variant="outline" className={item.connector.status === 'ACTIVE' ? 'border-lime-400/20 bg-lime-400/8 text-lime-300' : 'border-white/10 text-zinc-500'}>{item.connector.status === 'ACTIVE' ? 'فعال' : 'لغوشده'}</Badge></div><p className="mt-1 text-xs text-zinc-600">کانال {item.connector.sourceChannel}</p></div><Count label="در انتظار" value={item.pendingCount} /><Count label="ناموفق نهایی" value={item.deadLetterCount} danger={item.deadLetterCount > 0} /><div className="text-[11px] leading-6 text-zinc-600">آخرین دریافت: {item.lastReceivedAt ? formatJalaliDateTime(item.lastReceivedAt) : 'هنوز دریافت نشده'}<br />آخرین پردازش: {item.lastProcessedAt ? formatJalaliDateTime(item.lastProcessedAt) : 'هنوز پردازش نشده'}</div></div>)}</div>
+            <div className="divide-y divide-white/6">{health?.items.map((item) => <div key={item.connector.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_120px_120px_minmax(180px,1fr)] sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-medium text-zinc-200">{item.connector.name}</span><Badge variant="outline" className={item.connector.status === 'ACTIVE' ? 'border-lime-400/20 bg-lime-400/8 text-lime-800 dark:text-lime-300' : 'border-white/10 text-zinc-500'}>{item.connector.status === 'ACTIVE' ? 'فعال' : 'لغوشده'}</Badge></div><p className="mt-1 text-xs text-zinc-600">کانال {item.connector.sourceChannel}</p></div><Count label="در انتظار" value={item.pendingCount} /><Count label="ناموفق نهایی" value={item.deadLetterCount} danger={item.deadLetterCount > 0} /><div className="text-[11px] leading-6 text-zinc-600">آخرین دریافت: {item.lastReceivedAt ? formatJalaliDateTime(item.lastReceivedAt) : 'هنوز دریافت نشده'}<br />آخرین پردازش: {item.lastProcessedAt ? formatJalaliDateTime(item.lastProcessedAt) : 'هنوز پردازش نشده'}</div></div>)}</div>
          </CardContent>
       </Card>
    );
@@ -217,7 +217,7 @@ function ConnectorHealth({ health, loading }: { health?: SupportIntakeHealth; lo
 export function SupportIntakeDeadLetterDetails({ item }: { item: SupportIntakeDeadLetter }) {
    return (
       <div className="space-y-3" data-testid="support-dead-letter-detail">
-         <div className="rounded-lg border border-amber-300/15 bg-amber-300/[0.035] px-3 py-3 text-sm leading-7 text-amber-100/75"><AlertTriangle className="me-1 inline size-4" />{item.error?.message || 'خطای عمومی پردازش ثبت شده است.'}<bdi dir="ltr" className="mt-1 block font-mono text-[11px] text-amber-200/55">{item.error?.code || 'NO_PUBLIC_ERROR_CODE'}</bdi></div>
+         <div className="rounded-lg border border-amber-300/15 bg-amber-300/[0.035] px-3 py-3 text-sm leading-7 text-amber-800 dark:text-amber-100/75"><AlertTriangle className="me-1 inline size-4" />{item.error?.message || 'خطای عمومی پردازش ثبت شده است.'}<bdi dir="ltr" className="mt-1 block font-mono text-[11px] text-amber-800 dark:text-amber-200/55">{item.error?.code || 'NO_PUBLIC_ERROR_CODE'}</bdi></div>
          <dl className="grid gap-3 rounded-lg border border-white/7 bg-black/10 p-4 text-xs sm:grid-cols-2">
             <Detail label="شناسه دریافت" value={item.receiptId} ltr />
             <Detail label="اتصال" value={`${item.connector.name} · ${item.connector.sourceChannel}`} />
@@ -228,13 +228,13 @@ export function SupportIntakeDeadLetterDetails({ item }: { item: SupportIntakeDe
             <Detail label="ناموفق نهایی" value={formatJalaliDateTime(item.deadLetteredAt || item.updatedAt)} />
          </dl>
          {item.case ? <Button asChild className="w-full border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10" variant="secondary"><Link to={`../support/cases/${encodeURIComponent(item.case.key)}`}>بازکردن پرونده <bdi dir="ltr" className="font-mono">{item.case.key}</bdi></Link></Button> : null}
-         <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.025] px-3 py-2.5 text-xs leading-6 text-sky-100/60"><ShieldCheck className="me-1 inline size-3.5" />جزئیات حساس ورودی و اتصال عمداً در این نما موجود نیست.</div>
+         <div className="rounded-lg border border-sky-400/10 bg-sky-400/[0.025] px-3 py-2.5 text-xs leading-6 text-sky-700 dark:text-sky-100/60"><ShieldCheck className="me-1 inline size-3.5" />جزئیات حساس ورودی و اتصال عمداً در این نما موجود نیست.</div>
       </div>
    );
 }
 
 function Count({ danger, label, value }: { danger?: boolean; label: string; value: number }) {
-   return <div><p className="text-[11px] text-zinc-600">{label}</p><p className={cn('mt-1 text-base font-medium text-zinc-300', danger && 'text-red-300')}>{value.toLocaleString('fa-IR')}</p></div>;
+   return <div><p className="text-[11px] text-zinc-600">{label}</p><p className={cn('mt-1 text-base font-medium text-zinc-300', danger && 'text-red-700 dark:text-red-300')}>{value.toLocaleString('fa-IR')}</p></div>;
 }
 
 function Detail({ label, ltr, value }: { label: string; ltr?: boolean; value: string }) {
@@ -250,7 +250,7 @@ function LoadingLine({ label }: { label: string }) {
 }
 
 function InlineError({ message }: { message: string }) {
-   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm leading-6 text-red-200">{message}</p>;
+   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm leading-6 text-red-700 dark:text-red-200">{message}</p>;
 }
 
 const selectClass = 'h-9 w-full rounded-md border border-white/10 bg-[#0c0c0e] px-3 text-sm text-zinc-200 outline-none focus:border-indigo-400/50 focus:ring-2 focus:ring-indigo-400/20';

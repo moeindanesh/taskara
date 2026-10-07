@@ -90,21 +90,21 @@ export function SupportReportsView() {
 
 export function SupportReportOverview({ report }: { report: SupportOperationalReport }) {
    const summaryCards = [
-      { label: 'دریافت‌شده در هم‌گروه', value: report.summary.received, detail: `${report.summary.resolved.toLocaleString('fa-IR')} حل‌شده`, icon: Inbox, tone: 'text-indigo-300' },
-      { label: 'نرخ اولین پاسخ', value: percent(report.summary.firstResponseRate), detail: `${report.summary.firstResponseSeconds.count.toLocaleString('fa-IR')} پرونده پاسخ‌گرفته`, icon: Activity, tone: 'text-sky-300', formatted: true },
-      { label: 'بسته‌شده', value: report.summary.closed, detail: `${report.summary.reopened.toLocaleString('fa-IR')} بازگشایی‌شده`, icon: CheckCircle2, tone: 'text-lime-300' },
-      { label: 'انباشت باز', value: report.backlog.open, detail: `میانه سن: ${duration(report.backlog.ageSeconds.p50)}`, icon: AlertTriangle, tone: 'text-amber-300' },
+      { label: 'دریافت‌شده در هم‌گروه', value: report.summary.received, detail: `${report.summary.resolved.toLocaleString('fa-IR')} حل‌شده`, icon: Inbox, tone: 'text-indigo-700 dark:text-indigo-300' },
+      { label: 'نرخ اولین پاسخ', value: percent(report.summary.firstResponseRate), detail: `${report.summary.firstResponseSeconds.count.toLocaleString('fa-IR')} پرونده پاسخ‌گرفته`, icon: Activity, tone: 'text-sky-700 dark:text-sky-300', formatted: true },
+      { label: 'بسته‌شده', value: report.summary.closed, detail: `${report.summary.reopened.toLocaleString('fa-IR')} بازگشایی‌شده`, icon: CheckCircle2, tone: 'text-lime-800 dark:text-lime-300' },
+      { label: 'انباشت باز', value: report.backlog.open, detail: `میانه سن: ${duration(report.backlog.ageSeconds.p50)}`, icon: AlertTriangle, tone: 'text-amber-800 dark:text-amber-300' },
    ];
 
    return (
       <div className="space-y-4">
          <section className="grid gap-3 rounded-xl border border-indigo-400/15 bg-indigo-400/[0.04] px-4 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" data-testid="support-report-cohort">
             <div>
-               <h2 className="text-sm font-semibold text-indigo-100">تعریف هم‌گروه (Cohort)</h2>
-               <p className="mt-1.5 text-sm leading-7 text-indigo-100/65">فقط پرونده‌هایی شمرده می‌شوند که اکنون در محدوده دسترسی شما هستند و زمان دریافتشان از شروع بازه، شامل، تا پایان بازه، غیرشامل، باشد. تغییر دسترسی می‌تواند نتیجه اجرای بعدی را تغییر دهد.</p>
-               <p className="mt-1 text-xs leading-6 text-indigo-200/45">{formatJalaliDateTime(report.cohort.from)} تا پیش از {formatJalaliDateTime(report.cohort.to)} · منطقه زمانی گزارش: <bdi dir="ltr">{report.timezone}</bdi></p>
+               <h2 className="text-sm font-semibold text-indigo-700 dark:text-indigo-100">تعریف هم‌گروه (Cohort)</h2>
+               <p className="mt-1.5 text-sm leading-7 text-indigo-700 dark:text-indigo-100/65">فقط پرونده‌هایی شمرده می‌شوند که اکنون در محدوده دسترسی شما هستند و زمان دریافتشان از شروع بازه، شامل، تا پایان بازه، غیرشامل، باشد. تغییر دسترسی می‌تواند نتیجه اجرای بعدی را تغییر دهد.</p>
+               <p className="mt-1 text-xs leading-6 text-indigo-700 dark:text-indigo-200/45">{formatJalaliDateTime(report.cohort.from)} تا پیش از {formatJalaliDateTime(report.cohort.to)} · منطقه زمانی گزارش: <bdi dir="ltr">{report.timezone}</bdi></p>
             </div>
-            <Badge variant="outline" className="w-fit border-indigo-300/20 bg-indigo-300/5 text-indigo-200">{scopeLabel(report.scope.kind)}</Badge>
+            <Badge variant="outline" className="w-fit border-indigo-300/20 bg-indigo-300/5 text-indigo-700 dark:text-indigo-200">{scopeLabel(report.scope.kind)}</Badge>
          </section>
 
          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -113,7 +113,7 @@ export function SupportReportOverview({ report }: { report: SupportOperationalRe
 
          <section className="grid gap-4 xl:grid-cols-2">
             <Card className="border-white/8 bg-[#171719] text-zinc-100">
-               <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="size-4 text-sky-300" />زمان پاسخ و حل</CardTitle><CardDescription className="leading-6 text-zinc-500">صدک‌ها فقط از پرونده‌های دارای رویداد مربوط محاسبه می‌شوند.</CardDescription></CardHeader>
+               <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="size-4 text-sky-700 dark:text-sky-300" />زمان پاسخ و حل</CardTitle><CardDescription className="leading-6 text-zinc-500">صدک‌ها فقط از پرونده‌های دارای رویداد مربوط محاسبه می‌شوند.</CardDescription></CardHeader>
                <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
                   <DurationCard label="اولین پاسخ" summary={report.summary.firstResponseSeconds} />
                   <DurationCard label="حل پرونده" summary={report.summary.resolutionSeconds} />
@@ -123,14 +123,14 @@ export function SupportReportOverview({ report }: { report: SupportOperationalRe
             </Card>
 
             <Card className="border-white/8 bg-[#171719] text-zinc-100">
-               <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="size-4 text-indigo-300" />صف‌های جاری</CardTitle><CardDescription className="leading-6 text-zinc-500">تصویر لحظه‌ای در همان محدوده دسترسی، نه بخشی از هم‌گروه تاریخی</CardDescription></CardHeader>
+               <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="size-4 text-indigo-700 dark:text-indigo-300" />صف‌های جاری</CardTitle><CardDescription className="leading-6 text-zinc-500">تصویر لحظه‌ای در همان محدوده دسترسی، نه بخشی از هم‌گروه تاریخی</CardDescription></CardHeader>
                <CardContent className="grid gap-2 p-4 sm:grid-cols-2">{Object.entries(report.queues).map(([key, value]) => <div key={key} className="flex items-center justify-between rounded-lg border border-white/7 bg-black/10 px-3 py-3"><span className="text-xs text-zinc-500">{queueLabels[key] || key}</span><span className="text-lg font-medium text-zinc-200">{value.toLocaleString('fa-IR')}</span></div>)}{!Object.keys(report.queues).length ? <p className="text-sm text-zinc-600">صفی در این محدوده موجود نیست.</p> : null}</CardContent>
             </Card>
          </section>
 
          <Card className="border-white/8 bg-[#171719] text-zinc-100">
-            <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Activity className="size-4 text-amber-300" />عملکرد SLA</CardTitle><CardDescription className="leading-6 text-zinc-500">نرخ تحقق فقط از ساعت‌های تصمیم‌گرفته‌شده (رعایت‌شده یا نقض‌شده) است.</CardDescription></CardHeader>
-            <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-xs"><thead className="bg-white/[0.025] text-zinc-600"><tr><th className="px-4 py-3 text-right">معیار</th><th className="px-4 py-3">رعایت</th><th className="px-4 py-3">نقض</th><th className="px-4 py-3">فعال</th><th className="px-4 py-3">لغوشده</th><th className="px-4 py-3">نرخ تحقق</th></tr></thead><tbody className="divide-y divide-white/6">{report.sla.map((row) => <tr key={row.metric}><td className="px-4 py-3 text-zinc-300">{metricLabels[row.metric]}</td><NumberCell value={row.met} tone="text-lime-300" /><NumberCell value={row.breached} tone="text-red-300" /><NumberCell value={row.active} /><NumberCell value={row.canceled} /><td className="px-4 py-3 text-center text-zinc-300">{percent(row.attainmentRate)}</td></tr>)}</tbody></table></div>{!report.sla.length ? <p className="px-4 py-10 text-center text-sm text-zinc-600">در این بازه ساعت SLA ثبت نشده است.</p> : null}</CardContent>
+            <CardHeader className="border-b border-white/7"><CardTitle className="flex items-center gap-2 text-base"><Activity className="size-4 text-amber-800 dark:text-amber-300" />عملکرد SLA</CardTitle><CardDescription className="leading-6 text-zinc-500">نرخ تحقق فقط از ساعت‌های تصمیم‌گرفته‌شده (رعایت‌شده یا نقض‌شده) است.</CardDescription></CardHeader>
+            <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-xs"><thead className="bg-white/[0.025] text-zinc-600"><tr><th className="px-4 py-3 text-right">معیار</th><th className="px-4 py-3">رعایت</th><th className="px-4 py-3">نقض</th><th className="px-4 py-3">فعال</th><th className="px-4 py-3">لغوشده</th><th className="px-4 py-3">نرخ تحقق</th></tr></thead><tbody className="divide-y divide-white/6">{report.sla.map((row) => <tr key={row.metric}><td className="px-4 py-3 text-zinc-300">{metricLabels[row.metric]}</td><NumberCell value={row.met} tone="text-lime-800 dark:text-lime-300" /><NumberCell value={row.breached} tone="text-red-700 dark:text-red-300" /><NumberCell value={row.active} /><NumberCell value={row.canceled} /><td className="px-4 py-3 text-center text-zinc-300">{percent(row.attainmentRate)}</td></tr>)}</tbody></table></div>{!report.sla.length ? <p className="px-4 py-10 text-center text-sm text-zinc-600">در این بازه ساعت SLA ثبت نشده است.</p> : null}</CardContent>
          </Card>
 
          <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
@@ -143,9 +143,9 @@ export function SupportReportOverview({ report }: { report: SupportOperationalRe
          </section>
 
          <section className="rounded-xl border border-lime-400/15 bg-lime-400/[0.035] px-4 py-4" data-testid="support-report-privacy">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-lime-100"><ShieldCheck className="size-4 text-lime-300" />حریم خصوصی اعضای دپارتمان</h2>
-            <p className="mt-1.5 text-sm leading-7 text-lime-100/60">این گزارش عمداً هیچ رتبه‌بندی، عملکرد فردی یا مقایسه همکاران ندارد. تمام جمع‌ها با همان محدوده دسترسی پرونده‌ها محاسبه می‌شوند.</p>
-            <p className="mt-1 text-[11px] leading-5 text-lime-200/35">تولید: {formatJalaliDateTime(report.generatedAt)}</p>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-lime-800 dark:text-lime-100"><ShieldCheck className="size-4 text-lime-800 dark:text-lime-300" />حریم خصوصی اعضای دپارتمان</h2>
+            <p className="mt-1.5 text-sm leading-7 text-lime-800 dark:text-lime-100/60">این گزارش عمداً هیچ رتبه‌بندی، عملکرد فردی یا مقایسه همکاران ندارد. تمام جمع‌ها با همان محدوده دسترسی پرونده‌ها محاسبه می‌شوند.</p>
+            <p className="mt-1 text-[11px] leading-5 text-lime-800 dark:text-lime-200/35">تولید: {formatJalaliDateTime(report.generatedAt)}</p>
          </section>
       </div>
    );
@@ -194,7 +194,7 @@ function LoadingPanel() {
 }
 
 function InlineError({ message }: { message: string }) {
-   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm leading-6 text-red-200">{message}</p>;
+   return <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/8 px-4 py-3 text-sm leading-6 text-red-700 dark:text-red-200">{message}</p>;
 }
 
 const selectClass = 'h-9 w-full rounded-md border border-white/10 bg-[#0c0c0e] px-3 text-sm text-zinc-200 outline-none focus:border-indigo-400/50 focus:ring-2 focus:ring-indigo-400/20';

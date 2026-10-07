@@ -224,19 +224,19 @@ export const linearStatusMeta: Record<
    IN_PROGRESS: {
       label: fa.status.IN_PROGRESS,
       icon: LinearStatusProgressIcon,
-      iconClassName: 'text-yellow-400',
+      iconClassName: 'text-yellow-800 dark:text-yellow-400',
       groupClassName: 'bg-yellow-400/7',
    },
    IN_REVIEW: {
       label: fa.status.IN_REVIEW,
       icon: LinearStatusReviewIcon,
-      iconClassName: 'text-violet-400',
+      iconClassName: 'text-violet-700 dark:text-violet-400',
       groupClassName: 'bg-violet-400/7',
    },
    BLOCKED: {
       label: fa.status.BLOCKED,
       icon: LinearStatusBlockedIcon,
-      iconClassName: 'text-red-400',
+      iconClassName: 'text-red-700 dark:text-red-400',
       groupClassName: 'bg-red-400/7',
    },
    DONE: {
@@ -255,16 +255,16 @@ export const linearStatusMeta: Record<
 
 export const linearPriorityMeta: Record<string, { label: string; icon: IconType; className: string }> = {
    NO_PRIORITY: { label: fa.priority.NO_PRIORITY, icon: Minus, className: 'text-zinc-500' },
-   LOW: { label: fa.priority.LOW, icon: SignalLow, className: 'text-sky-400' },
-   MEDIUM: { label: fa.priority.MEDIUM, icon: SignalMedium, className: 'text-yellow-400' },
-   HIGH: { label: fa.priority.HIGH, icon: SignalHigh, className: 'text-orange-400' },
-   URGENT: { label: fa.priority.URGENT, icon: AlertTriangle, className: 'text-red-400' },
+   LOW: { label: fa.priority.LOW, icon: SignalLow, className: 'text-sky-700 dark:text-sky-400' },
+   MEDIUM: { label: fa.priority.MEDIUM, icon: SignalMedium, className: 'text-yellow-800 dark:text-yellow-400' },
+   HIGH: { label: fa.priority.HIGH, icon: SignalHigh, className: 'text-orange-800 dark:text-orange-400' },
+   URGENT: { label: fa.priority.URGENT, icon: AlertTriangle, className: 'text-red-700 dark:text-red-400' },
 };
 
 export const linearProjectStatusMeta: Record<string, { label: string; icon: IconType; className: string }> = {
-   ACTIVE: { label: fa.projectStatus.ACTIVE, icon: CircleDot, className: 'text-yellow-400' },
+   ACTIVE: { label: fa.projectStatus.ACTIVE, icon: CircleDot, className: 'text-yellow-800 dark:text-yellow-400' },
    PAUSED: { label: fa.projectStatus.PAUSED, icon: PauseCircle, className: 'text-zinc-400' },
-   COMPLETED: { label: fa.projectStatus.COMPLETED, icon: CheckCircle2, className: 'text-indigo-400' },
+   COMPLETED: { label: fa.projectStatus.COMPLETED, icon: CheckCircle2, className: 'text-indigo-700 dark:text-indigo-400' },
    ARCHIVED: { label: fa.projectStatus.ARCHIVED, icon: Archive, className: 'text-zinc-500' },
 };
 
@@ -427,7 +427,7 @@ export function LinearPanel({
 
 export function WorkspaceGlyph({ children = 'تس' }: { children?: ReactNode }) {
    return (
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-lime-500/30 text-[11px] font-bold text-lime-100">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-lime-500/30 text-[11px] font-bold text-lime-800 dark:text-lime-100">
          {children}
       </span>
    );

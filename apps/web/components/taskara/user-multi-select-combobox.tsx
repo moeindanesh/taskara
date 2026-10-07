@@ -115,7 +115,7 @@ export function UserMultiSelectCombobox({
                               value={`${user.name} ${user.email}`}
                               onSelect={() => toggleUser(user.id)}
                            >
-                              <Check className={cn('size-4', selected ? 'text-indigo-300 opacity-100' : 'opacity-0')} />
+                              <Check className={cn('size-4', selected ? 'text-indigo-700 dark:text-indigo-300 opacity-100' : 'opacity-0')} />
                               <LinearAvatar name={user.name} src={user.avatarUrl} className="size-6" />
                               <span className="min-w-0 flex-1 truncate">{user.name}</span>
                               <span className="hidden shrink-0 text-xs text-zinc-600 sm:inline">{user.email}</span>

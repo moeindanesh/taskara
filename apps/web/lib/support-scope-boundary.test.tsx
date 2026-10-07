@@ -7,7 +7,7 @@ describe('Support scope boundary', () => {
    const children = <form><input type="file" /><textarea defaultValue="unsent reply" /></form>;
    const props = { children, error: '', onRetry: () => {} };
 
-   test('keeps the same child subtree in the same position across focus revalidation', () => {
+   test('keeps the same child subtree in the same position across reconnect revalidation', () => {
       const ready = SupportScopeBoundary({ ...props, state: 'ready' });
       const validating = SupportScopeBoundary({ ...props, state: 'validating' });
       const readyContainer = Children.toArray(ready.props.children)[0];

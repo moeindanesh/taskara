@@ -400,7 +400,7 @@ function Panel({
 function EmptyPanel({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
    return (
       <div className={cn('rounded-md border border-dashed border-zinc-300 text-center dark:border-white/10', compact ? 'px-3 py-4' : 'px-4 py-12')}>
-         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-500" />
+         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-700 dark:text-emerald-500" />
          <div className="text-sm font-medium">{title}</div>
          <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-zinc-500">{description}</p>
       </div>

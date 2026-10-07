@@ -890,7 +890,7 @@ function EmptyState({
 }) {
    return (
       <div className={cn('rounded-md border border-dashed border-zinc-200 text-center dark:border-white/10', compact ? 'px-3 py-5' : 'px-4 py-10')}>
-         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-500" />
+         <CheckCircle2 className="mx-auto mb-2 size-5 text-emerald-700 dark:text-emerald-500" />
          <div className="text-sm font-medium">{title}</div>
          {description ? <div className="mx-auto mt-1 max-w-md text-xs leading-5 text-zinc-500">{description}</div> : null}
       </div>

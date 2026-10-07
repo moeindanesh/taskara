@@ -238,7 +238,7 @@ export function MilestoneCreateDialog({
                            autoFocus
                            aria-label={fa.milestone.name}
                            maxLength={160}
-                           className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                           className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-foreground shadow-none placeholder:text-muted-foreground dark:placeholder:text-muted-foreground/60 focus-visible:ring-0"
                            placeholder={fa.milestone.namePlaceholder}
                            value={form.name}
                            onChange={(event) => {
@@ -445,7 +445,7 @@ export function MilestoneCreateDialog({
                      {fa.app.cancel}
                   </Button>
                   <Button
-                     className="min-w-28 rounded-full bg-indigo-500 px-5 text-white hover:bg-indigo-400"
+                     className="min-w-28 rounded-full bg-indigo-700 dark:bg-indigo-500 px-5 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
                      disabled={submitting || !projects.length || invalidDates}
                      type="submit"
                   >
