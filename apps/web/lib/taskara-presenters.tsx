@@ -14,7 +14,7 @@ const statusMeta = {
    },
    IN_PROGRESS: {
       label: 'در حال انجام',
-      className: 'bg-amber-500/10 text-amber-700 dark:text-amber-200',
+      className: 'bg-yellow-400/15 text-foreground [&_svg]:text-yellow-500 dark:[&_svg]:text-yellow-400',
       icon: Clock3,
    },
    IN_REVIEW: {

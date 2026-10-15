@@ -224,7 +224,7 @@ export const linearStatusMeta: Record<
    IN_PROGRESS: {
       label: fa.status.IN_PROGRESS,
       icon: LinearStatusProgressIcon,
-      iconClassName: 'text-yellow-800 dark:text-yellow-400',
+      iconClassName: 'text-yellow-500 dark:text-yellow-400',
       groupClassName: 'bg-yellow-400/7',
    },
    IN_REVIEW: {
