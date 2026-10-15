@@ -139,6 +139,7 @@ export function MilestoneTasksPanel({
             setTasks((current) => current.map((item) => item.id === task.id ? updated : item));
          } else {
             setTotal((current) => Math.max(0, current - 1));
+            if (updated.syncState !== 'pending') void load(0);
             toast.success(fa.milestone.taskRemoved);
          }
          onMilestoneRefresh();
@@ -178,6 +179,7 @@ export function MilestoneTasksPanel({
          setTotal((count) => count + 1);
          setQuery('');
          setQuickTitle('');
+         if (task.syncState !== 'pending') void load(0);
          onMilestoneRefresh();
       } catch (createError) {
          toast.error(createError instanceof Error ? createError.message : fa.issue.createFailed);
@@ -208,7 +210,7 @@ export function MilestoneTasksPanel({
       <div className="space-y-4">
          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-               <h2 className="text-sm font-semibold">{fa.milestone.work}</h2>
+               <h2 className="text-sm font-semibold">کارهای هدف</h2>
                <p className="mt-1 text-xs text-muted-foreground">
                   {fa.milestone.taskCount(total)} • {fa.milestone.progressCount(milestone.progress.completedTasks, milestone.progress.eligibleTasks)}
                </p>
@@ -384,7 +386,7 @@ function MilestoneTaskRow({
          ) : null}
          {canManage ? (
             <MilestoneSelector
-               className="hidden h-8 max-w-28 xl:flex"
+               className="h-8 w-8 shrink-0 border-0 bg-transparent p-1 [&>span]:hidden"
                currentMilestone={{
                   archivedAt: milestone.archivedAt,
                   id: milestone.id,

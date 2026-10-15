@@ -1,18 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
    Activity,
-   AlertTriangle,
    Archive,
    ArrowRight,
    CalendarDays,
-   Check,
    CheckCircle2,
    ChevronDown,
    ChevronUp,
    CircleDot,
-   Flag,
    ListTodo,
    Loader2,
    MoreHorizontal,
@@ -20,6 +17,8 @@ import {
    Save,
    ShieldAlert,
    Info,
+   PenLine,
+   PanelLeft,
    Unlink,
    UserRound,
 } from 'lucide-react';
@@ -33,8 +32,14 @@ import {
    DropdownMenuSeparator,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import {
+   Select,
+   SelectContent,
+   SelectItem,
+   SelectTrigger,
+   SelectValue,
+} from '@/components/ui/select';
 import { DescriptionEditor } from '@/components/taskara/description-editor';
 import { PageHeader } from '@/components/taskara/page-header';
 import { LinearAvatar, ProjectGlyph } from '@/components/taskara/linear-ui';
@@ -45,10 +50,10 @@ import { TaskSyncMutationError } from '@/lib/task-sync';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type {
+   GoalPeriod,
    TaskaraActivity,
    TaskaraMilestone,
    TaskaraMilestoneHealth,
-   TaskaraMilestoneKind,
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { MilestoneDatePicker } from './milestone-date-picker';
@@ -56,25 +61,28 @@ import {
    type MilestoneLifecycleAction,
    MilestoneLifecycleDialog,
 } from './milestone-lifecycle-dialog';
-import { TasksView } from '../tasks-view';
+import { MilestoneTasksPanel } from './milestone-tasks-panel';
+import { GoalReports, GoalReportCard } from './goal-reports';
+import { goalPeriodLabels, goalPeriodRange } from './goal-period';
 import {
    formatMilestoneDateOnly,
-   isMilestoneOverdue,
    MilestoneBadge,
    MilestoneDetailSkeleton,
    MilestoneEmptyState,
    MilestoneGlyph,
    MilestoneProgress,
    milestoneHealthMeta,
-   milestoneKindMeta,
    milestoneStatusMeta,
 } from './primitives';
 import { useOnlineStatus } from './use-online-status';
 
-type DetailTab = 'overview' | 'work';
+type DetailTab = 'overview' | 'activity' | 'work';
 type OwnerCandidate = { avatarUrl?: string | null; email: string; id: string; name: string };
 type MilestoneMetadataPatch = Partial<
-   Pick<TaskaraMilestone, 'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'>
+   Pick<
+      TaskaraMilestone,
+      'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn' | 'period'
+   >
 >;
 
 export function MilestoneDetail({
@@ -97,65 +105,81 @@ export function MilestoneDetail({
    const [loading, setLoading] = useState(!milestoneSummary);
    const [refreshing, setRefreshing] = useState(Boolean(milestoneSummary));
    const [error, setError] = useState('');
-   const [tab, setTab] = useState<DetailTab>('work');
+   const [tab, setTab] = useState<DetailTab>('overview');
    const [lifecycleAction, setLifecycleAction] = useState<MilestoneLifecycleAction | null>(null);
    const [savingField, setSavingField] = useState<string | null>(null);
+   const [showProperties, setShowProperties] = useState(false);
+   const [periodDraft, setPeriodDraft] = useState<GoalPeriod>(milestoneSummary?.period || 'CUSTOM');
    const [reordering, setReordering] = useState(false);
    const [owners, setOwners] = useState<OwnerCandidate[]>([]);
    const [ownersLoading, setOwnersLoading] = useState(false);
    const [nameDraft, setNameDraft] = useState(milestoneSummary?.name || '');
    const [descriptionDraft, setDescriptionDraft] = useState(milestoneSummary?.description || '');
-   const [descriptionBaseline, setDescriptionBaseline] = useState(milestoneSummary?.description || '');
+   const [descriptionBaseline, setDescriptionBaseline] = useState(
+      milestoneSummary?.description || ''
+   );
    const descriptionTouchedRef = useRef(false);
    const [datesDraft, setDatesDraft] = useState({
       startsOn: milestoneSummary?.startsOn || '',
       targetOn: milestoneSummary?.targetOn || '',
    });
-   const [kindDraft, setKindDraft] = useState<TaskaraMilestoneKind>(milestoneSummary?.kind || 'FEATURE');
-   const [ownerIdDraft, setOwnerIdDraft] = useState(milestoneSummary?.ownerId || milestoneSummary?.owner?.id || '');
-   const [healthDraft, setHealthDraft] = useState<TaskaraMilestoneHealth | ''>(milestoneSummary?.health || '');
+   const [ownerIdDraft, setOwnerIdDraft] = useState(
+      milestoneSummary?.ownerId || milestoneSummary?.owner?.id || ''
+   );
+   const [healthDraft, setHealthDraft] = useState<TaskaraMilestoneHealth | ''>(
+      milestoneSummary?.health || ''
+   );
    const requestRef = useRef(0);
 
    useEffect(() => {
       milestoneRef.current = milestone;
    }, [milestone]);
 
-   const load = useCallback(async (preserve = true, preserveDrafts = false) => {
-      const requestId = ++requestRef.current;
-      if (preserve && milestoneRef.current) setRefreshing(true);
-      else setLoading(true);
-      setError('');
-      try {
-         const [summary, activity] = await Promise.all([
-            taskaraRequest<TaskaraMilestone>(`/milestones/${encodeURIComponent(milestoneId)}`),
-            taskaraRequest<TaskaraActivity[]>(`/milestones/${encodeURIComponent(milestoneId)}/activity`).catch(() => []),
-         ]);
-         if (requestId !== requestRef.current) return;
-         const detail = { ...summary, activity };
-         setMilestone(detail);
-         milestoneRef.current = detail;
-         if (!preserveDrafts) syncDrafts(
-            detail,
-            setNameDraft,
-            setDescriptionDraft,
-            setDescriptionBaseline,
-            descriptionTouchedRef,
-            setDatesDraft,
-            setKindDraft,
-            setOwnerIdDraft,
-            setHealthDraft
-         );
-         onChanged(detail);
-      } catch (loadError) {
-         if (requestId !== requestRef.current) return;
-         setError(loadError instanceof Error ? loadError.message : fa.milestone.detailLoadingFailed);
-      } finally {
-         if (requestId === requestRef.current) {
-            setLoading(false);
-            setRefreshing(false);
+   const load = useCallback(
+      async (preserve = true, preserveDrafts = false) => {
+         const requestId = ++requestRef.current;
+         if (preserve && milestoneRef.current) setRefreshing(true);
+         else setLoading(true);
+         setError('');
+         try {
+            const [summary, activity] = await Promise.all([
+               taskaraRequest<TaskaraMilestone>(`/milestones/${encodeURIComponent(milestoneId)}`),
+               taskaraRequest<TaskaraActivity[]>(
+                  `/milestones/${encodeURIComponent(milestoneId)}/activity`
+               ),
+            ]);
+            if (requestId !== requestRef.current) return;
+            const detail = { ...summary, activity };
+            setMilestone(detail);
+            milestoneRef.current = detail;
+            if (!preserveDrafts)
+               syncDrafts(
+                  detail,
+                  setNameDraft,
+                  setDescriptionDraft,
+                  setDescriptionBaseline,
+                  descriptionTouchedRef,
+                  setDatesDraft,
+
+                  setOwnerIdDraft,
+                  setHealthDraft,
+                  setPeriodDraft
+               );
+            onChanged(detail);
+         } catch (loadError) {
+            if (requestId !== requestRef.current) return;
+            setError(
+               loadError instanceof Error ? loadError.message : fa.milestone.detailLoadingFailed
+            );
+         } finally {
+            if (requestId === requestRef.current) {
+               setLoading(false);
+               setRefreshing(false);
+            }
          }
-      }
-   }, [milestoneId, onChanged]);
+      },
+      [milestoneId, onChanged]
+   );
 
    useEffect(() => {
       setMilestone(milestoneSummary);
@@ -168,12 +192,13 @@ export function MilestoneDetail({
             setDescriptionBaseline,
             descriptionTouchedRef,
             setDatesDraft,
-            setKindDraft,
+
             setOwnerIdDraft,
-            setHealthDraft
+            setHealthDraft,
+            setPeriodDraft
          );
       }
-      setTab('work');
+      setTab('overview');
       if (milestoneSummary?.syncState === 'pending' && !online) {
          setLoading(false);
          setRefreshing(false);
@@ -190,7 +215,9 @@ export function MilestoneDetail({
 
    useEffect(() => {
       if (!milestoneSummary || milestoneSummary.id !== milestoneId) return;
-      setMilestone((current) => current ? mergeDetailResponse(current, milestoneSummary) : milestoneSummary);
+      setMilestone((current) =>
+         current ? mergeDetailResponse(current, milestoneSummary) : milestoneSummary
+      );
    }, [milestoneId, milestoneSummary]);
 
    useEffect(() => {
@@ -215,160 +242,206 @@ export function MilestoneDetail({
       return () => controller.abort();
    }, [milestone?.archivedAt, milestone?.canManage, milestone?.projectId]);
 
-   const saveMetadata = useCallback(async (
-      patch: MilestoneMetadataPatch,
-      field: string
-   ) => {
-      const current = milestoneRef.current;
-      if (!current || current.archivedAt || current.canManage === false || savingField) return false;
-      const effectiveStartsOn = Object.prototype.hasOwnProperty.call(patch, 'startsOn') ? patch.startsOn : current.startsOn;
-      const effectiveTargetOn = Object.prototype.hasOwnProperty.call(patch, 'targetOn') ? patch.targetOn : current.targetOn;
-      if (effectiveStartsOn && effectiveTargetOn && effectiveTargetOn < effectiveStartsOn) {
-         toast.error(fa.milestone.invalidDates);
-         return false;
-      }
+   const saveMetadata = useCallback(
+      async (patch: MilestoneMetadataPatch, field: string) => {
+         const current = milestoneRef.current;
+         if (!current || current.archivedAt || current.canManage === false || savingField)
+            return false;
+         const effectiveStartsOn = Object.prototype.hasOwnProperty.call(patch, 'startsOn')
+            ? patch.startsOn
+            : current.startsOn;
+         const effectiveTargetOn = Object.prototype.hasOwnProperty.call(patch, 'targetOn')
+            ? patch.targetOn
+            : current.targetOn;
+         if (effectiveStartsOn && effectiveTargetOn && effectiveTargetOn < effectiveStartsOn) {
+            toast.error(fa.milestone.invalidDates);
+            return false;
+         }
 
-      setSavingField(field);
-      try {
-         const updated = await taskSync.updateMilestone(current, patch);
-         const merged = mergeDetailResponse(current, updated);
-         setMilestone(merged);
-         milestoneRef.current = merged;
-         syncDrafts(
-            merged,
-            setNameDraft,
-            setDescriptionDraft,
-            setDescriptionBaseline,
-            descriptionTouchedRef,
-            setDatesDraft,
-            setKindDraft,
-            setOwnerIdDraft,
-            setHealthDraft
-         );
-         onChanged(merged);
-         if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
-         else toast.success(fa.milestone.updated);
-         if (updated.syncState !== 'pending') void load(true);
-         return true;
-      } catch (saveError) {
-         if (saveError instanceof TaskSyncMutationError && saveError.failure?.status === 'conflict') {
-            try {
-               const latest = await taskaraRequest<TaskaraMilestone>(
-                  `/milestones/${encodeURIComponent(current.id)}`
-               );
-               const merged = mergeDetailResponse(current, latest);
-               setMilestone(merged);
-               milestoneRef.current = merged;
-               syncDrafts(
-                  merged,
-                  setNameDraft,
-                  setDescriptionDraft,
-                  setDescriptionBaseline,
-                  descriptionTouchedRef,
-                  setDatesDraft,
-                  setKindDraft,
-                  setOwnerIdDraft,
-                  setHealthDraft
-               );
-               if (patch.name !== undefined) setNameDraft(patch.name);
-               if (patch.description !== undefined) {
-                  descriptionTouchedRef.current = true;
-                  setDescriptionDraft(patch.description || '');
-               }
-               if (patch.kind !== undefined) setKindDraft(patch.kind);
-               if (patch.ownerId !== undefined) setOwnerIdDraft(patch.ownerId || '');
-               if (patch.health !== undefined) setHealthDraft(patch.health || '');
-               if (patch.startsOn !== undefined || patch.targetOn !== undefined) {
-                  setDatesDraft({
-                     startsOn: patch.startsOn === undefined ? merged.startsOn || '' : patch.startsOn || '',
-                     targetOn: patch.targetOn === undefined ? merged.targetOn || '' : patch.targetOn || '',
+         setSavingField(field);
+         try {
+            const updated = await taskSync.updateMilestone(current, patch);
+            const merged = mergeDetailResponse(current, updated);
+            setMilestone(merged);
+            milestoneRef.current = merged;
+            syncDrafts(
+               merged,
+               setNameDraft,
+               setDescriptionDraft,
+               setDescriptionBaseline,
+               descriptionTouchedRef,
+               setDatesDraft,
+
+               setOwnerIdDraft,
+               setHealthDraft,
+               setPeriodDraft
+            );
+            onChanged(merged);
+            if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
+            else toast.success(fa.milestone.updated);
+            if (updated.syncState !== 'pending') void load(true);
+            return true;
+         } catch (saveError) {
+            if (
+               saveError instanceof TaskSyncMutationError &&
+               saveError.failure?.status === 'conflict'
+            ) {
+               try {
+                  const latest = await taskaraRequest<TaskaraMilestone>(
+                     `/milestones/${encodeURIComponent(current.id)}`
+                  );
+                  const merged = mergeDetailResponse(current, latest);
+                  setMilestone(merged);
+                  milestoneRef.current = merged;
+                  syncDrafts(
+                     merged,
+                     setNameDraft,
+                     setDescriptionDraft,
+                     setDescriptionBaseline,
+                     descriptionTouchedRef,
+                     setDatesDraft,
+
+                     setOwnerIdDraft,
+                     setHealthDraft,
+                     setPeriodDraft
+                  );
+                  if (patch.name !== undefined) setNameDraft(patch.name);
+                  if (patch.description !== undefined) {
+                     descriptionTouchedRef.current = true;
+                     setDescriptionDraft(patch.description || '');
+                  }
+                  if (patch.period !== undefined) setPeriodDraft(patch.period);
+
+                  if (patch.ownerId !== undefined) setOwnerIdDraft(patch.ownerId || '');
+                  if (patch.health !== undefined) setHealthDraft(patch.health || '');
+                  if (patch.startsOn !== undefined || patch.targetOn !== undefined) {
+                     setDatesDraft({
+                        startsOn:
+                           patch.startsOn === undefined
+                              ? merged.startsOn || ''
+                              : patch.startsOn || '',
+                        targetOn:
+                           patch.targetOn === undefined
+                              ? merged.targetOn || ''
+                              : patch.targetOn || '',
+                     });
+                  }
+                  onChanged(merged);
+                  toast.error(fa.milestone.versionConflict, {
+                     description: fa.milestone.conflictDraftRetained,
+                     action: {
+                        label: fa.milestone.retry,
+                        onClick: () => void saveMetadata(patch, field),
+                     },
+                  });
+               } catch {
+                  setMilestone(current);
+                  milestoneRef.current = current;
+                  toast.error(fa.milestone.versionConflict, {
+                     description: fa.milestone.conflictDraftRetained,
                   });
                }
-               onChanged(merged);
-               toast.error(fa.milestone.versionConflict, {
-                  description: fa.milestone.conflictDraftRetained,
-                  action: {
-                     label: fa.milestone.retry,
-                     onClick: () => void saveMetadata(patch, field),
-                  },
-               });
-            } catch {
+            } else {
                setMilestone(current);
                milestoneRef.current = current;
-               toast.error(fa.milestone.versionConflict, {
-                  description: fa.milestone.conflictDraftRetained,
-               });
+               toast.error(
+                  saveError instanceof Error ? saveError.message : fa.milestone.updateFailed
+               );
             }
-         } else {
-            setMilestone(current);
-            milestoneRef.current = current;
-            toast.error(saveError instanceof Error ? saveError.message : fa.milestone.updateFailed);
+            return false;
+         } finally {
+            setSavingField(null);
          }
-         return false;
-      } finally {
-         setSavingField(null);
-      }
-   }, [load, onChanged, savingField, taskSync]);
+      },
+      [load, onChanged, savingField, taskSync]
+   );
 
-   const reorder = useCallback(async (direction: 'up' | 'down') => {
-      const current = milestoneRef.current;
-      if (!current || current.archivedAt || current.canManage === false || reordering) return;
-      setReordering(true);
-      try {
-         let siblings = taskSync.milestones.filter((item) => item.projectId === current.projectId);
-         if (online) {
-            try {
-               siblings = await loadProjectMilestones(current.projectId);
-            } catch {
-               // The sync cache remains usable during a transient list failure.
+   const reorder = useCallback(
+      async (direction: 'up' | 'down') => {
+         const current = milestoneRef.current;
+         if (!current || current.archivedAt || current.canManage === false || reordering) return;
+         setReordering(true);
+         try {
+            let siblings = taskSync.milestones.filter(
+               (item) => item.projectId === current.projectId
+            );
+            if (online) {
+               try {
+                  siblings = await loadProjectMilestones(current.projectId);
+               } catch {
+                  // The sync cache remains usable during a transient list failure.
+               }
             }
+            if (!siblings.some((item) => item.id === current.id)) siblings = [...siblings, current];
+            const ordered = siblings
+               .filter((item) => !item.archivedAt)
+               .sort(
+                  (left, right) =>
+                     left.position - right.position || left.createdAt.localeCompare(right.createdAt)
+               );
+            const index = ordered.findIndex((item) => item.id === current.id);
+            const targetIndex = direction === 'up' ? index - 1 : index + 1;
+            if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) {
+               toast.info(
+                  direction === 'up'
+                     ? 'این هدف در ابتدای ترتیب پروژه است.'
+                     : 'این هدف در انتهای ترتیب پروژه است.'
+               );
+               return;
+            }
+            const desired = [...ordered];
+            const [moving] = desired.splice(index, 1);
+            desired.splice(targetIndex, 0, moving);
+            const beforeId = desired[targetIndex - 1]?.id || null;
+            const afterId = desired[targetIndex + 1]?.id || null;
+            const updated = await taskSync.reorderMilestone(current, { beforeId, afterId });
+            const merged = mergeDetailResponse(current, updated);
+            setMilestone(merged);
+            milestoneRef.current = merged;
+            onChanged(merged);
+            if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
+            else toast.success('ترتیب هدف به‌روز شد.');
+            if (updated.syncState !== 'pending') void load(true);
+         } catch (reorderError) {
+            if (
+               reorderError instanceof TaskSyncMutationError &&
+               reorderError.failure?.status === 'conflict'
+            ) {
+               toast.error(fa.milestone.versionConflict);
+               void load(true);
+            } else {
+               toast.error(
+                  reorderError instanceof Error ? reorderError.message : fa.milestone.updateFailed
+               );
+            }
+         } finally {
+            setReordering(false);
          }
-         if (!siblings.some((item) => item.id === current.id)) siblings = [...siblings, current];
-         const ordered = siblings
-            .filter((item) => !item.archivedAt)
-            .sort((left, right) => left.position - right.position || left.createdAt.localeCompare(right.createdAt));
-         const index = ordered.findIndex((item) => item.id === current.id);
-         const targetIndex = direction === 'up' ? index - 1 : index + 1;
-         if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) {
-            toast.info(direction === 'up' ? 'این هدف در ابتدای ترتیب پروژه است.' : 'این هدف در انتهای ترتیب پروژه است.');
-            return;
-         }
-         const desired = [...ordered];
-         const [moving] = desired.splice(index, 1);
-         desired.splice(targetIndex, 0, moving);
-         const beforeId = desired[targetIndex - 1]?.id || null;
-         const afterId = desired[targetIndex + 1]?.id || null;
-         const updated = await taskSync.reorderMilestone(current, { beforeId, afterId });
-         const merged = mergeDetailResponse(current, updated);
-         setMilestone(merged);
-         milestoneRef.current = merged;
-         onChanged(merged);
-         if (updated.syncState === 'pending') toast.info(fa.sync.mutationQueued);
-         else toast.success('ترتیب هدف به‌روز شد.');
-         if (updated.syncState !== 'pending') void load(true);
-      } catch (reorderError) {
-         if (reorderError instanceof TaskSyncMutationError && reorderError.failure?.status === 'conflict') {
-            toast.error(fa.milestone.versionConflict);
-            void load(true);
-         } else {
-            toast.error(reorderError instanceof Error ? reorderError.message : fa.milestone.updateFailed);
-         }
-      } finally {
-         setReordering(false);
-      }
-   }, [load, onChanged, online, reordering, taskSync]);
+      },
+      [load, onChanged, online, reordering, taskSync]
+   );
 
    if (loading && !milestone) return <MilestoneDetailSkeleton />;
 
    if (!milestone) {
       return (
          <div className="flex h-full flex-col p-4">
-            <button className="mb-4 inline-flex h-9 w-fit items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted md:hidden" type="button" onClick={onBack}>
+            <button
+               className="mb-4 inline-flex h-9 w-fit items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted md:hidden"
+               type="button"
+               onClick={onBack}
+            >
                <ArrowRight className="size-4" />
                {fa.app.back}
             </button>
             <MilestoneEmptyState
-               action={error ? <Button variant="secondary" onClick={() => void load(false)}>{fa.milestone.retry}</Button> : undefined}
+               action={
+                  error ? (
+                     <Button variant="secondary" onClick={() => void load(false)}>
+                        {fa.milestone.retry}
+                     </Button>
+                  ) : undefined
+               }
                description={error || undefined}
             >
                {fa.milestone.noAccess}
@@ -381,19 +454,29 @@ export function MilestoneDetail({
    const readOnly = Boolean(milestone.archivedAt || !canManage);
    const nameChanged = nameDraft.trim() !== milestone.name;
    const descriptionChanged = descriptionDraft !== descriptionBaseline;
-   const datesChanged = datesDraft.startsOn !== (milestone.startsOn || '') || datesDraft.targetOn !== (milestone.targetOn || '');
-   const kindChanged = kindDraft !== milestone.kind;
+   const datesChanged =
+      datesDraft.startsOn !== (milestone.startsOn || '') ||
+      datesDraft.targetOn !== (milestone.targetOn || '');
    const savedOwnerId = milestone.ownerId || milestone.owner?.id || '';
    const ownerChanged = ownerIdDraft !== savedOwnerId;
    const healthChanged = healthDraft !== (milestone.health || '');
-   const hasUnsavedChanges = nameChanged || descriptionChanged || datesChanged || kindChanged || ownerChanged || healthChanged;
-   const invalidDates = Boolean(datesDraft.startsOn && datesDraft.targetOn && datesDraft.targetOn < datesDraft.startsOn);
+   const periodChanged = periodDraft !== (milestone.period || 'CUSTOM');
+   const hasUnsavedChanges =
+      periodChanged ||
+      nameChanged ||
+      descriptionChanged ||
+      datesChanged ||
+      ownerChanged ||
+      healthChanged;
+   const invalidDates = Boolean(
+      datesDraft.startsOn && datesDraft.targetOn && datesDraft.targetOn < datesDraft.startsOn
+   );
    const saveDisabled = !nameDraft.trim() || invalidDates || Boolean(savingField);
    const primaryAction = primaryLifecycleAction(milestone);
-   const kindMeta = milestoneKindMeta[kindDraft];
    const statusMeta = milestoneStatusMeta[milestone.status];
    const healthMeta = healthDraft ? milestoneHealthMeta[healthDraft] : null;
-   const ownerDraft = owners.find((owner) => owner.id === ownerIdDraft) ||
+   const ownerDraft =
+      owners.find((owner) => owner.id === ownerIdDraft) ||
       (ownerIdDraft === savedOwnerId ? milestone.owner : null);
 
    function handleSaveAll() {
@@ -404,7 +487,7 @@ export function MilestoneDetail({
          patch.startsOn = datesDraft.startsOn || null;
          patch.targetOn = datesDraft.targetOn || null;
       }
-      if (kindChanged) patch.kind = kindDraft;
+      if (periodChanged) patch.period = periodDraft;
       if (ownerChanged) patch.ownerId = ownerIdDraft || null;
       if (healthChanged) patch.health = healthDraft || null;
       if (Object.keys(patch).length) void saveMetadata(patch, 'all');
@@ -421,12 +504,14 @@ export function MilestoneDetail({
          setDescriptionBaseline,
          descriptionTouchedRef,
          setDatesDraft,
-         setKindDraft,
+
          setOwnerIdDraft,
-         setHealthDraft
+         setHealthDraft,
+         setPeriodDraft
       );
       onChanged(merged);
-      if (updated.syncState === 'pending') toast.info('تصمیم شما ذخیره شد و پس از اتصال همگام می‌شود.');
+      if (updated.syncState === 'pending')
+         toast.info('تصمیم شما ذخیره شد و پس از اتصال همگام می‌شود.');
       else {
          toast.success(fa.milestone.lifecycleUpdated);
          void load(true);
@@ -436,73 +521,103 @@ export function MilestoneDetail({
    return (
       <div className="flex h-full min-h-0 flex-col bg-background [direction:rtl]">
          <header className="shrink-0" data-testid="goal-detail-header">
-            <PageHeader title={milestone.name} compact titleContent={
-            <div className="flex min-w-0 items-center gap-2">
-               <button
-                  aria-label={fa.app.back}
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 px-2.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                  type="button"
-                  onClick={onBack}
-               >
-                  <ArrowRight className="size-4" />
-                  <span className="hidden sm:inline">{fa.milestone.title}</span>
-               </button>
-               <MilestoneGlyph className="hidden size-8 shrink-0 sm:inline-flex" />
-               <div className="min-w-0">
-                  <h1 className="truncate text-sm font-medium">{milestone.name}</h1>
-                  <Link
-                     className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                     to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}
-                  >
-                     <ProjectGlyph className="size-3.5 rounded-sm" iconClassName="size-2.5" name={milestone.project.name} />
-                     <span className="truncate">{milestone.project.name}</span>
-                     <span className="ltr">{milestone.project.keyPrefix}</span>
-                  </Link>
-               </div>
-               {refreshing ? <Loader2 aria-label={fa.app.loading} className="size-3.5 animate-spin text-muted-foreground" /> : null}
-            </div>
-            } action={
-            <div className="flex shrink-0 items-center gap-2">
-               {!readOnly && hasUnsavedChanges ? (
-                  <Button
-                     aria-label="ذخیره تغییرات"
-                     className="h-9 rounded-full bg-indigo-700 dark:bg-indigo-500 px-3 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
-                     disabled={saveDisabled}
-                     size="sm"
-                     onClick={handleSaveAll}
-                  >
-                     {savingField ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                     <span className="hidden sm:inline">{savingField ? fa.milestone.saving : 'ذخیره تغییرات'}</span>
-                  </Button>
-               ) : null}
-               {!readOnly && !hasUnsavedChanges && primaryAction && primaryAction !== 'complete' ? (
-                  <Button
-                     aria-label={lifecycleLabel(primaryAction, milestone)}
-                     className="h-9 rounded-full"
-                     size="sm"
-                     variant="secondary"
-                     onClick={() => setLifecycleAction(primaryAction)}
-                  >
-                     <LifecycleIcon action={primaryAction} />
-                     <span className="hidden sm:inline">{lifecycleLabel(primaryAction, milestone)}</span>
-                  </Button>
-               ) : null}
-               <LifecycleMenu
-                  disabled={hasUnsavedChanges || Boolean(savingField)}
-                  milestone={milestone}
-                  readOnly={!canManage}
-                  reordering={reordering}
-                  onAction={setLifecycleAction}
-                  onReorder={(direction) => void reorder(direction)}
-               />
-            </div>
-            } />
+            <PageHeader
+               title={milestone.name}
+               compact
+               titleContent={
+                  <div className="flex min-w-0 items-center gap-2">
+                     <button
+                        aria-label={fa.app.back}
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 px-2.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        type="button"
+                        onClick={onBack}
+                     >
+                        <ArrowRight className="size-4" />
+                        <span className="hidden sm:inline">{fa.milestone.title}</span>
+                     </button>
+                     <MilestoneGlyph className="hidden size-8 shrink-0 sm:inline-flex" />
+                     <div className="min-w-0">
+                        <h1 className="truncate text-sm font-medium">{milestone.name}</h1>
+                        <Link
+                           className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                           to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}
+                        >
+                           <ProjectGlyph
+                              className="size-3.5 rounded-sm"
+                              iconClassName="size-2.5"
+                              name={milestone.project.name}
+                           />
+                           <span className="truncate">{milestone.project.name}</span>
+                           <span className="ltr">{milestone.project.keyPrefix}</span>
+                        </Link>
+                     </div>
+                     {refreshing ? (
+                        <Loader2
+                           aria-label={fa.app.loading}
+                           className="size-3.5 animate-spin text-muted-foreground"
+                        />
+                     ) : null}
+                  </div>
+               }
+               action={
+                  <div className="flex shrink-0 items-center gap-2">
+                     {!readOnly && hasUnsavedChanges ? (
+                        <Button
+                           aria-label="ذخیره تغییرات"
+                           className="h-9 rounded-full bg-indigo-700 dark:bg-indigo-500 px-3 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
+                           disabled={saveDisabled}
+                           size="sm"
+                           onClick={handleSaveAll}
+                        >
+                           {savingField ? (
+                              <Loader2 className="size-4 animate-spin" />
+                           ) : (
+                              <Save className="size-4" />
+                           )}
+                           <span className="hidden sm:inline">
+                              {savingField ? fa.milestone.saving : 'ذخیره تغییرات'}
+                           </span>
+                        </Button>
+                     ) : null}
+                     {!readOnly &&
+                     !hasUnsavedChanges &&
+                     primaryAction &&
+                     primaryAction !== 'complete' ? (
+                        <Button
+                           aria-label={lifecycleLabel(primaryAction, milestone)}
+                           className="h-9 rounded-full"
+                           size="sm"
+                           variant="secondary"
+                           onClick={() => setLifecycleAction(primaryAction)}
+                        >
+                           <LifecycleIcon action={primaryAction} />
+                           <span className="hidden sm:inline">
+                              {lifecycleLabel(primaryAction, milestone)}
+                           </span>
+                        </Button>
+                     ) : null}
+                     <LifecycleMenu
+                        disabled={hasUnsavedChanges || Boolean(savingField)}
+                        milestone={milestone}
+                        readOnly={!canManage}
+                        reordering={reordering}
+                        onAction={setLifecycleAction}
+                        onReorder={(direction) => void reorder(direction)}
+                     />
+                  </div>
+               }
+            />
          </header>
 
          {error ? (
-            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground" role="alert">
+            <div
+               className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground"
+               role="alert"
+            >
                <span>{error}</span>
-               <button className="underline" type="button" onClick={() => void load(true)}>{fa.milestone.retry}</button>
+               <button className="underline" type="button" onClick={() => void load(true)}>
+                  {fa.milestone.retry}
+               </button>
             </div>
          ) : null}
          {milestone.archivedAt ? (
@@ -516,90 +631,166 @@ export function MilestoneDetail({
                شما دسترسی مشاهده دارید؛ تغییر هدف به مجوز برنامه‌ریزی پروژه نیاز دارد.
             </div>
          ) : milestone.syncState === 'pending' ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-indigo-400/20 bg-indigo-400/8 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-200" role="status">
+            <div
+               className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-indigo-400/20 bg-indigo-400/8 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-200"
+               role="status"
+            >
                <ShieldAlert className="size-4 shrink-0" />
                این هدف یک تغییر همگام‌نشده دارد؛ ویرایش شما امن است و پس از اتصال تأیید می‌شود.
             </div>
          ) : !online ? (
-            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-200" role="status">
+            <div
+               className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-200"
+               role="status"
+            >
                <ShieldAlert className="size-4 shrink-0" />
                آفلاین هستید. تغییرهای هدف روی دستگاه ذخیره و پس از اتصال همگام می‌شوند.
             </div>
          ) : null}
 
          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 border-b border-border/60 px-3 sm:px-5">
-               <div aria-label={fa.milestone.title} className="flex h-10 items-center" role="tablist">
-                  <DetailTabTrigger active={tab === 'work'} icon={ListTodo} label={fa.milestone.work} value="work" count={milestone.progress.totalTasks} onSelect={setTab} />
-                  <DetailTabTrigger active={tab === 'overview'} icon={Info} label="اطلاعات" value="overview" onSelect={setTab} />
+            <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-3 sm:px-6">
+               <div aria-label="نمای هدف" className="flex min-w-0 flex-wrap gap-1" role="tablist">
+                  <DetailTabTrigger
+                     active={tab === 'overview'}
+                     icon={Info}
+                     label="نمای کلی"
+                     value="overview"
+                     onSelect={(value) => {
+                        setTab(value);
+                        setShowProperties(false);
+                     }}
+                  />
+                  <DetailTabTrigger
+                     active={tab === 'activity'}
+                     icon={Activity}
+                     label="گزارش‌ها"
+                     value="activity"
+                     onSelect={(value) => {
+                        setTab(value);
+                        setShowProperties(false);
+                     }}
+                  />
+                  <DetailTabTrigger
+                     active={tab === 'work'}
+                     icon={ListTodo}
+                     label="کارها"
+                     value="work"
+                     count={milestone.progress.totalTasks}
+                     onSelect={(value) => {
+                        setTab(value);
+                        setShowProperties(false);
+                     }}
+                  />
                </div>
+               <button
+                  type="button"
+                  aria-label="ویژگی‌های هدف"
+                  aria-expanded={showProperties}
+                  onClick={() => setShowProperties((value) => !value)}
+                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted lg:hidden"
+               >
+                  <PanelLeft className="size-4" />
+               </button>
             </div>
-
-            <div className={cn('min-h-0 flex-1 overscroll-contain', tab === 'work' ? 'overflow-hidden' : 'overflow-y-auto')}>
-               {tab === 'work' ? (
-                  <div role="tabpanel" aria-label={fa.milestone.work} className="h-full min-h-0">
-                     <TasksView key={milestone.id} defaultSystemView="all" personalOnly={false} goal={milestone} />
-                  </div>
-               ) : null}
-               {tab === 'overview' ? (
-               <div role="tabpanel">
-                  <div className="mx-auto grid w-full max-w-[1120px] gap-8 px-4 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_280px] xl:px-9">
-                     <div className="min-w-0 space-y-7">
-                        <section aria-labelledby="milestone-title-heading">
-                           <div className="flex items-start gap-3">
-                              <MilestoneGlyph className="mt-1 size-9" />
-                              <div className="min-w-0 flex-1">
-                                 {readOnly ? (
-                                    <h1 className="break-words text-2xl font-semibold leading-9" id="milestone-title-heading">{milestone.name}</h1>
-                                 ) : (
-                                    <Input
-                                       aria-label={fa.milestone.name}
-                                       className="h-auto min-w-0 border-transparent bg-transparent px-0 text-2xl font-semibold leading-9 shadow-none focus-visible:border-border focus-visible:px-2 focus-visible:ring-0"
-                                       disabled={Boolean(savingField)}
-                                       maxLength={160}
-                                       value={nameDraft}
-                                       onChange={(event) => setNameDraft(event.target.value)}
-                                       onKeyDown={(event) => {
-                                          if (event.key === 'Escape') setNameDraft(milestone.name);
-                                       }}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+               <div className="mx-auto grid w-full max-w-[1560px] items-start gap-6 px-4 pb-10 pt-2 sm:px-6 lg:grid-cols-[minmax(0,1fr)_300px] xl:gap-10 xl:px-8">
+                  <div
+                     className={cn(
+                        'min-w-0 py-4 sm:px-3 sm:py-7 xl:px-5',
+                        showProperties && 'hidden lg:block'
+                     )}
+                  >
+                     <div
+                        hidden={tab !== 'overview'}
+                        role="tabpanel"
+                        aria-label="نمای کلی"
+                        className="space-y-8"
+                     >
+                        <section>
+                           <MilestoneGlyph className="mb-5 size-11 rounded-xl bg-muted text-foreground dark:text-foreground [&>svg]:size-6" />
+                           {readOnly ? (
+                              <h2 className="break-words text-2xl font-semibold leading-10 sm:text-3xl">
+                                 {milestone.name}
+                              </h2>
+                           ) : (
+                              <Textarea
+                                 rows={1}
+                                 aria-label={fa.milestone.name}
+                                 maxLength={160}
+                                 disabled={Boolean(savingField)}
+                                 value={nameDraft}
+                                 onChange={(event) => setNameDraft(event.target.value)}
+                                 onKeyDown={(event) => {
+                                    if (event.key === 'Escape') setNameDraft(milestone.name);
+                                 }}
+                                 className="min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 text-2xl font-semibold leading-10 shadow-none [field-sizing:content] focus-visible:ring-0 sm:text-3xl"
+                              />
+                           )}
+                           <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <span>هدف {goalPeriodLabels[periodDraft]}</span>
+                              {milestone.project.team ? (
+                                 <>
+                                    <span>·</span>
+                                    <span>{milestone.project.team.name}</span>
+                                 </>
+                              ) : null}
+                           </p>
+                           <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs">
+                              <MilestoneBadge {...statusMeta} />
+                              <span className="flex items-center gap-2">
+                                 {milestone.owner ? (
+                                    <LinearAvatar
+                                       className="size-5"
+                                       name={milestone.owner.name}
+                                       src={milestone.owner.avatarUrl}
                                     />
+                                 ) : (
+                                    <UserRound className="size-4 text-muted-foreground" />
                                  )}
-                                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" title={fa.milestone.owner}>
-                                       {milestone.owner ? <LinearAvatar className="size-5" name={milestone.owner.name} src={milestone.owner.avatarUrl} /> : <UserRound className="size-4" />}
-                                       <span className="max-w-48 truncate">{milestone.owner?.name || fa.milestone.noOwner}</span>
-                                    </span>
-                                    <MilestoneBadge {...kindMeta} />
-                                    <MilestoneBadge {...statusMeta} />
-                                    {healthMeta ? <MilestoneBadge {...healthMeta} /> : null}
-                                    {milestone.targetOn ? (
-                                       <span className={cn('inline-flex h-6 items-center gap-1 rounded-full border border-border px-2 text-[11px] text-muted-foreground', isMilestoneOverdue(milestone) && 'border-rose-400/25 text-rose-600 dark:text-rose-300')}>
-                                          <CalendarDays className="size-3" />
-                                          {formatMilestoneDateOnly(milestone.targetOn)}
-                                       </span>
-                                    ) : null}
-                                 </div>
-                              </div>
+                                 {milestone.owner?.name || fa.milestone.noOwner}
+                              </span>
+                              <span className="flex items-center gap-2 text-muted-foreground">
+                                 <CalendarDays className="size-4" />
+                                 {milestone.startsOn
+                                    ? formatMilestoneDateOnly(milestone.startsOn)
+                                    : 'شروع تعیین نشده'}
+                                 <span>←</span>
+                                 {milestone.targetOn
+                                    ? formatMilestoneDateOnly(milestone.targetOn)
+                                    : fa.milestone.noTarget}
+                              </span>
                            </div>
                         </section>
-
-                        <section aria-labelledby="milestone-description-heading">
-                           <h2 className="mb-2 text-sm font-semibold" id="milestone-description-heading">{fa.milestone.description}</h2>
+                        <button
+                           type="button"
+                           onClick={() => setTab('activity')}
+                           className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl border border-border/80 text-sm text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+                        >
+                           <PenLine className="size-4" />
+                           ثبت گزارش پیشرفت هدف
+                        </button>
+                        <section aria-label="نتیجه مورد انتظار">
+                           <h2 className="mb-3 text-xs font-medium text-muted-foreground">
+                              نتیجه مورد انتظار
+                           </h2>
                            {readOnly ? (
-                              <p className="min-h-20 whitespace-pre-wrap rounded-lg border border-border/60 bg-card/30 p-4 text-sm leading-7 text-muted-foreground">
-                                 {descriptionToPlainText(milestone.description) || fa.milestone.descriptionPlaceholder}
+                              <p className="min-h-24 whitespace-pre-wrap break-words text-sm leading-7">
+                                 {descriptionToPlainText(milestone.description) ||
+                                    'هنوز توضیحی نوشته نشده.'}
                               </p>
                            ) : (
                               <DescriptionEditor
+                                 showToolbar={false}
                                  ariaLabel={fa.milestone.description}
-                                 className="min-h-36 bg-card/25"
-                                 contentClassName="min-h-28 px-4 py-3 text-sm leading-7"
-                                 placeholder={fa.milestone.descriptionPlaceholder}
-                                 showToolbar
+                                 className="min-h-32 border-0 bg-transparent"
+                                 contentClassName="min-h-24 px-0 py-2 text-sm leading-7"
+                                 placeholder="چه نتیجه‌ای می‌خواهیم و موفقیت را چطور می‌سنجیم؟"
                                  value={descriptionDraft}
                                  onChange={(value) => {
                                     setDescriptionDraft(value);
-                                    if (!descriptionTouchedRef.current) setDescriptionBaseline(value);
+                                    if (!descriptionTouchedRef.current)
+                                       setDescriptionBaseline(value);
                                  }}
                                  onFocus={() => {
                                     descriptionTouchedRef.current = true;
@@ -607,111 +798,254 @@ export function MilestoneDetail({
                               />
                            )}
                         </section>
-
-                        <ProgressOverview milestone={milestone} />
-                        <AttentionOverview milestone={milestone} />
-                        <LatestActivity activity={milestone.activity || []} />
+                        {(milestone.activity || []).find(
+                           (item) => item.action === 'report_posted'
+                        ) ? (
+                           <section className="space-y-3">
+                              <h2 className="text-xs font-medium text-muted-foreground">
+                                 آخرین گزارش
+                              </h2>
+                              <GoalReportCard
+                                 report={
+                                    milestone.activity!.find(
+                                       (item) => item.action === 'report_posted'
+                                    )!
+                                 }
+                                 goalName={milestone.name}
+                              />
+                           </section>
+                        ) : null}
+                     </div>
+                     <div hidden={tab !== 'activity'} role="tabpanel" aria-label="گزارش‌ها">
+                        <GoalReports
+                           milestone={milestone}
+                           disabled={hasUnsavedChanges || Boolean(savingField)}
+                           onConflict={() => void load(true, true)}
+                           onPosted={(updated) => {
+                              const merged = mergeDetailResponse(milestone, updated);
+                              setMilestone(merged);
+                              milestoneRef.current = merged;
+                              setHealthDraft(updated.health || '');
+                              onChanged(merged);
+                           }}
+                        />
+                        <div className="mt-10">
+                           <h2 className="mb-3 text-xs font-medium text-muted-foreground">
+                              فعالیت‌ها
+                           </h2>
+                           <ActivityItems
+                              activity={(milestone.activity || []).filter(
+                                 (item) => item.action !== 'report_posted'
+                              )}
+                           />
+                        </div>
+                     </div>
+                     <div
+                        hidden={tab === 'activity'}
+                        role={tab === 'work' ? 'tabpanel' : undefined}
+                        aria-label="کارهای هدف"
+                        className={cn(tab === 'overview' && 'mt-8 border-t border-border/60 pt-6')}
+                     >
+                        <MilestoneTasksPanel
+                           milestone={milestone}
+                           workspaceSlug={workspaceSlug}
+                           onMilestoneRefresh={() => void load(true, true)}
+                        />
+                     </div>
+                  </div>
+                  <aside
+                     className={cn(
+                        'min-w-0 space-y-3 lg:sticky lg:top-5 lg:block lg:self-start',
+                        !showProperties && 'hidden'
+                     )}
+                     aria-label="ویژگی‌های هدف"
+                  >
+                     <div className="rounded-xl border border-border/70 bg-muted/25 px-2 py-3">
+                        <h2 className="px-3 pb-2 text-xs font-medium text-muted-foreground">
+                           ویژگی‌ها
+                        </h2>
+                        <PropertyRow icon={ProjectGlyphProxy} label={fa.milestone.project}>
+                           <Link
+                              className="truncate text-xs hover:text-indigo-600 dark:hover:text-indigo-300"
+                              to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}
+                           >
+                              {milestone.project.name}
+                           </Link>
+                        </PropertyRow>
+                        <PropertyRow icon={CalendarDays} label="دوره هدف">
+                           {readOnly ? (
+                              <span className="text-xs">{goalPeriodLabels[periodDraft]}</span>
+                           ) : (
+                              <Select
+                                 value={periodDraft}
+                                 disabled={Boolean(savingField)}
+                                 onValueChange={(value) => {
+                                    const period = value as GoalPeriod;
+                                    setPeriodDraft(period);
+                                    if (period !== 'CUSTOM') setDatesDraft(goalPeriodRange(period));
+                                 }}
+                              >
+                                 <PropertySelectTrigger label={goalPeriodLabels[periodDraft]} />
+                                 <SelectContent className="[direction:rtl]">
+                                    {Object.entries(goalPeriodLabels).map(([value, label]) => (
+                                       <SelectItem key={value} value={value}>
+                                          {label}
+                                       </SelectItem>
+                                    ))}
+                                 </SelectContent>
+                              </Select>
+                           )}
+                        </PropertyRow>
+                        <PropertyRow icon={CircleDot} label={fa.milestone.status}>
+                           <span className="text-xs">{statusMeta.label}</span>
+                        </PropertyRow>
+                        <PropertyRow icon={UserRound} label={fa.milestone.owner}>
+                           {readOnly ? (
+                              <OwnerValue milestone={milestone} />
+                           ) : (
+                              <Select
+                                 disabled={ownersLoading || Boolean(savingField)}
+                                 value={toSelectValue(ownerIdDraft)}
+                                 onValueChange={(value) => setOwnerIdDraft(fromSelectValue(value))}
+                              >
+                                 <PropertySelectTrigger
+                                    label={ownerDraft?.name || fa.milestone.noOwner}
+                                    loading={ownersLoading}
+                                 />
+                                 <SelectContent className="max-h-72 [direction:rtl]">
+                                    <SelectItem value={EMPTY_SELECT_VALUE}>
+                                       {fa.milestone.noOwner}
+                                    </SelectItem>
+                                    {owners.map((owner) => (
+                                       <SelectItem key={owner.id} value={owner.id}>
+                                          <span className="flex items-center gap-2">
+                                             <LinearAvatar
+                                                className="size-5"
+                                                name={owner.name}
+                                                src={owner.avatarUrl}
+                                             />
+                                             {owner.name}
+                                          </span>
+                                       </SelectItem>
+                                    ))}
+                                 </SelectContent>
+                              </Select>
+                           )}
+                        </PropertyRow>
+                        <PropertyRow icon={ShieldAlert} label={fa.milestone.health}>
+                           {readOnly ? (
+                              <span className="text-xs">
+                                 {healthMeta?.label || fa.milestone.noHealth}
+                              </span>
+                           ) : (
+                              <Select
+                                 disabled={Boolean(savingField)}
+                                 value={toSelectValue(healthDraft)}
+                                 onValueChange={(value) =>
+                                    setHealthDraft(
+                                       fromSelectValue(value) as TaskaraMilestoneHealth | ''
+                                    )
+                                 }
+                              >
+                                 <PropertySelectTrigger
+                                    label={healthMeta?.label || fa.milestone.noHealth}
+                                 />
+                                 <SelectContent className="[direction:rtl]">
+                                    <SelectItem value={EMPTY_SELECT_VALUE}>
+                                       {fa.milestone.noHealth}
+                                    </SelectItem>
+                                    {(
+                                       Object.entries(milestoneHealthMeta) as Array<
+                                          [TaskaraMilestoneHealth, NonNullable<typeof healthMeta>]
+                                       >
+                                    ).map(([value, meta]) => (
+                                       <SelectItem key={value} value={value}>
+                                          {meta.label}
+                                       </SelectItem>
+                                    ))}
+                                 </SelectContent>
+                              </Select>
+                           )}
+                        </PropertyRow>
                      </div>
 
-                     <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="ویژگی‌های هدف">
-                        <div className="border-y border-border/70">
-                           <PropertyRow icon={ProjectGlyphProxy} label={fa.milestone.project}>
-                              <Link className="truncate text-xs hover:text-indigo-600 dark:hover:text-indigo-300" to={`/${workspaceSlug}/milestones?projectId=${encodeURIComponent(milestone.projectId)}`}>
-                                 {milestone.project.name}
-                              </Link>
-                           </PropertyRow>
-                           <PropertyRow icon={Flag} label={fa.milestone.kind}>
-                              {readOnly ? (
-                                 <span className="text-xs">{kindMeta.label}</span>
-                              ) : (
-                                 <Select
+                     <div className="rounded-xl border border-border/70 bg-muted/25 p-4">
+                        <h2 className="mb-3 text-xs font-semibold">زمان‌بندی</h2>
+                        {readOnly ? (
+                           <div className="space-y-3 text-xs">
+                              <DateReadOnly
+                                 label={fa.milestone.startDate}
+                                 value={milestone.startsOn}
+                              />
+                              <DateReadOnly
+                                 label={fa.milestone.targetDate}
+                                 value={milestone.targetOn}
+                              />
+                           </div>
+                        ) : (
+                           <div className="space-y-3">
+                              <label className="grid gap-1.5 text-[11px] text-muted-foreground">
+                                 {fa.milestone.startDate}
+                                 <MilestoneDatePicker
+                                    ariaLabel={fa.milestone.startDate}
                                     disabled={Boolean(savingField)}
-                                    value={kindDraft}
-                                    onValueChange={(kind) => setKindDraft(kind as TaskaraMilestoneKind)}
-                                 >
-                                    <PropertySelectTrigger label={kindMeta.label} />
-                                    <SelectContent className="[direction:rtl]">
-                                       {(Object.entries(milestoneKindMeta) as Array<[TaskaraMilestoneKind, typeof kindMeta]>).map(([value, meta]) => (
-                                          <SelectItem key={value} value={value}>{meta.label}</SelectItem>
-                                       ))}
-                                    </SelectContent>
-                                 </Select>
-                              )}
-                           </PropertyRow>
-                           <PropertyRow icon={CircleDot} label={fa.milestone.status}>
-                              <span className="text-xs">{statusMeta.label}</span>
-                           </PropertyRow>
-                           <PropertyRow icon={UserRound} label={fa.milestone.owner}>
-                              {readOnly ? (
-                                 <OwnerValue milestone={milestone} />
-                              ) : (
-                                 <Select
-                                    disabled={ownersLoading || Boolean(savingField)}
-                                    value={toSelectValue(ownerIdDraft)}
-                                    onValueChange={(value) => setOwnerIdDraft(fromSelectValue(value))}
-                                 >
-                                    <PropertySelectTrigger label={ownerDraft?.name || fa.milestone.noOwner} loading={ownersLoading} />
-                                    <SelectContent className="max-h-72 [direction:rtl]">
-                                       <SelectItem value={EMPTY_SELECT_VALUE}>{fa.milestone.noOwner}</SelectItem>
-                                       {owners.map((owner) => (
-                                          <SelectItem key={owner.id} value={owner.id}>
-                                             <span className="flex items-center gap-2">
-                                                <LinearAvatar className="size-5" name={owner.name} src={owner.avatarUrl} />
-                                                {owner.name}
-                                             </span>
-                                          </SelectItem>
-                                       ))}
-                                    </SelectContent>
-                                 </Select>
-                              )}
-                           </PropertyRow>
-                           <PropertyRow icon={ShieldAlert} label={fa.milestone.health}>
-                              {readOnly ? (
-                                 <span className="text-xs">{healthMeta?.label || fa.milestone.noHealth}</span>
-                              ) : (
-                                 <Select
+                                    value={datesDraft.startsOn}
+                                    onChange={(startsOn) =>
+                                       setDatesDraft((current) => ({
+                                          ...current,
+                                          startsOn: startsOn || '',
+                                       }))
+                                    }
+                                 />
+                              </label>
+                              <label className="grid gap-1.5 text-[11px] text-muted-foreground">
+                                 {fa.milestone.targetDate}
+                                 <MilestoneDatePicker
+                                    ariaLabel={fa.milestone.targetDate}
                                     disabled={Boolean(savingField)}
-                                    value={toSelectValue(healthDraft)}
-                                    onValueChange={(value) => setHealthDraft(fromSelectValue(value) as TaskaraMilestoneHealth | '')}
+                                    placeholder={fa.milestone.noTarget}
+                                    value={datesDraft.targetOn}
+                                    onChange={(targetOn) =>
+                                       setDatesDraft((current) => ({
+                                          ...current,
+                                          targetOn: targetOn || '',
+                                       }))
+                                    }
+                                 />
+                              </label>
+                              {invalidDates ? (
+                                 <p
+                                    className="text-[11px] leading-5 text-rose-600 dark:text-rose-300"
+                                    role="alert"
                                  >
-                                    <PropertySelectTrigger label={healthMeta?.label || fa.milestone.noHealth} />
-                                    <SelectContent className="[direction:rtl]">
-                                       <SelectItem value={EMPTY_SELECT_VALUE}>{fa.milestone.noHealth}</SelectItem>
-                                       {(Object.entries(milestoneHealthMeta) as Array<[TaskaraMilestoneHealth, NonNullable<typeof healthMeta>]>).map(([value, meta]) => (
-                                          <SelectItem key={value} value={value}>{meta.label}</SelectItem>
-                                       ))}
-                                    </SelectContent>
-                                 </Select>
-                              )}
-                           </PropertyRow>
+                                    {fa.milestone.invalidDates}
+                                 </p>
+                              ) : null}
+                           </div>
+                        )}
+                     </div>
+                     <div className="rounded-xl border border-border/70 bg-muted/25 p-4">
+                        <h2 className="mb-4 text-xs font-medium text-muted-foreground">
+                           پیشرفت کارها
+                        </h2>
+                        <MilestoneProgress milestone={milestone} />
+                        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+                           <span>
+                              {milestone.progress.completedTasks.toLocaleString('fa-IR')} تکمیل‌شده
+                           </span>
+                           <span>
+                              {milestone.progress.blockedTasks.toLocaleString('fa-IR')} مسدود
+                           </span>
+                           <span>
+                              {milestone.progress.overdueTasks.toLocaleString('fa-IR')} عقب‌افتاده
+                           </span>
                         </div>
-
-                        <div className="border-b border-border/70 px-3 pb-4">
-                           <h2 className="mb-3 text-xs font-semibold">زمان‌بندی</h2>
-                           {readOnly ? (
-                              <div className="space-y-3 text-xs">
-                                 <DateReadOnly label={fa.milestone.startDate} value={milestone.startsOn} />
-                                 <DateReadOnly label={fa.milestone.targetDate} value={milestone.targetOn} />
-                              </div>
-                           ) : (
-                              <div className="space-y-3">
-                                 <label className="grid gap-1.5 text-[11px] text-muted-foreground">
-                                    {fa.milestone.startDate}
-                                    <MilestoneDatePicker ariaLabel={fa.milestone.startDate} disabled={Boolean(savingField)} value={datesDraft.startsOn} onChange={(startsOn) => setDatesDraft((current) => ({ ...current, startsOn: startsOn || '' }))} />
-                                 </label>
-                                 <label className="grid gap-1.5 text-[11px] text-muted-foreground">
-                                    {fa.milestone.targetDate}
-                                    <MilestoneDatePicker ariaLabel={fa.milestone.targetDate} disabled={Boolean(savingField)} placeholder={fa.milestone.noTarget} value={datesDraft.targetOn} onChange={(targetOn) => setDatesDraft((current) => ({ ...current, targetOn: targetOn || '' }))} />
-                                 </label>
-                                 {invalidDates ? <p className="text-[11px] leading-5 text-rose-600 dark:text-rose-300" role="alert">{fa.milestone.invalidDates}</p> : null}
-                              </div>
-                           )}
-                        </div>
-                     </aside>
-                  </div>
+                     </div>
+                     <div className="rounded-xl border border-border/70 bg-muted/25 p-4">
+                        <LatestActivity activity={(milestone.activity || []).slice(0, 2)} />
+                     </div>
+                  </aside>
                </div>
-               ) : null}
-
             </div>
          </div>
 
@@ -760,7 +1094,11 @@ function LifecycleMenu({
             {!milestone.archivedAt ? (
                <>
                   <DropdownMenuItem disabled={reordering} onSelect={() => onReorder('up')}>
-                     {reordering ? <Loader2 className="size-4 animate-spin" /> : <ChevronUp className="size-4" />}
+                     {reordering ? (
+                        <Loader2 className="size-4 animate-spin" />
+                     ) : (
+                        <ChevronUp className="size-4" />
+                     )}
                      انتقال یک جایگاه بالاتر
                   </DropdownMenuItem>
                   <DropdownMenuItem disabled={reordering} onSelect={() => onReorder('down')}>
@@ -773,7 +1111,10 @@ function LifecycleMenu({
             {actions.map((action, index) => (
                <div key={action}>
                   {index > 0 && action === 'archive' ? <DropdownMenuSeparator /> : null}
-                  <DropdownMenuItem variant={action === 'cancel' ? 'destructive' : 'default'} onSelect={() => onAction(action)}>
+                  <DropdownMenuItem
+                     variant={action === 'cancel' ? 'destructive' : 'default'}
+                     onSelect={() => onAction(action)}
+                  >
                      <LifecycleIcon action={action} />
                      {lifecycleLabel(action, milestone)}
                   </DropdownMenuItem>
@@ -803,75 +1144,40 @@ function DetailTabTrigger({
       <button
          aria-selected={active}
          className={cn(
-            'inline-flex h-10 items-center gap-1.5 border-b-2 border-transparent px-3 text-xs font-medium text-muted-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400/60',
-            active && 'border-indigo-400 text-foreground'
+            'inline-flex h-9 items-center gap-1.5 rounded-full border border-border/60 bg-muted/20 px-3 text-xs font-medium text-muted-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400/60',
+            active && 'border-border bg-muted text-foreground'
          )}
+         onKeyDown={(event) => {
+            if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const tabs = Array.from(
+               event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]'
+               ) || []
+            );
+            const index = tabs.indexOf(event.currentTarget);
+            const next =
+               event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : (index + (event.key === 'ArrowLeft' ? 1 : -1) + tabs.length) % tabs.length;
+            tabs[next]?.focus();
+            tabs[next]?.click();
+         }}
+         tabIndex={active ? 0 : -1}
          role="tab"
          type="button"
          onClick={() => onSelect(value)}
       >
-         <Icon className="size-3.5" />
+         <Icon className="hidden size-3.5 sm:block" />
          {label}
-         {count !== undefined ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{count.toLocaleString('fa-IR')}</span> : null}
-      </button>
-   );
-}
-
-function ProgressOverview({ milestone }: { milestone: TaskaraMilestone }) {
-   const progress = milestone.progress;
-   return (
-      <section className="border-y border-border/70 py-5" aria-labelledby="milestone-progress-heading">
-         <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold" id="milestone-progress-heading">{fa.milestone.progress}</h2>
-            {milestone.readyToComplete || progress.percentage === 100 && milestone.status !== 'COMPLETED' && milestone.status !== 'CANCELED' ? (
-               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-700 dark:text-emerald-200">
-                  <CheckCircle2 className="size-3" />
-                  {fa.milestone.readyToComplete}
-               </span>
-            ) : null}
-         </div>
-         <div className="mt-4"><MilestoneProgress milestone={milestone} /></div>
-         <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <ProgressStat label="کل کارها" value={progress.totalTasks} />
-            <ProgressStat label="تکمیل‌شده" value={progress.completedTasks} tone="text-emerald-700 dark:text-emerald-300" />
-            <ProgressStat label="مسدود" value={progress.blockedTasks} tone={progress.blockedTasks ? 'text-amber-700 dark:text-amber-300' : undefined} />
-            <ProgressStat label="لغوشده" value={progress.canceledTasks} />
-         </div>
-         {progress.totalWeight > 0 ? (
-            <p className="mt-4 text-[11px] text-muted-foreground">
-               وزن تکمیل‌شده: {progress.completedWeight.toLocaleString('fa-IR')} از {progress.totalWeight.toLocaleString('fa-IR')}
-            </p>
+         {count !== undefined ? (
+            <span className="rounded-full bg-muted px-1.5 text-[10px]">
+               {count.toLocaleString('fa-IR')}
+            </span>
          ) : null}
-      </section>
-   );
-}
-
-function AttentionOverview({ milestone }: { milestone: TaskaraMilestone }) {
-   const reasons = milestoneAttentionReasons(milestone);
-   return (
-      <section aria-labelledby="milestone-attention-heading">
-         <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold" id="milestone-attention-heading">{fa.milestone.attention}</h2>
-            {milestone.health ? (
-               <span className="text-[11px] text-muted-foreground">سلامت دستی: {milestoneHealthMeta[milestone.health].label}</span>
-            ) : null}
-         </div>
-         {reasons.length ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-               {reasons.map((reason) => (
-                  <div className={cn('flex min-h-12 items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-5', reason.className)} key={reason.key}>
-                     <reason.icon className="mt-0.5 size-4 shrink-0" />
-                     {reason.label}
-                  </div>
-               ))}
-            </div>
-         ) : (
-            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/25 px-3 py-3 text-xs text-muted-foreground">
-               <Check className="size-4" />
-               {fa.milestone.noAttention}
-            </div>
-         )}
-      </section>
+      </button>
    );
 }
 
@@ -879,8 +1185,16 @@ function LatestActivity({ activity }: { activity: TaskaraActivity[] }) {
    const latest = activity.slice(0, 4);
    return (
       <section aria-labelledby="milestone-latest-activity-heading">
-         <h2 className="mb-2 text-sm font-semibold" id="milestone-latest-activity-heading">آخرین فعالیت</h2>
-         {latest.length ? <ActivityItems activity={latest} /> : <p className="rounded-lg border border-border/60 bg-card/25 p-4 text-xs text-muted-foreground">{fa.milestone.noActivity}</p>}
+         <h2 className="mb-2 text-sm font-semibold" id="milestone-latest-activity-heading">
+            آخرین فعالیت
+         </h2>
+         {latest.length ? (
+            <ActivityItems activity={latest} />
+         ) : (
+            <p className="rounded-lg border border-border/60 bg-card/25 p-4 text-xs text-muted-foreground">
+               {fa.milestone.noActivity}
+            </p>
+         )}
       </section>
    );
 }
@@ -891,7 +1205,11 @@ function ActivityItems({ activity }: { activity: TaskaraActivity[] }) {
          {activity.map((item) => (
             <li className="relative flex gap-3 rounded-lg px-1 py-3 hover:bg-card/35" key={item.id}>
                {item.actor ? (
-                  <LinearAvatar className="relative z-10 size-8 shrink-0 ring-4 ring-background" name={item.actor.name} src={item.actor.avatarUrl} />
+                  <LinearAvatar
+                     className="relative z-10 size-8 shrink-0 ring-4 ring-background"
+                     name={item.actor.name}
+                     src={item.actor.avatarUrl}
+                  />
                ) : (
                   <span className="relative z-10 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-4 ring-background">
                      <Activity className="size-4" />
@@ -899,10 +1217,14 @@ function ActivityItems({ activity }: { activity: TaskaraActivity[] }) {
                )}
                <div className="min-w-0 flex-1">
                   <p className="text-xs leading-5 text-foreground">
-                     {item.actor?.name ? <strong className="font-medium">{item.actor.name} </strong> : null}
+                     {item.actor?.name ? (
+                        <strong className="font-medium">{item.actor.name} </strong>
+                     ) : null}
                      {activityLabel(item)}
                   </p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{formatJalaliDateTime(item.createdAt)}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                     {formatJalaliDateTime(item.createdAt)}
+                  </p>
                </div>
             </li>
          ))}
@@ -910,10 +1232,21 @@ function ActivityItems({ activity }: { activity: TaskaraActivity[] }) {
    );
 }
 
-function PropertyRow({ children, icon: Icon, label }: { children: React.ReactNode; icon: React.ComponentType<{ className?: string }>; label: string }) {
+function PropertyRow({
+   children,
+   icon: Icon,
+   label,
+}: {
+   children: React.ReactNode;
+   icon: React.ComponentType<{ className?: string }>;
+   label: string;
+}) {
    return (
-      <div className="grid min-h-11 grid-cols-[92px_minmax(0,1fr)] items-center gap-2 border-b border-border/50 px-3 last:border-b-0">
-         <span className="flex items-center gap-2 text-[11px] text-muted-foreground"><Icon className="size-3.5" />{label}</span>
+      <div className="grid min-h-11 grid-cols-[92px_minmax(0,1fr)] items-center gap-2 px-3">
+         <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Icon className="size-3.5" />
+            {label}
+         </span>
          <div className="min-w-0 text-left">{children}</div>
       </div>
    );
@@ -922,7 +1255,11 @@ function PropertyRow({ children, icon: Icon, label }: { children: React.ReactNod
 function PropertySelectTrigger({ label, loading = false }: { label: string; loading?: boolean }) {
    return (
       <SelectTrigger className="h-8 w-full border-transparent bg-transparent px-1 text-xs shadow-none hover:bg-muted focus:ring-0">
-         {loading ? <Loader2 className="size-3.5 animate-spin" /> : <span className="truncate">{label}</span>}
+         {loading ? (
+            <Loader2 className="size-3.5 animate-spin" />
+         ) : (
+            <span className="truncate">{label}</span>
+         )}
       </SelectTrigger>
    );
 }
@@ -931,9 +1268,15 @@ function OwnerValue({ milestone }: { milestone: TaskaraMilestone }) {
    return milestone.owner ? (
       <span className="flex min-w-0 items-center justify-end gap-2 text-xs">
          <span className="truncate">{milestone.owner.name}</span>
-         <LinearAvatar className="size-5" name={milestone.owner.name} src={milestone.owner.avatarUrl} />
+         <LinearAvatar
+            className="size-5"
+            name={milestone.owner.name}
+            src={milestone.owner.avatarUrl}
+         />
       </span>
-   ) : <span className="text-xs text-muted-foreground">{fa.milestone.noOwner}</span>;
+   ) : (
+      <span className="text-xs text-muted-foreground">{fa.milestone.noOwner}</span>
+   );
 }
 
 function DateReadOnly({ label, value }: { label: string; value?: string | null }) {
@@ -941,15 +1284,6 @@ function DateReadOnly({ label, value }: { label: string; value?: string | null }
       <div className="flex items-center justify-between gap-3">
          <span className="text-muted-foreground">{label}</span>
          <span>{value ? formatMilestoneDateOnly(value) : fa.app.noDate}</span>
-      </div>
-   );
-}
-
-function ProgressStat({ label, tone, value }: { label: string; tone?: string; value: number }) {
-   return (
-      <div className="border-s border-border px-3 py-2">
-         <strong className={cn('block text-lg font-semibold tabular-nums', tone)}>{value.toLocaleString('fa-IR')}</strong>
-         <span className="mt-1 block text-[10px] text-muted-foreground">{label}</span>
       </div>
    );
 }
@@ -962,10 +1296,14 @@ function LifecycleIcon({ action }: { action: MilestoneLifecycleAction }) {
 }
 
 function ProjectGlyphProxy({ className }: { className?: string }) {
-   return <ProjectGlyph className={cn('rounded-sm', className)} iconClassName="size-3" name="پروژه" />;
+   return (
+      <ProjectGlyph className={cn('rounded-sm', className)} iconClassName="size-3" name="پروژه" />
+   );
 }
 
-export function primaryLifecycleAction(milestone: TaskaraMilestone): MilestoneLifecycleAction | null {
+export function primaryLifecycleAction(
+   milestone: TaskaraMilestone
+): MilestoneLifecycleAction | null {
    if (milestone.archivedAt) return 'restore';
    if (milestone.status === 'PLANNED') return 'activate';
    if (milestone.status === 'ACTIVE') return 'complete';
@@ -984,7 +1322,8 @@ export function allowedLifecycleActions(milestone: TaskaraMilestone): MilestoneL
 }
 
 function lifecycleLabel(action: MilestoneLifecycleAction, milestone: TaskaraMilestone) {
-   if (action === 'activate') return milestone.status === 'CANCELED' ? fa.milestone.reactivate : fa.milestone.activate;
+   if (action === 'activate')
+      return milestone.status === 'CANCELED' ? fa.milestone.reactivate : fa.milestone.activate;
    if (action === 'complete') return fa.milestone.complete;
    if (action === 'reopen') return fa.milestone.reopen;
    if (action === 'cancel') return fa.milestone.cancelMilestone;
@@ -992,19 +1331,9 @@ function lifecycleLabel(action: MilestoneLifecycleAction, milestone: TaskaraMile
    return fa.milestone.restore;
 }
 
-function milestoneAttentionReasons(milestone: TaskaraMilestone) {
-   const reasons: Array<{ className: string; icon: typeof AlertTriangle; key: string; label: string }> = [];
-   if (isMilestoneOverdue(milestone)) reasons.push({ className: 'border-rose-400/25 bg-rose-400/8 text-rose-700 dark:text-rose-200', icon: AlertTriangle, key: 'target-overdue', label: fa.milestone.overdue });
-   if (milestone.progress.blockedTasks > 0) reasons.push({ className: 'border-amber-400/25 bg-amber-400/8 text-amber-700 dark:text-amber-200', icon: ShieldAlert, key: 'blocked', label: fa.milestone.blockedCount(milestone.progress.blockedTasks) });
-   if (milestone.progress.overdueTasks > 0) reasons.push({ className: 'border-amber-400/25 bg-amber-400/8 text-amber-700 dark:text-amber-200', icon: CalendarDays, key: 'task-overdue', label: fa.milestone.overdueCount(milestone.progress.overdueTasks) });
-   if (!milestone.owner) reasons.push({ className: 'border-border/70 bg-card/35 text-muted-foreground', icon: UserRound, key: 'owner', label: fa.milestone.missingOwner });
-   if (!milestone.targetOn) reasons.push({ className: 'border-border/70 bg-card/35 text-muted-foreground', icon: CalendarDays, key: 'target', label: fa.milestone.missingTarget });
-   if (milestone.progress.percentage === 100 && milestone.status !== 'COMPLETED' && milestone.status !== 'CANCELED') reasons.push({ className: 'border-emerald-400/25 bg-emerald-400/8 text-emerald-700 dark:text-emerald-200', icon: CheckCircle2, key: 'ready', label: fa.milestone.readyToComplete });
-   return reasons;
-}
-
 function activityLabel(activity: TaskaraActivity) {
    const labels: Record<string, string> = {
+      REPORT_POSTED: 'گزارش پیشرفت ثبت کرد.',
       CREATE: 'هدف را ساخت.',
       CREATED: 'هدف را ساخت.',
       UPDATE: `هدف را به‌روز کرد${changedFieldSummary(activity)}.`,
@@ -1025,7 +1354,10 @@ function activityLabel(activity: TaskaraActivity) {
       REORDERED: 'ترتیب هدف را تغییر داد.',
       TASKS_UPDATED: 'دامنه کارهای هدف را تغییر داد.',
    };
-   const normalized = activity.action.toUpperCase().replace(/^MILESTONE[._]/, '').replace(/[.]/g, '_');
+   const normalized = activity.action
+      .toUpperCase()
+      .replace(/^MILESTONE[._]/, '')
+      .replace(/[.]/g, '_');
    return labels[normalized] || 'هدف را تغییر داد.';
 }
 
@@ -1035,16 +1367,22 @@ function changedFieldSummary(activity: TaskaraActivity) {
       description: 'توضیح',
       health: 'سلامت',
       kind: 'نوع',
+      period: 'دوره هدف',
       name: 'نام',
       ownerId: 'مسئول پیگیری',
       startsOn: 'تاریخ شروع',
       targetOn: 'پایان مورد انتظار',
    };
-   const fields = Object.keys(activity.after).filter((key) => activity.before?.[key] !== activity.after?.[key] && labels[key]).map((key) => labels[key]);
+   const fields = Object.keys(activity.after)
+      .filter((key) => activity.before?.[key] !== activity.after?.[key] && labels[key])
+      .map((key) => labels[key]);
    return fields.length ? ` (${fields.join('، ')})` : '';
 }
 
-function mergeDetailResponse(previous: TaskaraMilestone, updated: TaskaraMilestone): TaskaraMilestone {
+function mergeDetailResponse(
+   previous: TaskaraMilestone,
+   updated: TaskaraMilestone
+): TaskaraMilestone {
    const merged = {
       ...previous,
       ...updated,
@@ -1064,7 +1402,9 @@ async function loadProjectMilestones(projectId: string) {
    let total = Number.POSITIVE_INFINITY;
    while (offset < total) {
       const params = new URLSearchParams({ projectId, limit: '200', offset: String(offset) });
-      const page = await taskaraRequest<{ items: TaskaraMilestone[]; total: number }>(`/milestones?${params.toString()}`);
+      const page = await taskaraRequest<{ items: TaskaraMilestone[]; total: number }>(
+         `/milestones?${params.toString()}`
+      );
       items.push(...page.items);
       total = page.total;
       if (!page.items.length) break;
@@ -1084,9 +1424,9 @@ function syncDrafts(
    setDescriptionBaseline: (value: string) => void,
    descriptionTouchedRef: { current: boolean },
    setDates: (value: { startsOn: string; targetOn: string }) => void,
-   setKind: (value: TaskaraMilestoneKind) => void,
    setOwnerId: (value: string) => void,
-   setHealth: (value: TaskaraMilestoneHealth | '') => void
+   setHealth: (value: TaskaraMilestoneHealth | '') => void,
+   setPeriod: (value: GoalPeriod) => void
 ) {
    const description = milestone.description || '';
    setName(milestone.name);
@@ -1094,9 +1434,9 @@ function syncDrafts(
    setDescriptionBaseline(description);
    descriptionTouchedRef.current = false;
    setDates({ startsOn: milestone.startsOn || '', targetOn: milestone.targetOn || '' });
-   setKind(milestone.kind);
    setOwnerId(milestone.ownerId || milestone.owner?.id || '');
    setHealth(milestone.health || '');
+   setPeriod(milestone.period || 'CUSTOM');
 }
 
 function descriptionToPlainText(value?: string | null) {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   createMilestoneSchema,
+  milestoneReportSchema,
   milestoneCompletionSchema,
   milestoneListQuerySchema,
   milestoneOwnerCandidateQuerySchema,
@@ -16,6 +17,7 @@ import {
   cancelMilestone,
   completeMilestone,
   createMilestone,
+  postMilestoneReport,
   getMilestone,
   listMilestoneOwnerCandidates,
   listMilestones,
@@ -40,6 +42,12 @@ export async function registerMilestoneRoutes(app: FastifyInstance): Promise<voi
     const actor = await getRequestActor(request);
     const milestone = await createMilestone(actor, createMilestoneSchema.parse(request.body));
     return reply.code(201).send(milestone);
+  });
+
+  app.post('/milestones/:id/reports', async (request, reply) => {
+    const actor = await getRequestActor(request);
+    const { id } = request.params as { id: string };
+    return reply.code(201).send(await postMilestoneReport(actor, id, milestoneReportSchema.parse(request.body)));
   });
 
   app.get('/milestones/:id/activity', async (request) => {

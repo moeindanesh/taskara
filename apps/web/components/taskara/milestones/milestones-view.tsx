@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
+   CalendarDays,
+   ChevronLeft,
+   ChevronRight,
    ChevronDown,
    Filter,
    GanttChart,
@@ -13,12 +16,19 @@ import {
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+   Select,
+   SelectContent,
+   SelectItem,
+   SelectTrigger,
+   SelectValue,
+} from '@/components/ui/select';
 import { LinearAvatar, ProjectGlyph } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type {
+   GoalPeriod,
    TaskaraMilestone,
    TaskaraMilestoneHealth,
    TaskaraMilestoneKind,
@@ -28,12 +38,10 @@ import type {
 import { cn } from '@/lib/utils';
 import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select-utils';
 import { MilestoneDetail } from './milestone-detail';
+import { goalPeriodRange } from './goal-period';
+import { formatMilestoneDateOnly } from './primitives';
 import { GoalCollection } from './goal-collection';
-import {
-   isMilestoneOverdue,
-   MilestoneEmptyState,
-   MilestoneListSkeleton,
-} from './primitives';
+import { isMilestoneOverdue, MilestoneEmptyState, MilestoneListSkeleton } from './primitives';
 
 type HubSegment = 'open' | 'active' | 'planned' | 'completed' | 'all';
 type ArchiveFilter = 'current' | 'include' | 'only';
@@ -76,16 +84,20 @@ export function MilestonesView() {
    const queryKey = searchParams.toString();
    const segment = parseSegment(searchParams.get('view'));
    const archiveFilter = parseArchiveFilter(searchParams.get('archive'));
+   const period = searchParams.get('period') as GoalPeriod | null;
    const layout = searchParams.get('layout') === 'timeline' ? 'timeline' : 'list';
 
-   const updateParams = useCallback((patch: Record<string, string | null>, replace = true) => {
-      const next = new URLSearchParams(searchParams);
-      for (const [key, value] of Object.entries(patch)) {
-         if (!value || isDefaultQueryValue(key, value)) next.delete(key);
-         else next.set(key, value);
-      }
-      setSearchParams(next, { replace });
-   }, [searchParams, setSearchParams]);
+   const updateParams = useCallback(
+      (patch: Record<string, string | null>, replace = true) => {
+         const next = new URLSearchParams(searchParams);
+         for (const [key, value] of Object.entries(patch)) {
+            if (!value || isDefaultQueryValue(key, value)) next.delete(key);
+            else next.set(key, value);
+         }
+         setSearchParams(next, { replace });
+      },
+      [searchParams, setSearchParams]
+   );
 
    useEffect(() => {
       const timer = window.setTimeout(() => {
@@ -96,49 +108,63 @@ export function MilestonesView() {
       return () => window.clearTimeout(timer);
    }, [searchDraft, searchParams, updateParams]);
 
-   const load = useCallback(async (preserve = true, offset = 0) => {
-      const requestId = ++requestRef.current;
-      if (offset > 0) setLoadingMore(true);
-      else if (preserve && itemsRef.current.length) setRefreshing(true);
-      else setLoading(true);
-      setError('');
+   const load = useCallback(
+      async (preserve = true, offset = 0) => {
+         const requestId = ++requestRef.current;
+         if (offset > 0) setLoadingMore(true);
+         else if (preserve && itemsRef.current.length) setRefreshing(true);
+         else setLoading(true);
+         setError('');
 
-      const query = buildMilestoneListQuery(new URLSearchParams(queryKey));
-      query.set('offset', String(offset));
-      try {
-         const result = await taskaraRequest<TaskaraMilestoneListResponse | TaskaraMilestone[]>(
-            `/milestones?${query.toString()}`
-         );
-         if (requestId !== requestRef.current) return;
-         const normalized = normalizeMilestoneListResponse(result);
-         const pendingResources = milestoneResourcesRef.current.filter(
-            (milestone) => milestone.syncState === 'pending' && matchesClientFilters(milestone, new URLSearchParams(queryKey))
-         );
-         setItems((current) => {
-            const serverItems = offset > 0 ? dedupeMilestones([...current, ...normalized.items]) : normalized.items;
-            const pending = dedupeMilestones([
-               ...current.filter((milestone) => milestone.syncState === 'pending'),
-               ...pendingResources,
-            ]);
-            return pending.reduce(
-               (next, milestone) => [milestone, ...next.filter((item) => item.id !== milestone.id)],
-               serverItems
+         const query = buildMilestoneListQuery(new URLSearchParams(queryKey));
+         query.set('offset', String(offset));
+         try {
+            const result = await taskaraRequest<TaskaraMilestoneListResponse | TaskaraMilestone[]>(
+               `/milestones?${query.toString()}`
             );
-         });
-         const serverIds = new Set(normalized.items.map((milestone) => milestone.id));
-         setTotal(normalized.total + pendingResources.filter((milestone) => !serverIds.has(milestone.id)).length);
-         setLoadedServerCount(offset + normalized.items.length);
-      } catch (loadError) {
-         if (requestId !== requestRef.current) return;
-         setError(loadError instanceof Error ? loadError.message : fa.milestone.loadingFailed);
-      } finally {
-         if (requestId === requestRef.current) {
-            setLoading(false);
-            setRefreshing(false);
-            setLoadingMore(false);
+            if (requestId !== requestRef.current) return;
+            const normalized = normalizeMilestoneListResponse(result);
+            const pendingResources = milestoneResourcesRef.current.filter(
+               (milestone) =>
+                  milestone.syncState === 'pending' &&
+                  matchesClientFilters(milestone, new URLSearchParams(queryKey))
+            );
+            setItems((current) => {
+               const serverItems =
+                  offset > 0
+                     ? dedupeMilestones([...current, ...normalized.items])
+                     : normalized.items;
+               const pending = dedupeMilestones([
+                  ...current.filter((milestone) => milestone.syncState === 'pending'),
+                  ...pendingResources,
+               ]);
+               return pending.reduce(
+                  (next, milestone) => [
+                     milestone,
+                     ...next.filter((item) => item.id !== milestone.id),
+                  ],
+                  serverItems
+               );
+            });
+            const serverIds = new Set(normalized.items.map((milestone) => milestone.id));
+            setTotal(
+               normalized.total +
+                  pendingResources.filter((milestone) => !serverIds.has(milestone.id)).length
+            );
+            setLoadedServerCount(offset + normalized.items.length);
+         } catch (loadError) {
+            if (requestId !== requestRef.current) return;
+            setError(loadError instanceof Error ? loadError.message : fa.milestone.loadingFailed);
+         } finally {
+            if (requestId === requestRef.current) {
+               setLoading(false);
+               setRefreshing(false);
+               setLoadingMore(false);
+            }
          }
-      }
-   }, [queryKey]);
+      },
+      [queryKey]
+   );
 
    useEffect(() => {
       itemsRef.current = items;
@@ -156,19 +182,20 @@ export function MilestonesView() {
    useEffect(() => {
       if (milestoneResourcesRef.current === taskSync.milestones) return;
       milestoneResourcesRef.current = taskSync.milestones;
-      setItems((current) => mergeMilestoneResources(
-         current,
-         taskSync.milestones,
-         (milestone) => matchesClientFilters(milestone, searchParams)
-      ));
+      setItems((current) =>
+         mergeMilestoneResources(current, taskSync.milestones, (milestone) =>
+            matchesClientFilters(milestone, searchParams)
+         )
+      );
       void load(true);
    }, [load, queryKey, searchParams, taskSync.milestones]);
 
    useEffect(() => {
       const handleCreated = (event: Event) => {
-         const milestone = event instanceof CustomEvent
-            ? (event.detail as { milestone?: TaskaraMilestone } | undefined)?.milestone
-            : undefined;
+         const milestone =
+            event instanceof CustomEvent
+               ? (event.detail as { milestone?: TaskaraMilestone } | undefined)?.milestone
+               : undefined;
          if (!milestone) return;
          if (!matchesClientFilters(milestone, searchParams)) return;
          setItems((current) => {
@@ -182,23 +209,27 @@ export function MilestonesView() {
    }, [searchParams]);
 
    const visibleItems = useMemo(
-      () => items.filter((item) => matchesClientFilters(item, searchParams)).sort(compareMilestones),
+      () =>
+         items.filter((item) => matchesClientFilters(item, searchParams)).sort(compareMilestones),
       [items, searchParams]
    );
    const selectedSummary = useMemo(
-      () => visibleItems.find((item) => item.id === milestoneId) ||
+      () =>
+         visibleItems.find((item) => item.id === milestoneId) ||
          items.find((item) => item.id === milestoneId) ||
          taskSync.milestones.find((item) => item.id === milestoneId) ||
          null,
       [items, milestoneId, taskSync.milestones, visibleItems]
    );
-   const hasFilters = countActiveFilters(searchParams) > 0 || Boolean(searchParams.get('q')) || segment !== 'open';
+   const hasFilters =
+      countActiveFilters(searchParams) > 0 || Boolean(searchParams.get('q')) || segment !== 'open';
    const activeFilterCount = countActiveFilters(searchParams);
-   const displayedTotal = total;
 
    function selectMilestone(id: string) {
       startTransition(() => {
-         navigate(`/${workspaceSlug}/milestones/${encodeURIComponent(id)}?${searchParams.toString()}`);
+         navigate(
+            `/${workspaceSlug}/milestones/${encodeURIComponent(id)}?${searchParams.toString()}`
+         );
       });
    }
 
@@ -215,9 +246,20 @@ export function MilestonesView() {
             setTotal((count) => Math.max(0, count - 1));
             return current.filter((item) => item.id !== milestone.id);
          }
-         return current.map((item) => item.id === milestone.id ? milestone : item);
+         return current.map((item) => (item.id === milestone.id ? milestone : item));
       });
       void taskSync.refresh({ preserveVisibleState: true });
+   }
+
+   function selectPeriod(next: GoalPeriod | null, direction = 0) {
+      const anchor =
+         direction && searchParams.get('from')
+            ? new Date(`${searchParams.get('from')}T12:00:00Z`)
+            : new Date();
+      const range = next
+         ? goalPeriodRange(next, direction, anchor)
+         : { startsOn: '', targetOn: '' };
+      updateParams({ period: next, from: range.startsOn || null, to: range.targetOn || null });
    }
 
    function clearFilters() {
@@ -227,7 +269,10 @@ export function MilestonesView() {
 
    if (milestoneId) {
       return (
-         <section className="h-full min-h-0 bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
+         <section
+            className="h-full min-h-0 bg-background text-foreground [direction:rtl]"
+            data-testid="milestones-screen"
+         >
             <main className="h-full min-h-0">
                <MilestoneDetail
                   key={milestoneId}
@@ -243,8 +288,79 @@ export function MilestonesView() {
    }
 
    return (
-      <section className="h-full min-h-0 overflow-y-auto overscroll-contain bg-background text-foreground [direction:rtl]" data-testid="milestones-screen">
+      <section
+         className="h-full min-h-0 overflow-y-auto overscroll-contain bg-background text-foreground [direction:rtl]"
+         data-testid="milestones-screen"
+      >
          <div className="mx-auto w-full max-w-[1480px] px-4 pb-5 sm:px-6 lg:px-8">
+            <div className="pt-7 pb-3">
+               <h1 className="text-xl font-semibold tracking-tight">اهداف تیم</h1>
+               <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  نتیجه‌های هفتگی و ماهانه، کارهای تیم و گزارش پیشرفت؛ در یک مسیر.
+               </p>
+               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
+                  <div className="flex flex-wrap gap-1" role="group" aria-label="دوره اهداف">
+                     {(
+                        [
+                           { value: null, label: 'همه دوره‌ها' },
+                           { value: 'WEEKLY', label: 'هفتگی' },
+                           { value: 'MONTHLY', label: 'ماهانه' },
+                        ] as const
+                     ).map((option) => (
+                        <button
+                           key={option.label}
+                           type="button"
+                           aria-pressed={period === option.value}
+                           className={cn(
+                              'min-h-9 rounded-full px-4 text-xs transition',
+                              period === option.value
+                                 ? 'bg-foreground text-background'
+                                 : 'text-muted-foreground hover:bg-muted'
+                           )}
+                           onClick={() => selectPeriod(option.value)}
+                        >
+                           {option.label}
+                        </button>
+                     ))}
+                  </div>
+                  {period && period !== 'CUSTOM' ? (
+                     <div className="flex max-w-full items-center gap-1 text-xs text-muted-foreground">
+                        <button
+                           type="button"
+                           aria-label="دوره قبل"
+                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
+                           onClick={() => selectPeriod(period, -1)}
+                        >
+                           <ChevronRight className="size-4" />
+                        </button>
+                        <span className="text-center leading-5">
+                           {formatMilestoneDateOnly(searchParams.get('from'))} تا{' '}
+                           {formatMilestoneDateOnly(searchParams.get('to'))}
+                        </span>
+                        <button
+                           type="button"
+                           aria-label="دوره بعد"
+                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
+                           onClick={() => selectPeriod(period, 1)}
+                        >
+                           <ChevronLeft className="size-4" />
+                        </button>
+                        <button
+                           type="button"
+                           className="h-9 shrink-0 rounded-lg px-2 hover:bg-muted"
+                           onClick={() => selectPeriod(period)}
+                        >
+                           دوره جاری
+                        </button>
+                     </div>
+                  ) : (
+                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CalendarDays className="size-3.5" />
+                        برنامه‌ریزی بر پایه تقویم شمسی
+                     </span>
+                  )}
+               </div>
+            </div>
             <section className="py-4" aria-label={fa.milestone.filters}>
                <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
                   <div className="relative min-w-0 lg:w-60">
@@ -285,7 +401,11 @@ export function MilestonesView() {
                         </span>
                      ) : null}
                   </button>
-                  <div className="scrollbar-none flex min-w-0 gap-1 overflow-x-auto border-t border-border/60 pt-2 lg:border-t-0 lg:border-r lg:pr-2 lg:pt-0" role="tablist" aria-label={fa.milestone.status}>
+                  <div
+                     className="scrollbar-none flex min-w-0 gap-1 overflow-x-auto border-t border-border/60 pt-2 lg:border-t-0 lg:border-r lg:pr-2 lg:pt-0"
+                     role="tablist"
+                     aria-label={fa.milestone.status}
+                  >
                      {segmentOptions.map((option) => (
                         <button
                            aria-selected={segment === option.value}
@@ -304,11 +424,33 @@ export function MilestonesView() {
                         </button>
                      ))}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1 lg:ms-auto" role="group" aria-label="نمای اهداف">
-                     {([{ value: 'list', label: 'فهرست', icon: List }, { value: 'timeline', label: 'زمان‌بندی', icon: GanttChart }] as const).map((option) => (
-                        <button key={option.value} type="button" aria-label={option.label} title={option.label} aria-pressed={layout === option.value}
-                           className={cn('inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted', layout === option.value && 'bg-muted text-foreground')}
-                           onClick={() => updateParams({ layout: option.value === 'list' ? null : option.value })}>
+                  <div
+                     className="flex shrink-0 items-center gap-1 lg:ms-auto"
+                     role="group"
+                     aria-label="نمای اهداف"
+                  >
+                     {(
+                        [
+                           { value: 'list', label: 'فهرست', icon: List },
+                           { value: 'timeline', label: 'زمان‌بندی', icon: GanttChart },
+                        ] as const
+                     ).map((option) => (
+                        <button
+                           key={option.value}
+                           type="button"
+                           aria-label={option.label}
+                           title={option.label}
+                           aria-pressed={layout === option.value}
+                           className={cn(
+                              'inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted',
+                              layout === option.value && 'bg-muted text-foreground'
+                           )}
+                           onClick={() =>
+                              updateParams({
+                                 layout: option.value === 'list' ? null : option.value,
+                              })
+                           }
+                        >
                            <option.icon className="size-4" />
                         </button>
                      ))}
@@ -340,15 +482,22 @@ export function MilestonesView() {
             </section>
 
             {error ? (
-               <div className="mt-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-xs text-destructive-foreground" role="alert">
+               <div
+                  className="mt-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-xs text-destructive-foreground"
+                  role="alert"
+               >
                   <span className="min-w-0 leading-5">{error}</span>
-                  <button className="shrink-0 underline underline-offset-2" type="button" onClick={() => void load(true)}>
+                  <button
+                     className="shrink-0 underline underline-offset-2"
+                     type="button"
+                     onClick={() => void load(true)}
+                  >
                      {fa.milestone.retry}
                   </button>
                </div>
             ) : null}
 
-            <MilestoneHubStats items={visibleItems} total={displayedTotal} />
+            <MilestoneHubStats items={visibleItems} />
 
             <div className="mt-3" aria-busy={loading || refreshing}>
                {loading && !items.length ? (
@@ -357,11 +506,18 @@ export function MilestonesView() {
                   <GoalCollection items={visibleItems} layout={layout} onSelect={selectMilestone} />
                ) : (
                   <MilestoneEmptyState
-                     action={hasFilters ? (
-                        <Button className="rounded-full" size="sm" variant="secondary" onClick={clearFilters}>
-                           {fa.milestone.clearFilters}
-                        </Button>
-                     ) : undefined}
+                     action={
+                        hasFilters ? (
+                           <Button
+                              className="rounded-full"
+                              size="sm"
+                              variant="secondary"
+                              onClick={clearFilters}
+                           >
+                              {fa.milestone.clearFilters}
+                           </Button>
+                        ) : undefined
+                     }
                   >
                      {hasFilters ? fa.milestone.noFilteredResults : fa.milestone.noMilestones}
                   </MilestoneEmptyState>
@@ -377,27 +533,31 @@ export function MilestonesView() {
                      variant="secondary"
                      onClick={() => void load(true, loadedServerCount)}
                   >
-                     {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
-                     نمایش اهدافی بیشتر
+                     {loadingMore ? (
+                        <Loader2 className="size-4 animate-spin" />
+                     ) : (
+                        <ChevronDown className="size-4" />
+                     )}
+                     نمایش اهداف بیشتر
                   </Button>
                </div>
             ) : null}
             <div className="sr-only" aria-live="polite">
-               {refreshing ? fa.app.loading : `${visibleItems.length.toLocaleString('fa-IR')} ${fa.milestone.title}`}
+               {refreshing
+                  ? fa.app.loading
+                  : `${visibleItems.length.toLocaleString('fa-IR')} ${fa.milestone.title}`}
             </div>
          </div>
-         {isNavigating ? <span className="sr-only" aria-live="polite">{fa.app.loading}</span> : null}
+         {isNavigating ? (
+            <span className="sr-only" aria-live="polite">
+               {fa.app.loading}
+            </span>
+         ) : null}
       </section>
    );
 }
 
-function MilestoneHubStats({
-   items,
-   total,
-}: {
-   items: TaskaraMilestone[];
-   total: number;
-}) {
+function MilestoneHubStats({ items }: { items: TaskaraMilestone[] }) {
    const attentionCount = items.filter(
       (milestone) =>
          isMilestoneOverdue(milestone) ||
@@ -406,18 +566,34 @@ function MilestoneHubStats({
          milestone.progress.blockedTasks > 0
    ).length;
    const stats = [
-      { label: 'نتیجه', value: total },
-      { label: fa.milestone.active, value: items.filter((milestone) => milestone.status === 'ACTIVE').length },
-      { label: fa.milestone.attention, value: attentionCount, tone: attentionCount ? 'text-amber-700 dark:text-amber-300' : undefined },
-      { label: fa.milestone.completed, value: items.filter((milestone) => milestone.status === 'COMPLETED').length, tone: 'text-emerald-700 dark:text-emerald-300' },
+      { label: 'هدف', value: items.length },
+      {
+         label: fa.milestone.active,
+         value: items.filter((milestone) => milestone.status === 'ACTIVE').length,
+      },
+      {
+         label: fa.milestone.attention,
+         value: attentionCount,
+         tone: attentionCount ? 'text-amber-700 dark:text-amber-300' : undefined,
+      },
+      {
+         label: fa.milestone.completed,
+         value: items.filter((milestone) => milestone.status === 'COMPLETED').length,
+         tone: 'text-emerald-700 dark:text-emerald-300',
+      },
    ];
 
    return (
-      <dl className="flex flex-wrap gap-x-6 gap-y-2 border-y border-border/60 py-3" aria-label="خلاصه اهداف نمایش‌داده‌شده">
+      <dl
+         className="flex flex-wrap gap-x-6 gap-y-2 border-y border-border/60 py-3"
+         aria-label="خلاصه اهداف نمایش‌داده‌شده"
+      >
          {stats.map((stat) => (
             <div className="flex items-center gap-2" key={stat.label}>
                <dt className="text-[11px] text-muted-foreground">{stat.label}</dt>
-               <dd className={cn('text-sm tabular-nums text-foreground', stat.tone)}>{stat.value.toLocaleString('fa-IR')}</dd>
+               <dd className={cn('text-sm tabular-nums text-foreground', stat.tone)}>
+                  {stat.value.toLocaleString('fa-IR')}
+               </dd>
             </div>
          ))}
       </dl>
@@ -463,7 +639,11 @@ function MilestoneFilters({
                {projects.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
                      <span className="flex min-w-0 items-center gap-2">
-                        <ProjectGlyph className="size-4 rounded" iconClassName="size-3" name={project.name} />
+                        <ProjectGlyph
+                           className="size-4 rounded"
+                           iconClassName="size-3"
+                           name={project.name}
+                        />
                         <span className="truncate">{project.name}</span>
                      </span>
                   </SelectItem>
@@ -475,7 +655,11 @@ function MilestoneFilters({
                placeholder={fa.milestone.team}
                onChange={(value) => onChange('teamId', value)}
             >
-               {teams.map((team) => <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>)}
+               {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                     {team.name}
+                  </SelectItem>
+               ))}
             </FilterSelect>
             <FilterSelect
                ariaLabel={fa.milestone.owner}
@@ -528,13 +712,24 @@ function MilestoneFilters({
             <label
                className={cn(
                   'inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs transition',
-                  overdue ? 'bg-rose-400/10 text-rose-600 dark:text-rose-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  overdue
+                     ? 'bg-rose-400/10 text-rose-600 dark:text-rose-300'
+                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                )}
             >
-               <input type="checkbox" className="size-3.5 accent-rose-500" checked={overdue} onChange={(event) => onChange('overdue', event.target.checked ? 'true' : '')} />
+               <input
+                  type="checkbox"
+                  className="size-3.5 accent-rose-500"
+                  checked={overdue}
+                  onChange={(event) => onChange('overdue', event.target.checked ? 'true' : '')}
+               />
                {fa.milestone.overdueOnly}
             </label>
-            <button className="h-8 text-xs text-muted-foreground hover:text-foreground" type="button" onClick={onClear}>
+            <button
+               className="h-8 text-xs text-muted-foreground hover:text-foreground"
+               type="button"
+               onClick={onClear}
+            >
                {fa.milestone.clearFilters}
             </button>
          </div>
@@ -556,12 +751,17 @@ function FilterSelect({
    onChange: (value: string) => void;
 }) {
    return (
-      <Select value={toSelectValue(value)} onValueChange={(next) => onChange(fromSelectValue(next))}>
+      <Select
+         value={toSelectValue(value)}
+         onValueChange={(next) => onChange(fromSelectValue(next))}
+      >
          <SelectTrigger aria-label={ariaLabel} className="h-9 border-border/70 bg-card text-xs">
             <SelectValue placeholder={placeholder} />
          </SelectTrigger>
          <SelectContent className="max-h-72 rounded-lg [direction:rtl]">
-            <SelectItem value={EMPTY_SELECT_VALUE}>{placeholder}: {fa.milestone.all}</SelectItem>
+            <SelectItem value={EMPTY_SELECT_VALUE}>
+               {placeholder}: {fa.milestone.all}
+            </SelectItem>
             {children}
          </SelectContent>
       </Select>
@@ -574,7 +774,17 @@ function buildMilestoneListQuery(searchParams: URLSearchParams) {
    const params = new URLSearchParams({ limit: '200', offset: '0' });
    const statuses = segmentStatuses[segment];
    if (statuses) params.set('status', statuses.join(','));
-   for (const key of ['projectId', 'teamId', 'ownerId', 'kind', 'health', 'q'] as const) {
+   for (const key of [
+      'projectId',
+      'teamId',
+      'ownerId',
+      'kind',
+      'health',
+      'q',
+      'period',
+      'from',
+      'to',
+   ] as const) {
       const value = searchParams.get(key)?.trim();
       if (value) params.set(key, value);
    }
@@ -595,7 +805,13 @@ function normalizeMilestoneListResponse(
 }
 
 function parseSegment(value: string | null): HubSegment {
-   return value === 'open' || value === 'active' || value === 'planned' || value === 'completed' || value === 'all' ? value : 'open';
+   return value === 'open' ||
+      value === 'active' ||
+      value === 'planned' ||
+      value === 'completed' ||
+      value === 'all'
+      ? value
+      : 'open';
 }
 
 function parseArchiveFilter(value: string | null): ArchiveFilter {
@@ -603,15 +819,29 @@ function parseArchiveFilter(value: string | null): ArchiveFilter {
 }
 
 function isDefaultQueryValue(key: string, value: string) {
-   return key === 'view' && value === 'open' || key === 'archive' && value === 'current';
+   return (key === 'view' && value === 'open') || (key === 'archive' && value === 'current');
 }
 
 function countActiveFilters(searchParams: URLSearchParams) {
-   return ['projectId', 'teamId', 'ownerId', 'kind', 'health', 'overdue', 'archive']
-      .filter((key) => Boolean(searchParams.get(key))).length;
+   return [
+      'projectId',
+      'teamId',
+      'ownerId',
+      'kind',
+      'health',
+      'overdue',
+      'archive',
+      'period',
+   ].filter((key) => Boolean(searchParams.get(key))).length;
 }
 
 function matchesClientFilters(milestone: TaskaraMilestone, searchParams: URLSearchParams) {
+   const period = searchParams.get('period');
+   if (period && (milestone.period || 'CUSTOM') !== period) return false;
+   const from = searchParams.get('from'),
+      to = searchParams.get('to');
+   if (from && milestone.targetOn && milestone.targetOn < from) return false;
+   if (to && milestone.startsOn && milestone.startsOn > to) return false;
    const archive = parseArchiveFilter(searchParams.get('archive'));
    if (archive === 'current' && milestone.archivedAt) return false;
    if (archive === 'only' && !milestone.archivedAt) return false;
@@ -621,10 +851,17 @@ function matchesClientFilters(milestone: TaskaraMilestone, searchParams: URLSear
    const projectId = searchParams.get('projectId');
    if (projectId && milestone.projectId !== projectId) return false;
    const teamId = searchParams.get('teamId');
-   if (teamId && milestone.project.team?.id !== teamId && milestone.project.teamId !== teamId) return false;
+   if (teamId && milestone.project.team?.id !== teamId && milestone.project.teamId !== teamId)
+      return false;
    const ownerId = searchParams.get('ownerId');
    if (ownerId === 'none' && (milestone.ownerId || milestone.owner)) return false;
-   if (ownerId && ownerId !== 'none' && milestone.ownerId !== ownerId && milestone.owner?.id !== ownerId) return false;
+   if (
+      ownerId &&
+      ownerId !== 'none' &&
+      milestone.ownerId !== ownerId &&
+      milestone.owner?.id !== ownerId
+   )
+      return false;
    const kind = searchParams.get('kind') as TaskaraMilestoneKind | null;
    if (kind && milestone.kind !== kind) return false;
    const health = searchParams.get('health') as TaskaraMilestoneHealth | 'none' | null;
@@ -632,24 +869,37 @@ function matchesClientFilters(milestone: TaskaraMilestone, searchParams: URLSear
    if (health && health !== 'none' && milestone.health !== health) return false;
    if (searchParams.get('overdue') === 'true' && !isMilestoneOverdue(milestone)) return false;
    const q = searchParams.get('q')?.trim().toLocaleLowerCase('fa');
-   if (q && ![
-      milestone.name,
-      milestone.description || '',
-      milestone.project.name,
-      milestone.project.keyPrefix,
-      milestone.project.team?.name || '',
-      milestone.owner?.name || '',
-   ].join(' ').toLocaleLowerCase('fa').includes(q)) return false;
+   if (
+      q &&
+      ![
+         milestone.name,
+         milestone.description || '',
+         milestone.project.name,
+         milestone.project.keyPrefix,
+         milestone.project.team?.name || '',
+         milestone.owner?.name || '',
+      ]
+         .join(' ')
+         .toLocaleLowerCase('fa')
+         .includes(q)
+   )
+      return false;
    return true;
 }
 
 export function compareMilestones(left: TaskaraMilestone, right: TaskaraMilestone) {
    const overdueDifference = Number(isMilestoneOverdue(right)) - Number(isMilestoneOverdue(left));
    if (overdueDifference) return overdueDifference;
-   const healthRank: Record<string, number> = { OFF_TRACK: 0, AT_RISK: 1, ON_TRACK: 2, '': 3 };
+   const healthRank: Record<string, number> = {
+      'OFF_TRACK': 0,
+      'AT_RISK': 1,
+      'ON_TRACK': 2,
+      '': 3,
+   };
    const healthDifference = healthRank[left.health || ''] - healthRank[right.health || ''];
    if (healthDifference) return healthDifference;
-   if (left.targetOn && right.targetOn && left.targetOn !== right.targetOn) return left.targetOn.localeCompare(right.targetOn);
+   if (left.targetOn && right.targetOn && left.targetOn !== right.targetOn)
+      return left.targetOn.localeCompare(right.targetOn);
    if (left.targetOn && !right.targetOn) return -1;
    if (!left.targetOn && right.targetOn) return 1;
    const projectDifference = left.project.name.localeCompare(right.project.name, 'fa');

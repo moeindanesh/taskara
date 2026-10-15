@@ -14,6 +14,7 @@ export interface TaskaraProject {
    _count?: { tasks?: number; subprojects?: number; milestones?: number };
 }
 
+export type GoalPeriod = 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
 export type TaskaraMilestoneKind = 'FEATURE' | 'PHASE' | 'OTHER';
 export type TaskaraMilestoneStatus = 'PLANNED' | 'ACTIVE' | 'COMPLETED' | 'CANCELED';
 export type TaskaraMilestoneHealth = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK';
@@ -44,6 +45,7 @@ export interface TaskaraMilestone {
    name: string;
    description?: string | null;
    kind: TaskaraMilestoneKind;
+   period?: GoalPeriod;
    status: TaskaraMilestoneStatus;
    health?: TaskaraMilestoneHealth | null;
    startsOn?: string | null;
@@ -81,6 +83,7 @@ export interface TaskaraMilestoneCreateInput {
    projectId: string;
    name: string;
    kind: TaskaraMilestoneKind;
+   period?: GoalPeriod;
    status: 'PLANNED' | 'ACTIVE';
    ownerId?: string | null;
    description?: string | null;
@@ -92,7 +95,7 @@ export interface TaskaraMilestoneCreateInput {
 export type TaskaraMilestoneUpdatePatch = Partial<
    Pick<
       TaskaraMilestone,
-      'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn'
+      'description' | 'health' | 'kind' | 'name' | 'ownerId' | 'startsOn' | 'targetOn' | 'period'
    >
 >;
 

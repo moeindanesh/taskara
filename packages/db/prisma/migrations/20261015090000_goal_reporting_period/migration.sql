@@ -1,0 +1,2 @@
+CREATE TYPE "GoalPeriod" AS ENUM ('WEEKLY', 'MONTHLY', 'CUSTOM');
+ALTER TABLE "Milestone" ADD COLUMN "period" "GoalPeriod" NOT NULL DEFAULT 'CUSTOM';

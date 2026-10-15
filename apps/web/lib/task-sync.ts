@@ -1308,6 +1308,7 @@ export function buildOptimisticMilestone(
       name: input.name,
       description: input.description || null,
       kind: input.kind,
+      period: input.period || 'CUSTOM',
       status: input.status,
       health: input.health || null,
       startsOn: input.startsOn || null,

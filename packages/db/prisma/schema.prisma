@@ -475,6 +475,12 @@ enum ProjectUpdateHealth {
   OFF_TRACK
 }
 
+enum GoalPeriod {
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
 enum MilestoneKind {
   FEATURE
   PHASE
@@ -879,6 +885,7 @@ model Milestone {
   name        String
   description String?
   kind        MilestoneKind
+  period      GoalPeriod       @default(CUSTOM)
   status      MilestoneStatus  @default(PLANNED)
   health      MilestoneHealth?
   startsOn    DateTime?        @db.Date

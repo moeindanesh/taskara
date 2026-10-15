@@ -365,6 +365,25 @@ ways a command can fail — `1` usage, `2` config, `3` auth, `4` not found, `5` 
 An agent authenticates with an agent credential (`TASKARA_AGENT_TOKEN`), not with `TASKARA_USER_EMAIL`:
 a User whose kind is `AGENT` is refused on the email path.
 
+## Team Goals
+
+`/{workspace}/milestones` organizes team outcomes by weekly, monthly, or custom periods.
+Weeks run Saturday–Friday in Tehran; month shortcuts follow the Jalali calendar. Period filters
+include overlapping date ranges and can move to earlier or later periods. Existing goals keep
+`CUSTOM` until someone chooses a reporting period; no Tasks are reassigned by the migration.
+
+Each goal opens with an overview, a persistent properties panel, progress reports, and its Tasks.
+Create work directly beneath the goal or attach existing Tasks from the same project. Task
+completion determines progress; goal completion remains an explicit planning decision.
+
+`POST /milestones/:id/reports` accepts `{ version, body, health }` from a user with project
+planning access. It atomically saves a `report_posted` activity with author, date, period, health,
+and task-progress snapshot, and updates the goal health/version. Reports appear in the activity
+history and can be copied for manager updates. Posting requires a connection; text remains in
+place after a failed request or a version conflict. Existing goal metadata and Task edits retain
+their offline sync behavior. Apply migrations with `prisma migrate deploy` before starting the
+updated API.
+
 ## Data Model Highlights
 
 - Workspaces, teams, projects, subprojects, and project-scoped feature/phase milestones

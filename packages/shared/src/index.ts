@@ -52,6 +52,7 @@ export const taskViewDisplayProperties = [
 
 export const projectStatuses = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'] as const;
 export const projectUpdateHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
+export const goalPeriodSchema = z.enum(['WEEKLY', 'MONTHLY', 'CUSTOM']);
 export const milestoneKinds = ['FEATURE', 'PHASE', 'OTHER'] as const;
 export const milestoneStatuses = ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELED'] as const;
 export const milestoneHealthValues = ['ON_TRACK', 'AT_RISK', 'OFF_TRACK'] as const;
@@ -317,6 +318,7 @@ export const milestoneDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date
 const milestoneMetadataSchema = z.object({
   name: z.string().trim().min(1).max(160),
   kind: milestoneKindSchema,
+  period: goalPeriodSchema.optional(),
   ownerId: z.string().uuid().nullable().optional(),
   description: z.string().trim().max(15000).nullable().optional(),
   health: milestoneHealthSchema.nullable().optional(),
@@ -394,6 +396,9 @@ export const milestoneListQuerySchema = z.object({
   teamId: z.string().uuid().optional(),
   ownerId: z.union([z.string().uuid(), z.literal('none')]).optional(),
   kind: milestoneKindSchema.optional(),
+  period: goalPeriodSchema.optional(),
+  from: milestoneDateSchema.optional(),
+  to: milestoneDateSchema.optional(),
   status: milestoneStatusFilterSchema.optional(),
   health: z.union([milestoneHealthSchema, z.literal('none')]).optional(),
   overdue: strictQueryBooleanSchema.optional(),
@@ -402,6 +407,12 @@ export const milestoneListQuerySchema = z.object({
   archivedOnly: strictQueryBooleanSchema.default(false),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const milestoneReportSchema = z.object({
+  version: z.number().int().min(1),
+  body: z.string().trim().min(1).max(15000),
+  health: milestoneHealthSchema
 });
 
 export const milestoneOwnerCandidateQuerySchema = z.object({

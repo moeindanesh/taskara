@@ -2,7 +2,7 @@
 
 import type { FormEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Loader2, Sparkles } from 'lucide-react';
+import { CalendarDays, CircleDot, Loader2, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +14,13 @@ import {
    DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+   Select,
+   SelectContent,
+   SelectItem,
+   SelectTrigger,
+   SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { LinearAvatar, ProjectGlyph } from '@/components/taskara/linear-ui';
 import { fa } from '@/lib/fa-copy';
@@ -22,6 +28,7 @@ import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '@/lib/select
 import { useWorkspaceTaskSync } from '@/lib/task-sync-provider';
 import { taskaraRequest } from '@/lib/taskara-client';
 import type {
+   GoalPeriod,
    TaskaraMilestone,
    TaskaraMilestoneHealth,
    TaskaraMilestoneKind,
@@ -29,10 +36,12 @@ import type {
 } from '@/lib/taskara-types';
 import { cn } from '@/lib/utils';
 import { MilestoneDatePicker } from './milestone-date-picker';
-import { MilestoneGlyph, milestoneHealthMeta, milestoneKindMeta } from './primitives';
+import { MilestoneGlyph } from './primitives';
+import { goalPeriodLabels, goalPeriodRange } from './goal-period';
 import { useOnlineStatus } from './use-online-status';
 
 type MilestoneCreateForm = {
+   period: GoalPeriod;
    description: string;
    health: TaskaraMilestoneHealth | '';
    kind: TaskaraMilestoneKind;
@@ -51,23 +60,30 @@ type MilestoneOwnerCandidate = {
    name: string;
 };
 
-function emptyForm(kind: TaskaraMilestoneKind = 'FEATURE'): MilestoneCreateForm {
+function emptyForm(
+   kind: TaskaraMilestoneKind = 'FEATURE',
+   period: GoalPeriod = 'WEEKLY'
+): MilestoneCreateForm {
    return {
+      period,
       description: '',
       health: '',
       kind,
       name: '',
       ownerId: '',
       projectId: '',
-      startsOn: '',
+      startsOn: goalPeriodRange(period).startsOn,
       status: 'PLANNED',
-      targetOn: '',
+      targetOn: goalPeriodRange(period).targetOn,
    };
 }
 
 export function MilestoneCreateDialog({
    currentUserId,
    initialKind = 'FEATURE',
+   initialPeriod = 'WEEKLY',
+   initialStartsOn,
+   initialTargetOn,
    initialProjectId,
    milestones,
    open,
@@ -77,6 +93,9 @@ export function MilestoneCreateDialog({
 }: {
    currentUserId?: string | null;
    initialKind?: TaskaraMilestoneKind;
+   initialPeriod?: GoalPeriod;
+   initialStartsOn?: string;
+   initialTargetOn?: string;
    initialProjectId?: string | null;
    milestones: TaskaraMilestone[];
    open: boolean;
@@ -85,8 +104,9 @@ export function MilestoneCreateDialog({
    onOpenChange: (open: boolean) => void;
 }) {
    const taskSync = useWorkspaceTaskSync();
-   const [form, setForm] = useState<MilestoneCreateForm>(() => emptyForm(initialKind));
-   const [showMore, setShowMore] = useState(false);
+   const [form, setForm] = useState<MilestoneCreateForm>(() =>
+      emptyForm(initialKind, initialPeriod)
+   );
    const [submitting, setSubmitting] = useState(false);
    const [ownerCandidates, setOwnerCandidates] = useState<MilestoneOwnerCandidate[]>([]);
    const [ownersLoading, setOwnersLoading] = useState(false);
@@ -99,7 +119,8 @@ export function MilestoneCreateDialog({
          milestones.find(
             (milestone) =>
                milestone.projectId === form.projectId &&
-               milestone.name.trim().toLocaleLowerCase('fa') === form.name.trim().toLocaleLowerCase('fa')
+               milestone.name.trim().toLocaleLowerCase('fa') ===
+                  form.name.trim().toLocaleLowerCase('fa')
          ) || null,
       [form.name, form.projectId, milestones]
    );
@@ -115,15 +136,26 @@ export function MilestoneCreateDialog({
               : projects[0]?.id || '';
          const project = projects.find((item) => item.id === projectId) || null;
          setForm({
-            ...emptyForm(initialKind),
+            ...emptyForm(initialKind, initialPeriod),
+            ...(initialStartsOn && initialTargetOn
+               ? { startsOn: initialStartsOn, targetOn: initialTargetOn }
+               : {}),
             projectId,
             ownerId: project?.lead?.id || currentUserId || '',
          });
-         setShowMore(false);
          setInlineError('');
       }
       wasOpenRef.current = open;
-   }, [currentUserId, initialKind, initialProjectId, open, projects]);
+   }, [
+      currentUserId,
+      initialKind,
+      initialPeriod,
+      initialStartsOn,
+      initialTargetOn,
+      initialProjectId,
+      open,
+      projects,
+   ]);
 
    useEffect(() => {
       if (!open || !form.projectId) {
@@ -141,9 +173,15 @@ export function MilestoneCreateDialog({
                setOwnerCandidates(result.items);
                setForm((current) => {
                   if (current.projectId !== form.projectId) return current;
-                  if (current.ownerId && result.items.some((candidate) => candidate.id === current.ownerId)) return current;
+                  if (
+                     current.ownerId &&
+                     result.items.some((candidate) => candidate.id === current.ownerId)
+                  )
+                     return current;
                   const project = projects.find((item) => item.id === current.projectId);
-                  const nextOwnerId = result.items.some((candidate) => candidate.id === project?.lead?.id)
+                  const nextOwnerId = result.items.some(
+                     (candidate) => candidate.id === project?.lead?.id
+                  )
                      ? project?.lead?.id || ''
                      : result.items.some((candidate) => candidate.id === currentUserId)
                        ? currentUserId || ''
@@ -171,7 +209,9 @@ export function MilestoneCreateDialog({
          ...current,
          projectId,
          ownerId:
-            !current.ownerId || current.ownerId === previousProject?.lead?.id || current.ownerId === currentUserId
+            !current.ownerId ||
+            current.ownerId === previousProject?.lead?.id ||
+            current.ownerId === currentUserId
                ? project?.lead?.id || currentUserId || ''
                : current.ownerId,
       }));
@@ -196,6 +236,7 @@ export function MilestoneCreateDialog({
             projectId: form.projectId,
             name: form.name.trim(),
             kind: form.kind,
+            period: form.period,
             status: form.status,
             ownerId: form.ownerId || null,
             description: form.description.trim() || null,
@@ -204,7 +245,8 @@ export function MilestoneCreateDialog({
             targetOn: form.targetOn || null,
          });
          rememberLastProjectId(form.projectId);
-         if (created.syncState === 'pending') toast.info('هدف ساخته شد و پس از اتصال همگام می‌شود.');
+         if (created.syncState === 'pending')
+            toast.info('هدف ساخته شد و پس از اتصال همگام می‌شود.');
          else toast.success(fa.milestone.created);
          onCreated(created);
          onOpenChange(false);
@@ -219,238 +261,213 @@ export function MilestoneCreateDialog({
 
    return (
       <Dialog open={open} onOpenChange={(nextOpen) => !submitting && onOpenChange(nextOpen)}>
-         <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-[760px] flex-col gap-0 overflow-hidden border-border bg-popover p-0 text-popover-foreground shadow-2xl [direction:rtl]">
-            <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 text-right">
-               <DialogTitle className="flex items-center gap-2 text-sm">
-                  <MilestoneGlyph className="size-6 rounded-md" />
-                  {fa.milestone.newMilestone}
+         <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-full max-w-[920px] flex-col gap-0 overflow-hidden rounded-2xl border-border bg-popover p-0 text-popover-foreground shadow-2xl [direction:rtl]">
+            <DialogHeader className="shrink-0 px-5 py-5 pe-12 text-right sm:px-8 sm:pe-12">
+               <DialogTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                  <ProjectGlyph
+                     name={selectedProject?.name || 'پروژه'}
+                     className="size-5 rounded"
+                  />
+                  <span className="min-w-0 truncate">{selectedProject?.name || 'پروژه'}</span>
+                  <span>/</span>
+                  <span className="shrink-0">هدف جدید</span>
                </DialogTitle>
                <DialogDescription className="sr-only">
-                  {fa.milestone.createDescription}
+                  یک نتیجه هفتگی یا ماهانه برای تیم تعریف کنید و کارها را زیر آن قرار دهید.
                </DialogDescription>
             </DialogHeader>
             <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                  <div className="flex items-start gap-3">
-                     <MilestoneGlyph className="mt-1 size-9" />
-                     <div className="min-w-0 flex-1">
-                        <Input
-                           autoFocus
-                           aria-label={fa.milestone.name}
-                           maxLength={160}
-                           className="h-auto border-none bg-transparent px-0 text-xl font-semibold text-foreground shadow-none placeholder:text-muted-foreground dark:placeholder:text-muted-foreground/60 focus-visible:ring-0"
-                           placeholder={fa.milestone.namePlaceholder}
-                           value={form.name}
-                           onChange={(event) => {
-                              setForm((current) => ({ ...current, name: event.target.value }));
-                              setInlineError('');
-                           }}
-                        />
-                        {exactDuplicate ? (
-                           <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{fa.milestone.duplicateName}</p>
-                        ) : null}
-                     </div>
-                  </div>
-
-                  <div className="mt-4">
-                     <Textarea
-                        aria-label="نتیجه مورد انتظار"
-                        className="min-h-20 resize-y border-0 bg-transparent px-0 text-sm leading-6 shadow-none"
-                        placeholder="نتیجه مورد انتظار…"
-                        value={form.description}
-                        onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                     />
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                     <FieldLabel label={fa.milestone.project}>
-                        <Select value={form.projectId} onValueChange={handleProjectChange}>
-                           <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
-                              <SelectValue placeholder={fa.milestone.selectProject} />
-                           </SelectTrigger>
-                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
-                              {projects.map((project) => (
-                                 <SelectItem className="rounded-lg" key={project.id} value={project.id}>
-                                    <span className="flex min-w-0 items-center gap-2">
-                                       <ProjectGlyph name={project.name} className="size-5 rounded" iconClassName="size-3.5" />
-                                       <span className="truncate">{project.name}</span>
-                                       <span className="ltr text-[10px] text-muted-foreground">{project.keyPrefix}</span>
-                                    </span>
-                                 </SelectItem>
-                              ))}
-                           </SelectContent>
-                        </Select>
-                     </FieldLabel>
-                     <FieldLabel label={fa.milestone.kind}>
-                        <Select
-                           value={form.kind}
-                           onValueChange={(kind) => setForm((current) => ({ ...current, kind: kind as TaskaraMilestoneKind }))}
-                        >
-                           <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
-                              <SelectValue />
-                           </SelectTrigger>
-                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
-                              {(Object.entries(milestoneKindMeta) as Array<[TaskaraMilestoneKind, (typeof milestoneKindMeta)[TaskaraMilestoneKind]]>).map(([value, meta]) => {
-                                 const Icon = meta.icon;
-                                 return (
-                                    <SelectItem className="rounded-lg" key={value} value={value}>
-                                       <span className="flex items-center gap-2">
-                                          <Icon className="size-3.5" />
-                                          {meta.label}
-                                       </span>
-                                    </SelectItem>
-                                 );
-                              })}
-                           </SelectContent>
-                        </Select>
-                     </FieldLabel>
-                     <FieldLabel label={fa.milestone.owner}>
-                        <Select
-                           disabled={!form.projectId || ownersLoading}
-                           value={toSelectValue(form.ownerId)}
-                           onValueChange={(value) => setForm((current) => ({ ...current, ownerId: fromSelectValue(value) }))}
-                        >
-                           <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
-                              <SelectValue placeholder={ownersLoading ? fa.app.loading : fa.milestone.noOwner} />
-                           </SelectTrigger>
-                           <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
-                              <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>{fa.milestone.noOwner}</SelectItem>
-                              {ownerCandidates.map((candidate) => (
-                                 <SelectItem className="rounded-lg" key={candidate.id} value={candidate.id}>
-                                    <span className="flex items-center gap-2">
-                                       <LinearAvatar className="size-5" name={candidate.name} src={candidate.avatarUrl} />
-                                       <span>{candidate.name}</span>
-                                    </span>
-                                 </SelectItem>
-                              ))}
-                           </SelectContent>
-                        </Select>
-                     </FieldLabel>
-                     <FieldLabel label={fa.milestone.targetDate}>
-                        <MilestoneDatePicker
-                           ariaLabel={fa.milestone.targetDate}
-                           placeholder={fa.milestone.noTarget}
-                           value={form.targetOn}
-                           onChange={(targetOn) => {
-                              setForm((current) => ({ ...current, targetOn: targetOn || '' }));
-                              setInlineError('');
-                           }}
-                        />
-                     </FieldLabel>
-                     <FieldLabel label={fa.milestone.startDate}>
-                        <MilestoneDatePicker ariaLabel={fa.milestone.startDate} value={form.startsOn}
-                           onChange={(startsOn) => {
-                              setForm((current) => ({ ...current, startsOn: startsOn || '' }));
-                              setInlineError('');
-                           }} />
-                     </FieldLabel>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-1 rounded-lg border border-border/70 bg-muted/30 p-1">
-                     {(['PLANNED', 'ACTIVE'] as const).map((status) => (
-                        <button
-                           key={status}
-                           aria-pressed={form.status === status}
-                           className={cn(
-                              'h-8 flex-1 rounded-md px-3 text-xs transition focus-visible:border-indigo-400',
-                              form.status === status
-                                 ? 'bg-background text-foreground shadow-sm'
-                                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                           )}
-                           type="button"
-                           onClick={() => setForm((current) => ({ ...current, status }))}
-                        >
-                           {status === 'PLANNED' ? fa.milestone.planned : fa.milestone.active}
-                        </button>
-                     ))}
-                  </div>
-
-                  <button
-                     aria-expanded={showMore}
-                     className="mt-4 flex h-8 w-full items-center justify-between rounded-lg px-2 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:border focus-visible:border-indigo-400/50"
-                     type="button"
-                     onClick={() => setShowMore((current) => !current)}
-                  >
-                     <span className="flex items-center gap-2">
-                        <Sparkles className="size-3.5" />
-                        {fa.milestone.progressiveFields}
-                     </span>
-                     <ChevronDown className={cn('size-4 transition-transform', showMore && 'rotate-180')} />
-                  </button>
-
-                  {showMore ? (
-                     <div className="mt-3 border-t border-border/70 pt-4">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                           <FieldLabel label={fa.milestone.health}>
-                              <Select
-                                 value={toSelectValue(form.health)}
-                                 onValueChange={(value) =>
-                                    setForm((current) => ({
-                                       ...current,
-                                       health: fromSelectValue(value) as TaskaraMilestoneHealth | '',
-                                    }))
-                                 }
-                              >
-                                 <SelectTrigger className="h-9 border-border/70 bg-card text-foreground">
-                                    <SelectValue />
-                                 </SelectTrigger>
-                                 <SelectContent className="rounded-lg border-border bg-popover text-popover-foreground [direction:rtl]">
-                                    <SelectItem className="rounded-lg" value={EMPTY_SELECT_VALUE}>{fa.milestone.noHealth}</SelectItem>
-                                    {(Object.entries(milestoneHealthMeta) as Array<[TaskaraMilestoneHealth, (typeof milestoneHealthMeta)[TaskaraMilestoneHealth]]>).map(([value, meta]) => {
-                                       const Icon = meta.icon;
-                                       return (
-                                          <SelectItem className="rounded-lg" key={value} value={value}>
-                                             <span className="flex items-center gap-2">
-                                                <Icon className="size-3.5" />
-                                                {meta.label}
-                                             </span>
-                                          </SelectItem>
-                                       );
-                                    })}
-                                 </SelectContent>
-                              </Select>
-                           </FieldLabel>
-                        </div>
-                     </div>
-                  ) : null}
-
-                  {invalidDates || inlineError ? (
-                     <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-400/8 px-3 py-2 text-xs leading-5 text-rose-700 dark:text-rose-200" role="alert">
-                        {invalidDates ? fa.milestone.invalidDates : inlineError}
+               <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3 sm:px-8">
+                  <MilestoneGlyph className="mb-5 size-11 rounded-xl bg-muted text-foreground dark:text-foreground [&>svg]:size-6" />
+                  <Input
+                     autoFocus
+                     aria-label={fa.milestone.name}
+                     maxLength={160}
+                     className="h-auto rounded-none border-0 bg-transparent px-0 text-2xl font-semibold shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 sm:text-3xl"
+                     placeholder="چه نتیجه‌ای می‌خواهیم؟"
+                     value={form.name}
+                     onChange={(event) => {
+                        setForm((current) => ({ ...current, name: event.target.value }));
+                        setInlineError('');
+                     }}
+                  />
+                  {exactDuplicate ? (
+                     <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                        {fa.milestone.duplicateName}
                      </p>
                   ) : null}
-                  {!projects.length ? (
-                     <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200">
-                        {fa.issue.projectRequired}
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                     نتیجه‌ای مشخص که در پایان دوره بتوانیم درباره‌اش گزارش بدهیم.
+                  </p>
+
+                  <div
+                     className="mt-7 flex flex-wrap items-center gap-2"
+                     aria-label="ویژگی‌های هدف جدید"
+                  >
+                     <Select value={form.projectId} onValueChange={handleProjectChange}>
+                        <SelectTrigger
+                           aria-label={fa.milestone.project}
+                           className="h-9 w-auto max-w-full rounded-full bg-muted/40 text-xs"
+                        >
+                           <SelectValue placeholder={fa.milestone.selectProject} />
+                        </SelectTrigger>
+                        <SelectContent className="[direction:rtl]">
+                           {projects.map((project) => (
+                              <SelectItem key={project.id} value={project.id}>
+                                 {project.name}
+                              </SelectItem>
+                           ))}
+                        </SelectContent>
+                     </Select>
+                     <Select
+                        value={form.status}
+                        onValueChange={(status) =>
+                           setForm((current) => ({
+                              ...current,
+                              status: status as 'PLANNED' | 'ACTIVE',
+                           }))
+                        }
+                     >
+                        <SelectTrigger
+                           aria-label={fa.milestone.status}
+                           className="h-9 w-auto rounded-full bg-muted/40 text-xs"
+                        >
+                           <CircleDot className="size-3.5 text-amber-500" />
+                           <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="[direction:rtl]">
+                           <SelectItem value="PLANNED">{fa.milestone.planned}</SelectItem>
+                           <SelectItem value="ACTIVE">{fa.milestone.active}</SelectItem>
+                        </SelectContent>
+                     </Select>
+                     <Select
+                        disabled={!form.projectId || ownersLoading}
+                        value={toSelectValue(form.ownerId)}
+                        onValueChange={(value) =>
+                           setForm((current) => ({ ...current, ownerId: fromSelectValue(value) }))
+                        }
+                     >
+                        <SelectTrigger
+                           aria-label={fa.milestone.owner}
+                           className="h-9 w-auto max-w-full rounded-full bg-muted/40 text-xs"
+                        >
+                           <UserRound className="size-3.5" />
+                           <SelectValue placeholder={fa.milestone.noOwner} />
+                        </SelectTrigger>
+                        <SelectContent className="[direction:rtl]">
+                           <SelectItem value={EMPTY_SELECT_VALUE}>
+                              {fa.milestone.noOwner}
+                           </SelectItem>
+                           {ownerCandidates.map((candidate) => (
+                              <SelectItem key={candidate.id} value={candidate.id}>
+                                 <span className="flex items-center gap-2">
+                                    <LinearAvatar
+                                       className="size-5"
+                                       name={candidate.name}
+                                       src={candidate.avatarUrl}
+                                    />
+                                    {candidate.name}
+                                 </span>
+                              </SelectItem>
+                           ))}
+                        </SelectContent>
+                     </Select>
+                  </div>
+
+                  <div className="my-6 rounded-xl border border-border/70 bg-muted/20 p-4">
+                     <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                           <CalendarDays className="size-4" />
+                           دوره هدف
+                        </span>
+                        <div className="flex flex-wrap gap-1" role="group" aria-label="دوره هدف">
+                           {(Object.entries(goalPeriodLabels) as Array<[GoalPeriod, string]>).map(
+                              ([period, label]) => (
+                                 <button
+                                    type="button"
+                                    key={period}
+                                    aria-pressed={form.period === period}
+                                    className={cn(
+                                       'min-h-9 rounded-lg px-3 text-xs transition',
+                                       form.period === period
+                                          ? 'bg-foreground text-background'
+                                          : 'text-muted-foreground hover:bg-muted'
+                                    )}
+                                    onClick={() =>
+                                       setForm((current) => ({
+                                          ...current,
+                                          period,
+                                          ...(period === 'CUSTOM' ? {} : goalPeriodRange(period)),
+                                       }))
+                                    }
+                                 >
+                                    {label}
+                                 </button>
+                              )
+                           )}
+                        </div>
+                     </div>
+                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <FieldLabel label={fa.milestone.startDate}>
+                           <MilestoneDatePicker
+                              ariaLabel={fa.milestone.startDate}
+                              value={form.startsOn}
+                              onChange={(startsOn) =>
+                                 setForm((current) => ({ ...current, startsOn: startsOn || '' }))
+                              }
+                           />
+                        </FieldLabel>
+                        <FieldLabel label={fa.milestone.targetDate}>
+                           <MilestoneDatePicker
+                              ariaLabel={fa.milestone.targetDate}
+                              value={form.targetOn}
+                              onChange={(targetOn) =>
+                                 setForm((current) => ({ ...current, targetOn: targetOn || '' }))
+                              }
+                           />
+                        </FieldLabel>
+                     </div>
+                  </div>
+                  <Textarea
+                     aria-label="نتیجه مورد انتظار"
+                     maxLength={15000}
+                     className="min-h-40 resize-y rounded-none border-0 bg-transparent px-0 text-sm leading-7 shadow-none focus-visible:ring-0"
+                     placeholder="نتیجه مورد انتظار، معیار موفقیت و نکاتی که تیم باید بداند…"
+                     value={form.description}
+                     onChange={(event) =>
+                        setForm((current) => ({ ...current, description: event.target.value }))
+                     }
+                  />
+                  <p className="flex items-center gap-2 border-t border-border/60 pt-4 text-xs leading-6 text-muted-foreground">
+                     <MilestoneGlyph className="size-5 shrink-0" />
+                     بعد از ساخت هدف، کارهای تیم را به آن اضافه کنید.
+                  </p>
+                  {invalidDates || inlineError ? (
+                     <p role="alert" className="mt-3 text-xs text-destructive">
+                        {inlineError || fa.milestone.invalidDates}
                      </p>
                   ) : null}
                   {!online ? (
-                     <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-200" role="status">
-                        آفلاین هستید. هدف اکنون در دستگاه ساخته و پس از اتصال به‌طور خودکار همگام می‌شود.
-                     </p>
-                  ) : null}
-                  {selectedProject ? (
-                     <p className="mt-4 text-[11px] text-muted-foreground">
-                        {selectedProject.team?.name || fa.project.unassignedProjects} • {selectedProject.keyPrefix}
+                     <p className="mt-3 text-xs text-muted-foreground">
+                        هدف پس از اتصال همگام می‌شود.
                      </p>
                   ) : null}
                </div>
-               <DialogFooter className="shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-5 py-3 sm:justify-end">
+               <DialogFooter className="shrink-0 flex-row border-t border-border/70 bg-muted/15 px-6 py-4 sm:px-8">
                   <Button
-                     className="rounded-full bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                     disabled={submitting}
                      type="button"
-                     variant="secondary"
+                     variant="ghost"
+                     disabled={submitting}
                      onClick={() => onOpenChange(false)}
                   >
                      {fa.app.cancel}
                   </Button>
                   <Button
-                     className="min-w-28 rounded-full bg-indigo-700 dark:bg-indigo-500 px-5 text-white hover:bg-indigo-800 dark:hover:bg-indigo-400"
-                     disabled={submitting || !projects.length || invalidDates}
                      type="submit"
+                     disabled={submitting || !form.name.trim() || !form.projectId || invalidDates}
+                     className="rounded-full bg-indigo-600 px-5 text-white hover:bg-indigo-500"
                   >
-                     {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-                     {submitting ? fa.milestone.saving : fa.milestone.create}
+                     {submitting ? <Loader2 className="size-4 animate-spin" /> : null}ساخت هدف
                   </Button>
                </DialogFooter>
             </form>

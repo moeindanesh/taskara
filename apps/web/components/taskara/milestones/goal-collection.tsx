@@ -1,5 +1,7 @@
 'use client';
 
+import { goalPeriodLabels } from './goal-period';
+
 import { useMemo, useState } from 'react';
 import { Archive, ChevronLeft, ChevronRight, CloudUpload, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -97,7 +99,7 @@ export function GoalCollection({
                                              {goal.archivedAt ? <Archive aria-label={fa.milestone.archived} className="size-3.5 shrink-0" /> : null}
                                           </span>
                                           <span className="mt-1 block truncate text-[11px] text-muted-foreground">
-                                             {goal.project.name}{goal.project.team?.name ? ` · ${goal.project.team.name}` : ''}
+                                             {goalPeriodLabels[goal.period || 'CUSTOM']} · {goal.project.name}{goal.project.team?.name ? ` · ${goal.project.team.name}` : ''}
                                           </span>
                                        </div>
                                     </div>

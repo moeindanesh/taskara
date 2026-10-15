@@ -31,6 +31,54 @@ describe('milestone routes and invariants', () => {
     await app.close();
   });
 
+  test('persists weekly/monthly periods and filters the reporting window before pagination', async () => {
+    const fixture = await createFixture();
+    const week = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Weekly delivery', kind: 'OTHER', period: 'WEEKLY', startsOn: '2026-10-10', targetOn: '2026-10-16' });
+    await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Next week', kind: 'OTHER', period: 'WEEKLY', startsOn: '2026-10-17', targetOn: '2026-10-23' });
+    const legacy = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Existing goal', kind: 'FEATURE' });
+    expect(legacy.period).toBe('CUSTOM');
+    const list = await injectAs(fixture, 'member', { method: 'GET', url: '/milestones?period=WEEKLY&from=2026-10-10&to=2026-10-16&limit=1' });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().total).toBe(1);
+    expect(list.json().items[0].id).toBe(week.id);
+    const edit = await injectAs(fixture, 'owner', { method: 'PATCH', url: `/milestones/${week.id}`, payload: { version: week.version, period: 'MONTHLY' } });
+    expect(edit.statusCode).toBe(200);
+    expect(edit.json().period).toBe('MONTHLY');
+    const invalid = await injectAs(fixture, 'owner', { method: 'PATCH', url: `/milestones/${week.id}`, payload: { version: edit.json().version, period: 'DAILY' } });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  test('records immutable report snapshots with health, version checks and planning permissions', async () => {
+    const fixture = await createFixture();
+    const goal = await createMilestone(fixture, 'owner', { projectId: fixture.projects.primary.id, name: 'Manager report', kind: 'OTHER', period: 'WEEKLY', startsOn: '2026-10-10', targetOn: '2026-10-16' });
+    await createTask(fixture, fixture.projects.primary.id, 'Delivered', 'DONE', 1, goal.id);
+    const payload = { version: goal.version, health: 'AT_RISK', body: 'Delivery is ready; waiting on review.' };
+    const forbidden = await injectAs(fixture, 'viewer', { method: 'POST', url: `/milestones/${goal.id}/reports`, payload });
+    expect(forbidden.statusCode).toBe(403);
+    const empty = await injectAs(fixture, 'owner', { method: 'POST', url: `/milestones/${goal.id}/reports`, payload: { ...payload, body: '  ' } });
+    expect(empty.statusCode).toBe(400);
+    const posted = await injectAs(fixture, 'owner', { method: 'POST', url: `/milestones/${goal.id}/reports`, payload });
+    expect(posted.statusCode).toBe(201);
+    expect(posted.json().milestone.health).toBe('AT_RISK');
+    expect(posted.json().milestone.version).toBe(goal.version + 1);
+    expect(posted.json().report.after.progress.completedTasks).toBe(1);
+    expect(posted.json().report.after.period).toBe('WEEKLY');
+    expect(posted.json().report.actor.id).toBe(fixture.users.owner.id);
+    const stale = await injectAs(fixture, 'owner', { method: 'POST', url: `/milestones/${goal.id}/reports`, payload });
+    expect(stale.statusCode).toBe(409);
+    await createTask(fixture, fixture.projects.primary.id, 'New scope', 'TODO', 1, goal.id);
+    const history = await injectAs(fixture, 'member', { method: 'GET', url: `/milestones/${goal.id}/activity` });
+    const reports = history.json().filter((item: { action: string }) => item.action === 'report_posted');
+    expect(reports).toHaveLength(1);
+    expect(reports[0].after.body).toBe(payload.body);
+    expect(reports[0].after.progress.totalTasks).toBe(1);
+    const hidden = await injectAs(fixture, 'outsider', { method: 'GET', url: `/milestones/${goal.id}/activity` });
+    expect(hidden.statusCode).toBe(404);
+    await prisma.milestone.update({ where: { id: goal.id }, data: { archivedAt: new Date() } });
+    const archived = await injectAs(fixture, 'owner', { method: 'POST', url: `/milestones/${goal.id}/reports`, payload: { ...payload, version: goal.version + 1 } });
+    expect(archived.statusCode).toBe(409);
+  });
+
   test('round-trips date-only values and derives transparent progress and overdue boundaries', async () => {
     const fixture = await createFixture();
     const today = dateOnly(0);

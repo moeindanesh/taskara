@@ -8,6 +8,7 @@ import type { z } from 'zod';
 import type {
   createMilestoneSchema,
   milestoneCompletionSchema,
+  milestoneReportSchema,
   milestoneListQuerySchema,
   milestoneOwnerCandidateQuerySchema,
   milestoneTransitionSchema,
@@ -250,6 +251,7 @@ export async function listMilestones(actor: RequestActor, input: MilestoneListIn
     projectId: input.projectId,
     ownerId: input.ownerId === 'none' ? null : input.ownerId,
     kind: input.kind,
+    period: input.period,
     status: input.status ? { in: input.status } : undefined,
     health: input.health === 'none' ? null : input.health,
     archivedAt: input.archivedOnly ? { not: null } : input.includeArchived ? undefined : null,
@@ -264,6 +266,12 @@ export async function listMilestones(actor: RequestActor, input: MilestoneListIn
         }
       : {})
   };
+  if (input.from || input.to) {
+    where.AND = [
+      ...(input.from ? [{ OR: [{ targetOn: null }, { targetOn: { gte: parseDate(input.from)! } }] }] : []),
+      ...(input.to ? [{ OR: [{ startsOn: null }, { startsOn: { lte: parseDate(input.to)! } }] }] : [])
+    ];
+  }
   if (input.overdue) {
     where.status = input.status ? { in: input.status.filter((status) => selectableStatuses.has(status)) } : { in: ['PLANNED', 'ACTIVE'] };
   }
@@ -454,6 +462,7 @@ export async function createMilestone(
         name: input.name,
         description: input.description,
         kind: input.kind,
+        period: input.period,
         status: input.status,
         health: input.health,
         startsOn: parseDate(input.startsOn),
@@ -503,6 +512,7 @@ export async function updateMilestone(
         name: input.name,
         description: input.description,
         kind: input.kind,
+        period: input.period,
         ownerId: input.ownerId,
         health: input.health,
         startsOn: input.startsOn === undefined ? undefined : parseDate(input.startsOn),
@@ -533,6 +543,42 @@ export async function updateMilestone(
   if (event) publishSyncEvent(event);
   await logMilestoneActivity(actor, milestoneId, 'updated', existing, updated.summary);
   return updated.summary;
+}
+
+/** A report and its health change commit together, with an immutable progress snapshot. */
+export async function postMilestoneReport(actor: RequestActor, milestoneId: string, input: z.infer<typeof milestoneReportSchema>) {
+  const existing = await requireManageableMilestone(actor, milestoneId);
+  assertMutable(existing);
+  assertVersion(existing, input.version);
+  let event: SyncEvent | null = null;
+  const result = await prisma.$transaction(async (tx) => {
+    const row = await tx.milestone.update({
+      where: { id: existing.id, version: input.version },
+      data: { health: input.health, version: { increment: 1 } },
+      include: milestoneInclude
+    }).catch(versionConflict);
+    await lockWorkspaceSyncState(tx, actor.workspace.id);
+    const progress = (await milestoneProgressById(tx, [row.id])).get(row.id) || emptyProgress();
+    const summary = serializeMilestone(row, progress, true);
+    const report = await tx.activityLog.create({
+      data: {
+        workspaceId: actor.workspace.id, actorId: actor.user.id,
+        actorType: actor.actorType, actorRuntime: actor.actorRuntime,
+        entityType: 'milestone', entityId: row.id, action: 'report_posted', source: actor.source,
+        after: { body: input.body, health: input.health, progress: { ...progress },
+          period: row.period, startsOn: summary.startsOn, targetOn: summary.targetOn }
+      },
+      include: { actor: { select: milestoneUserSelect } }
+    });
+    event = await appendSyncEvent(tx, {
+      workspaceId: actor.workspace.id, entityType: 'milestone', entityId: row.id,
+      operation: 'updated', entityVersion: row.version, actorId: actor.user.id,
+      payload: { after: summary, changedFields: ['health', 'report'] }
+    });
+    return { milestone: summary, report };
+  });
+  if (event) publishSyncEvent(event);
+  return result;
 }
 
 export async function reorderMilestone(
@@ -696,6 +742,7 @@ export function serializeMilestone(
     name: row.name,
     description: row.description,
     kind: row.kind,
+    period: row.period,
     status: row.status,
     health: row.health,
     startsOn: formatDate(row.startsOn),
