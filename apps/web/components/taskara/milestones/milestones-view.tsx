@@ -16,6 +16,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
    Select,
    SelectContent,
@@ -292,82 +293,17 @@ export function MilestonesView() {
          className="h-full min-h-0 overflow-y-auto overscroll-contain bg-background text-foreground [direction:rtl]"
          data-testid="milestones-screen"
       >
-         <div className="mx-auto w-full max-w-[1480px] px-4 pb-5 sm:px-6 lg:px-8">
-            <div className="pt-7 pb-3">
-               <h1 className="text-xl font-semibold tracking-tight">اهداف تیم</h1>
-               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  نتیجه‌های هفتگی و ماهانه، کارهای تیم و گزارش پیشرفت؛ در یک مسیر.
-               </p>
-               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
-                  <div className="flex flex-wrap gap-1" role="group" aria-label="دوره اهداف">
-                     {(
-                        [
-                           { value: null, label: 'همه دوره‌ها' },
-                           { value: 'WEEKLY', label: 'هفتگی' },
-                           { value: 'MONTHLY', label: 'ماهانه' },
-                        ] as const
-                     ).map((option) => (
-                        <button
-                           key={option.label}
-                           type="button"
-                           aria-pressed={period === option.value}
-                           className={cn(
-                              'min-h-9 rounded-full px-4 text-xs transition',
-                              period === option.value
-                                 ? 'bg-foreground text-background'
-                                 : 'text-muted-foreground hover:bg-muted'
-                           )}
-                           onClick={() => selectPeriod(option.value)}
-                        >
-                           {option.label}
-                        </button>
-                     ))}
-                  </div>
-                  {period && period !== 'CUSTOM' ? (
-                     <div className="flex max-w-full items-center gap-1 text-xs text-muted-foreground">
-                        <button
-                           type="button"
-                           aria-label="دوره قبل"
-                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
-                           onClick={() => selectPeriod(period, -1)}
-                        >
-                           <ChevronRight className="size-4" />
-                        </button>
-                        <span className="text-center leading-5">
-                           {formatMilestoneDateOnly(searchParams.get('from'))} تا{' '}
-                           {formatMilestoneDateOnly(searchParams.get('to'))}
-                        </span>
-                        <button
-                           type="button"
-                           aria-label="دوره بعد"
-                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
-                           onClick={() => selectPeriod(period, 1)}
-                        >
-                           <ChevronLeft className="size-4" />
-                        </button>
-                        <button
-                           type="button"
-                           className="h-9 shrink-0 rounded-lg px-2 hover:bg-muted"
-                           onClick={() => selectPeriod(period)}
-                        >
-                           دوره جاری
-                        </button>
-                     </div>
-                  ) : (
-                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <CalendarDays className="size-3.5" />
-                        برنامه‌ریزی بر پایه تقویم شمسی
-                     </span>
-                  )}
-               </div>
-            </div>
-            <section className="py-4" aria-label={fa.milestone.filters}>
-               <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                  <div className="relative min-w-0 lg:w-60">
-                     <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+         <div className="@container mx-auto w-full max-w-[1480px] px-4 pb-5 sm:px-6 lg:px-8">
+            <section className="py-2" aria-label={fa.milestone.filters}>
+               <div
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 border-b border-border/70 pb-2 @[56rem]:flex"
+                  data-testid="goals-toolbar"
+               >
+                  <div className="relative order-1 col-span-3 min-w-0 @[56rem]:order-2 @[56rem]:w-44 @[56rem]:max-w-56 @[56rem]:flex-1">
+                     <Search className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                      <Input
                         aria-label={fa.milestone.searchPlaceholder}
-                        className="h-10 border-border/70 bg-background/60 ps-10 pe-10 text-sm"
+                        className="h-9 border-border/70 bg-background/60 ps-9 pe-8 text-xs"
                         placeholder={fa.milestone.searchPlaceholder}
                         value={searchDraft}
                         onChange={(event) => setSearchDraft(event.target.value)}
@@ -375,7 +311,7 @@ export function MilestonesView() {
                      {searchDraft ? (
                         <button
                            aria-label={fa.app.clear}
-                           className="absolute left-1.5 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                           className="absolute left-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                            type="button"
                            onClick={() => setSearchDraft('')}
                         >
@@ -387,22 +323,125 @@ export function MilestonesView() {
                      aria-expanded={showFilters}
                      aria-label={fa.milestone.filters}
                      className={cn(
-                        'relative inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-border/70 px-3 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground',
+                        'relative order-2 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border/70 px-2 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground @[56rem]:order-3',
                         (showFilters || activeFilterCount > 0) && 'bg-muted text-foreground'
                      )}
                      type="button"
                      onClick={() => setShowFilters((current) => !current)}
                   >
                      <Filter className="size-4" />
-                     <span>{fa.milestone.filters}</span>
+                     <span className="hidden @[56rem]:inline">{fa.milestone.filters}</span>
                      {activeFilterCount > 0 ? (
                         <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-indigo-700 dark:bg-indigo-500 px-1 text-[9px] leading-4 text-white">
                            {activeFilterCount.toLocaleString('fa-IR')}
                         </span>
                      ) : null}
                   </button>
+                  <Popover>
+                     <PopoverTrigger asChild>
+                        <button
+                           type="button"
+                           aria-label="دوره اهداف"
+                           className="order-3 inline-flex h-9 shrink-0 items-center justify-between gap-1.5 rounded-md px-2 text-xs transition hover:bg-muted @[56rem]:order-1"
+                        >
+                           <CalendarDays className="hidden size-3.5 text-muted-foreground @[64rem]:block" />
+                           {period === 'WEEKLY'
+                              ? 'هفتگی'
+                              : period === 'MONTHLY'
+                                ? 'ماهانه'
+                                : period === 'CUSTOM'
+                                  ? 'سفارشی'
+                                  : 'همه دوره‌ها'}
+                           <ChevronDown className="size-3.5 text-muted-foreground" />
+                        </button>
+                     </PopoverTrigger>
+                     <PopoverContent
+                        align="start"
+                        className="w-80 max-w-[calc(100vw-2rem)] p-3"
+                        dir="rtl"
+                     >
+                        <div className="flex gap-1" role="group" aria-label="دوره اهداف">
+                           {(
+                              [
+                                 { value: null, label: 'همه دوره‌ها' },
+                                 { value: 'WEEKLY', label: 'هفتگی' },
+                                 { value: 'MONTHLY', label: 'ماهانه' },
+                              ] as const
+                           ).map((option) => (
+                              <button
+                                 key={option.label}
+                                 type="button"
+                                 aria-pressed={period === option.value}
+                                 className={cn(
+                                    'h-9 flex-1 whitespace-nowrap rounded-md px-2 text-xs transition',
+                                    period === option.value
+                                       ? 'bg-foreground text-background'
+                                       : 'text-muted-foreground hover:bg-muted'
+                                 )}
+                                 onClick={() => selectPeriod(option.value)}
+                              >
+                                 {option.label}
+                              </button>
+                           ))}
+                        </div>
+                        {period && period !== 'CUSTOM' ? (
+                           <div className="mt-2 border-t border-border/70 pt-2 text-xs text-muted-foreground">
+                              <div className="flex items-center justify-between gap-1">
+                                 <button
+                                    type="button"
+                                    aria-label="دوره قبل"
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-muted"
+                                    onClick={() => selectPeriod(period, -1)}
+                                 >
+                                    <ChevronRight className="size-4" />
+                                 </button>
+                                 <span className="text-center leading-5">
+                                    {formatMilestoneDateOnly(searchParams.get('from'))} تا{' '}
+                                    {formatMilestoneDateOnly(searchParams.get('to'))}
+                                 </span>
+                                 <button
+                                    type="button"
+                                    aria-label="دوره بعد"
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-muted"
+                                    onClick={() => selectPeriod(period, 1)}
+                                 >
+                                    <ChevronLeft className="size-4" />
+                                 </button>
+                              </div>
+                              <button
+                                 type="button"
+                                 className="mt-1 h-9 w-full rounded-md hover:bg-muted"
+                                 onClick={() => selectPeriod(period)}
+                              >
+                                 دوره جاری
+                              </button>
+                           </div>
+                        ) : null}
+                     </PopoverContent>
+                  </Popover>
+                  <div className="order-4 min-w-0 @[56rem]:hidden">
+                     <Select
+                        value={segment}
+                        onValueChange={(value) => updateParams({ view: value })}
+                        dir="rtl"
+                     >
+                        <SelectTrigger
+                           aria-label={fa.milestone.status}
+                           className="min-w-0 gap-1 border-border/70 px-2 text-xs [&_[data-slot=select-value]]:truncate"
+                        >
+                           <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                           {segmentOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                 {option.label}
+                              </SelectItem>
+                           ))}
+                        </SelectContent>
+                     </Select>
+                  </div>
                   <div
-                     className="scrollbar-none flex min-w-0 gap-1 overflow-x-auto border-t border-border/60 pt-2 lg:border-t-0 lg:border-r lg:pr-2 lg:pt-0"
+                     className="order-4 hidden min-w-0 shrink-0 gap-0.5 border-r border-border/60 pr-1.5 @[56rem]:flex"
                      role="tablist"
                      aria-label={fa.milestone.status}
                   >
@@ -410,7 +449,7 @@ export function MilestonesView() {
                         <button
                            aria-selected={segment === option.value}
                            className={cn(
-                              'h-9 shrink-0 rounded-md px-3 text-xs transition',
+                              'h-9 shrink-0 whitespace-nowrap rounded-md px-2 text-xs transition',
                               segment === option.value
                                  ? 'bg-muted text-foreground'
                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -424,8 +463,29 @@ export function MilestonesView() {
                         </button>
                      ))}
                   </div>
+                  <Popover>
+                     <PopoverTrigger asChild>
+                        <button
+                           type="button"
+                           aria-label="خلاصه اهداف نمایش‌داده‌شده"
+                           className="order-5 inline-flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs text-muted-foreground hover:bg-muted @[56rem]:ms-auto"
+                        >
+                           <span className="tabular-nums text-foreground">
+                              {visibleItems.length.toLocaleString('fa-IR')}
+                           </span>
+                           هدف
+                        </button>
+                     </PopoverTrigger>
+                     <PopoverContent
+                        align="end"
+                        className="max-w-[calc(100vw-2rem)] p-3"
+                        dir="rtl"
+                     >
+                        <MilestoneHubStats items={visibleItems} />
+                     </PopoverContent>
+                  </Popover>
                   <div
-                     className="flex shrink-0 items-center gap-1 lg:ms-auto"
+                     className="order-6 flex shrink-0 items-center gap-1"
                      role="group"
                      aria-label="نمای اهداف"
                   >
@@ -443,7 +503,7 @@ export function MilestonesView() {
                            aria-pressed={layout === option.value}
                            className={cn(
                               'inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted',
-                              layout === option.value && 'bg-muted text-foreground'
+                              layout === option.value && 'hidden bg-muted text-foreground @[56rem]:inline-flex'
                            )}
                            onClick={() =>
                               updateParams({
@@ -496,8 +556,6 @@ export function MilestonesView() {
                   </button>
                </div>
             ) : null}
-
-            <MilestoneHubStats items={visibleItems} />
 
             <div className="mt-3" aria-busy={loading || refreshing}>
                {loading && !items.length ? (
@@ -585,7 +643,7 @@ function MilestoneHubStats({ items }: { items: TaskaraMilestone[] }) {
 
    return (
       <dl
-         className="flex flex-wrap gap-x-6 gap-y-2 border-y border-border/60 py-3"
+         className="grid grid-cols-2 gap-x-4 gap-y-3"
          aria-label="خلاصه اهداف نمایش‌داده‌شده"
       >
          {stats.map((stat) => (
