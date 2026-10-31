@@ -10,6 +10,7 @@ import {
    FolderKanban,
    ImageOff,
    GitMerge,
+   KeyRound,
    Link2,
    Loader2,
    Save,
@@ -26,6 +27,7 @@ import { ProjectsView } from '@/components/taskara/projects-view';
 import { TeamsView } from '@/components/taskara/teams-view';
 import { LinearAvatar } from '@/components/taskara/linear-ui';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -751,6 +753,12 @@ function WorkspaceAccessSettingsPage() {
    const [form, setForm] = useState(initialUserForm);
    const [error, setError] = useState('');
    const [loading, setLoading] = useState(true);
+   const [passwordTarget, setPasswordTarget] = useState<TaskaraUser | null>(null);
+   const [newPassword, setNewPassword] = useState('');
+   const [confirmPassword, setConfirmPassword] = useState('');
+   const [passwordError, setPasswordError] = useState('');
+   const [passwordSaving, setPasswordSaving] = useState(false);
+   const [success, setSuccess] = useState('');
    const [isPending, startTransition] = useTransition();
    const loadRequestRef = useRef(0);
    const isWorkspaceAdmin = me?.role === 'OWNER' || me?.role === 'ADMIN';
@@ -833,11 +841,48 @@ function WorkspaceAccessSettingsPage() {
       }
    }
 
+   function openPasswordDialog(user: TaskaraUser) {
+      setPasswordTarget(user);
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError('');
+      setSuccess('');
+   }
+
+   async function handleSetPassword(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (!passwordTarget) return;
+      if (newPassword.length < 8) {
+         setPasswordError(fa.settings.passwordTooShort);
+         return;
+      }
+      if (newPassword !== confirmPassword) {
+         setPasswordError(fa.settings.passwordMismatch);
+         return;
+      }
+
+      setPasswordSaving(true);
+      setPasswordError('');
+      try {
+         await taskaraRequest(`/users/${passwordTarget.id}/password`, {
+            method: 'PUT',
+            body: JSON.stringify({ password: newPassword }),
+         });
+         setSuccess(fa.settings.passwordSetSuccess.replace('{name}', passwordTarget.name));
+         setPasswordTarget(null);
+      } catch (err) {
+         setPasswordError(err instanceof Error ? err.message : fa.settings.passwordSetFailed);
+      } finally {
+         setPasswordSaving(false);
+      }
+   }
+
    return (
       <div className="mx-auto w-full max-w-[1180px] px-5 py-6 sm:px-7 lg:py-10">
          <SettingsPageTitle title="فضای کاری" />
 
          {error ? <SettingsMessage tone="error">{error}</SettingsMessage> : null}
+         {success ? <SettingsMessage tone="success">{success}</SettingsMessage> : null}
 
          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
             <div className="space-y-4">
@@ -982,6 +1027,21 @@ function WorkspaceAccessSettingsPage() {
                                        </Select>
                                     </TableCell>
                                     <TableCell>
+                                       <div className="flex items-center gap-1">
+                                       {user.kind !== 'AGENT' ? (
+                                          <Button
+                                             type="button"
+                                             variant="ghost"
+                                             size="icon"
+                                             disabled={!isWorkspaceAdmin || ownerLocked}
+                                             aria-label={`${fa.settings.setPassword} ${user.name}`}
+                                             title={fa.settings.setPassword}
+                                             className="size-8 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                                             onClick={() => openPasswordDialog(user)}
+                                          >
+                                             <KeyRound className="size-4" />
+                                          </Button>
+                                       ) : null}
                                        <Button
                                           type="button"
                                           variant="ghost"
@@ -993,6 +1053,7 @@ function WorkspaceAccessSettingsPage() {
                                        >
                                           <Trash2 className="size-4" />
                                        </Button>
+                                       </div>
                                     </TableCell>
                                  </TableRow>
                               );
@@ -1003,9 +1064,50 @@ function WorkspaceAccessSettingsPage() {
                </div>
             </SettingsPanel>
          </div>
+
+         <Dialog open={passwordTarget !== null} onOpenChange={(open) => { if (!open) setPasswordTarget(null); }}>
+            <DialogContent>
+               <form className="space-y-4" onSubmit={handleSetPassword}>
+                  <DialogHeader>
+                     <DialogTitle>{fa.settings.setPassword}</DialogTitle>
+                     <DialogDescription>
+                        {fa.settings.setPasswordDescription.replace('{name}', passwordTarget?.name ?? '')}
+                     </DialogDescription>
+                  </DialogHeader>
+                  <label className="grid gap-2 text-sm">
+                     <span>{fa.settings.newPassword}</span>
+                     <Input
+                        className={cn(inputClassName, 'ltr')}
+                        type="password"
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                     />
+                  </label>
+                  <label className="grid gap-2 text-sm">
+                     <span>{fa.settings.confirmPassword}</span>
+                     <Input
+                        className={cn(inputClassName, 'ltr')}
+                        type="password"
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                     />
+                  </label>
+                  {passwordError ? <SettingsMessage tone="error">{passwordError}</SettingsMessage> : null}
+                  <DialogFooter>
+                     <Button type="submit" disabled={passwordSaving}>
+                        {passwordSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+                        {fa.settings.savePassword}
+                     </Button>
+                  </DialogFooter>
+               </form>
+            </DialogContent>
+         </Dialog>
       </div>
    );
 }
+
 
 function AppearanceSettingsPage() {
    const { settings, setSettings } = useAppearance();

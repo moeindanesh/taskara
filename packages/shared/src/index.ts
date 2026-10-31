@@ -203,6 +203,10 @@ export const userListQuerySchema = z.object({
 
 export const passwordSchema = z.string().min(8).max(160);
 
+export const setUserPasswordSchema = z.object({
+  password: passwordSchema
+});
+
 export const authLoginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(1).max(160),
