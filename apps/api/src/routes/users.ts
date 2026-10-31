@@ -4,13 +4,14 @@ import {
   createUserSchema,
   createWorkspaceInviteSchema,
   setWorkspaceRoleSchema,
+  setUserPasswordSchema,
   updateUserSchema,
   userListQuerySchema
 } from '@taskara/shared';
 import { config } from '../config';
 import { getRequestActor, requireWorkspaceAdmin } from '../services/actor';
 import { logActivity, snapshot } from '../services/audit';
-import { buildInviteUrl, createRawToken, hashToken, normalizeEmail } from '../services/auth';
+import { buildInviteUrl, createRawToken, hashPassword, hashToken, normalizeEmail } from '../services/auth';
 import { HttpError } from '../services/http';
 import { memberWorkCountSelect, resolveWorkspaceAccess } from '../services/team-access';
 import {
@@ -423,6 +424,44 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { membershipId: updated.id, role: updated.role, joinedAt: updated.createdAt, ...updated.user };
+  });
+
+  // Admin-set password. Agents stay passwordless (they authenticate with credentials), an ADMIN
+  // cannot reset an OWNER's password, and every existing session of the target is revoked so the
+  // old password stops working everywhere at once.
+  app.put('/users/:id/password', async (request, reply) => {
+    const actor = await requireWorkspaceAdmin(request);
+    const { id } = request.params as { id: string };
+    const input = setUserPasswordSchema.parse(request.body);
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: actor.workspace.id, userId: id } },
+      include: { user: { select: { id: true, kind: true } } }
+    });
+    if (!membership) return reply.code(404).send({ message: 'User not found in this workspace' });
+    if (membership.user.kind === 'AGENT') throw new HttpError(400, 'Agent users cannot have a password');
+    if (membership.role === 'OWNER' && actor.role !== 'OWNER') {
+      throw new HttpError(403, 'Only workspace owners can set an owner password');
+    }
+
+    const passwordHash = await hashPassword(input.password);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id }, data: { passwordHash } }),
+      prisma.authSession.deleteMany({ where: { userId: id } })
+    ]);
+
+    await logActivity({
+      workspaceId: actor.workspace.id,
+      actorId: actor.user.id,
+      actorType: actor.actorType,
+      actorRuntime: actor.actorRuntime,
+      entityType: 'user',
+      entityId: id,
+      action: 'password_set',
+      source: actor.source
+    });
+
+    return reply.code(204).send();
   });
 
   app.delete('/users/:id/membership', async (request, reply) => {

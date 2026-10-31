@@ -257,6 +257,67 @@ describe('user provisioning routes', () => {
       expect(response.statusCode).toBe(400);
     });
   });
+
+  describe('PUT /users/:id/password', () => {
+    test('an admin sets a member password and revokes their sessions', async () => {
+      const fixture = await createFixture();
+      await prisma.authSession.create({
+        data: { userId: fixture.operator.id, tokenHash: `t-${Date.now()}-${Math.random()}`, expiresAt: new Date(Date.now() + 86_400_000) }
+      });
+
+      const response = await injectAs(fixture, 'admin', {
+        method: 'PUT',
+        url: `/users/${fixture.operator.id}/password`,
+        payload: { password: 'new-secret-123' }
+      });
+
+      expect(response.statusCode).toBe(204);
+      const stored = await prisma.user.findUniqueOrThrow({ where: { id: fixture.operator.id }, select: { passwordHash: true } });
+      expect(stored.passwordHash).toStartWith('scrypt$');
+      expect(await prisma.authSession.count({ where: { userId: fixture.operator.id } })).toBe(0);
+    });
+
+    test('a member cannot set another user password', async () => {
+      const fixture = await createFixture();
+      const response = await injectAs(fixture, 'operator', {
+        method: 'PUT',
+        url: `/users/${fixture.admin.id}/password`,
+        payload: { password: 'new-secret-123' }
+      });
+      expect(response.statusCode).toBe(403);
+    });
+
+    test('refuses agents, short passwords and users outside the workspace', async () => {
+      const fixture = await createFixture();
+      const outsider = await createOutsider();
+
+      const agent = await injectAs(fixture, 'admin', {
+        method: 'PUT', url: `/users/${fixture.agent.id}/password`, payload: { password: 'new-secret-123' }
+      });
+      const short = await injectAs(fixture, 'admin', {
+        method: 'PUT', url: `/users/${fixture.operator.id}/password`, payload: { password: 'short' }
+      });
+      const foreign = await injectAs(fixture, 'admin', {
+        method: 'PUT', url: `/users/${outsider.id}/password`, payload: { password: 'new-secret-123' }
+      });
+
+      expect(agent.statusCode).toBe(400);
+      expect(short.statusCode).toBe(400);
+      expect(foreign.statusCode).toBe(404);
+    });
+
+    test('an admin cannot set an owner password', async () => {
+      const fixture = await createFixture();
+      await prisma.workspaceMember.updateMany({
+        where: { workspaceId: fixture.workspace.id, userId: fixture.operator.id },
+        data: { role: 'OWNER' }
+      });
+      const response = await injectAs(fixture, 'admin', {
+        method: 'PUT', url: `/users/${fixture.operator.id}/password`, payload: { password: 'new-secret-123' }
+      });
+      expect(response.statusCode).toBe(403);
+    });
+  });
 });
 
 type Persona = 'admin' | 'operator';
